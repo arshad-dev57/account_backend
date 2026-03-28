@@ -60,8 +60,10 @@ const ChartOfAccountSchema = new mongoose.Schema(
 
 // Auto-calculate balanceType and currentBalance
 ChartOfAccountSchema.pre('save', function() {
-  // Update currentBalance to match openingBalance
-  this.currentBalance = this.openingBalance;
+  // ✅ FIX: Only set currentBalance from openingBalance for new documents
+  if (this.isNew) {
+    this.currentBalance = this.openingBalance;
+  }
   
   // Assets and Expenses have Debit balance
   if (this.type === 'Assets' || this.type === 'Expenses') {
@@ -71,6 +73,7 @@ ChartOfAccountSchema.pre('save', function() {
   else if (this.type === 'Liabilities' || this.type === 'Equity' || this.type === 'Income') {
     this.balanceType = 'Credit';
   }
+  
 });
 
 module.exports = mongoose.model('ChartOfAccount', ChartOfAccountSchema);

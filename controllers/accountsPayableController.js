@@ -4,7 +4,6 @@ const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 const BankAccount = require('../models/BankAccount');
 
-// ==================== HELPER FUNCTIONS ====================
 
 // Helper: Get or create Accounts Payable account
 async function getOrCreatePayableAccount(userId) {

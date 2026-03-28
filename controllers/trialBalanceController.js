@@ -1,9 +1,8 @@
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 
-// @desc    Get Trial Balance data
-// @route   GET /api/trial-balance
-// @access  Private
+
+
 exports.getTrialBalance = async (req, res) => {
   try {
     const { startDate, endDate, accountType, showZeroBalance } = req.query;

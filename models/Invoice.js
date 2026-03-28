@@ -75,6 +75,12 @@ const InvoiceSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    outstanding: {
+      type: Number,
+      default: function() {
+        return this.totalAmount - this.paidAmount;
+      },
+    },
     status: {
       type: String,
       enum: ['Draft', 'Unpaid', 'Partial', 'Paid', 'Overdue'],
@@ -102,26 +108,62 @@ const InvoiceSchema = new mongoose.Schema(
   }
 );
 
-// Auto-update status based on due date and payments
+// Auto-update status and outstanding based on due date and payments
 InvoiceSchema.pre('save', function() {
-  if (this.paidAmount >= this.totalAmount) {
+  // Calculate outstanding
+  this.outstanding = this.totalAmount - this.paidAmount;
+  
+  // Update status based on outstanding and due date
+  if (this.outstanding === 0) {
     this.status = 'Paid';
-  } else if (this.paidAmount > 0 && this.paidAmount < this.totalAmount) {
+  } else if (this.paidAmount > 0 && this.outstanding > 0) {
     this.status = 'Partial';
-  } else if (this.dueDate < new Date() && this.paidAmount < this.totalAmount) {
+  } else if (this.dueDate < new Date() && this.outstanding > 0) {
     this.status = 'Overdue';
-  } else if (this.paidAmount === 0) {
+  } else if (this.outstanding === this.totalAmount) {
     this.status = 'Unpaid';
   }
+  
 });
 
 // Generate invoice number
 InvoiceSchema.pre('save', async function() {
   if (this.isNew) {
-    const count = await mongoose.model('Invoice').countDocuments();
-    const year = new Date().getFullYear();
-    this.invoiceNumber = `INV-${year}-${String(count + 1).padStart(4, '0')}`;
+    try {
+      const count = await mongoose.model('Invoice').countDocuments();
+      const year = new Date().getFullYear();
+      this.invoiceNumber = `INV-${year}-${String(count + 1).padStart(4, '0')}`;
+    } catch (error) {
+    }
   }
 });
+
+// Method to check if invoice can have credit note
+InvoiceSchema.methods.canApplyCreditNote = function(amount) {
+  return this.outstanding >= amount && this.status !== 'Paid';
+};
+
+// Method to apply payment or credit note
+InvoiceSchema.methods.applyPayment = async function(amount, type = 'payment') {
+  this.paidAmount += amount;
+  this.outstanding = this.totalAmount - this.paidAmount;
+  
+  // Update status
+  if (this.outstanding === 0) {
+    this.status = 'Paid';
+  } else if (this.paidAmount > 0 && this.outstanding > 0) {
+    this.status = 'Partial';
+  }
+  
+  await this.save();
+  
+  return {
+    invoiceId: this._id,
+    invoiceNumber: this.invoiceNumber,
+    paidAmount: this.paidAmount,
+    outstanding: this.outstanding,
+    status: this.status
+  };
+};
 
 module.exports = mongoose.model('Invoice', InvoiceSchema);
