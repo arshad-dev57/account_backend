@@ -1,31 +1,34 @@
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 
-
-
+// @desc    Get Trial Balance
+// @route   GET /api/trial-balance
+// @access  Private
 exports.getTrialBalance = async (req, res) => {
   try {
     const { startDate, endDate, accountType, showZeroBalance } = req.query;
     
-    // Build date filter
-    let dateFilter = {};
+    // Build date filter - only posted entries created by this user
+    let dateFilter = { 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show entries created by this user
+    };
+    
     if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate),
-        },
-        status: 'Posted',
+      dateFilter.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
       };
-    } else {
-      dateFilter = { status: 'Posted' };
     }
     
-    // Get all posted journal entries within date range
+    // Get all posted journal entries within date range for this user
     const journalEntries = await JournalEntry.find(dateFilter);
     
-    // Get all active accounts
-    let accountsQuery = { isActive: true };
+    // Get all active accounts created by this user
+    let accountsQuery = { 
+      isActive: true,
+      createdBy: req.user.id  // 👈 Only show accounts created by this user
+    };
     
     // Filter by account type if specified
     if (accountType && accountType !== 'All') {
@@ -121,25 +124,27 @@ exports.getTrialBalanceSummary = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
-    // Build date filter
-    let dateFilter = {};
+    // Build date filter - only posted entries created by this user
+    let dateFilter = { 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show entries created by this user
+    };
+    
     if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate),
-        },
-        status: 'Posted',
+      dateFilter.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
       };
-    } else {
-      dateFilter = { status: 'Posted' };
     }
     
-    // Get all posted journal entries
+    // Get all posted journal entries for this user
     const journalEntries = await JournalEntry.find(dateFilter);
     
-    // Get all active accounts
-    const accounts = await ChartOfAccount.find({ isActive: true });
+    // Get all active accounts created by this user
+    const accounts = await ChartOfAccount.find({ 
+      isActive: true,
+      createdBy: req.user.id  // 👈 Only show accounts created by this user
+    });
     
     // Calculate totals by account type
     const totals = {

@@ -1,0 +1,278 @@
+const Income = require('../models/Income');
+const Expense = require('../models/Expense');
+const BankAccount = require('../models/BankAccount');
+const Loan = require('../models/Loan');
+const FixedAsset = require('../models/FixedAsset');
+const Invoice = require('../models/Invoice');
+const PaymentMade = require('../models/PaymentMade');
+
+// ==================== GET CASH FLOW STATEMENT ====================
+exports.getCashFlowStatement = async (req, res) => {
+  try {
+    const { period, startDate, endDate } = req.query;
+    
+    let start, end;
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    
+    // Set date range based on period
+    if (startDate && endDate) {
+      start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+    } else {
+      switch (period) {
+        case 'Today':
+          start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          end = now;
+          break;
+        case 'This Week':
+          start = new Date(now);
+          start.setDate(now.getDate() - now.getDay());
+          start.setHours(0, 0, 0, 0);
+          end = now;
+          break;
+        case 'This Month':
+          start = new Date(now.getFullYear(), now.getMonth(), 1);
+          end = now;
+          break;
+        case 'This Quarter':
+          const quarter = Math.floor(now.getMonth() / 3);
+          start = new Date(now.getFullYear(), quarter * 3, 1);
+          end = now;
+          break;
+        case 'This Year':
+          start = new Date(now.getFullYear(), 0, 1);
+          end = now;
+          break;
+        default:
+          // Default to this month
+          start = new Date(now.getFullYear(), now.getMonth(), 1);
+          end = now;
+      }
+    }
+    
+    const dateFilter = {
+      date: { $gte: start, $lte: end },
+      status: 'Posted'
+    };
+    
+    // ==================== OPERATING ACTIVITIES ====================
+    // Cash inflows from customers (Income records)
+    const incomes = await Income.find(dateFilter);
+    const cashReceiptsFromCustomers = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    
+    // Cash outflows to suppliers (Expense records)
+    const expenses = await Expense.find(dateFilter);
+    const cashPaidToSuppliers = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    // Cash paid for salaries (filter salary expenses)
+    const salaryExpenses = expenses.filter(exp => exp.expenseType === 'Salaries');
+    const cashPaidForSalaries = salaryExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    // Cash paid for rent
+    const rentExpenses = expenses.filter(exp => exp.expenseType === 'Rent');
+    const cashPaidForRent = rentExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    // Cash paid for utilities
+    const utilityExpenses = expenses.filter(exp => exp.expenseType === 'Utilities');
+    const cashPaidForUtilities = utilityExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    // Interest received (from other income)
+    const interestIncome = incomes.filter(inc => inc.incomeType === 'Interest Income');
+    const interestReceived = interestIncome.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    
+    // Interest paid (from expenses)
+    const interestExpenses = expenses.filter(exp => exp.expenseType === 'Interest Expense');
+    const interestPaid = interestExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    // Taxes paid
+    const taxExpenses = expenses.filter(exp => exp.expenseType === 'Taxes');
+    const taxesPaid = taxExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    // Calculate operating activities
+    const cashFlowFromOperations = cashReceiptsFromCustomers - cashPaidToSuppliers;
+    
+    // ==================== INVESTING ACTIVITIES ====================
+    // Purchase of fixed assets
+    const fixedAssets = await FixedAsset.find({
+      purchaseDate: { $gte: start, $lte: end }
+    });
+    const purchaseOfEquipment = fixedAssets.reduce((sum, asset) => sum + asset.purchaseCost, 0);
+    
+    // Sale of fixed assets (from disposed assets)
+    const disposedAssets = await FixedAsset.find({
+      disposedDate: { $gte: start, $lte: end },
+      status: 'Disposed'
+    });
+    const saleOfFixedAssets = disposedAssets.reduce((sum, asset) => sum + (asset.disposalAmount || 0), 0);
+    
+    // Calculate investing activities
+    const cashFlowFromInvesting = saleOfFixedAssets - purchaseOfEquipment;
+    
+    // ==================== FINANCING ACTIVITIES ====================
+    // Loan proceeds (new loans)
+    const newLoans = await Loan.find({
+      disbursementDate: { $gte: start, $lte: end }
+    });
+    const loanProceeds = newLoans.reduce((sum, loan) => sum + loan.loanAmount, 0);
+    
+    // Loan repayments (payments made on loans)
+    const loanPayments = await PaymentMade.find({
+      paymentDate: { $gte: start, $lte: end },
+      loanId: { $exists: true }
+    });
+    const loanRepayments = loanPayments.reduce((sum, payment) => sum + payment.amount, 0);
+    
+    // Capital investment (from equity additions)
+    const capitalInvestments = 0; // TODO: Get from EquityAccount transactions
+    
+    // Owner drawings (from equity withdrawals)
+    const ownerDrawings = 0; // TODO: Get from EquityAccount transactions
+    
+    // Calculate financing activities
+    const cashFlowFromFinancing = loanProceeds - loanRepayments + capitalInvestments - ownerDrawings;
+    
+    // ==================== NET CASH FLOW ====================
+    const netCashFlow = cashFlowFromOperations + cashFlowFromInvesting + cashFlowFromFinancing;
+    
+    // ==================== OPENING & CLOSING BALANCES ====================
+    // Get opening cash balance (from bank accounts before period start)
+    const openingDate = new Date(start);
+    openingDate.setDate(openingDate.getDate() - 1);
+    
+    const bankAccounts = await BankAccount.find({ status: 'Active' });
+    let openingCashBalance = 0;
+    let closingCashBalance = 0;
+    
+    for (const account of bankAccounts) {
+      // For simplicity, use current balance as closing
+      // In production, need to track historical balances
+      closingCashBalance += account.currentBalance || 0;
+    }
+    
+    // For demo purposes, set opening balance
+    openingCashBalance = closingCashBalance - netCashFlow;
+    
+    // ==================== BUILD RESPONSE ====================
+    const operatingItems = [
+      { name: 'Cash Receipts from Customers', amount: cashReceiptsFromCustomers, type: 'Inflow' },
+      { name: 'Cash Paid to Suppliers', amount: -cashPaidToSuppliers, type: 'Outflow' },
+      { name: 'Cash Paid for Salaries', amount: -cashPaidForSalaries, type: 'Outflow' },
+      { name: 'Cash Paid for Rent', amount: -cashPaidForRent, type: 'Outflow' },
+      { name: 'Cash Paid for Utilities', amount: -cashPaidForUtilities, type: 'Outflow' },
+      { name: 'Interest Received', amount: interestReceived, type: 'Inflow' },
+      { name: 'Interest Paid', amount: -interestPaid, type: 'Outflow' },
+      { name: 'Taxes Paid', amount: -taxesPaid, type: 'Outflow' }
+    ].filter(item => item.amount !== 0);
+    
+    const investingItems = [
+      { name: 'Purchase of Equipment', amount: -purchaseOfEquipment, type: 'Outflow' },
+      { name: 'Sale of Fixed Assets', amount: saleOfFixedAssets, type: 'Inflow' }
+    ].filter(item => item.amount !== 0);
+    
+    const financingItems = [
+      { name: 'Loan Proceeds', amount: loanProceeds, type: 'Inflow' },
+      { name: 'Loan Repayment', amount: -loanRepayments, type: 'Outflow' },
+      { name: 'Capital Investment', amount: capitalInvestments, type: 'Inflow' },
+      { name: 'Owner Drawings', amount: -ownerDrawings, type: 'Outflow' }
+    ].filter(item => item.amount !== 0);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        period: {
+          start: start,
+          end: end,
+          displayText: _getPeriodDisplayText(period, start, end)
+        },
+        operatingActivities: {
+          items: operatingItems,
+          total: cashFlowFromOperations
+        },
+        investingActivities: {
+          items: investingItems,
+          total: cashFlowFromInvesting
+        },
+        financingActivities: {
+          items: financingItems,
+          total: cashFlowFromFinancing
+        },
+        netCashFlow: netCashFlow,
+        openingCashBalance: openingCashBalance,
+        closingCashBalance: closingCashBalance,
+        netCashFlowPercentage: openingCashBalance !== 0 ? (netCashFlow / openingCashBalance) * 100 : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error generating cash flow statement:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== GET CASH FLOW SUMMARY ====================
+exports.getSummary = async (req, res) => {
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now);
+    endOfMonth.setHours(23, 59, 59, 999);
+    
+    // Get current month incomes and expenses
+    const monthIncomes = await Income.find({
+      date: { $gte: startOfMonth, $lte: endOfMonth },
+      status: 'Posted'
+    });
+    
+    const monthExpenses = await Expense.find({
+      date: { $gte: startOfMonth, $lte: endOfMonth },
+      status: 'Posted'
+    });
+    
+    const monthCashInflow = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    const monthCashOutflow = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const monthNetCashFlow = monthCashInflow - monthCashOutflow;
+    
+    // Get bank balances
+    const bankAccounts = await BankAccount.find({ status: 'Active' });
+    const currentCashBalance = bankAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        currentCashBalance,
+        monthCashInflow,
+        monthCashOutflow,
+        monthNetCashFlow,
+        monthNetCashFlowPercentage: currentCashBalance !== 0 ? (monthNetCashFlow / currentCashBalance) * 100 : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error generating cash flow summary:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== HELPER FUNCTIONS ====================
+function _getPeriodDisplayText(period, start, end) {
+  if (period && period !== 'Custom Range') {
+    switch (period) {
+      case 'Today': return new Date(start).toLocaleDateString();
+      case 'This Week': return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+      case 'This Month': return start.toLocaleString('default', { month: 'long', year: 'numeric' });
+      case 'This Quarter': return `Q${Math.floor(start.getMonth() / 3) + 1} ${start.getFullYear()}`;
+      case 'This Year': return `Year ${start.getFullYear()}`;
+      default: return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+    }
+  }
+  return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+}

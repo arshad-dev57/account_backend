@@ -1,6 +1,7 @@
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 
+// ==================== CREATE JOURNAL ENTRY ====================
 exports.createJournalEntry = async (req, res) => {
   try {
     const { date, description, reference, lines } = req.body;
@@ -57,14 +58,20 @@ exports.createJournalEntry = async (req, res) => {
     });
   }
 };
-// @desc    Get all journal entries
-// @route   GET /api/journal-entries
-// @access  Private
 exports.getJournalEntries = async (req, res) => {
   try {
-    const { status, search, startDate, endDate } = req.query;
+    const { 
+      status, 
+      search, 
+      startDate, 
+      endDate,
+      page = 1,
+      limit = 10
+    } = req.query;
     
-    let query = {};
+    let query = {
+      createdBy: req.user.id
+    };
     
     // Filter by status
     if (status && status !== 'All') {
@@ -88,18 +95,26 @@ exports.getJournalEntries = async (req, res) => {
       ];
     }
     
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
     const journalEntries = await JournalEntry.find(query)
       .populate('createdBy', 'firstName lastName')
       .populate('postedBy', 'firstName lastName')
-      .sort({ date: -1, createdAt: -1 });
+      .sort({ date: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
     
-    // Calculate summary
+    const total = await JournalEntry.countDocuments(query);
+    const totalPages = Math.ceil(total / parseInt(limit));
+    
+    // Calculate summary for all filtered entries (not just current page)
+    const allEntries = await JournalEntry.find(query);
     let totalDebit = 0;
     let totalCredit = 0;
     let postedCount = 0;
     let draftCount = 0;
     
-    journalEntries.forEach(entry => {
+    allEntries.forEach(entry => {
       const entryDebit = entry.lines.reduce((sum, line) => sum + line.debit, 0);
       const entryCredit = entry.lines.reduce((sum, line) => sum + line.credit, 0);
       totalDebit += entryDebit;
@@ -112,6 +127,9 @@ exports.getJournalEntries = async (req, res) => {
     res.status(200).json({
       success: true,
       count: journalEntries.length,
+      total: total,
+      page: parseInt(page),
+      pages: totalPages,
       data: journalEntries,
       summary: {
         totalDebit,
@@ -129,14 +147,12 @@ exports.getJournalEntries = async (req, res) => {
       error: error.message,
     });
   }
-};
-
-// @desc    Get single journal entry
-// @route   GET /api/journal-entries/:id
-// @access  Private
-exports.getJournalEntry = async (req, res) => {
+};exports.getJournalEntry = async (req, res) => {
   try {
-    const journalEntry = await JournalEntry.findById(req.params.id)
+    const journalEntry = await JournalEntry.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    })
       .populate('createdBy', 'firstName lastName')
       .populate('postedBy', 'firstName lastName');
     
@@ -160,13 +176,12 @@ exports.getJournalEntry = async (req, res) => {
     });
   }
 };
-
-// @desc    Update journal entry (only Draft)
-// @route   PUT /api/journal-entries/:id
-// @access  Private
 exports.updateJournalEntry = async (req, res) => {
   try {
-    let journalEntry = await JournalEntry.findById(req.params.id);
+    let journalEntry = await JournalEntry.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
     
     if (!journalEntry) {
       return res.status(404).json({
@@ -185,9 +200,12 @@ exports.updateJournalEntry = async (req, res) => {
     const { date, description, reference, lines } = req.body;
     
     // Validate accounts if lines are updated
-    if (lines) {
+    if (lines && lines.length > 0) {
       for (const line of lines) {
-        const account = await ChartOfAccount.findById(line.accountId);
+        const account = await ChartOfAccount.findOne({
+          _id: line.accountId,
+          createdBy: req.user.id
+        });
         if (!account) {
           return res.status(400).json({
             success: false,
@@ -218,13 +236,12 @@ exports.updateJournalEntry = async (req, res) => {
     });
   }
 };
-
-// @desc    Post journal entry (Draft to Posted)
-// @route   POST /api/journal-entries/:id/post
-// @access  Private
 exports.postJournalEntry = async (req, res) => {
   try {
-    const journalEntry = await JournalEntry.findById(req.params.id);
+    const journalEntry = await JournalEntry.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
     
     if (!journalEntry) {
       return res.status(404).json({
@@ -263,13 +280,12 @@ exports.postJournalEntry = async (req, res) => {
     });
   }
 };
-
-// @desc    Delete journal entry (only Draft)
-// @route   DELETE /api/journal-entries/:id
-// @access  Private
 exports.deleteJournalEntry = async (req, res) => {
   try {
-    const journalEntry = await JournalEntry.findById(req.params.id);
+    const journalEntry = await JournalEntry.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
     
     if (!journalEntry) {
       return res.status(404).json({

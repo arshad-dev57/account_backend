@@ -1,18 +1,46 @@
 const User = require('../models/User');
+const Subscription = require('../models/Subscription');
 const jwt = require('jsonwebtoken');
 
-// Generate JWT Token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
 };
 
+// ✅ userId pass karo taake hamesha fresh DB data mile
+const checkAndExpireSubscription = async (userId) => {
+  // ✅ DB se fresh fetch karo
+  const user = await User.findById(userId);
+  
+  if (!user || user.subscription.status !== 'active') return;
+
+  const now = new Date();
+
+  // Trial check
+  if (user.subscription.plan === 'trial' &&
+      user.subscription.trialEndDate &&
+      now > new Date(user.subscription.trialEndDate)) {
+    console.log('Trial expired, updating status...');
+    await user.expireSubscription();
+    return;
+  }
+
+  // Paid subscription check
+  if ((user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
+      user.subscription.endDate &&
+      now > new Date(user.subscription.endDate)) {
+    console.log('Paid subscription expired, updating status...');
+    await user.expireSubscription();
+    return;
+  }
+};
+
+// ==================== REGISTER ====================
 exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, password, country, phone } = req.body;
 
-    // Check if user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({
@@ -21,7 +49,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Validate required fields
     if (!firstName || !lastName || !email || !password || !country) {
       return res.status(400).json({
         success: false,
@@ -29,7 +56,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Validate password length
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -37,7 +63,6 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Create user
     const user = await User.create({
       firstName,
       lastName,
@@ -47,22 +72,40 @@ exports.register = async (req, res) => {
       phone: phone || '',
     });
 
-    // Generate token
-    const token = generateToken(user._id);
+    await user.startTrial();
+
+    // ✅ Fresh fetch after startTrial
+    const updatedUser = await User.findById(user._id);
+
+    await Subscription.create({
+      userId: updatedUser._id,
+      plan: 'trial',
+      startDate: updatedUser.subscription.trialStartDate || new Date(),
+      endDate: updatedUser.subscription.trialEndDate,
+      amount: 0,
+      paymentMethod: 'free_trial',
+    });
+
+    const token = generateToken(updatedUser._id);
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'User registered successfully. Free trial started for 30 days!',
       token,
       user: {
-        id: user._id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        country: user.country,
-        phone: user.phone,
-        role: user.role,
-        subscription: user.subscription,
+        id: updatedUser._id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        country: updatedUser.country,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        subscription: {
+          plan: updatedUser.subscription.plan,
+          status: updatedUser.subscription.status,
+          trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
+          trialEndDate: updatedUser.subscription.trialEndDate,
+        },
       },
     });
   } catch (error) {
@@ -75,14 +118,14 @@ exports.register = async (req, res) => {
   }
 };
 
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
+// ==================== LOGIN ====================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate email & password
+    console.log('=== LOGIN ATTEMPT ===');
+    console.log('Email:', email);
+
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -90,7 +133,6 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check for user
     const user = await User.findOne({ email }).select('+password');
 
     if (!user) {
@@ -100,7 +142,6 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check if user is active
     if (!user.isActive) {
       return res.status(401).json({
         success: false,
@@ -108,9 +149,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check password
     const isPasswordMatch = await user.matchPassword(password);
-
     if (!isPasswordMatch) {
       return res.status(401).json({
         success: false,
@@ -118,22 +157,36 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Generate token
-    const token = generateToken(user._id);
+    // ✅ userId pass karo
+    await checkAndExpireSubscription(user._id);
+
+    const updatedUser = await User.findById(user._id);
+
+    console.log('Subscription plan:', updatedUser.subscription.plan);
+    console.log('Subscription status:', updatedUser.subscription.status);
+
+    const token = generateToken(updatedUser._id);
 
     res.status(200).json({
       success: true,
       message: 'Login successful',
       token,
       user: {
-        id: user._id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        country: user.country,
-        phone: user.phone,
-        role: user.role,
-        subscription: user.subscription,
+        id: updatedUser._id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        country: updatedUser.country,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        subscription: {
+          plan: updatedUser.subscription.plan,
+          status: updatedUser.subscription.status,
+          trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
+          subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
+          endDate: updatedUser.subscription.endDate,
+          trialEndDate: updatedUser.subscription.trialEndDate,
+        },
       },
     });
   } catch (error) {
@@ -146,14 +199,16 @@ exports.login = async (req, res) => {
   }
 };
 
-// @desc    Get current user profile
-// @route   GET /api/auth/me
-// @access  Private
+// ==================== GET CURRENT USER ====================
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    // ✅ userId pass karo - fresh fetch helper ke andar hoga
+    await checkAndExpireSubscription(req.user.id);
 
-    if (!user) {
+    // ✅ Expire check ke baad fresh fetch
+    const updatedUser = await User.findById(req.user.id);
+
+    if (!updatedUser) {
       return res.status(404).json({
         success: false,
         message: 'User not found',
@@ -163,14 +218,23 @@ exports.getMe = async (req, res) => {
     res.status(200).json({
       success: true,
       user: {
-        id: user._id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        country: user.country,
-        phone: user.phone,
-        role: user.role,
-        subscription: user.subscription,
+        id: updatedUser._id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        country: updatedUser.country,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        subscription: {
+          plan: updatedUser.subscription.plan,
+          status: updatedUser.subscription.status,
+          trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
+          subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
+          startDate: updatedUser.subscription.startDate,
+          endDate: updatedUser.subscription.endDate,
+          trialStartDate: updatedUser.subscription.trialStartDate,
+          trialEndDate: updatedUser.subscription.trialEndDate,
+        },
       },
     });
   } catch (error) {

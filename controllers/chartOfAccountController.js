@@ -38,11 +38,16 @@ exports.createAccount = async (req, res) => {
 // @desc    Get all accounts
 // @route   GET /api/chart-of-accounts
 // @access  Private
+// @desc    Get all accounts
+// @route   GET /api/chart-of-accounts
+// @access  Private
 exports.getAccounts = async (req, res) => {
   try {
     const { type, search } = req.query;
     
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show accounts created by this user
+    };
 
     // Filter by account type
     if (type && type !== 'All') {
@@ -89,7 +94,6 @@ exports.getAccounts = async (req, res) => {
     });
   }
 };
-
 // @desc    Get single account
 // @route   GET /api/chart-of-accounts/:id
 // @access  Private
@@ -202,7 +206,7 @@ exports.deleteAccount = async (req, res) => {
 // @desc    Create default accounts
 // @route   POST /api/chart-of-accounts/default
 // @access  Private
-exports.createDefaultAccounts = async (req, res) => {
+exports.createDefaultAccounts  = async (req, res) => {
   try {
     const defaultAccounts = [
       // Assets

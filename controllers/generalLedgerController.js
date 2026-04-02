@@ -9,24 +9,26 @@ exports.getAccountSummaries = async (req, res) => {
     const { startDate, endDate } = req.query;
     
     // Build date filter
-    let dateFilter = {};
+    let dateFilter = { 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show entries created by this user
+    };
+    
     if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate),
-        },
-        status: 'Posted',
+      dateFilter.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
       };
-    } else {
-      dateFilter = { status: 'Posted' };
     }
     
-    // Get all posted journal entries
+    // Get all posted journal entries for this user
     const journalEntries = await JournalEntry.find(dateFilter);
     
-    // Get all accounts
-    const accounts = await ChartOfAccount.find({ isActive: true });
+    // Get all accounts created by this user
+    const accounts = await ChartOfAccount.find({ 
+      isActive: true,
+      createdBy: req.user.id  // 👈 Only show accounts created by this user
+    });
     
     // Calculate summary for each account
     const accountSummaries = accounts.map(account => {
@@ -93,8 +95,12 @@ exports.getLedgerEntries = async (req, res) => {
     const { accountId } = req.params;
     const { startDate, endDate, search } = req.query;
     
-    // Get account details
-    const account = await ChartOfAccount.findById(accountId);
+    // Get account details - must belong to user
+    const account = await ChartOfAccount.findOne({
+      _id: accountId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this account
+    });
+    
     if (!account) {
       return res.status(404).json({
         success: false,
@@ -102,8 +108,11 @@ exports.getLedgerEntries = async (req, res) => {
       });
     }
     
-    // Build query
-    let query = { status: 'Posted' };
+    // Build query - only posted entries created by this user
+    let query = { 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show entries created by this user
+    };
     
     // Filter by date range
     if (startDate && endDate) {
@@ -197,8 +206,11 @@ exports.getAllLedgerEntries = async (req, res) => {
   try {
     const { startDate, endDate, accountId, search } = req.query;
     
-    // Build query
-    let query = { status: 'Posted' };
+    // Build query - only posted entries created by this user
+    let query = { 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show entries created by this user
+    };
     
     if (startDate && endDate) {
       query.date = {
@@ -210,9 +222,22 @@ exports.getAllLedgerEntries = async (req, res) => {
     // Get journal entries
     let journalEntries = await JournalEntry.find(query).sort({ date: 1 });
     
-    // Filter by account if specified
+    // Filter by account if specified - must also check account belongs to user
     let filteredEntries = journalEntries;
     if (accountId) {
+      // First verify account belongs to user
+      const account = await ChartOfAccount.findOne({
+        _id: accountId,
+        createdBy: req.user.id
+      });
+      
+      if (!account) {
+        return res.status(404).json({
+          success: false,
+          message: 'Account not found',
+        });
+      }
+      
       filteredEntries = journalEntries.filter(entry => {
         return entry.lines.some(line => 
           line.accountId.toString() === accountId
@@ -224,8 +249,12 @@ exports.getAllLedgerEntries = async (req, res) => {
     const allEntries = [];
     const accountBalances = new Map();
     
-    // Initialize account balances
-    const accounts = await ChartOfAccount.find({ isActive: true });
+    // Initialize account balances - only accounts created by this user
+    const accounts = await ChartOfAccount.find({ 
+      isActive: true,
+      createdBy: req.user.id  // 👈 Only accounts created by this user
+    });
+    
     accounts.forEach(account => {
       accountBalances.set(account._id.toString(), {
         balance: account.openingBalance,

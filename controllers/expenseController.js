@@ -3,8 +3,6 @@ const Vendor = require('../models/Vendor');
 const BankAccount = require('../models/BankAccount');
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
-
-// Helper: Get or create Expense account
 async function getOrCreateExpenseAccount(userId, expenseType) {
   let accountCode = '5000';
   let accountName = 'Expenses';
@@ -93,7 +91,6 @@ async function getOrCreateCashAccount(userId) {
   return cashAccount;
 }
 
-// ==================== CREATE EXPENSE ====================
 exports.createExpense = async (req, res) => {
   try {
     const {
@@ -111,7 +108,6 @@ exports.createExpense = async (req, res) => {
 
     console.log("📦 Received expense data:", JSON.stringify(req.body, null, 2));
 
-    // Get vendor name if provided
     let vendorName = '';
     if (vendorId) {
       const vendor = await Vendor.findById(vendorId);
@@ -238,7 +234,6 @@ exports.createExpense = async (req, res) => {
   }
 };
 
-// ==================== GET ALL EXPENSES (WITH PAGINATION) ====================
 exports.getExpenses = async (req, res) => {
   try {
     const { 
