@@ -1,13 +1,15 @@
 const express = require('express');
+const axios = require('axios'); // ✅ add this
 const app = express();
 
 app.use(express.json());
 
+// ✅ Root route (used for ping)
 app.get('/', (req, res) => {
   res.send('API is running 🚀');
 });
 
-// Routes imports
+// ================= ROUTES =================
 const userRoutes = require('./routes/userRoutes');
 const chartOfAccountRoutes = require('./routes/chartOfAccountRoutes');
 const journalEntryRoutes = require('./routes/journalEntryRoutes');
@@ -34,19 +36,12 @@ const reportRoutes = require('./routes/reportRoutes');
 const incomeRoutes = require('./routes/incomeRoutes');
 const equityRoutes = require('./routes/equityRoutes');
 const loanRoutes = require('./routes/loanRoutes');
-// Add with other route imports
 const profileRoutes = require('./routes/profileRoutes');
 
-// Add with other route mounts (after auth middleware)
+// ================= MOUNT ROUTES =================
 app.use('/api/profile', profileRoutes);
-// ========== MOUNT ROUTES ==========
-// Middleware (protect & subscription) will be applied inside route files
-
-// Public routes (no middleware)
 app.use('/api/users', userRoutes);
 app.use('/api/subscription', subscriptionRoutes);
-
-// Protected routes (middleware applied inside route files)
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports/cash-flow', cashFlowRoutes);
@@ -72,4 +67,23 @@ app.use('/api/general-ledger', generalLedgerRoutes);
 app.use('/api/journal-entries', journalEntryRoutes);
 app.use('/api/chart-of-accounts', chartOfAccountRoutes);
 
-module.exports = app;
+// ================= SELF PING =================
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || 'https://account-backend-1hor.onrender.com';
+
+console.log('🚀 Self ping service started...');
+console.log(`🔗 Ping URL: ${SELF_URL}`);
+
+// 🔁 Har 10 min baad ping
+setInterval(async () => {
+  const currentTime = new Date().toLocaleString();
+
+  try {
+    const response = await axios.get(SELF_URL);
+
+    console.log(`✅ [${currentTime}] Ping Success | Status: ${response.status}`);
+  } catch (error) {
+    console.log(`❌ [${currentTime}] Ping Failed | Error: ${error.message}`);
+  }
+}, 0.1 * 60 * 1000); // 10 minutes
+
+module.exports = app; 
