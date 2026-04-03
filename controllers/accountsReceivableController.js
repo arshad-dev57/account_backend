@@ -2,10 +2,15 @@ const Customer = require('../models/Customer');
 const Invoice = require('../models/Invoice');
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
+const BankAccount = require('../models/BankAccount');
 
 // Helper: Get or create Accounts Receivable account
 async function getOrCreateReceivableAccount(userId) {
-  let arAccount = await ChartOfAccount.findOne({ code: '1110' });
+  let arAccount = await ChartOfAccount.findOne({ 
+    code: '1110',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!arAccount) {
     arAccount = await ChartOfAccount.create({
       code: '1110',
@@ -23,7 +28,11 @@ async function getOrCreateReceivableAccount(userId) {
 
 // Helper: Get or create Revenue account
 async function getOrCreateRevenueAccount(userId) {
-  let revenueAccount = await ChartOfAccount.findOne({ code: '4010' });
+  let revenueAccount = await ChartOfAccount.findOne({ 
+    code: '4010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!revenueAccount) {
     revenueAccount = await ChartOfAccount.create({
       code: '4010',
@@ -68,7 +77,9 @@ exports.createCustomer = async (req, res) => {
 exports.getCustomers = async (req, res) => {
   try {
     const { search, status } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show customers created by this user
+    };
     
     if (search) {
       query.$or = [
@@ -83,8 +94,11 @@ exports.getCustomers = async (req, res) => {
     
     const customers = await Customer.find(query).sort({ name: 1 });
     
-    // Calculate outstanding for each customer
-    const invoices = await Invoice.find({ status: { $ne: 'Paid' } });
+    // Calculate outstanding for each customer - only invoices created by this user
+    const invoices = await Invoice.find({ 
+      status: { $ne: 'Paid' },
+      createdBy: req.user.id  // 👈 Only show invoices created by this user
+    });
     
     const customersWithOutstanding = customers.map(customer => {
       const customerInvoices = invoices.filter(
@@ -122,7 +136,11 @@ exports.getCustomers = async (req, res) => {
 // @access  Private
 exports.getCustomer = async (req, res) => {
   try {
-    const customer = await Customer.findById(req.params.id);
+    const customer = await Customer.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this customer
+    });
+    
     if (!customer) {
       return res.status(404).json({
         success: false,
@@ -130,7 +148,10 @@ exports.getCustomer = async (req, res) => {
       });
     }
     
-    const invoices = await Invoice.find({ customerId: customer._id }).sort({ date: -1 });
+    const invoices = await Invoice.find({ 
+      customerId: customer._id,
+      createdBy: req.user.id  // 👈 Only show invoices created by this user
+    }).sort({ date: -1 });
     
     const totalAmount = invoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
     const paidAmount = invoices.reduce((sum, inv) => sum + inv.paidAmount, 0);
@@ -160,8 +181,11 @@ exports.getCustomer = async (req, res) => {
 // @access  Private
 exports.updateCustomer = async (req, res) => {
   try {
-    const customer = await Customer.findByIdAndUpdate(
-      req.params.id,
+    const customer = await Customer.findOneAndUpdate(
+      { 
+        _id: req.params.id,
+        createdBy: req.user.id  // 👈 Only allow if user owns this customer
+      },
       req.body,
       { new: true, runValidators: true }
     );
@@ -191,7 +215,11 @@ exports.updateCustomer = async (req, res) => {
 // @access  Private
 exports.deleteCustomer = async (req, res) => {
   try {
-    const hasInvoices = await Invoice.findOne({ customerId: req.params.id });
+    const hasInvoices = await Invoice.findOne({ 
+      customerId: req.params.id,
+      createdBy: req.user.id  // 👈 Only check invoices created by this user
+    });
+    
     if (hasInvoices) {
       return res.status(400).json({
         success: false,
@@ -199,7 +227,11 @@ exports.deleteCustomer = async (req, res) => {
       });
     }
     
-    const customer = await Customer.findByIdAndDelete(req.params.id);
+    const customer = await Customer.findOneAndDelete({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this customer
+    });
+    
     if (!customer) {
       return res.status(404).json({
         success: false,
@@ -229,7 +261,11 @@ exports.createInvoice = async (req, res) => {
   try {
     const { customerId, date, dueDate, items, discount, notes } = req.body;
     
-    const customer = await Customer.findById(customerId);
+    const customer = await Customer.findOne({
+      _id: customerId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this customer
+    });
+    
     if (!customer) {
       return res.status(404).json({
         success: false,
@@ -320,9 +356,21 @@ exports.createInvoice = async (req, res) => {
 exports.getInvoices = async (req, res) => {
   try {
     const { customerId, status, startDate, endDate } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show invoices created by this user
+    };
     
-    if (customerId) query.customerId = customerId;
+    if (customerId) {
+      // Verify customer belongs to user
+      const customer = await Customer.findOne({
+        _id: customerId,
+        createdBy: req.user.id
+      });
+      if (customer) {
+        query.customerId = customerId;
+      }
+    }
+    
     if (status) query.status = status;
     if (startDate && endDate) {
       query.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
@@ -351,8 +399,10 @@ exports.getInvoices = async (req, res) => {
 // @access  Private
 exports.getInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id)
-      .populate('customerId', 'name email phone address');
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this invoice
+    }).populate('customerId', 'name email phone address');
     
     if (!invoice) {
       return res.status(404).json({
@@ -383,7 +433,11 @@ exports.recordPayment = async (req, res) => {
   try {
     const { invoiceId, amount, paymentDate, paymentMethod, reference, bankAccountId } = req.body;
     
-    const invoice = await Invoice.findById(invoiceId).populate('customerId');
+    const invoice = await Invoice.findOne({
+      _id: invoiceId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this invoice
+    }).populate('customerId');
+    
     if (!invoice) {
       return res.status(404).json({
         success: false,
@@ -406,10 +460,12 @@ exports.recordPayment = async (req, res) => {
     // Get bank account and AR account
     const arAccount = await getOrCreateReceivableAccount(req.user.id);
     
-    let bankAccount;
+    let bankAccount = null;
     if (bankAccountId) {
-      const BankAccount = require('../models/BankAccount');
-      bankAccount = await BankAccount.findById(bankAccountId);
+      bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id  // 👈 Only find bank account created by this user
+      });
     }
     
     // Create journal entry for payment
@@ -442,14 +498,19 @@ exports.recordPayment = async (req, res) => {
     
     // Update bank account balance if bank account selected
     if (bankAccountId && bankAccount) {
-      const BankAccount = require('../models/BankAccount');
       bankAccount.currentBalance += amount;
       await bankAccount.save();
       
       // Update Chart of Accounts balance
-      await ChartOfAccount.findByIdAndUpdate(bankAccount.chartOfAccountId, {
-        currentBalance: bankAccount.currentBalance,
-      });
+      await ChartOfAccount.findOneAndUpdate(
+        { 
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id  // 👈 Only update if user owns this account
+        },
+        {
+          currentBalance: bankAccount.currentBalance,
+        }
+      );
     }
     
     res.status(200).json({
@@ -486,7 +547,10 @@ exports.recordPayment = async (req, res) => {
 // @access  Private
 exports.getSummary = async (req, res) => {
   try {
-    const invoices = await Invoice.find({ status: { $ne: 'Paid' } });
+    const invoices = await Invoice.find({ 
+      status: { $ne: 'Paid' },
+      createdBy: req.user.id  // 👈 Only show invoices created by this user
+    });
     
     const totalOutstanding = invoices.reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
     
@@ -508,7 +572,10 @@ exports.getSummary = async (req, res) => {
       .filter(inv => inv.dueDate >= now && inv.dueDate <= endOfMonth && inv.status !== 'Paid')
       .reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
     
-    const activeCustomers = await Customer.countDocuments({ isActive: true });
+    const activeCustomers = await Customer.countDocuments({ 
+      isActive: true,
+      createdBy: req.user.id  // 👈 Only count customers created by this user
+    });
     
     res.status(200).json({
       success: true,

@@ -14,7 +14,7 @@ const router = express.Router();
 router.use(protect);
 
 // Report routes
-router.get('/profit-loss', getProfitLossStatement);
+router.get('/', getProfitLossStatement);
 router.get('/balance-sheet', getBalanceSheet);
 router.get('/cash-flow', getCashFlowStatement);
 

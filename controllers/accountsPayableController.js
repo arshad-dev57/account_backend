@@ -4,10 +4,13 @@ const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 const BankAccount = require('../models/BankAccount');
 
-
 // Helper: Get or create Accounts Payable account
 async function getOrCreatePayableAccount(userId) {
-  let apAccount = await ChartOfAccount.findOne({ code: '2010' });
+  let apAccount = await ChartOfAccount.findOne({ 
+    code: '2010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!apAccount) {
     apAccount = await ChartOfAccount.create({
       code: '2010',
@@ -25,7 +28,11 @@ async function getOrCreatePayableAccount(userId) {
 
 // Helper: Get or create Expense account
 async function getOrCreateExpenseAccount(userId) {
-  let expenseAccount = await ChartOfAccount.findOne({ code: '5000' });
+  let expenseAccount = await ChartOfAccount.findOne({ 
+    code: '5000',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!expenseAccount) {
     expenseAccount = await ChartOfAccount.create({
       code: '5000',
@@ -43,7 +50,11 @@ async function getOrCreateExpenseAccount(userId) {
 
 // Helper: Get or create Bank account (Cash)
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!cashAccount) {
     cashAccount = await ChartOfAccount.create({
       code: '1010',
@@ -88,7 +99,9 @@ exports.createVendor = async (req, res) => {
 exports.getVendors = async (req, res) => {
   try {
     const { search, status } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show vendors created by this user
+    };
     
     if (search) {
       query.$or = [
@@ -103,8 +116,11 @@ exports.getVendors = async (req, res) => {
     
     const vendors = await Vendor.find(query).sort({ name: 1 });
     
-    // Calculate outstanding for each vendor
-    const bills = await Bill.find({ status: { $ne: 'Paid' } });
+    // Calculate outstanding for each vendor - only bills created by this user
+    const bills = await Bill.find({ 
+      status: { $ne: 'Paid' },
+      createdBy: req.user.id  // 👈 Only show bills created by this user
+    });
     
     const vendorsWithOutstanding = vendors.map(vendor => {
       const vendorBills = bills.filter(
@@ -142,7 +158,11 @@ exports.getVendors = async (req, res) => {
 // @access  Private
 exports.getVendor = async (req, res) => {
   try {
-    const vendor = await Vendor.findById(req.params.id);
+    const vendor = await Vendor.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+    });
+    
     if (!vendor) {
       return res.status(404).json({
         success: false,
@@ -150,7 +170,10 @@ exports.getVendor = async (req, res) => {
       });
     }
     
-    const bills = await Bill.find({ vendorId: vendor._id }).sort({ date: -1 });
+    const bills = await Bill.find({ 
+      vendorId: vendor._id,
+      createdBy: req.user.id  // 👈 Only show bills created by this user
+    }).sort({ date: -1 });
     
     const totalAmount = bills.reduce((sum, bill) => sum + bill.totalAmount, 0);
     const paidAmount = bills.reduce((sum, bill) => sum + bill.paidAmount, 0);
@@ -180,8 +203,11 @@ exports.getVendor = async (req, res) => {
 // @access  Private
 exports.updateVendor = async (req, res) => {
   try {
-    const vendor = await Vendor.findByIdAndUpdate(
-      req.params.id,
+    const vendor = await Vendor.findOneAndUpdate(
+      { 
+        _id: req.params.id,
+        createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+      },
       req.body,
       { new: true, runValidators: true }
     );
@@ -211,7 +237,11 @@ exports.updateVendor = async (req, res) => {
 // @access  Private
 exports.deleteVendor = async (req, res) => {
   try {
-    const hasBills = await Bill.findOne({ vendorId: req.params.id });
+    const hasBills = await Bill.findOne({ 
+      vendorId: req.params.id,
+      createdBy: req.user.id  // 👈 Only check bills created by this user
+    });
+    
     if (hasBills) {
       return res.status(400).json({
         success: false,
@@ -219,7 +249,11 @@ exports.deleteVendor = async (req, res) => {
       });
     }
     
-    const vendor = await Vendor.findByIdAndDelete(req.params.id);
+    const vendor = await Vendor.findOneAndDelete({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+    });
+    
     if (!vendor) {
       return res.status(404).json({
         success: false,
@@ -249,7 +283,11 @@ exports.createBill = async (req, res) => {
   try {
     const { vendorId, date, dueDate, items, discount, notes } = req.body;
     
-    const vendor = await Vendor.findById(vendorId);
+    const vendor = await Vendor.findOne({
+      _id: vendorId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+    });
+    
     if (!vendor) {
       return res.status(404).json({
         success: false,
@@ -344,9 +382,21 @@ exports.createBill = async (req, res) => {
 exports.getBills = async (req, res) => {
   try {
     const { vendorId, status, startDate, endDate } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show bills created by this user
+    };
     
-    if (vendorId) query.vendorId = vendorId;
+    if (vendorId) {
+      // Verify vendor belongs to user
+      const vendor = await Vendor.findOne({
+        _id: vendorId,
+        createdBy: req.user.id
+      });
+      if (vendor) {
+        query.vendorId = vendorId;
+      }
+    }
+    
     if (status) query.status = status;
     if (startDate && endDate) {
       query.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
@@ -375,8 +425,10 @@ exports.getBills = async (req, res) => {
 // @access  Private
 exports.getBill = async (req, res) => {
   try {
-    const bill = await Bill.findById(req.params.id)
-      .populate('vendorId', 'name email phone address');
+    const bill = await Bill.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this bill
+    }).populate('vendorId', 'name email phone address');
     
     if (!bill) {
       return res.status(404).json({
@@ -407,7 +459,11 @@ exports.recordPayment = async (req, res) => {
   try {
     const { billId, amount, paymentDate, paymentMethod, reference, bankAccountId } = req.body;
     
-    const bill = await Bill.findById(billId).populate('vendorId');
+    const bill = await Bill.findOne({
+      _id: billId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this bill
+    }).populate('vendorId');
+    
     if (!bill) {
       return res.status(404).json({
         success: false,
@@ -435,9 +491,15 @@ exports.recordPayment = async (req, res) => {
     let cashAccount = null;
     
     if (bankAccountId && bankAccountId !== '') {
-      bankAccount = await BankAccount.findById(bankAccountId);
+      bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id  // 👈 Only find bank account created by this user
+      });
       if (bankAccount) {
-        bankChartAccount = await ChartOfAccount.findById(bankAccount.chartOfAccountId);
+        bankChartAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id  // 👈 Only find chart account created by this user
+        });
       }
     }
     
@@ -480,15 +542,24 @@ exports.recordPayment = async (req, res) => {
       await bankAccount.save();
       
       if (bankChartAccount) {
-        await ChartOfAccount.findByIdAndUpdate(bankChartAccount._id, {
-          currentBalance: bankAccount.currentBalance,
-        });
+        await ChartOfAccount.findOneAndUpdate(
+          { 
+            _id: bankChartAccount._id,
+            createdBy: req.user.id  // 👈 Only update if user owns this account
+          },
+          {
+            currentBalance: bankAccount.currentBalance,
+          }
+        );
       }
     }
     
     // Update Cash account balance if cash was used
     if (!bankAccountId && cashAccount) {
-      const cashChartAccount = await ChartOfAccount.findById(cashAccount._id);
+      const cashChartAccount = await ChartOfAccount.findOne({
+        _id: cashAccount._id,
+        createdBy: req.user.id  // 👈 Only find chart account created by this user
+      });
       if (cashChartAccount) {
         cashChartAccount.currentBalance -= amount;
         await cashChartAccount.save();
@@ -529,7 +600,10 @@ exports.recordPayment = async (req, res) => {
 // @access  Private
 exports.getSummary = async (req, res) => {
   try {
-    const bills = await Bill.find({ status: { $ne: 'Paid' } });
+    const bills = await Bill.find({ 
+      status: { $ne: 'Paid' },
+      createdBy: req.user.id  // 👈 Only show bills created by this user
+    });
     
     const totalOutstanding = bills.reduce((sum, bill) => sum + (bill.totalAmount - bill.paidAmount), 0);
     
@@ -550,7 +624,10 @@ exports.getSummary = async (req, res) => {
       .filter(bill => bill.dueDate >= now && bill.dueDate <= endOfMonth && bill.status !== 'Paid')
       .reduce((sum, bill) => sum + (bill.totalAmount - bill.paidAmount), 0);
     
-    const activeVendors = await Vendor.countDocuments({ isActive: true });
+    const activeVendors = await Vendor.countDocuments({ 
+      isActive: true,
+      createdBy: req.user.id  // 👈 Only count vendors created by this user
+    });
     
     res.status(200).json({
       success: true,

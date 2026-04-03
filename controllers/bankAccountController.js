@@ -2,11 +2,13 @@ const BankAccount = require('../models/BankAccount');
 const ChartOfAccount = require('../models/ChartOfAccount');
 const JournalEntry = require('../models/JournalEntry');
 
-// Helper: Generate next account code for bank accounts
+// ==================== HELPER FUNCTIONS ====================
+
+// Generate next account code for bank accounts (1020, 1021, 1022...)
 async function getNextBankAccountCode(userId) {
-  const accounts = await ChartOfAccount.find({ 
+  const accounts = await ChartOfAccount.find({
     code: /^102/,
-    createdBy: userId  // 👈 Only find accounts created by this user
+    createdBy: userId
   });
   if (accounts.length === 0) return '1020';
   
@@ -15,32 +17,63 @@ async function getNextBankAccountCode(userId) {
   return (maxCode + 1).toString();
 }
 
-// Helper: Create journal entry for opening balance
-async function createOpeningBalanceJournalEntry(accountId, accountName, openingBalance, userId, companyId) {
-  // Get the capital account - must belong to user
-  let capitalAccount = await ChartOfAccount.findOne({ 
-    code: '3010',
-    createdBy: userId  // 👈 Only find capital account created by this user
+// Get or create Capital account for this user (NO duplicate error)
+async function getOrCreateCapitalAccount(userId) {
+  // First try to find capital account by code OR name for this user
+  let capitalAccount = await ChartOfAccount.findOne({
+    $or: [
+      { code: '3010', createdBy: userId },
+      { name: "Owner's Capital", createdBy: userId }
+    ]
   });
   
   if (!capitalAccount) {
+    // Check if code 3010 already exists for ANY user
+    const existingCode = await ChartOfAccount.findOne({ code: '3010' });
+    
+    let newCode = '3010';
+    if (existingCode) {
+      // Generate a unique code for this user
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = `301${counter}`;
+        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+    
     capitalAccount = await ChartOfAccount.create({
-      code: '3010',
+      code: newCode,
       name: "Owner's Capital",
       type: 'Equity',
       parentAccount: 'Equity',
       openingBalance: 0,
+      currentBalance: 0,
       description: 'Owner investment',
       taxCode: 'N/A',
       createdBy: userId,
     });
   }
   
-  // Get the bank account from Chart of Accounts
+  return capitalAccount;
+}
+
+// Create journal entry for opening balance
+async function createOpeningBalanceJournalEntry(bankChartAccountId, accountName, openingBalance, userId) {
+  const capitalAccount = await getOrCreateCapitalAccount(userId);
+  
   const bankChartAccount = await ChartOfAccount.findOne({
-    _id: accountId,
-    createdBy: userId  // 👈 Only find account created by this user
+    _id: bankChartAccountId,
+    createdBy: userId
   });
+  
+  if (!bankChartAccount) {
+    throw new Error('Bank chart account not found');
+  }
   
   const journalEntry = await JournalEntry.create({
     date: new Date(),
@@ -71,6 +104,7 @@ async function createOpeningBalanceJournalEntry(accountId, accountName, openingB
   return journalEntry;
 }
 
+// ==================== CREATE BANK ACCOUNT ====================
 // @desc    Create new bank account
 // @route   POST /api/bank-accounts
 // @access  Private
@@ -85,7 +119,15 @@ exports.createBankAccount = async (req, res) => {
       currency,
       openingBalance,
     } = req.body;
-    
+
+    // Validation
+    if (!accountName || !accountNumber || !bankName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account name, account number and bank name are required',
+      });
+    }
+
     // Check if account number already exists for this user
     const existingAccount = await BankAccount.findOne({
       accountNumber,
@@ -98,7 +140,7 @@ exports.createBankAccount = async (req, res) => {
         message: 'Bank account number already exists',
       });
     }
-    
+
     // 1. Create entry in Chart of Accounts
     const nextCode = await getNextBankAccountCode(req.user.id);
     
@@ -113,15 +155,15 @@ exports.createBankAccount = async (req, res) => {
       taxCode: 'N/A',
       createdBy: req.user.id,
     });
-    
+
     // 2. Create bank account record
     const bankAccount = await BankAccount.create({
       accountName,
       accountNumber,
       bankName,
-      branchCode,
-      accountType,
-      currency,
+      branchCode: branchCode || '',
+      accountType: accountType || 'Current',
+      currency: currency || 'PKR',
       openingBalance: openingBalance || 0,
       currentBalance: openingBalance || 0,
       status: 'Active',
@@ -129,18 +171,17 @@ exports.createBankAccount = async (req, res) => {
       chartOfAccountId: chartAccount._id,
       createdBy: req.user.id,
     });
-    
+
     // 3. Create journal entry for opening balance (if > 0)
     if (openingBalance && openingBalance > 0) {
       await createOpeningBalanceJournalEntry(
         chartAccount._id,
         accountName,
         openingBalance,
-        req.user.id,
-        req.user.companyId
+        req.user.id
       );
     }
-    
+
     res.status(201).json({
       success: true,
       data: {
@@ -150,7 +191,16 @@ exports.createBankAccount = async (req, res) => {
       message: 'Bank account created successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('Create bank account error:', error);
+    
+    // Handle duplicate key error (MongoDB E11000)
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate entry. Please try again with different details.',
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: error.message || 'Server Error',
@@ -158,6 +208,7 @@ exports.createBankAccount = async (req, res) => {
   }
 };
 
+// ==================== GET ALL BANK ACCOUNTS ====================
 // @desc    Get all bank accounts
 // @route   GET /api/bank-accounts
 // @access  Private
@@ -165,9 +216,7 @@ exports.getBankAccounts = async (req, res) => {
   try {
     const { status, search } = req.query;
     
-    let query = {
-      createdBy: req.user.id  // 👈 Only show accounts created by this user
-    };
+    let query = { createdBy: req.user.id };
     
     if (status && status !== 'All') {
       query.status = status;
@@ -187,15 +236,13 @@ exports.getBankAccounts = async (req, res) => {
     
     // Calculate summaries
     const activeAccounts = bankAccounts.filter(acc => acc.status === 'Active');
-    
-    const totalBalance = activeAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
+    const totalBalance = activeAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
     const totalPKR = activeAccounts
       .filter(acc => acc.currency === 'PKR')
-      .reduce((sum, acc) => sum + acc.currentBalance, 0);
+      .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
     const totalUSD = activeAccounts
       .filter(acc => acc.currency === 'USD')
-      .reduce((sum, acc) => sum + acc.currentBalance, 0);
-    const activeCount = activeAccounts.length;
+      .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
     
     res.status(200).json({
       success: true,
@@ -205,11 +252,11 @@ exports.getBankAccounts = async (req, res) => {
         totalBalance,
         totalPKR,
         totalUSD,
-        activeCount,
+        activeCount: activeAccounts.length,
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error('Get bank accounts error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
@@ -218,6 +265,7 @@ exports.getBankAccounts = async (req, res) => {
   }
 };
 
+// ==================== GET SINGLE BANK ACCOUNT ====================
 // @desc    Get single bank account
 // @route   GET /api/bank-accounts/:id
 // @access  Private
@@ -225,9 +273,8 @@ exports.getBankAccount = async (req, res) => {
   try {
     const bankAccount = await BankAccount.findOne({
       _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this account
-    })
-      .populate('chartOfAccountId', 'code name currentBalance');
+      createdBy: req.user.id,
+    }).populate('chartOfAccountId', 'code name currentBalance');
     
     if (!bankAccount) {
       return res.status(404).json({
@@ -241,7 +288,7 @@ exports.getBankAccount = async (req, res) => {
       data: bankAccount,
     });
   } catch (error) {
-    console.error(error);
+    console.error('Get bank account error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
@@ -250,6 +297,7 @@ exports.getBankAccount = async (req, res) => {
   }
 };
 
+// ==================== UPDATE BANK ACCOUNT ====================
 // @desc    Update bank account
 // @route   PUT /api/bank-accounts/:id
 // @access  Private
@@ -257,9 +305,9 @@ exports.updateBankAccount = async (req, res) => {
   try {
     const { accountName, accountNumber, bankName, branchCode, accountType, currency, status } = req.body;
     
-    let bankAccount = await BankAccount.findOne({
+    const bankAccount = await BankAccount.findOne({
       _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this account
+      createdBy: req.user.id,
     });
     
     if (!bankAccount) {
@@ -269,14 +317,13 @@ exports.updateBankAccount = async (req, res) => {
       });
     }
     
-    // Check if updating account number to a duplicate
+    // Check duplicate account number
     if (accountNumber && accountNumber !== bankAccount.accountNumber) {
       const existingAccount = await BankAccount.findOne({
-        accountNumber: accountNumber,
+        accountNumber,
         createdBy: req.user.id,
         _id: { $ne: req.params.id },
       });
-
       if (existingAccount) {
         return res.status(400).json({
           success: false,
@@ -285,28 +332,24 @@ exports.updateBankAccount = async (req, res) => {
       }
     }
     
-    // Update bank account
-    bankAccount.accountName = accountName || bankAccount.accountName;
-    bankAccount.accountNumber = accountNumber || bankAccount.accountNumber;
-    bankAccount.bankName = bankName || bankAccount.bankName;
-    bankAccount.branchCode = branchCode || bankAccount.branchCode;
-    bankAccount.accountType = accountType || bankAccount.accountType;
-    bankAccount.currency = currency || bankAccount.currency;
-    bankAccount.status = status || bankAccount.status;
+    // Update fields
+    if (accountName) bankAccount.accountName = accountName;
+    if (accountNumber) bankAccount.accountNumber = accountNumber;
+    if (bankName) bankAccount.bankName = bankName;
+    if (branchCode !== undefined) bankAccount.branchCode = branchCode;
+    if (accountType) bankAccount.accountType = accountType;
+    if (currency) bankAccount.currency = currency;
+    if (status) bankAccount.status = status;
     
     await bankAccount.save();
     
-    // Update Chart of Accounts
-    await ChartOfAccount.findOneAndUpdate(
-      { 
-        _id: bankAccount.chartOfAccountId,
-        createdBy: req.user.id  // 👈 Only update if user owns this account
-      },
-      {
-        name: accountName,
-        isActive: status === 'Active',
-      }
-    );
+    // Update Chart of Accounts name if changed
+    if (accountName) {
+      await ChartOfAccount.findOneAndUpdate(
+        { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
+        { name: accountName, isActive: status === 'Active' }
+      );
+    }
     
     res.status(200).json({
       success: true,
@@ -314,7 +357,7 @@ exports.updateBankAccount = async (req, res) => {
       message: 'Bank account updated successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('Update bank account error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
@@ -323,6 +366,7 @@ exports.updateBankAccount = async (req, res) => {
   }
 };
 
+// ==================== DELETE BANK ACCOUNT ====================
 // @desc    Delete bank account
 // @route   DELETE /api/bank-accounts/:id
 // @access  Private
@@ -330,7 +374,7 @@ exports.deleteBankAccount = async (req, res) => {
   try {
     const bankAccount = await BankAccount.findOne({
       _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this account
+      createdBy: req.user.id,
     });
     
     if (!bankAccount) {
@@ -343,7 +387,7 @@ exports.deleteBankAccount = async (req, res) => {
     // Check if account has transactions
     const hasTransactions = await JournalEntry.findOne({
       'lines.accountId': bankAccount.chartOfAccountId,
-      createdBy: req.user.id  // 👈 Only check entries created by this user
+      createdBy: req.user.id
     });
     
     if (hasTransactions) {
@@ -357,7 +401,7 @@ exports.deleteBankAccount = async (req, res) => {
     await bankAccount.deleteOne();
     await ChartOfAccount.findOneAndDelete({
       _id: bankAccount.chartOfAccountId,
-      createdBy: req.user.id  // 👈 Only delete if user owns this account
+      createdBy: req.user.id
     });
     
     res.status(200).json({
@@ -365,7 +409,7 @@ exports.deleteBankAccount = async (req, res) => {
       message: 'Bank account deleted successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('Delete bank account error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
@@ -374,16 +418,24 @@ exports.deleteBankAccount = async (req, res) => {
   }
 };
 
+// ==================== UPDATE BANK BALANCE ====================
 // @desc    Update bank account balance (called from transactions)
 // @route   PUT /api/bank-accounts/:id/balance
-// @access  Private (Internal use)
+// @access  Private
 exports.updateBalance = async (req, res) => {
   try {
-    const { amount, type } = req.body; // type: 'credit' (deposit) or 'debit' (withdrawal)
+    const { amount, type } = req.body;
+    
+    if (!amount || !type) {
+      return res.status(400).json({
+        success: false,
+        message: 'Amount and type are required',
+      });
+    }
     
     const bankAccount = await BankAccount.findOne({
       _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this account
+      createdBy: req.user.id,
     });
     
     if (!bankAccount) {
@@ -398,6 +450,11 @@ exports.updateBalance = async (req, res) => {
       newBalance += amount;
     } else if (type === 'debit') {
       newBalance -= amount;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid type. Use "credit" or "debit"',
+      });
     }
     
     bankAccount.currentBalance = newBalance;
@@ -405,21 +462,73 @@ exports.updateBalance = async (req, res) => {
     
     // Update Chart of Accounts balance
     await ChartOfAccount.findOneAndUpdate(
-      { 
-        _id: bankAccount.chartOfAccountId,
-        createdBy: req.user.id  // 👈 Only update if user owns this account
-      },
-      {
-        currentBalance: newBalance,
-      }
+      { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
+      { currentBalance: newBalance }
     );
     
     res.status(200).json({
       success: true,
       data: { currentBalance: newBalance },
+      message: 'Balance updated successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('Update balance error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message,
+    });
+  }
+};
+
+// ==================== RECONCILE BANK ACCOUNT ====================
+// @desc    Reconcile bank account
+// @route   POST /api/bank-accounts/:id/reconcile
+// @access  Private
+exports.reconcileBankAccount = async (req, res) => {
+  try {
+    const { statementBalance, reconciledDate } = req.body;
+    
+    if (statementBalance === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Statement balance is required',
+      });
+    }
+    
+    const bankAccount = await BankAccount.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id,
+    });
+    
+    if (!bankAccount) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bank account not found',
+      });
+    }
+    
+    const difference = statementBalance - bankAccount.currentBalance;
+    
+    bankAccount.lastReconciled = reconciledDate ? new Date(reconciledDate) : new Date();
+    await bankAccount.save();
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        accountId: bankAccount._id,
+        accountName: bankAccount.accountName,
+        currentBalance: bankAccount.currentBalance,
+        statementBalance: statementBalance,
+        difference: difference,
+        lastReconciled: bankAccount.lastReconciled,
+      },
+      message: difference === 0 
+        ? 'Account reconciled successfully' 
+        : `Account reconciled with difference of ${difference}`,
+    });
+  } catch (error) {
+    console.error('Reconcile error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',

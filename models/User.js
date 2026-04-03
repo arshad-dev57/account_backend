@@ -43,6 +43,32 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  // Add these fields to UserSchema
+resetOtp: {
+  type: String,
+  default: null,
+},
+resetOtpExpiry: {
+  type: Date,
+  default: null,
+},
+  // ✅ NEW PROFILE FIELDS
+  organizationName: {
+    type: String,
+    default: '',
+  },
+  address: {
+    type: String,
+    default: '',
+  },
+  contactNo: {
+    type: String,
+    default: '',
+  },
+  websiteLink: {
+    type: String,
+    default: '',
+  },
   subscription: {
     plan: {
       type: String,
@@ -173,7 +199,7 @@ UserSchema.methods.expireSubscription = async function() {
   const result = await this.constructor.findOneAndUpdate(
     {
       _id: this._id,
-      'subscription.status': 'active'  // ✅ sirf active ko expire karo
+      'subscription.status': 'active'
     },
     {
       $set: { 'subscription.status': 'expired' }

@@ -4,45 +4,63 @@ const BankAccount = require('../models/BankAccount');
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 
-// Helper: Get or create Income account in Chart of Accounts
+// ==================== HELPER FUNCTIONS ====================
+
+// Helper: Get or create Income account in Chart of Accounts (WITHOUT duplicate error)
 async function getOrCreateIncomeAccount(userId, incomeType) {
   let accountCode = '4000';
   let accountName = 'Income';
   
-  switch(incomeType) {
-    case 'Sales':
-      accountCode = '4100';
-      accountName = 'Sales Revenue';
-      break;
-    case 'Services':
-      accountCode = '4200';
-      accountName = 'Service Revenue';
-      break;
-    case 'Interest Income':
-      accountCode = '4300';
-      accountName = 'Interest Income';
-      break;
-    case 'Rental Income':
-      accountCode = '4400';
-      accountName = 'Rental Income';
-      break;
-    case 'Dividend Income':
-      accountCode = '4500';
-      accountName = 'Dividend Income';
-      break;
-    default:
-      accountCode = '4900';
-      accountName = 'Other Income';
+  const categoryMap = {
+    'Sales': { code: '4100', name: 'Sales Revenue' },
+    'Services': { code: '4200', name: 'Service Revenue' },
+    'Interest Income': { code: '4300', name: 'Interest Income' },
+    'Rental Income': { code: '4400', name: 'Rental Income' },
+    'Dividend Income': { code: '4500', name: 'Dividend Income' },
+  };
+  
+  if (categoryMap[incomeType]) {
+    accountCode = categoryMap[incomeType].code;
+    accountName = categoryMap[incomeType].name;
+  } else {
+    accountCode = '4900';
+    accountName = 'Other Income';
   }
   
-  let incomeAccount = await ChartOfAccount.findOne({ code: accountCode });
+  // First try to find account created by THIS user
+  let incomeAccount = await ChartOfAccount.findOne({ 
+    code: accountCode,
+    createdBy: userId
+  });
+  
   if (!incomeAccount) {
+    // Check if this code exists for ANY user
+    const existingCode = await ChartOfAccount.findOne({ code: accountCode });
+    
+    let newCode = accountCode;
+    if (existingCode) {
+      // Generate a unique code for this user
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        const baseCode = accountCode.substring(0, 2);
+        const suffix = parseInt(accountCode.substring(2)) + counter;
+        newCode = `${baseCode}${suffix}`;
+        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+    
     incomeAccount = await ChartOfAccount.create({
-      code: accountCode,
+      code: newCode,
       name: accountName,
       type: 'Income',
       parentAccount: 'Operating Income',
       openingBalance: 0,
+      currentBalance: 0,
       description: `${incomeType} account`,
       taxCode: 'N/A',
       createdBy: userId,
@@ -51,16 +69,38 @@ async function getOrCreateIncomeAccount(userId, incomeType) {
   return incomeAccount;
 }
 
-// Helper: Get cash account
+// Helper: Get or create Cash account (WITHOUT duplicate error)
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId
+  });
+  
   if (!cashAccount) {
+    // Check if code 1010 exists for ANY user
+    const existingCode = await ChartOfAccount.findOne({ code: '1010' });
+    
+    let newCode = '1010';
+    if (existingCode) {
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = `101${counter}`;
+        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+    
     cashAccount = await ChartOfAccount.create({
-      code: '1010',
+      code: newCode,
       name: 'Cash in Hand',
       type: 'Assets',
       parentAccount: 'Current Assets',
       openingBalance: 0,
+      currentBalance: 0,
       description: 'Physical cash',
       taxCode: 'N/A',
       createdBy: userId,
@@ -87,10 +127,13 @@ exports.createIncome = async (req, res) => {
 
     console.log("📦 Received income data:", JSON.stringify(req.body, null, 2));
 
-    // Get customer name if provided
+    // Get customer name if provided and customer belongs to user
     let customerName = '';
     if (customerId) {
-      const customer = await Customer.findById(customerId);
+      const customer = await Customer.findOne({
+        _id: customerId,
+        createdBy: req.user.id
+      });
       if (customer) {
         customerName = customer.name;
       }
@@ -106,7 +149,6 @@ exports.createIncome = async (req, res) => {
     const hasItems = items != null && items.length > 0;
     
     if (hasItems) {
-      // ========== DETAILED INCOME (Sales, Services) ==========
       console.log("📊 Processing DETAILED income with items");
       finalItems = items.map(item => ({
         description: item.description,
@@ -122,7 +164,6 @@ exports.createIncome = async (req, res) => {
       console.log("   Tax:", taxAmount);
       console.log("   Total:", totalAmount);
     } else {
-      // ========== SIMPLE INCOME (Interest, Rental, Dividend) ==========
       console.log("📊 Processing SIMPLE income with amount:", amount);
       finalAmount = amount || 0;
       subtotal = finalAmount;
@@ -130,6 +171,21 @@ exports.createIncome = async (req, res) => {
       taxAmount = 0;
       finalItems = [];
       console.log("   Total Amount set to:", totalAmount);
+    }
+
+    // Verify bank account belongs to user if provided
+    if (bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id
+      });
+      
+      if (!bankAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account not found or does not belong to you',
+        });
+      }
     }
 
     // Create income record
@@ -167,9 +223,15 @@ exports.createIncome = async (req, res) => {
     if (paymentMethod === 'Cash') {
       cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
     } else if (bankAccountId) {
-      const bankAccount = await BankAccount.findById(bankAccountId);
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id
+      });
       if (bankAccount) {
-        cashOrBankAccount = await ChartOfAccount.findById(bankAccount.chartOfAccountId);
+        cashOrBankAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id
+        });
       }
     }
     
@@ -211,6 +273,15 @@ exports.createIncome = async (req, res) => {
     });
   } catch (error) {
     console.error("🔥 ERROR in createIncome:", error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate entry. Please try again.',
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: error.message,
@@ -222,7 +293,9 @@ exports.createIncome = async (req, res) => {
 exports.getIncomes = async (req, res) => {
   try {
     const { incomeType, status, startDate, endDate, search } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id
+    };
 
     if (incomeType && incomeType !== 'All') query.incomeType = incomeType;
     if (status && status !== 'All') query.status = status;
@@ -264,7 +337,10 @@ exports.getIncomes = async (req, res) => {
 // ==================== GET SINGLE INCOME ====================
 exports.getIncome = async (req, res) => {
   try {
-    const income = await Income.findById(req.params.id)
+    const income = await Income.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    })
       .populate('customerId', 'name email phone')
       .populate('bankAccountId', 'accountName accountNumber');
 
@@ -291,7 +367,10 @@ exports.getIncome = async (req, res) => {
 // ==================== UPDATE INCOME ====================
 exports.updateIncome = async (req, res) => {
   try {
-    const income = await Income.findById(req.params.id);
+    const income = await Income.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
 
     if (!income) {
       return res.status(404).json({
@@ -318,11 +397,29 @@ exports.updateIncome = async (req, res) => {
       }
     });
 
-    // Update customer name if customer changed
+    // Update customer name if customer changed and belongs to user
     if (req.body.customerId) {
-      const customer = await Customer.findById(req.body.customerId);
+      const customer = await Customer.findOne({
+        _id: req.body.customerId,
+        createdBy: req.user.id
+      });
       if (customer) {
         income.customerName = customer.name;
+      }
+    }
+
+    // Verify bank account belongs to user if updating
+    if (req.body.bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: req.body.bankAccountId,
+        createdBy: req.user.id
+      });
+      
+      if (!bankAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account not found or does not belong to you',
+        });
       }
     }
 
@@ -359,7 +456,10 @@ exports.updateIncome = async (req, res) => {
 // ==================== DELETE INCOME ====================
 exports.deleteIncome = async (req, res) => {
   try {
-    const income = await Income.findById(req.params.id);
+    const income = await Income.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
 
     if (!income) {
       return res.status(404).json({
@@ -405,7 +505,11 @@ exports.getSummary = async (req, res) => {
       };
     }
 
-    const allIncomes = await Income.find({ ...dateFilter, status: 'Posted' });
+    const allIncomes = await Income.find({ 
+      ...dateFilter, 
+      status: 'Posted',
+      createdBy: req.user.id
+    });
     
     const totalIncome = allIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
     const totalTax = allIncomes.reduce((sum, inc) => sum + inc.taxAmount, 0);
@@ -427,6 +531,7 @@ exports.getSummary = async (req, res) => {
         $match: {
           date: { $gte: startOfMonth },
           status: 'Posted',
+          createdBy: req.user.id,
           ...dateFilter,
         },
       },
@@ -447,6 +552,7 @@ exports.getSummary = async (req, res) => {
         $match: {
           date: { $gte: startOfWeek },
           status: 'Posted',
+          createdBy: req.user.id,
           ...dateFilter,
         },
       },
@@ -482,7 +588,10 @@ exports.getSummary = async (req, res) => {
 // ==================== POST INCOME (for draft to posted) ====================
 exports.postIncome = async (req, res) => {
   try {
-    const income = await Income.findById(req.params.id);
+    const income = await Income.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
 
     if (!income) {
       return res.status(404).json({
@@ -511,9 +620,15 @@ exports.postIncome = async (req, res) => {
     if (income.paymentMethod === 'Cash') {
       cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
     } else if (income.bankAccountId) {
-      const bankAccount = await BankAccount.findById(income.bankAccountId);
+      const bankAccount = await BankAccount.findOne({
+        _id: income.bankAccountId,
+        createdBy: req.user.id
+      });
       if (bankAccount) {
-        cashOrBankAccount = await ChartOfAccount.findById(bankAccount.chartOfAccountId);
+        cashOrBankAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id
+        });
       }
     }
     

@@ -4,7 +4,11 @@ const ChartOfAccount = require('../models/ChartOfAccount');
 
 // Helper: Get or create Equity account in Chart of Accounts
 async function getOrCreateEquityAccount(userId, accountCode, accountName) {
-  let equityAccount = await ChartOfAccount.findOne({ code: accountCode });
+  let equityAccount = await ChartOfAccount.findOne({ 
+    code: accountCode,
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!equityAccount) {
     equityAccount = await ChartOfAccount.create({
       code: accountCode,
@@ -22,7 +26,11 @@ async function getOrCreateEquityAccount(userId, accountCode, accountName) {
 
 // Helper: Get cash account
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!cashAccount) {
     cashAccount = await ChartOfAccount.create({
       code: '1010',
@@ -48,6 +56,19 @@ exports.createEquityAccount = async (req, res) => {
       openingBalance,
       notes,
     } = req.body;
+
+    // Check if account code already exists for this user
+    const existingAccount = await EquityAccount.findOne({
+      accountCode,
+      createdBy: req.user.id
+    });
+
+    if (existingAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Equity account with this code already exists',
+      });
+    }
 
     const equityAccount = await EquityAccount.create({
       accountName,
@@ -112,7 +133,9 @@ exports.createEquityAccount = async (req, res) => {
 exports.getEquityAccounts = async (req, res) => {
   try {
     const { accountType, search } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show equity accounts created by this user
+    };
 
     if (accountType && accountType !== 'All') {
       query.accountType = accountType;
@@ -145,7 +168,10 @@ exports.getEquityAccounts = async (req, res) => {
 // ==================== GET SINGLE EQUITY ACCOUNT ====================
 exports.getEquityAccount = async (req, res) => {
   try {
-    const account = await EquityAccount.findById(req.params.id);
+    const account = await EquityAccount.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this account
+    });
 
     if (!account) {
       return res.status(404).json({
@@ -171,7 +197,10 @@ exports.getEquityAccount = async (req, res) => {
 exports.updateEquityAccount = async (req, res) => {
   try {
     const { notes, accountName } = req.body;
-    const account = await EquityAccount.findById(req.params.id);
+    const account = await EquityAccount.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this account
+    });
 
     if (!account) {
       return res.status(404).json({
@@ -198,7 +227,8 @@ exports.updateEquityAccount = async (req, res) => {
     });
   }
 };
-// equityController.js - addCapital function
+
+// ==================== ADD CAPITAL ====================
 exports.addCapital = async (req, res) => {
   try {
     const { accountId, amount, description, reference } = req.body;
@@ -207,8 +237,11 @@ exports.addCapital = async (req, res) => {
     console.log("📌 Account ID:", accountId);
     console.log("💰 Amount:", amount);
     
-    // Chart of Accounts se account find karo
-    const account = await ChartOfAccount.findById(accountId);
+    // Chart of Accounts se account find karo - must belong to user
+    const account = await ChartOfAccount.findOne({
+      _id: accountId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this account
+    });
     
     if (!account) {
       return res.status(404).json({ success: false, message: 'Account not found' });
@@ -216,18 +249,20 @@ exports.addCapital = async (req, res) => {
     
     console.log("📊 Old Balance:", account.currentBalance);
     
-    // ✅ IMPORTANT: Balance update karo
+    // Balance update karo
     const oldBalance = account.currentBalance || account.openingBalance || 0;
     account.currentBalance = oldBalance + amount;
     
     console.log("📊 New Balance:", account.currentBalance);
     
-    // ✅ Save karo
     await account.save();
     console.log("✅ Account saved successfully");
     
     // Journal entry create karo
-    const cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+    const cashAccount = await ChartOfAccount.findOne({ 
+      code: '1010',
+      createdBy: req.user.id
+    });
     
     await JournalEntry.create({
       entryNumber: `JE-${Date.now()}`,
@@ -254,7 +289,6 @@ exports.addCapital = async (req, res) => {
       createdBy: req.user.id,
     });
     
-    // ✅ Return updated account with new balance
     res.status(200).json({
       success: true,
       data: {
@@ -263,7 +297,7 @@ exports.addCapital = async (req, res) => {
           code: account.code,
           name: account.name,
           type: account.type,
-          currentBalance: account.currentBalance,  // ← Ye updated balance hona chahiye
+          currentBalance: account.currentBalance,
           openingBalance: account.openingBalance,
         },
         amount: amount
@@ -276,11 +310,16 @@ exports.addCapital = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ==================== RECORD DRAWINGS ====================
 exports.recordDrawings = async (req, res) => {
   try {
     const { accountId, amount, description, reference } = req.body;
 
-    const account = await EquityAccount.findById(accountId);
+    const account = await EquityAccount.findOne({
+      _id: accountId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this account
+    });
 
     if (!account) {
       return res.status(404).json({
@@ -348,7 +387,10 @@ exports.transferToRetainedEarnings = async (req, res) => {
   try {
     const { amount, description, reference } = req.body;
 
-    let retainedEarnings = await EquityAccount.findOne({ accountType: 'Retained Earnings' });
+    let retainedEarnings = await EquityAccount.findOne({ 
+      accountType: 'Retained Earnings',
+      createdBy: req.user.id
+    });
 
     if (!retainedEarnings) {
       retainedEarnings = await EquityAccount.create({
@@ -367,7 +409,10 @@ exports.transferToRetainedEarnings = async (req, res) => {
     await retainedEarnings.transferToRetainedEarnings(amount, description, reference, req.user.id);
 
     // Create journal entry
-    const pnlAccount = await ChartOfAccount.findOne({ code: '3000' }); // Profit & Loss account
+    const pnlAccount = await ChartOfAccount.findOne({ 
+      code: '3000',
+      createdBy: req.user.id
+    });
     const retainedEarningsChart = await getOrCreateEquityAccount(req.user.id, retainedEarnings.accountCode, retainedEarnings.accountName);
 
     await JournalEntry.create({
@@ -410,11 +455,15 @@ exports.transferToRetainedEarnings = async (req, res) => {
     });
   }
 };
+
 // ==================== GET SUMMARY ====================
 exports.getSummary = async (req, res) => {
   try {
-    // Chart of Accounts se Equity type ke accounts fetch karo
-    const accounts = await ChartOfAccount.find({ type: 'Equity' });
+    // Chart of Accounts se Equity type ke accounts fetch karo - created by this user
+    const accounts = await ChartOfAccount.find({ 
+      type: 'Equity',
+      createdBy: req.user.id
+    });
     
     let totalCapital = 0;
     let totalRetainedEarnings = 0;
@@ -434,7 +483,6 @@ exports.getSummary = async (req, res) => {
       } else if (name.includes('drawing')) {
         totalDrawings += balance;
       } else {
-        // Default: Capital mein daal do
         totalCapital += balance;
       }
     }
@@ -459,10 +507,13 @@ exports.getSummary = async (req, res) => {
     });
   }
 };
+
 // ==================== GET ALL TRANSACTIONS ====================
 exports.getAllTransactions = async (req, res) => {
   try {
-    const accounts = await EquityAccount.find();
+    const accounts = await EquityAccount.find({
+      createdBy: req.user.id  // 👈 Only show equity accounts created by this user
+    });
     
     let allTransactions = [];
     accounts.forEach(account => {
@@ -501,7 +552,10 @@ exports.getAllTransactions = async (req, res) => {
 // ==================== DELETE EQUITY ACCOUNT ====================
 exports.deleteEquityAccount = async (req, res) => {
   try {
-    const account = await EquityAccount.findById(req.params.id);
+    const account = await EquityAccount.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this account
+    });
 
     if (!account) {
       return res.status(404).json({

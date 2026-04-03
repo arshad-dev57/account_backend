@@ -6,7 +6,11 @@ const ChartOfAccount = require('../models/ChartOfAccount');
 
 // Helper: Get or create Loan Liability account
 async function getOrCreateLoanAccount(userId) {
-  let loanAccount = await ChartOfAccount.findOne({ code: '2100' });
+  let loanAccount = await ChartOfAccount.findOne({ 
+    code: '2100',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!loanAccount) {
     loanAccount = await ChartOfAccount.create({
       code: '2100',
@@ -24,7 +28,11 @@ async function getOrCreateLoanAccount(userId) {
 
 // Helper: Get or create Interest Expense account
 async function getOrCreateInterestExpenseAccount(userId) {
-  let interestAccount = await ChartOfAccount.findOne({ code: '6200' });
+  let interestAccount = await ChartOfAccount.findOne({ 
+    code: '6200',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!interestAccount) {
     interestAccount = await ChartOfAccount.create({
       code: '6200',
@@ -42,7 +50,11 @@ async function getOrCreateInterestExpenseAccount(userId) {
 
 // Helper: Get cash account
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!cashAccount) {
     cashAccount = await ChartOfAccount.create({
       code: '1010',
@@ -75,6 +87,34 @@ exports.createLoan = async (req, res) => {
       bankAccountId,
       notes,
     } = req.body;
+
+    // Validate lender if provided - must belong to user
+    if (lenderId) {
+      const lender = await Vendor.findOne({
+        _id: lenderId,
+        createdBy: req.user.id
+      });
+      if (!lender) {
+        return res.status(404).json({
+          success: false,
+          message: 'Lender not found',
+        });
+      }
+    }
+
+    // Validate bank account if provided - must belong to user
+    if (bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id
+      });
+      if (!bankAccount) {
+        return res.status(404).json({
+          success: false,
+          message: 'Bank account not found',
+        });
+      }
+    }
 
     // Calculate EMI
     const P = loanAmount;
@@ -117,13 +157,24 @@ exports.createLoan = async (req, res) => {
 
     // Create journal entry for loan disbursement
     const loanAccount = await getOrCreateLoanAccount(req.user.id);
-    const cashAccount = bankAccountId 
-      ? await BankAccount.findById(bankAccountId).then(acc => acc?.chartOfAccountId)
-      : await getOrCreateCashAccount(req.user.id);
+    let cashChartAccount;
     
-    const cashChartAccount = cashAccount 
-      ? await ChartOfAccount.findById(cashAccount)
-      : await getOrCreateCashAccount(req.user.id);
+    if (bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id
+      });
+      if (bankAccount) {
+        cashChartAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id
+        });
+      }
+    }
+    
+    if (!cashChartAccount) {
+      cashChartAccount = await getOrCreateCashAccount(req.user.id);
+    }
 
     await JournalEntry.create({
       entryNumber: `JE-${Date.now()}`,
@@ -170,7 +221,9 @@ exports.createLoan = async (req, res) => {
 exports.getLoans = async (req, res) => {
   try {
     const { status, loanType, search } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show loans created by this user
+    };
 
     if (status) query.status = status;
     if (loanType) query.loanType = loanType;
@@ -205,7 +258,10 @@ exports.getLoans = async (req, res) => {
 // ==================== GET SINGLE LOAN ====================
 exports.getLoan = async (req, res) => {
   try {
-    const loan = await Loan.findById(req.params.id)
+    const loan = await Loan.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    })
       .populate('lenderId', 'name email phone')
       .populate('bankAccountId', 'accountName accountNumber');
 
@@ -232,13 +288,44 @@ exports.getLoan = async (req, res) => {
 // ==================== UPDATE LOAN ====================
 exports.updateLoan = async (req, res) => {
   try {
-    const loan = await Loan.findById(req.params.id);
+    const loan = await Loan.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    });
 
     if (!loan) {
       return res.status(404).json({
         success: false,
         message: 'Loan not found',
       });
+    }
+
+    // Validate lender if updating
+    if (req.body.lenderId) {
+      const lender = await Vendor.findOne({
+        _id: req.body.lenderId,
+        createdBy: req.user.id
+      });
+      if (!lender) {
+        return res.status(404).json({
+          success: false,
+          message: 'Lender not found',
+        });
+      }
+    }
+
+    // Validate bank account if updating
+    if (req.body.bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: req.body.bankAccountId,
+        createdBy: req.user.id
+      });
+      if (!bankAccount) {
+        return res.status(404).json({
+          success: false,
+          message: 'Bank account not found',
+        });
+      }
     }
 
     const allowedUpdates = [
@@ -274,7 +361,10 @@ exports.recordPayment = async (req, res) => {
     const { loanId, amount, paymentDate, reference, notes, type } = req.body;
     const date = paymentDate ? new Date(paymentDate) : new Date();
 
-    const loan = await Loan.findById(loanId);
+    const loan = await Loan.findOne({
+      _id: loanId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    });
 
     if (!loan) {
       return res.status(404).json({
@@ -295,13 +385,24 @@ exports.recordPayment = async (req, res) => {
 
     // Create journal entry for payment
     const loanAccount = await getOrCreateLoanAccount(req.user.id);
-    const cashAccount = loan.bankAccountId 
-      ? await BankAccount.findById(loan.bankAccountId).then(acc => acc?.chartOfAccountId)
-      : await getOrCreateCashAccount(req.user.id);
+    let cashChartAccount;
     
-    const cashChartAccount = cashAccount 
-      ? await ChartOfAccount.findById(cashAccount)
-      : await getOrCreateCashAccount(req.user.id);
+    if (loan.bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: loan.bankAccountId,
+        createdBy: req.user.id
+      });
+      if (bankAccount) {
+        cashChartAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id
+        });
+      }
+    }
+    
+    if (!cashChartAccount) {
+      cashChartAccount = await getOrCreateCashAccount(req.user.id);
+    }
 
     // Calculate interest portion (simplified)
     const interestPortion = loan.interestRate / 100 / 12 * loan.outstandingBalance;
@@ -411,7 +512,10 @@ exports.calculatePrepayment = async (req, res) => {
   try {
     const { loanId, prepaymentAmount } = req.body;
 
-    const loan = await Loan.findById(loanId);
+    const loan = await Loan.findOne({
+      _id: loanId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    });
 
     if (!loan) {
       return res.status(404).json({
@@ -441,7 +545,10 @@ exports.prepayLoan = async (req, res) => {
     const { loanId, prepaymentAmount, paymentDate, reference } = req.body;
     const date = paymentDate ? new Date(paymentDate) : new Date();
 
-    const loan = await Loan.findById(loanId);
+    const loan = await Loan.findOne({
+      _id: loanId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    });
 
     if (!loan) {
       return res.status(404).json({
@@ -526,7 +633,9 @@ exports.prepayLoan = async (req, res) => {
 // ==================== GET LOAN SUMMARY ====================
 exports.getSummary = async (req, res) => {
   try {
-    const loans = await Loan.find();
+    const loans = await Loan.find({
+      createdBy: req.user.id  // 👈 Only show loans created by this user
+    });
 
     const totalLoans = loans.length;
     const totalPrincipal = loans.reduce((sum, l) => sum + l.loanAmount, 0);
@@ -565,7 +674,10 @@ exports.getSummary = async (req, res) => {
 // ==================== GET PAYMENT SCHEDULE ====================
 exports.getPaymentSchedule = async (req, res) => {
   try {
-    const loan = await Loan.findById(req.params.id);
+    const loan = await Loan.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    });
 
     if (!loan) {
       return res.status(404).json({
@@ -616,7 +728,10 @@ exports.getPaymentSchedule = async (req, res) => {
 // ==================== DELETE LOAN ====================
 exports.deleteLoan = async (req, res) => {
   try {
-    const loan = await Loan.findById(req.params.id);
+    const loan = await Loan.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    });
 
     if (!loan) {
       return res.status(404).json({

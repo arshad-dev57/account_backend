@@ -5,7 +5,11 @@ const ChartOfAccount = require('../models/ChartOfAccount');
 
 // Helper: Get or create Fixed Asset account
 async function getOrCreateFixedAssetAccount(userId) {
-  let assetAccount = await ChartOfAccount.findOne({ code: '1500' });
+  let assetAccount = await ChartOfAccount.findOne({ 
+    code: '1500',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!assetAccount) {
     assetAccount = await ChartOfAccount.create({
       code: '1500',
@@ -23,7 +27,11 @@ async function getOrCreateFixedAssetAccount(userId) {
 
 // Helper: Get or create Accumulated Depreciation account
 async function getOrCreateAccumulatedDepreciationAccount(userId) {
-  let accDepAccount = await ChartOfAccount.findOne({ code: '1510' });
+  let accDepAccount = await ChartOfAccount.findOne({ 
+    code: '1510',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!accDepAccount) {
     accDepAccount = await ChartOfAccount.create({
       code: '1510',
@@ -41,7 +49,11 @@ async function getOrCreateAccumulatedDepreciationAccount(userId) {
 
 // Helper: Get or create Depreciation Expense account
 async function getOrCreateDepreciationExpenseAccount(userId) {
-  let depExpAccount = await ChartOfAccount.findOne({ code: '6100' });
+  let depExpAccount = await ChartOfAccount.findOne({ 
+    code: '6100',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!depExpAccount) {
     depExpAccount = await ChartOfAccount.create({
       code: '6100',
@@ -55,6 +67,28 @@ async function getOrCreateDepreciationExpenseAccount(userId) {
     });
   }
   return depExpAccount;
+}
+
+// Helper: Get cash account
+async function getOrCreateCashAccount(userId) {
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
+  if (!cashAccount) {
+    cashAccount = await ChartOfAccount.create({
+      code: '1010',
+      name: 'Cash in Hand',
+      type: 'Assets',
+      parentAccount: 'Current Assets',
+      openingBalance: 0,
+      description: 'Physical cash in office',
+      taxCode: 'N/A',
+      createdBy: userId,
+    });
+  }
+  return cashAccount;
 }
 
 // ==================== CREATE FIXED ASSET ====================
@@ -74,10 +108,13 @@ exports.createFixedAsset = async (req, res) => {
       notes,
     } = req.body;
 
-    // Validate supplier if provided
+    // Validate supplier if provided - must belong to user
     let supplierName = '';
     if (supplierId) {
-      const supplier = await Vendor.findById(supplierId);
+      const supplier = await Vendor.findOne({
+        _id: supplierId,
+        createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+      });
       if (supplier) {
         supplierName = supplier.name;
       }
@@ -102,7 +139,7 @@ exports.createFixedAsset = async (req, res) => {
 
     // Create journal entry for asset purchase
     const assetAccount = await getOrCreateFixedAssetAccount(req.user.id);
-    const cashAccount = await ChartOfAccount.findOne({ code: '1010' }); // Cash account
+    const cashAccount = await getOrCreateCashAccount(req.user.id);
 
     await JournalEntry.create({
       entryNumber: `JE-${Date.now()}`,
@@ -118,9 +155,9 @@ exports.createFixedAsset = async (req, res) => {
           credit: 0,
         },
         {
-          accountId: cashAccount ? cashAccount._id : assetAccount._id,
-          accountName: cashAccount ? cashAccount.name : 'Cash',
-          accountCode: cashAccount ? cashAccount.code : '1010',
+          accountId: cashAccount._id,
+          accountName: cashAccount.name,
+          accountCode: cashAccount.code,
           debit: 0,
           credit: purchaseCost,
         },
@@ -149,7 +186,9 @@ exports.createFixedAsset = async (req, res) => {
 exports.getFixedAssets = async (req, res) => {
   try {
     const { category, status, search } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show assets created by this user
+    };
 
     if (category) query.category = category;
     if (status) query.status = status;
@@ -183,8 +222,10 @@ exports.getFixedAssets = async (req, res) => {
 // ==================== GET SINGLE FIXED ASSET ====================
 exports.getFixedAsset = async (req, res) => {
   try {
-    const asset = await FixedAsset.findById(req.params.id)
-      .populate('supplierId', 'name email phone address');
+    const asset = await FixedAsset.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this asset
+    }).populate('supplierId', 'name email phone address');
 
     if (!asset) {
       return res.status(404).json({
@@ -224,13 +265,19 @@ exports.updateFixedAsset = async (req, res) => {
 
     let supplierName = '';
     if (supplierId) {
-      const supplier = await Vendor.findById(supplierId);
+      const supplier = await Vendor.findOne({
+        _id: supplierId,
+        createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+      });
       if (supplier) {
         supplierName = supplier.name;
       }
     }
 
-    const fixedAsset = await FixedAsset.findById(req.params.id);
+    const fixedAsset = await FixedAsset.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this asset
+    });
 
     if (!fixedAsset) {
       return res.status(404).json({
@@ -276,7 +323,10 @@ exports.runDepreciation = async (req, res) => {
     const { assetId, depreciationDate } = req.body;
     const date = depreciationDate ? new Date(depreciationDate) : new Date();
 
-    const asset = await FixedAsset.findById(assetId);
+    const asset = await FixedAsset.findOne({
+      _id: assetId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this asset
+    });
 
     if (!asset) {
       return res.status(404).json({
@@ -363,6 +413,7 @@ exports.runMonthlyDepreciation = async (req, res) => {
     const date = depreciationDate ? new Date(depreciationDate) : new Date();
 
     const activeAssets = await FixedAsset.find({
+      createdBy: req.user.id,  // 👈 Only process assets created by this user
       status: { $in: ['Active', 'Fully Depreciated'] },
       $or: [
         { lastDepreciationDate: { $exists: false } },
@@ -408,7 +459,10 @@ exports.disposeFixedAsset = async (req, res) => {
   try {
     const { assetId, disposalDate, disposalAmount, disposalReason } = req.body;
 
-    const asset = await FixedAsset.findById(assetId);
+    const asset = await FixedAsset.findOne({
+      _id: assetId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this asset
+    });
 
     if (!asset) {
       return res.status(404).json({
@@ -438,7 +492,25 @@ exports.disposeFixedAsset = async (req, res) => {
     // Create journal entry for disposal
     const assetAccount = await getOrCreateFixedAssetAccount(req.user.id);
     const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(req.user.id);
-    const gainLossAccount = await ChartOfAccount.findOne({ code: gainLoss >= 0 ? '5100' : '5200' }); // Gain/Loss account
+    const cashAccount = await getOrCreateCashAccount(req.user.id);
+    
+    let gainLossAccount = await ChartOfAccount.findOne({ 
+      code: gainLoss >= 0 ? '5100' : '5200',
+      createdBy: req.user.id
+    });
+    
+    if (!gainLossAccount) {
+      gainLossAccount = await ChartOfAccount.create({
+        code: gainLoss >= 0 ? '5100' : '5200',
+        name: gainLoss >= 0 ? 'Gain on Disposal' : 'Loss on Disposal',
+        type: gainLoss >= 0 ? 'Income' : 'Expenses',
+        parentAccount: gainLoss >= 0 ? 'Other Income' : 'Other Expenses',
+        openingBalance: 0,
+        description: 'Gain/Loss on asset disposal',
+        taxCode: 'N/A',
+        createdBy: req.user.id,
+      });
+    }
 
     const journalLines = [
       {
@@ -459,9 +531,9 @@ exports.disposeFixedAsset = async (req, res) => {
 
     if (disposalAmount > 0) {
       journalLines.push({
-        accountId: await getOrCreateCashAccount(req.user.id),
-        accountName: 'Cash/Bank',
-        accountCode: '1010',
+        accountId: cashAccount._id,
+        accountName: cashAccount.name,
+        accountCode: cashAccount.code,
         debit: disposalAmount,
         credit: 0,
       });
@@ -471,18 +543,18 @@ exports.disposeFixedAsset = async (req, res) => {
       if (gainLoss > 0) {
         // Gain on disposal
         journalLines.push({
-          accountId: gainLossAccount ? gainLossAccount._id : assetAccount._id,
-          accountName: 'Gain on Disposal',
-          accountCode: '5100',
+          accountId: gainLossAccount._id,
+          accountName: gainLossAccount.name,
+          accountCode: gainLossAccount.code,
           debit: 0,
           credit: gainLoss,
         });
       } else {
         // Loss on disposal
         journalLines.push({
-          accountId: gainLossAccount ? gainLossAccount._id : assetAccount._id,
-          accountName: 'Loss on Disposal',
-          accountCode: '5200',
+          accountId: gainLossAccount._id,
+          accountName: gainLossAccount.name,
+          accountCode: gainLossAccount.code,
           debit: Math.abs(gainLoss),
           credit: 0,
         });
@@ -525,28 +597,12 @@ exports.disposeFixedAsset = async (req, res) => {
   }
 };
 
-// Helper: Get cash account
-async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
-  if (!cashAccount) {
-    cashAccount = await ChartOfAccount.create({
-      code: '1010',
-      name: 'Cash in Hand',
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      description: 'Physical cash in office',
-      taxCode: 'N/A',
-      createdBy: userId,
-    });
-  }
-  return cashAccount;
-}
-
 // ==================== GET SUMMARY ====================
 exports.getSummary = async (req, res) => {
   try {
-    const assets = await FixedAsset.find();
+    const assets = await FixedAsset.find({
+      createdBy: req.user.id  // 👈 Only show assets created by this user
+    });
 
     const totalAssets = assets.length;
     const totalCost = assets.reduce((sum, a) => sum + a.purchaseCost, 0);
@@ -581,7 +637,10 @@ exports.getSummary = async (req, res) => {
 // ==================== DELETE FIXED ASSET ====================
 exports.deleteFixedAsset = async (req, res) => {
   try {
-    const asset = await FixedAsset.findById(req.params.id);
+    const asset = await FixedAsset.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this asset
+    });
 
     if (!asset) {
       return res.status(404).json({

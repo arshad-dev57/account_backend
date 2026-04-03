@@ -55,15 +55,16 @@ exports.getCashFlowStatement = async (req, res) => {
     
     const dateFilter = {
       date: { $gte: start, $lte: end },
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show entries created by this user
     };
     
     // ==================== OPERATING ACTIVITIES ====================
-    // Cash inflows from customers (Income records)
+    // Cash inflows from customers (Income records) - only for this user
     const incomes = await Income.find(dateFilter);
     const cashReceiptsFromCustomers = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
     
-    // Cash outflows to suppliers (Expense records)
+    // Cash outflows to suppliers (Expense records) - only for this user
     const expenses = await Expense.find(dateFilter);
     const cashPaidToSuppliers = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
     
@@ -95,16 +96,18 @@ exports.getCashFlowStatement = async (req, res) => {
     const cashFlowFromOperations = cashReceiptsFromCustomers - cashPaidToSuppliers;
     
     // ==================== INVESTING ACTIVITIES ====================
-    // Purchase of fixed assets
+    // Purchase of fixed assets - only for this user
     const fixedAssets = await FixedAsset.find({
-      purchaseDate: { $gte: start, $lte: end }
+      purchaseDate: { $gte: start, $lte: end },
+      createdBy: req.user.id  // 👈 Only show assets created by this user
     });
     const purchaseOfEquipment = fixedAssets.reduce((sum, asset) => sum + asset.purchaseCost, 0);
     
-    // Sale of fixed assets (from disposed assets)
+    // Sale of fixed assets (from disposed assets) - only for this user
     const disposedAssets = await FixedAsset.find({
       disposedDate: { $gte: start, $lte: end },
-      status: 'Disposed'
+      status: 'Disposed',
+      createdBy: req.user.id  // 👈 Only show assets created by this user
     });
     const saleOfFixedAssets = disposedAssets.reduce((sum, asset) => sum + (asset.disposalAmount || 0), 0);
     
@@ -112,24 +115,26 @@ exports.getCashFlowStatement = async (req, res) => {
     const cashFlowFromInvesting = saleOfFixedAssets - purchaseOfEquipment;
     
     // ==================== FINANCING ACTIVITIES ====================
-    // Loan proceeds (new loans)
+    // Loan proceeds (new loans) - only for this user
     const newLoans = await Loan.find({
-      disbursementDate: { $gte: start, $lte: end }
+      disbursementDate: { $gte: start, $lte: end },
+      createdBy: req.user.id  // 👈 Only show loans created by this user
     });
     const loanProceeds = newLoans.reduce((sum, loan) => sum + loan.loanAmount, 0);
     
-    // Loan repayments (payments made on loans)
+    // Loan repayments (payments made on loans) - only for this user
     const loanPayments = await PaymentMade.find({
       paymentDate: { $gte: start, $lte: end },
-      loanId: { $exists: true }
+      loanId: { $exists: true },
+      createdBy: req.user.id  // 👈 Only show payments created by this user
     });
     const loanRepayments = loanPayments.reduce((sum, payment) => sum + payment.amount, 0);
     
-    // Capital investment (from equity additions)
-    const capitalInvestments = 0; // TODO: Get from EquityAccount transactions
+    // Capital investment (from equity additions) - TODO: Add EquityAccount model
+    const capitalInvestments = 0;
     
-    // Owner drawings (from equity withdrawals)
-    const ownerDrawings = 0; // TODO: Get from EquityAccount transactions
+    // Owner drawings (from equity withdrawals) - TODO: Add EquityAccount model
+    const ownerDrawings = 0;
     
     // Calculate financing activities
     const cashFlowFromFinancing = loanProceeds - loanRepayments + capitalInvestments - ownerDrawings;
@@ -138,11 +143,14 @@ exports.getCashFlowStatement = async (req, res) => {
     const netCashFlow = cashFlowFromOperations + cashFlowFromInvesting + cashFlowFromFinancing;
     
     // ==================== OPENING & CLOSING BALANCES ====================
-    // Get opening cash balance (from bank accounts before period start)
+    // Get opening cash balance (from bank accounts before period start) - only for this user
     const openingDate = new Date(start);
     openingDate.setDate(openingDate.getDate() - 1);
     
-    const bankAccounts = await BankAccount.find({ status: 'Active' });
+    const bankAccounts = await BankAccount.find({ 
+      status: 'Active',
+      createdBy: req.user.id  // 👈 Only show bank accounts created by this user
+    });
     let openingCashBalance = 0;
     let closingCashBalance = 0;
     
@@ -223,23 +231,28 @@ exports.getSummary = async (req, res) => {
     const endOfMonth = new Date(now);
     endOfMonth.setHours(23, 59, 59, 999);
     
-    // Get current month incomes and expenses
+    // Get current month incomes and expenses - only for this user
     const monthIncomes = await Income.find({
       date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show incomes created by this user
     });
     
     const monthExpenses = await Expense.find({
       date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show expenses created by this user
     });
     
     const monthCashInflow = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
     const monthCashOutflow = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
     const monthNetCashFlow = monthCashInflow - monthCashOutflow;
     
-    // Get bank balances
-    const bankAccounts = await BankAccount.find({ status: 'Active' });
+    // Get bank balances - only for this user
+    const bankAccounts = await BankAccount.find({ 
+      status: 'Active',
+      createdBy: req.user.id  // 👈 Only show bank accounts created by this user
+    });
     const currentCashBalance = bankAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
     
     res.status(200).json({
@@ -255,6 +268,143 @@ exports.getSummary = async (req, res) => {
     
   } catch (error) {
     console.error('Error generating cash flow summary:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== GET CASH FLOW TREND ====================
+exports.getTrend = async (req, res) => {
+  try {
+    const { months = 12 } = req.query;
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setMonth(endDate.getMonth() - parseInt(months));
+    
+    const monthlyData = [];
+    
+    for (let i = 0; i <= parseInt(months); i++) {
+      const date = new Date(startDate);
+      date.setMonth(startDate.getMonth() + i);
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      monthEnd.setHours(23, 59, 59, 999);
+      
+      // Get incomes for this month - only for this user
+      const monthIncomes = await Income.aggregate([
+        { $match: { 
+          date: { $gte: monthStart, $lte: monthEnd }, 
+          status: 'Posted',
+          createdBy: req.user.id  // 👈 Only show incomes created by this user
+        } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]);
+      
+      // Get expenses for this month - only for this user
+      const monthExpenses = await Expense.aggregate([
+        { $match: { 
+          date: { $gte: monthStart, $lte: monthEnd }, 
+          status: 'Posted',
+          createdBy: req.user.id  // 👈 Only show expenses created by this user
+        } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]);
+      
+      const inflow = monthIncomes[0]?.total || 0;
+      const outflow = monthExpenses[0]?.total || 0;
+      
+      monthlyData.push({
+        month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
+        inflow: inflow,
+        outflow: outflow,
+        netCashFlow: inflow - outflow
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: monthlyData
+    });
+    
+  } catch (error) {
+    console.error('Error generating cash flow trend:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== GET DETAILED CASH FLOW ====================
+exports.getDetailedCashFlow = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    let start, end;
+    
+    if (startDate && endDate) {
+      start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+    } else {
+      const now = new Date();
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+    }
+    
+    const dateFilter = {
+      date: { $gte: start, $lte: end },
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show entries created by this user
+    };
+    
+    // Get all incomes with details
+    const incomes = await Income.find(dateFilter).sort({ date: -1 });
+    const incomeDetails = incomes.map(inc => ({
+      date: inc.date,
+      type: inc.incomeType,
+      description: inc.description,
+      amount: inc.totalAmount,
+      reference: inc.reference,
+      paymentMethod: inc.paymentMethod
+    }));
+    
+    // Get all expenses with details
+    const expenses = await Expense.find(dateFilter).sort({ date: -1 });
+    const expenseDetails = expenses.map(exp => ({
+      date: exp.date,
+      type: exp.expenseType,
+      description: exp.description,
+      amount: exp.totalAmount,
+      reference: exp.reference,
+      paymentMethod: exp.paymentMethod
+    }));
+    
+    const totalInflow = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    const totalOutflow = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        period: {
+          start: start,
+          end: end
+        },
+        summary: {
+          totalInflow: totalInflow,
+          totalOutflow: totalOutflow,
+          netCashFlow: totalInflow - totalOutflow
+        },
+        inflows: incomeDetails,
+        outflows: expenseDetails
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error generating detailed cash flow:', error);
     res.status(500).json({
       success: false,
       message: error.message

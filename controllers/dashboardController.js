@@ -6,6 +6,17 @@ const PaymentReceived = require('../models/PaymentReceived');
 const PaymentMade = require('../models/PaymentMade');
 const ChartOfAccount = require('../models/ChartOfAccount');
 
+// ==================== HELPER FUNCTION ====================
+function formatAmount(amount) {
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  });
+  return formatter.format(amount);
+}
+
 // ==================== GET DASHBOARD SUMMARY ====================
 exports.getDashboardSummary = async (req, res) => {
   try {
@@ -19,38 +30,47 @@ exports.getDashboardSummary = async (req, res) => {
     startOfWeek.setHours(0, 0, 0, 0);
     
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
     
-    // Get all incomes for current month
+    // ✅ Get all incomes for current month (only current user)
     const monthIncomes = await Income.find({
       date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id
     });
     
     const monthExpenses = await Expense.find({
       date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id
     });
     
-    // Get all incomes for current week
+    // ✅ Get all incomes for current week (only current user)
     const weekIncomes = await Income.find({
       date: { $gte: startOfWeek, $lte: endOfMonth },
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id
     });
     
     const weekExpenses = await Expense.find({
       date: { $gte: startOfWeek, $lte: endOfMonth },
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id
     });
     
-    // Get all incomes for today
+    // ✅ Get all incomes for today (only current user)
     const dayIncomes = await Income.find({
-      date: { $gte: startOfDay, $lte: endOfMonth },
-      status: 'Posted'
+      date: { $gte: startOfDay, $lte: endOfDay },
+      status: 'Posted',
+      createdBy: req.user.id
     });
     
     const dayExpenses = await Expense.find({
-      date: { $gte: startOfDay, $lte: endOfMonth },
-      status: 'Posted'
+      date: { $gte: startOfDay, $lte: endOfDay },
+      status: 'Posted',
+      createdBy: req.user.id
     });
     
     // Calculate totals
@@ -63,52 +83,56 @@ exports.getDashboardSummary = async (req, res) => {
     const totalRevenueDay = dayIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
     const totalExpensesDay = dayExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
     
-    // Get outstanding invoices
+    // ✅ Get outstanding invoices (only current user)
     const outstandingInvoices = await Invoice.find({
       status: { $in: ['Unpaid', 'Partial', 'Overdue'] },
-      outstanding: { $gt: 0 }
+      outstanding: { $gt: 0 },
+      createdBy: req.user.id
     });
     
     const totalOutstanding = outstandingInvoices.reduce((sum, inv) => sum + inv.outstanding, 0);
     
-    // Get cash balance from bank accounts
-    const bankAccounts = await BankAccount.find({ status: 'Active' });
+    // ✅ Get cash balance from bank accounts (only current user)
+    const bankAccounts = await BankAccount.find({ 
+      status: 'Active',
+      createdBy: req.user.id
+    });
     const cashBalance = bankAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
     
-    // Calculate percentage changes
+    // ✅ Calculate percentage changes with last month data (only current user)
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    lastMonthEnd.setHours(23, 59, 59, 999);
+    
     const lastMonthIncomes = await Income.find({
-      date: {
-        $gte: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-        $lte: new Date(now.getFullYear(), now.getMonth(), 0)
-      },
-      status: 'Posted'
+      date: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      status: 'Posted',
+      createdBy: req.user.id
     });
     const lastMonthRevenue = lastMonthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
     const revenueChange = lastMonthRevenue > 0 
       ? ((totalRevenueMonth - lastMonthRevenue) / lastMonthRevenue) * 100 
-      : 0;
+      : totalRevenueMonth > 0 ? 100 : 0;
     
     const lastMonthExpenses = await Expense.find({
-      date: {
-        $gte: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-        $lte: new Date(now.getFullYear(), now.getMonth(), 0)
-      },
-      status: 'Posted'
+      date: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      status: 'Posted',
+      createdBy: req.user.id
     });
     const lastMonthExpenseTotal = lastMonthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
     const expenseChange = lastMonthExpenseTotal > 0 
       ? ((totalExpensesMonth - lastMonthExpenseTotal) / lastMonthExpenseTotal) * 100 
-      : 0;
+      : totalExpensesMonth > 0 ? 100 : 0;
     
-    const lastMonthOutstanding = 0; // TODO: Get last month outstanding
+    const lastMonthOutstanding = 0;
     const outstandingChange = lastMonthOutstanding > 0 
       ? ((totalOutstanding - lastMonthOutstanding) / lastMonthOutstanding) * 100 
-      : 0;
+      : totalOutstanding > 0 ? 100 : 0;
     
     const lastMonthCash = cashBalance - totalRevenueMonth + totalExpensesMonth;
     const cashChange = lastMonthCash > 0 
       ? ((cashBalance - lastMonthCash) / lastMonthCash) * 100 
-      : 0;
+      : cashBalance > 0 ? 100 : 0;
     
     res.status(200).json({
       success: true,
@@ -117,21 +141,21 @@ exports.getDashboardSummary = async (req, res) => {
           totalRevenue: {
             amount: totalRevenueMonth,
             formatted: formatAmount(totalRevenueMonth),
-            change: revenueChange,
+            change: Math.round(revenueChange),
             isPositive: revenueChange >= 0,
             period: 'This Month'
           },
           totalExpenses: {
             amount: totalExpensesMonth,
             formatted: formatAmount(totalExpensesMonth),
-            change: expenseChange,
+            change: Math.round(Math.abs(expenseChange)),
             isPositive: expenseChange <= 0,
             period: 'This Month'
           },
           outstanding: {
             amount: totalOutstanding,
             formatted: formatAmount(totalOutstanding),
-            change: outstandingChange,
+            change: Math.round(outstandingChange),
             isPositive: outstandingChange <= 0,
             count: outstandingInvoices.length,
             period: 'Current'
@@ -139,7 +163,7 @@ exports.getDashboardSummary = async (req, res) => {
           cashBalance: {
             amount: cashBalance,
             formatted: formatAmount(cashBalance),
-            change: cashChange,
+            change: Math.round(cashChange),
             isPositive: cashChange >= 0,
             period: 'Current'
           }
@@ -182,14 +206,17 @@ exports.getChartData = async (req, res) => {
       const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
       monthEnd.setHours(23, 59, 59, 999);
       
+      // ✅ Only get current user's data
       const monthIncomes = await Income.find({
         date: { $gte: monthStart, $lte: monthEnd },
-        status: 'Posted'
+        status: 'Posted',
+        createdBy: req.user.id
       });
       
       const monthExpenses = await Expense.find({
         date: { $gte: monthStart, $lte: monthEnd },
-        status: 'Posted'
+        status: 'Posted',
+        createdBy: req.user.id
       });
       
       const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
@@ -220,40 +247,40 @@ exports.getChartData = async (req, res) => {
 exports.getExpenseCategories = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    let dateFilter = {};
+    let dateFilter = {
+      status: 'Posted',
+      createdBy: req.user.id  // ✅ Only current user
+    };
     
     if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate)
-        },
-        status: 'Posted'
+      dateFilter.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
       };
     } else {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      dateFilter = {
-        date: { $gte: startOfMonth },
-        status: 'Posted'
-      };
+      dateFilter.date = { $gte: startOfMonth };
     }
     
     const expenses = await Expense.find(dateFilter);
     
     const categories = {};
+    let totalAmount = 0;
+    
     expenses.forEach(exp => {
       if (!categories[exp.expenseType]) {
         categories[exp.expenseType] = 0;
       }
       categories[exp.expenseType] += exp.totalAmount;
+      totalAmount += exp.totalAmount;
     });
     
     const categoryData = Object.entries(categories).map(([name, amount]) => ({
       name,
       amount,
       formatted: formatAmount(amount),
-      percentage: 0 // Will calculate on frontend
+      percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0
     }));
     
     // Sort by amount descending
@@ -276,18 +303,41 @@ exports.getExpenseCategories = async (req, res) => {
 exports.getRecentTransactions = async (req, res) => {
   try {
     const { limit = 10 } = req.query;
+    const limitNum = parseInt(limit);
     
-    // Get recent payments received (income)
-    const paymentsReceived = await PaymentReceived.find({ status: 'Posted' })
-      .sort({ date: -1 })
-      .limit(parseInt(limit))
+    // ✅ Get recent payments received (only current user)
+    const paymentsReceived = await PaymentReceived.find({ 
+      createdBy: req.user.id,
+      status: 'Posted'
+    })
+      .sort({ paymentDate: -1 })
+      .limit(limitNum)
       .populate('invoiceId', 'invoiceNumber');
     
-    // Get recent payments made (expense)
-    const paymentsMade = await PaymentMade.find({ status: 'Cleared' })
+    // ✅ Get recent payments made (only current user)
+    const paymentsMade = await PaymentMade.find({ 
+      createdBy: req.user.id,
+      status: 'Cleared'
+    })
       .sort({ paymentDate: -1 })
-      .limit(parseInt(limit))
+      .limit(limitNum)
       .populate('billId', 'billNumber');
+    
+    // ✅ Get recent incomes (only current user)
+    const recentIncomes = await Income.find({ 
+      createdBy: req.user.id,
+      status: 'Posted'
+    })
+      .sort({ date: -1 })
+      .limit(limitNum);
+    
+    // ✅ Get recent expenses (only current user)
+    const recentExpenses = await Expense.find({ 
+      createdBy: req.user.id,
+      status: 'Posted'
+    })
+      .sort({ date: -1 })
+      .limit(limitNum);
     
     // Combine and sort
     const transactions = [];
@@ -301,7 +351,8 @@ exports.getRecentTransactions = async (req, res) => {
         type: 'income',
         icon: 'payment',
         reference: payment.reference,
-        invoiceNumber: payment.invoiceId?.invoiceNumber
+        invoiceNumber: payment.invoiceId?.invoiceNumber,
+        source: 'payment_received'
       });
     });
     
@@ -314,16 +365,43 @@ exports.getRecentTransactions = async (req, res) => {
         type: 'expense',
         icon: 'shopping_bag',
         reference: payment.reference,
-        billNumber: payment.billId?.billNumber
+        billNumber: payment.billId?.billNumber,
+        source: 'payment_made'
+      });
+    });
+    
+    recentIncomes.forEach(income => {
+      transactions.push({
+        id: income._id,
+        title: income.description || `${income.incomeType} - ${income.incomeNumber}`,
+        amount: income.totalAmount,
+        date: income.date,
+        type: 'income',
+        icon: 'trending_up',
+        reference: income.reference,
+        source: 'income'
+      });
+    });
+    
+    recentExpenses.forEach(expense => {
+      transactions.push({
+        id: expense._id,
+        title: expense.description || `${expense.expenseType} - ${expense.expenseNumber}`,
+        amount: expense.totalAmount,
+        date: expense.date,
+        type: 'expense',
+        icon: 'trending_down',
+        reference: expense.reference,
+        source: 'expense'
       });
     });
     
     // Sort by date descending
-    transactions.sort((a, b) => b.date - a.date);
+    transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
     
     res.status(200).json({
       success: true,
-      data: transactions.slice(0, parseInt(limit))
+      data: transactions.slice(0, limitNum)
     });
   } catch (error) {
     console.error('Error getting recent transactions:', error);
@@ -388,13 +466,63 @@ exports.getQuickActions = async (req, res) => {
   }
 };
 
-// Helper function to format amount
-function formatAmount(amount) {
-  const formatter = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'PKR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  });
-  return formatter.format(amount);
-}
+// ==================== GET YEARLY SUMMARY ====================
+exports.getYearlySummary = async (req, res) => {
+  try {
+    const { year = new Date().getFullYear() } = req.query;
+    const startDate = new Date(year, 0, 1);
+    const endDate = new Date(year, 11, 31);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const monthlyData = [];
+    
+    for (let month = 0; month < 12; month++) {
+      const monthStart = new Date(year, month, 1);
+      const monthEnd = new Date(year, month + 1, 0);
+      monthEnd.setHours(23, 59, 59, 999);
+      
+      const monthIncomes = await Income.find({
+        date: { $gte: monthStart, $lte: monthEnd },
+        status: 'Posted',
+        createdBy: req.user.id
+      });
+      
+      const monthExpenses = await Expense.find({
+        date: { $gte: monthStart, $lte: monthEnd },
+        status: 'Posted',
+        createdBy: req.user.id
+      });
+      
+      const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+      const expenses = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+      
+      monthlyData.push({
+        month: monthStart.toLocaleString('default', { month: 'long' }),
+        revenue,
+        expenses,
+        profit: revenue - expenses
+      });
+    }
+    
+    const totalRevenue = monthlyData.reduce((sum, m) => sum + m.revenue, 0);
+    const totalExpenses = monthlyData.reduce((sum, m) => sum + m.expenses, 0);
+    const totalProfit = totalRevenue - totalExpenses;
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        year: parseInt(year),
+        totalRevenue,
+        totalExpenses,
+        totalProfit,
+        monthlyData
+      }
+    });
+  } catch (error) {
+    console.error('Error getting yearly summary:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

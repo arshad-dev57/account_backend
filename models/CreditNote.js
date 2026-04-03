@@ -27,8 +27,7 @@ const CreditNoteSchema = new mongoose.Schema(
   {
     creditNoteNumber: {
       type: String,
-      unique: true,
-      sparse: true, // This allows null/undefined values
+      // 🔴 REMOVE sparse: true
     },
     date: {
       type: Date,
@@ -121,7 +120,7 @@ const CreditNoteSchema = new mongoose.Schema(
   }
 );
 
-// Generate credit note number before save - FIXED VERSION
+// ✅ FIXED: Generate credit note number before save (PER USER)
 CreditNoteSchema.pre('save', async function() {
   try {
     console.log('Pre-save hook triggered for credit note');
@@ -129,9 +128,11 @@ CreditNoteSchema.pre('save', async function() {
     if (this.isNew && !this.creditNoteNumber) {
       console.log('Generating new credit note number...');
       
-      // Get the count of existing credit notes
+      // ✅ FIX: Sirf current user ke credit notes count karo
       const CreditNoteModel = mongoose.model('CreditNote');
-      const count = await CreditNoteModel.countDocuments();
+      const count = await CreditNoteModel.countDocuments({ 
+        createdBy: this.createdBy  // 👈 Sirf is user ke documents count karo
+      });
       const year = new Date().getFullYear();
       
       // Format: CN-YYYY-0001, CN-YYYY-0002, etc.
@@ -141,8 +142,9 @@ CreditNoteSchema.pre('save', async function() {
     
     // Set expiry date if not set (default 30 days)
     if (!this.expiryDate) {
-      this.expiryDate = new Date();
-      this.expiryDate.setDate(this.expiryDate.getDate() + 30);
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 30);
+      this.expiryDate = expiryDate;
       console.log(`Set expiry date to: ${this.expiryDate}`);
     }
     
@@ -156,6 +158,9 @@ CreditNoteSchema.pre('save', async function() {
     console.error('Error in pre-save hook:', error);
   }
 });
+
+// ✅ ADD: Compound unique index for creditNoteNumber + createdBy
+CreditNoteSchema.index({ creditNoteNumber: 1, createdBy: 1 }, { unique: true });
 
 // Method to check if credit note is expired
 CreditNoteSchema.methods.isExpired = function () {

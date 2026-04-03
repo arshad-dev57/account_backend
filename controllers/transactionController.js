@@ -14,6 +14,7 @@ const Customer = require('../models/Customer');
 const Vendor = require('../models/Vendor');
 const BankAccount = require('../models/BankAccount');
 const ChartOfAccount = require('../models/ChartOfAccount');
+const JournalEntry = require('../models/JournalEntry');
 
 // Helper: Get or create Income/Expense account
 async function getOrCreateAccount(userId, type, category) {
@@ -47,7 +48,11 @@ async function getOrCreateAccount(userId, type, category) {
     accountName = categoryMap[type][category].name;
   }
   
-  let account = await ChartOfAccount.findOne({ code: accountCode });
+  let account = await ChartOfAccount.findOne({ 
+    code: accountCode,
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!account) {
     account = await ChartOfAccount.create({
       code: accountCode,
@@ -64,23 +69,51 @@ async function getOrCreateAccount(userId, type, category) {
 }
 
 // Helper: Get cash account
+// Helper: Get cash account
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+  // ✅ First try to find cash account created by THIS user
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!cashAccount) {
-    cashAccount = await ChartOfAccount.create({
-      code: '1010',
-      name: 'Cash in Hand',
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      description: 'Physical cash',
-      taxCode: 'N/A',
-      createdBy: userId,
-    });
+    // If not found, check if any user has this code (to avoid duplicate)
+    const existingCode = await ChartOfAccount.findOne({ code: '1010' });
+    if (existingCode) {
+      // Code exists but not owned by this user - generate a different code
+      let newCode = '1011';
+      let counter = 1;
+      while (await ChartOfAccount.findOne({ code: newCode, createdBy: userId })) {
+        newCode = `101${counter}`;
+        counter++;
+      }
+      
+      cashAccount = await ChartOfAccount.create({
+        code: newCode,
+        name: 'Cash in Hand',
+        type: 'Assets',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        description: 'Physical cash',
+        taxCode: 'N/A',
+        createdBy: userId,
+      });
+    } else {
+      cashAccount = await ChartOfAccount.create({
+        code: '1010',
+        name: 'Cash in Hand',
+        type: 'Assets',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        description: 'Physical cash',
+        taxCode: 'N/A',
+        createdBy: userId,
+      });
+    }
   }
   return cashAccount;
 }
-
 // ==================== CREATE TRANSACTION ====================
 exports.createTransaction = async (req, res) => {
   try {
@@ -102,13 +135,33 @@ exports.createTransaction = async (req, res) => {
     let vendorName = '';
     
     if (customerId) {
-      const customer = await Customer.findById(customerId);
+      const customer = await Customer.findOne({
+        _id: customerId,
+        createdBy: req.user.id  // 👈 Only allow if user owns this customer
+      });
       if (customer) customerName = customer.name;
     }
     
     if (vendorId) {
-      const vendor = await Vendor.findById(vendorId);
+      const vendor = await Vendor.findOne({
+        _id: vendorId,
+        createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+      });
       if (vendor) vendorName = vendor.name;
+    }
+
+    // Verify bank account if provided
+    if (bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id  // 👈 Only allow if user owns this bank account
+      });
+      if (!bankAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account not found or does not belong to you',
+        });
+      }
     }
 
     const transaction = await Transaction.create({
@@ -138,9 +191,15 @@ exports.createTransaction = async (req, res) => {
     if (paymentMethod === 'Cash') {
       cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
     } else if (bankAccountId) {
-      const bankAccount = await BankAccount.findById(bankAccountId);
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id
+      });
       if (bankAccount) {
-        cashOrBankAccount = await ChartOfAccount.findById(bankAccount.chartOfAccountId);
+        cashOrBankAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id
+        });
       }
     }
     
@@ -203,6 +262,7 @@ exports.createTransaction = async (req, res) => {
     });
   }
 };
+
 // ==================== GET ALL TRANSACTIONS (FROM ALL SOURCES) ====================
 exports.getTransactions = async (req, res) => {
   try {
@@ -262,12 +322,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching INCOME...");
     const incomes = await Income.find({
       ...dateFilter,
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show incomes created by this user
     }).lean();
     console.log("💰 Income count:", incomes.length);
-    if (incomes.length > 0) {
-      console.log("📝 First income:", JSON.stringify(incomes[0], null, 2));
-    }
     
     incomes.forEach(inc => {
       allTransactions.push({
@@ -292,12 +350,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching EXPENSE...");
     const expenses = await Expense.find({
       ...dateFilter,
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show expenses created by this user
     }).lean();
     console.log("💰 Expense count:", expenses.length);
-    if (expenses.length > 0) {
-      console.log("📝 First expense:", JSON.stringify(expenses[0], null, 2));
-    }
     
     expenses.forEach(exp => {
       allTransactions.push({
@@ -322,12 +378,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching INVOICES...");
     const invoices = await Invoice.find({
       ...dateFilter,
-      status: { $in: ['Unpaid', 'Partial', 'Overdue', 'Paid'] }
+      status: { $in: ['Unpaid', 'Partial', 'Overdue', 'Paid'] },
+      createdBy: req.user.id  // 👈 Only show invoices created by this user
     }).lean();
     console.log("💰 Invoice count:", invoices.length);
-    if (invoices.length > 0) {
-      console.log("📝 First invoice:", JSON.stringify(invoices[0], null, 2));
-    }
     
     invoices.forEach(inv => {
       allTransactions.push({
@@ -354,12 +408,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching BILLS...");
     const bills = await Bill.find({
       ...dateFilter,
-      status: { $in: ['Unpaid', 'Partial', 'Overdue', 'Paid'] }
+      status: { $in: ['Unpaid', 'Partial', 'Overdue', 'Paid'] },
+      createdBy: req.user.id  // 👈 Only show bills created by this user
     }).lean();
     console.log("💰 Bill count:", bills.length);
-    if (bills.length > 0) {
-      console.log("📝 First bill:", JSON.stringify(bills[0], null, 2));
-    }
     
     bills.forEach(bill => {
       allTransactions.push({
@@ -386,12 +438,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching PAYMENTS RECEIVED...");
     const paymentsReceived = await PaymentReceived.find({
       ...paymentDateFilter,
-      status: 'Posted'
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show payments created by this user
     }).populate('invoiceId').lean();
     console.log("💰 Payments Received count:", paymentsReceived.length);
-    if (paymentsReceived.length > 0) {
-      console.log("📝 First payment received:", JSON.stringify(paymentsReceived[0], null, 2));
-    }
     
     paymentsReceived.forEach(payment => {
       allTransactions.push({
@@ -417,12 +467,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching PAYMENTS MADE...");
     const paymentsMade = await PaymentMade.find({
       ...paymentDateFilter,
-      status: 'Cleared'
+      status: 'Cleared',
+      createdBy: req.user.id  // 👈 Only show payments created by this user
     }).populate('billId').lean();
     console.log("💰 Payments Made count:", paymentsMade.length);
-    if (paymentsMade.length > 0) {
-      console.log("📝 First payment made:", JSON.stringify(paymentsMade[0], null, 2));
-    }
     
     paymentsMade.forEach(payment => {
       allTransactions.push({
@@ -448,12 +496,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching CREDIT NOTES...");
     const creditNotes = await CreditNote.find({
       ...dateFilter,
-      status: { $in: ['Issued', 'Applied'] }
+      status: { $in: ['Issued', 'Applied'] },
+      createdBy: req.user.id  // 👈 Only show credit notes created by this user
     }).lean();
     console.log("💰 Credit Notes count:", creditNotes.length);
-    if (creditNotes.length > 0) {
-      console.log("📝 First credit note:", JSON.stringify(creditNotes[0], null, 2));
-    }
     
     creditNotes.forEach(cn => {
       allTransactions.push({
@@ -480,12 +526,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching LOANS...");
     const loans = await Loan.find({
       ...loanDateFilter,
-      status: { $ne: 'Fully Paid' }
+      status: { $ne: 'Fully Paid' },
+      createdBy: req.user.id  // 👈 Only show loans created by this user
     }).lean();
     console.log("💰 Loans count:", loans.length);
-    if (loans.length > 0) {
-      console.log("📝 First loan:", JSON.stringify(loans[0], null, 2));
-    }
     
     loans.forEach(loan => {
       allTransactions.push({
@@ -509,12 +553,10 @@ exports.getTransactions = async (req, res) => {
     console.log("\n📊 Fetching FIXED ASSETS...");
     const assets = await FixedAsset.find({
       ...assetDateFilter,
-      status: 'Active'
+      status: 'Active',
+      createdBy: req.user.id  // 👈 Only show assets created by this user
     }).lean();
     console.log("💰 Fixed Assets count:", assets.length);
-    if (assets.length > 0) {
-      console.log("📝 First asset:", JSON.stringify(assets[0], null, 2));
-    }
     
     assets.forEach(asset => {
       allTransactions.push({
@@ -629,7 +671,10 @@ exports.getTransactions = async (req, res) => {
 // ==================== GET SINGLE TRANSACTION ====================
 exports.getTransaction = async (req, res) => {
   try {
-    const transaction = await Transaction.findById(req.params.id)
+    const transaction = await Transaction.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this transaction
+    })
       .populate('customerId', 'name email phone')
       .populate('vendorId', 'name email phone')
       .populate('bankAccountId', 'accountName accountNumber');
@@ -657,7 +702,10 @@ exports.getTransaction = async (req, res) => {
 // ==================== UPDATE TRANSACTION ====================
 exports.updateTransaction = async (req, res) => {
   try {
-    const transaction = await Transaction.findById(req.params.id);
+    const transaction = await Transaction.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this transaction
+    });
 
     if (!transaction) {
       return res.status(404).json({
@@ -673,6 +721,50 @@ exports.updateTransaction = async (req, res) => {
       });
     }
 
+    // Validate customer if updating
+    if (req.body.customerId) {
+      const customer = await Customer.findOne({
+        _id: req.body.customerId,
+        createdBy: req.user.id
+      });
+      if (!customer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Customer not found or does not belong to you',
+        });
+      }
+      transaction.customerName = customer.name;
+    }
+    
+    // Validate vendor if updating
+    if (req.body.vendorId) {
+      const vendor = await Vendor.findOne({
+        _id: req.body.vendorId,
+        createdBy: req.user.id
+      });
+      if (!vendor) {
+        return res.status(400).json({
+          success: false,
+          message: 'Vendor not found or does not belong to you',
+        });
+      }
+      transaction.vendorName = vendor.name;
+    }
+
+    // Validate bank account if updating
+    if (req.body.bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: req.body.bankAccountId,
+        createdBy: req.user.id
+      });
+      if (!bankAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account not found or does not belong to you',
+        });
+      }
+    }
+
     const allowedUpdates = [
       'date', 'title', 'description', 'amount', 'category',
       'paymentMethod', 'reference', 'customerId', 'vendorId', 'bankAccountId'
@@ -683,16 +775,6 @@ exports.updateTransaction = async (req, res) => {
         transaction[field] = req.body[field];
       }
     });
-
-    if (req.body.customerId) {
-      const customer = await Customer.findById(req.body.customerId);
-      if (customer) transaction.customerName = customer.name;
-    }
-    
-    if (req.body.vendorId) {
-      const vendor = await Vendor.findById(req.body.vendorId);
-      if (vendor) transaction.vendorName = vendor.name;
-    }
 
     await transaction.save();
 
@@ -713,7 +795,10 @@ exports.updateTransaction = async (req, res) => {
 // ==================== DELETE TRANSACTION ====================
 exports.deleteTransaction = async (req, res) => {
   try {
-    const transaction = await Transaction.findById(req.params.id);
+    const transaction = await Transaction.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this transaction
+    });
 
     if (!transaction) {
       return res.status(404).json({
@@ -764,10 +849,29 @@ exports.getSummary = async (req, res) => {
       };
     }
 
-    const incomes = await Income.find({ ...dateFilter, status: 'Posted' });
-    const expenses = await Expense.find({ ...dateFilter, status: 'Posted' });
-    const paymentsReceived = await PaymentReceived.find({ ...paymentDateFilter, status: 'Posted' });
-    const paymentsMade = await PaymentMade.find({ ...paymentDateFilter, status: 'Cleared' });
+    const incomes = await Income.find({ 
+      ...dateFilter, 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show incomes created by this user
+    });
+    
+    const expenses = await Expense.find({ 
+      ...dateFilter, 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show expenses created by this user
+    });
+    
+    const paymentsReceived = await PaymentReceived.find({ 
+      ...paymentDateFilter, 
+      status: 'Posted',
+      createdBy: req.user.id  // 👈 Only show payments created by this user
+    });
+    
+    const paymentsMade = await PaymentMade.find({ 
+      ...paymentDateFilter, 
+      status: 'Cleared',
+      createdBy: req.user.id  // 👈 Only show payments created by this user
+    });
     
     const totalIncome = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0) +
                          paymentsReceived.reduce((sum, pay) => sum + pay.amount, 0);

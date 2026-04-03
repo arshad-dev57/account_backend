@@ -5,7 +5,7 @@ const ChartOfAccountSchema = new mongoose.Schema(
     code: {
       type: String,
       required: [true, 'Account code is required'],
-      unique: true,
+      // ✅ REMOVED: unique: true,
       trim: true,
     },
     name: {
@@ -58,22 +58,21 @@ const ChartOfAccountSchema = new mongoose.Schema(
   }
 );
 
+// ✅ ADD THIS - Compound unique index (code + createdBy)
+ChartOfAccountSchema.index({ code: 1, createdBy: 1 }, { unique: true });
+
 // Auto-calculate balanceType and currentBalance
 ChartOfAccountSchema.pre('save', function() {
-  // ✅ FIX: Only set currentBalance from openingBalance for new documents
   if (this.isNew) {
     this.currentBalance = this.openingBalance;
   }
   
-  // Assets and Expenses have Debit balance
   if (this.type === 'Assets' || this.type === 'Expenses') {
     this.balanceType = 'Debit';
   } 
-  // Liabilities, Equity, Income have Credit balance
   else if (this.type === 'Liabilities' || this.type === 'Equity' || this.type === 'Income') {
     this.balanceType = 'Credit';
   }
-  
 });
 
 module.exports = mongoose.model('ChartOfAccount', ChartOfAccountSchema);

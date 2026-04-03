@@ -34,7 +34,11 @@ const reportRoutes = require('./routes/reportRoutes');
 const incomeRoutes = require('./routes/incomeRoutes');
 const equityRoutes = require('./routes/equityRoutes');
 const loanRoutes = require('./routes/loanRoutes');
+// Add with other route imports
+const profileRoutes = require('./routes/profileRoutes');
 
+// Add with other route mounts (after auth middleware)
+app.use('/api/profile', profileRoutes);
 // ========== MOUNT ROUTES ==========
 // Middleware (protect & subscription) will be applied inside route files
 

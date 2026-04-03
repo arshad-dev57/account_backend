@@ -7,7 +7,11 @@ const ChartOfAccount = require('../models/ChartOfAccount');
 
 // Helper: Get or create Accounts Payable account
 async function getOrCreatePayableAccount(userId) {
-  let apAccount = await ChartOfAccount.findOne({ code: '2010' });
+  let apAccount = await ChartOfAccount.findOne({ 
+    code: '2010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!apAccount) {
     apAccount = await ChartOfAccount.create({
       code: '2010',
@@ -30,7 +34,11 @@ async function getOrCreatePayableAccount(userId) {
 
 // Helper: Get or create Cash account
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId  // 👈 Only find account created by this user
+  });
+  
   if (!cashAccount) {
     cashAccount = await ChartOfAccount.create({
       code: '1010',
@@ -67,8 +75,12 @@ exports.recordPayment = async (req, res) => {
       notes,
     } = req.body;
 
-    // 1. Validate bill
-    const bill = await Bill.findById(billId);
+    // 1. Validate bill - must belong to user
+    const bill = await Bill.findOne({
+      _id: billId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this bill
+    });
+    
     if (!bill) {
       return res.status(404).json({
         success: false,
@@ -85,8 +97,12 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
-    // 3. Get vendor details
-    const vendor = await Vendor.findById(vendorId);
+    // 3. Get vendor details - must belong to user
+    const vendor = await Vendor.findOne({
+      _id: vendorId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+    });
+    
     if (!vendor) {
       return res.status(404).json({
         success: false,
@@ -94,13 +110,19 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
-    // 4. Get bank account if selected
+    // 4. Get bank account if selected - must belong to user
     let bankAccount = null;
     let bankChartAccount = null;
     if (bankAccountId && paymentMethod === 'Bank Transfer') {
-      bankAccount = await BankAccount.findById(bankAccountId);
+      bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id  // 👈 Only find bank account created by this user
+      });
       if (bankAccount) {
-        bankChartAccount = await ChartOfAccount.findById(bankAccount.chartOfAccountId);
+        bankChartAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id  // 👈 Only find chart account created by this user
+        });
         // ✅ FIX: Ensure bank chart account has code
         if (bankChartAccount && !bankChartAccount.code) {
           bankChartAccount.code = '1020';
@@ -114,7 +136,7 @@ exports.recordPayment = async (req, res) => {
     const cashAccount = await getOrCreateCashAccount(req.user.id);
 
     // 6. Generate payment number manually if pre-save hook is not working
-    const count = await PaymentMade.countDocuments();
+    const count = await PaymentMade.countDocuments({ createdBy: req.user.id });
     const year = new Date().getFullYear();
     const paymentNumber = `PMT-${year}-${String(count + 1).padStart(4, '0')}`;
 
@@ -177,15 +199,24 @@ exports.recordPayment = async (req, res) => {
       await bankAccount.save();
       
       if (bankChartAccount) {
-        await ChartOfAccount.findByIdAndUpdate(bankChartAccount._id, {
-          currentBalance: bankAccount.currentBalance,
-        });
+        await ChartOfAccount.findOneAndUpdate(
+          { 
+            _id: bankChartAccount._id,
+            createdBy: req.user.id  // 👈 Only update if user owns this account
+          },
+          {
+            currentBalance: bankAccount.currentBalance,
+          }
+        );
       }
     }
 
     // 11. Update cash account balance if cash payment
     if (paymentMethod === 'Cash') {
-      const cashChartAccount = await ChartOfAccount.findById(cashAccount._id);
+      const cashChartAccount = await ChartOfAccount.findOne({
+        _id: cashAccount._id,
+        createdBy: req.user.id  // 👈 Only find chart account created by this user
+      });
       if (cashChartAccount) {
         cashChartAccount.currentBalance -= amount;
         await cashChartAccount.save();
@@ -220,10 +251,32 @@ exports.recordPayment = async (req, res) => {
 exports.getPayments = async (req, res) => {
   try {
     const { vendorId, billId, status, startDate, endDate, search } = req.query;
-    let query = {};
+    let query = {
+      createdBy: req.user.id  // 👈 Only show payments created by this user
+    };
 
-    if (vendorId) query.vendorId = vendorId;
-    if (billId) query.billId = billId;
+    if (vendorId) {
+      // Verify vendor belongs to user
+      const vendor = await Vendor.findOne({
+        _id: vendorId,
+        createdBy: req.user.id
+      });
+      if (vendor) {
+        query.vendorId = vendorId;
+      }
+    }
+    
+    if (billId) {
+      // Verify bill belongs to user
+      const bill = await Bill.findOne({
+        _id: billId,
+        createdBy: req.user.id
+      });
+      if (bill) {
+        query.billId = billId;
+      }
+    }
+    
     if (status) query.status = status;
     if (startDate && endDate) {
       query.paymentDate = { $gte: new Date(startDate), $lte: new Date(endDate) };
@@ -262,7 +315,10 @@ exports.getPayments = async (req, res) => {
 // @access  Private
 exports.getPayment = async (req, res) => {
   try {
-    const payment = await PaymentMade.findById(req.params.id)
+    const payment = await PaymentMade.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id  // 👈 Only allow if user owns this payment
+    })
       .populate('vendorId', 'name email phone address')
       .populate('billId', 'billNumber date dueDate items totalAmount');
 
@@ -293,9 +349,23 @@ exports.getUnpaidBills = async (req, res) => {
   try {
     const { vendorId } = req.params;
     
+    // Verify vendor belongs to user
+    const vendor = await Vendor.findOne({
+      _id: vendorId,
+      createdBy: req.user.id  // 👈 Only allow if user owns this vendor
+    });
+    
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vendor not found',
+      });
+    }
+    
     const bills = await Bill.find({
       vendorId,
       status: { $ne: 'Paid' },
+      createdBy: req.user.id,  // 👈 Only show bills created by this user
     }).sort({ dueDate: 1 });
 
     const unpaidBills = bills.map(bill => ({
@@ -329,14 +399,14 @@ exports.getUnpaidBills = async (req, res) => {
 exports.getSummary = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    let dateFilter = {};
+    let dateFilter = {
+      createdBy: req.user.id  // 👈 Only show payments created by this user
+    };
 
     if (startDate && endDate) {
-      dateFilter = {
-        paymentDate: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate),
-        },
+      dateFilter.paymentDate = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
       };
     }
 
@@ -352,21 +422,33 @@ exports.getSummary = async (req, res) => {
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     const thisWeek = await PaymentMade.aggregate([
-      { $match: { paymentDate: { $gte: startOfWeek } } },
+      { $match: { 
+        paymentDate: { $gte: startOfWeek },
+        createdBy: req.user.id  // 👈 Only show payments created by this user
+      } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
     const thisMonth = await PaymentMade.aggregate([
-      { $match: { paymentDate: { $gte: startOfMonth } } },
+      { $match: { 
+        paymentDate: { $gte: startOfMonth },
+        createdBy: req.user.id  // 👈 Only show payments created by this user
+      } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
     const today = await PaymentMade.aggregate([
-      { $match: { paymentDate: { $gte: startOfDay } } },
+      { $match: { 
+        paymentDate: { $gte: startOfDay },
+        createdBy: req.user.id  // 👈 Only show payments created by this user
+      } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
-    const pending = await PaymentMade.countDocuments({ status: 'Pending' });
+    const pending = await PaymentMade.countDocuments({ 
+      status: 'Pending',
+      createdBy: req.user.id  // 👈 Only count payments created by this user
+    });
 
     res.status(200).json({
       success: true,

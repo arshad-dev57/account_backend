@@ -3,68 +3,70 @@ const Vendor = require('../models/Vendor');
 const BankAccount = require('../models/BankAccount');
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
+
+// ==================== HELPER FUNCTIONS ====================
+
+// Helper: Get or create Expense account (WITHOUT duplicate error)
 async function getOrCreateExpenseAccount(userId, expenseType) {
   let accountCode = '5000';
   let accountName = 'Expenses';
   
-  switch(expenseType) {
-    case 'Rent':
-      accountCode = '5100';
-      accountName = 'Rent Expense';
-      break;
-    case 'Utilities':
-      accountCode = '5200';
-      accountName = 'Utilities Expense';
-      break;
-    case 'Salaries':
-      accountCode = '5300';
-      accountName = 'Salaries Expense';
-      break;
-    case 'Marketing':
-      accountCode = '5400';
-      accountName = 'Marketing Expense';
-      break;
-    case 'Office Supplies':
-      accountCode = '5500';
-      accountName = 'Office Supplies Expense';
-      break;
-    case 'Travel':
-      accountCode = '5600';
-      accountName = 'Travel Expense';
-      break;
-    case 'Meals':
-      accountCode = '5700';
-      accountName = 'Meals & Entertainment';
-      break;
-    case 'Insurance':
-      accountCode = '5800';
-      accountName = 'Insurance Expense';
-      break;
-    case 'Maintenance':
-      accountCode = '5900';
-      accountName = 'Maintenance Expense';
-      break;
-    case 'Software':
-      accountCode = '6000';
-      accountName = 'Software Expense';
-      break;
-    case 'Taxes':
-      accountCode = '6100';
-      accountName = 'Taxes Expense';
-      break;
-    default:
-      accountCode = '6900';
-      accountName = 'Other Expenses';
+  const categoryMap = {
+    'Rent': { code: '5100', name: 'Rent Expense' },
+    'Utilities': { code: '5200', name: 'Utilities Expense' },
+    'Salaries': { code: '5300', name: 'Salaries Expense' },
+    'Marketing': { code: '5400', name: 'Marketing Expense' },
+    'Office Supplies': { code: '5500', name: 'Office Supplies Expense' },
+    'Travel': { code: '5600', name: 'Travel Expense' },
+    'Meals': { code: '5700', name: 'Meals & Entertainment' },
+    'Insurance': { code: '5800', name: 'Insurance Expense' },
+    'Maintenance': { code: '5900', name: 'Maintenance Expense' },
+    'Software': { code: '6000', name: 'Software Expense' },
+    'Taxes': { code: '6100', name: 'Taxes Expense' },
+  };
+  
+  if (categoryMap[expenseType]) {
+    accountCode = categoryMap[expenseType].code;
+    accountName = categoryMap[expenseType].name;
+  } else {
+    accountCode = '6900';
+    accountName = 'Other Expenses';
   }
   
-  let expenseAccount = await ChartOfAccount.findOne({ code: accountCode });
+  // First try to find account created by THIS user
+  let expenseAccount = await ChartOfAccount.findOne({ 
+    code: accountCode,
+    createdBy: userId
+  });
+  
   if (!expenseAccount) {
+    // Check if this code exists for ANY user
+    const existingCode = await ChartOfAccount.findOne({ code: accountCode });
+    
+    let newCode = accountCode;
+    if (existingCode) {
+      // Generate a unique code for this user
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        const baseCode = accountCode.substring(0, 2);
+        const suffix = parseInt(accountCode.substring(2)) + counter;
+        newCode = `${baseCode}${suffix}`;
+        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+    
     expenseAccount = await ChartOfAccount.create({
-      code: accountCode,
+      code: newCode,
       name: accountName,
       type: 'Expenses',
       parentAccount: 'Operating Expenses',
       openingBalance: 0,
+      currentBalance: 0,
       description: `${expenseType} account`,
       taxCode: 'N/A',
       createdBy: userId,
@@ -73,16 +75,38 @@ async function getOrCreateExpenseAccount(userId, expenseType) {
   return expenseAccount;
 }
 
-// Helper: Get cash account
+// Helper: Get or create Cash account (WITHOUT duplicate error)
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ code: '1010' });
+  let cashAccount = await ChartOfAccount.findOne({ 
+    code: '1010',
+    createdBy: userId
+  });
+  
   if (!cashAccount) {
+    // Check if code 1010 exists for ANY user
+    const existingCode = await ChartOfAccount.findOne({ code: '1010' });
+    
+    let newCode = '1010';
+    if (existingCode) {
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = `101${counter}`;
+        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+    
     cashAccount = await ChartOfAccount.create({
-      code: '1010',
+      code: newCode,
       name: 'Cash in Hand',
       type: 'Assets',
       parentAccount: 'Current Assets',
       openingBalance: 0,
+      currentBalance: 0,
       description: 'Physical cash',
       taxCode: 'N/A',
       createdBy: userId,
@@ -91,6 +115,7 @@ async function getOrCreateCashAccount(userId) {
   return cashAccount;
 }
 
+// ==================== CREATE EXPENSE ====================
 exports.createExpense = async (req, res) => {
   try {
     const {
@@ -110,7 +135,10 @@ exports.createExpense = async (req, res) => {
 
     let vendorName = '';
     if (vendorId) {
-      const vendor = await Vendor.findById(vendorId);
+      const vendor = await Vendor.findOne({
+        _id: vendorId,
+        createdBy: req.user.id
+      });
       if (vendor) {
         vendorName = vendor.name;
       }
@@ -126,7 +154,6 @@ exports.createExpense = async (req, res) => {
     const hasItems = items != null && items.length > 0;
     
     if (hasItems) {
-      // Detailed expense (like office supplies with multiple items)
       console.log("📊 Processing DETAILED expense with items");
       finalItems = items.map(item => ({
         description: item.description,
@@ -139,13 +166,27 @@ exports.createExpense = async (req, res) => {
       totalAmount = subtotal + taxAmount;
       finalAmount = 0;
     } else {
-      // Simple expense (like rent, utilities)
       console.log("📊 Processing SIMPLE expense with amount:", amount);
       finalAmount = amount || 0;
       subtotal = finalAmount;
       totalAmount = finalAmount;
       taxAmount = 0;
       finalItems = [];
+    }
+
+    // Verify bank account belongs to user if provided
+    if (bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id
+      });
+      
+      if (!bankAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account not found or does not belong to you',
+        });
+      }
     }
 
     // Create expense record
@@ -183,9 +224,15 @@ exports.createExpense = async (req, res) => {
     if (paymentMethod === 'Cash') {
       cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
     } else if (bankAccountId) {
-      const bankAccount = await BankAccount.findById(bankAccountId);
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id
+      });
       if (bankAccount) {
-        cashOrBankAccount = await ChartOfAccount.findById(bankAccount.chartOfAccountId);
+        cashOrBankAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id
+        });
       }
     }
     
@@ -227,6 +274,15 @@ exports.createExpense = async (req, res) => {
     });
   } catch (error) {
     console.error("🔥 ERROR in createExpense:", error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate entry. Please try again.',
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: error.message,
@@ -234,6 +290,7 @@ exports.createExpense = async (req, res) => {
   }
 };
 
+// ==================== GET ALL EXPENSES ====================
 exports.getExpenses = async (req, res) => {
   try {
     const { 
@@ -246,7 +303,9 @@ exports.getExpenses = async (req, res) => {
       limit = 20 
     } = req.query;
     
-    let query = {};
+    let query = {
+      createdBy: req.user.id
+    };
 
     if (expenseType && expenseType !== 'All') query.expenseType = expenseType;
     if (status && status !== 'All') query.status = status;
@@ -297,7 +356,10 @@ exports.getExpenses = async (req, res) => {
 // ==================== GET SINGLE EXPENSE ====================
 exports.getExpense = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id)
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    })
       .populate('vendorId', 'name email phone')
       .populate('bankAccountId', 'accountName accountNumber');
 
@@ -324,7 +386,10 @@ exports.getExpense = async (req, res) => {
 // ==================== UPDATE EXPENSE ====================
 exports.updateExpense = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id);
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
 
     if (!expense) {
       return res.status(404).json({
@@ -351,11 +416,29 @@ exports.updateExpense = async (req, res) => {
       }
     });
 
-    // Update vendor name if vendor changed
+    // Update vendor name if vendor changed and belongs to user
     if (req.body.vendorId) {
-      const vendor = await Vendor.findById(req.body.vendorId);
+      const vendor = await Vendor.findOne({
+        _id: req.body.vendorId,
+        createdBy: req.user.id
+      });
       if (vendor) {
         expense.vendorName = vendor.name;
+      }
+    }
+
+    // Verify bank account belongs to user if updating
+    if (req.body.bankAccountId) {
+      const bankAccount = await BankAccount.findOne({
+        _id: req.body.bankAccountId,
+        createdBy: req.user.id
+      });
+      
+      if (!bankAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account not found or does not belong to you',
+        });
       }
     }
 
@@ -392,7 +475,10 @@ exports.updateExpense = async (req, res) => {
 // ==================== DELETE EXPENSE ====================
 exports.deleteExpense = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id);
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
 
     if (!expense) {
       return res.status(404).json({
@@ -438,7 +524,11 @@ exports.getSummary = async (req, res) => {
       };
     }
 
-    const allExpenses = await Expense.find({ ...dateFilter, status: 'Posted' });
+    const allExpenses = await Expense.find({ 
+      ...dateFilter, 
+      status: 'Posted',
+      createdBy: req.user.id
+    });
     
     const totalExpense = allExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
     const totalTax = allExpenses.reduce((sum, exp) => sum + exp.taxAmount, 0);
@@ -460,6 +550,7 @@ exports.getSummary = async (req, res) => {
         $match: {
           date: { $gte: startOfMonth },
           status: 'Posted',
+          createdBy: req.user.id,
           ...dateFilter,
         },
       },
@@ -480,6 +571,7 @@ exports.getSummary = async (req, res) => {
         $match: {
           date: { $gte: startOfWeek },
           status: 'Posted',
+          createdBy: req.user.id,
           ...dateFilter,
         },
       },
@@ -515,7 +607,10 @@ exports.getSummary = async (req, res) => {
 // ==================== POST EXPENSE (for draft to posted) ====================
 exports.postExpense = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id);
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      createdBy: req.user.id
+    });
 
     if (!expense) {
       return res.status(404).json({
@@ -544,9 +639,15 @@ exports.postExpense = async (req, res) => {
     if (expense.paymentMethod === 'Cash') {
       cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
     } else if (expense.bankAccountId) {
-      const bankAccount = await BankAccount.findById(expense.bankAccountId);
+      const bankAccount = await BankAccount.findOne({
+        _id: expense.bankAccountId,
+        createdBy: req.user.id
+      });
       if (bankAccount) {
-        cashOrBankAccount = await ChartOfAccount.findById(bankAccount.chartOfAccountId);
+        cashOrBankAccount = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id
+        });
       }
     }
     
