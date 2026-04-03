@@ -84,6 +84,6 @@ setInterval(async () => {
   } catch (error) {
     console.log(`❌ [${currentTime}] Ping Failed | Error: ${error.message}`);
   }
-}, 0.1 * 60 * 1000); // 10 minutes
+}, 10 * 60 * 1000); // 10 minutes 
 
 module.exports = app; 
