@@ -39,11 +39,19 @@ const checkAndExpireSubscription = async (userId) => {
     return;
   }
 };
-
 // ==================== REGISTER ====================
 exports.register = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, country, phone } = req.body;
+    const { 
+      firstName, 
+      lastName, 
+      email, 
+      password, 
+      country, 
+      phone,
+      address,        // ✅ New field
+      organizationName // ✅ New field (Company Name)
+    } = req.body;
 
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -74,6 +82,8 @@ exports.register = async (req, res) => {
       password,
       country,
       phone: phone || '',
+      address: address || '',              // ✅ Save address
+      organizationName: organizationName || '',  // ✅ Save company name
     });
 
     await user.startTrial();
@@ -103,6 +113,8 @@ exports.register = async (req, res) => {
         email: updatedUser.email,
         country: updatedUser.country,
         phone: updatedUser.phone,
+        address: updatedUser.address,                    // ✅ Return address
+        organizationName: updatedUser.organizationName,  // ✅ Return company name
         role: updatedUser.role,
         subscription: {
           plan: updatedUser.subscription.plan,
@@ -120,9 +132,7 @@ exports.register = async (req, res) => {
       error: error.message,
     });
   }
-};
-
-// ==================== LOGIN ====================
+};// ==================== LOGIN ====================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -182,6 +192,8 @@ exports.login = async (req, res) => {
         email: updatedUser.email,
         country: updatedUser.country,
         phone: updatedUser.phone,
+        address: updatedUser.address,                    // ✅ Added
+        organizationName: updatedUser.organizationName,  // ✅ Added
         role: updatedUser.role,
         subscription: {
           plan: updatedUser.subscription.plan,
@@ -201,9 +213,7 @@ exports.login = async (req, res) => {
       error: error.message,
     });
   }
-};
-
-// ==================== GET CURRENT USER ====================
+};// ==================== GET CURRENT USER ====================
 exports.getMe = async (req, res) => {
   try {
     await checkAndExpireSubscription(req.user.id);
