@@ -1,3 +1,4 @@
+// routes/subscriptionRoutes.js
 const express = require('express');
 const {
   getPlans,
@@ -6,26 +7,30 @@ const {
   cancelSubscription,
   getSubscriptionHistory,
 } = require('../controllers/subscriptionController');
+
+const {
+  createCheckoutSession,
+  handleWebhook,
+  verifySession,
+} = require('../controllers/stripeController');
+
 const { protect, protectOnly } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// ========== ROUTES WITH ONLY AUTHENTICATION (NO SUBSCRIPTION CHECK) ==========
-// These routes should work even if user has no active subscription
-
-// Get subscription plans
+// ========== EXISTING ROUTES ==========
 router.get('/plans', protectOnly, getPlans);
-
-// Check current subscription status
 router.get('/status', protectOnly, checkSubscription);
-
-// Create subscription (after payment) - IMPORTANT: No subscription check here!
-router.post('/create', protectOnly, createSubscription);
-
-// Cancel subscription
+router.post('/create', protectOnly, createSubscription); // Manual/fallback ke liye rakho
 router.post('/cancel', protectOnly, cancelSubscription);
-
-// Get subscription history
 router.get('/history', protectOnly, getSubscriptionHistory);
+
+// ========== STRIPE ROUTES ==========
+
+// 1. Checkout session banao → Flutter ko URL milega
+router.post('/stripe/checkout', protectOnly, createCheckoutSession);
+
+// 2. Payment success ke baad verify karo
+router.get('/stripe/verify/:sessionId', protectOnly, verifySession);
 
 module.exports = router;

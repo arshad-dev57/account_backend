@@ -1,10 +1,30 @@
 const express = require('express');
-const axios = require('axios'); // ✅ add this
+const axios = require('axios');
+const cors = require('cors');
+
 const app = express();
 
+// ✅ CORS pehle
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  credentials: true
+}));
+
+// ==================== ⚠️ WEBHOOK — express.json() SE PEHLE ====================
+// Yeh line express.json() se upar honi CHAHIYE — warna webhook kaam nahi karega
+const { handleWebhook } = require('./controllers/stripeController');
+app.post(
+  '/api/subscription/stripe/webhook',
+  express.raw({ type: 'application/json' }), // Raw body — Stripe signature verify hogi
+  handleWebhook
+);
+// =========================================================================
+
+// ✅ Ab normal JSON middleware — baaki saari routes ke liye
 app.use(express.json());
 
-// ✅ Root route (used for ping)
+// ✅ Root route
 app.get('/', (req, res) => {
   res.send('API is running 🚀');
 });
@@ -41,7 +61,7 @@ const profileRoutes = require('./routes/profileRoutes');
 // ================= MOUNT ROUTES =================
 app.use('/api/profile', profileRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/subscription', subscriptionRoutes);
+app.use('/api/subscription', subscriptionRoutes); // ✅ Webhook yahan nahi — upar already handle hua
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports/cash-flow', cashFlowRoutes);
@@ -69,21 +89,17 @@ app.use('/api/chart-of-accounts', chartOfAccountRoutes);
 
 // ================= SELF PING =================
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || 'https://account-backend-1hor.onrender.com';
-
 console.log('🚀 Self ping service started...');
 console.log(`🔗 Ping URL: ${SELF_URL}`);
 
-// 🔁 Har 10 min baad ping
 setInterval(async () => {
   const currentTime = new Date().toLocaleString();
-
   try {
     const response = await axios.get(SELF_URL);
-
     console.log(`✅ [${currentTime}] Ping Success | Status: ${response.status}`);
   } catch (error) {
     console.log(`❌ [${currentTime}] Ping Failed | Error: ${error.message}`);
   }
-}, 10 * 60 * 1000); // 10 minutes 
+}, 10 * 60 * 1000);
 
-module.exports = app; 
+module.exports = app;
