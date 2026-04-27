@@ -7,19 +7,18 @@ const Subscription = require('../models/Subscription');
 // PKR ke liye Stripe "1 PKR = 1 unit" leta hai (zero-decimal currency hai PKR)
 const PLANS = {
   monthly: {
-    amount: 500,  // 500 PKR
+    amount: 1500,  // 1500 PKR (~$5)
     currency: 'pkr',
     name: 'Monthly Plan',
     duration: '30 days',
   },
   yearly: {
-    amount: 5000, // 5000 PKR
+    amount: 15000, // 15000 PKR (~$50)
     currency: 'pkr',
     name: 'Yearly Plan',
     duration: '365 days',
   },
 };
-
 // ==================== CREATE STRIPE CHECKOUT SESSION ====================
 exports.createCheckoutSession = async (req, res) => {
   try {
