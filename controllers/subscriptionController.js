@@ -8,7 +8,7 @@ exports.getPlans = async (req, res) => {
       {
         id: 'monthly',
         name: 'Monthly Plan',
-        price: 500,
+        price: 1500,
         currency: 'PKR',
         duration: '30 days',
         features: [
@@ -23,7 +23,7 @@ exports.getPlans = async (req, res) => {
       {
         id: 'yearly',
         name: 'Yearly Plan',
-        price: 5000,
+        price: 15000,
         currency: 'PKR',
         duration: '365 days',
         features: [
