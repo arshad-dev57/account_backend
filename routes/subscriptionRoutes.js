@@ -25,6 +25,7 @@ router.post('/create', protectOnly, createSubscription); // Manual/fallback ke l
 router.post('/cancel', protectOnly, cancelSubscription);
 router.get('/history', protectOnly, getSubscriptionHistory);
 
+
 // ========== STRIPE ROUTES ==========
 
 // 1. Checkout session banao → Flutter ko URL milega
