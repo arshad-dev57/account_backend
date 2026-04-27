@@ -6,6 +6,7 @@ const connectDB = require('./config/db');
 // ✅ Connect to MongoDB
 connectDB();
 
+
 // ✅ Use PORT from env or default 5000
 const PORT = process.env.PORT || 5000;
 
