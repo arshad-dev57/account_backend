@@ -88,7 +88,7 @@ app.use('/api/journal-entries', journalEntryRoutes);
 app.use('/api/chart-of-accounts', chartOfAccountRoutes);
 
 // ================= SELF PING =================
-const SELF_URL = process.env.RENDER_EXTERNAL_URL || 'https://account-backend-1hor.onrender.com';
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || 'https://account-backend-1.onrender.com';
 console.log('🚀 Self ping service started...');
 console.log(`🔗 Ping URL: ${SELF_URL}`);
 
