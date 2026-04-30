@@ -7,13 +7,13 @@ const Subscription = require('../models/Subscription');
 // PKR ke liye Stripe "1 PKR = 1 unit" leta hai (zero-decimal currency hai PKR)
 const PLANS = {
   monthly: {
-    amount: 500,  // 1500 PKR (~$5)
+    amount: 1500,  // 1500 PKR (~$5)
     currency: 'usd',
     name: 'Monthly Plan',
     duration: '30 days',
   },
   yearly: {
-    amount: 5000, // 15000 PKR (~$50)
+    amount: 15000, // 15000 PKR (~$50)
     currency: 'usd',
     name: 'Yearly Plan',
     duration: '365 days',
@@ -60,8 +60,8 @@ exports.createCheckoutSession = async (req, res) => {
       },
 
       // ✅ Payment ke baad Flutter Web yahan redirect karega
-      success_url: `${process.env.FRONTEND_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/payment-cancel`,
+      success_url: `${process.env.FRONTEND_URL}/payment-success`,
+      cancel_url: `${process.env.FRONTEND_URL}/dashboard`,
     });
 
     console.log('Stripe session created:', session.id, 'for user:', userId);

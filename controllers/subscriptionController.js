@@ -5,40 +5,41 @@
   exports.getPlans = async (req, res) => {
     try {
       const plans = [
-        {
-          id: 'monthly',
-          name: 'Monthly Plan',
-          price: 1500,
-          currency: 'PKR',
-          duration: '30 days',
-          features: [
-            'Full access to all features',
-            'Unlimited transactions',
-            'All financial reports',
-            'Export to Excel/PDF',
-            'Email support',
-            'Data backup',
-          ],
-        },
-        {
-          id: 'yearly',
-          name: 'Yearly Plan',
-          price: 15000,
-          currency: 'PKR',
-          duration: '365 days',
-          features: [
-            'Full access to all features',
-            'Unlimited transactions',
-            'All financial reports',
-            'Export to Excel/PDF',
-            'Priority support (24/7)',
-            'Data backup',
-            'Advanced analytics',
-            'Save 2 months FREE!',
-          ],
-          isPopular: true,
-          savings: 'Save 16%',
-        },
+          {
+    'id': 'monthly',
+    'name': 'Monthly Plan',
+    'price': 5,
+    'currency': 'usd',
+    'duration': '30 days',
+    'features': [
+      'Full access to all features',
+      'Unlimited transactions',
+      'All financial reports',
+      'Export to Excel/PDF',
+      'Email support',
+      'Data backup',
+    ],
+    'isPopular': false,
+  },
+  {
+    'id': 'yearly',
+    'name': 'Yearly Plan',
+    'price': 150,
+    'currency': 'usd',
+    'duration': '365 days',
+    'features': [
+      'Full access to all features',
+      'Unlimited transactions',
+      'All financial reports',
+      'Export to Excel/PDF',
+      'Priority support (24/7)',
+      'Data backup',
+      'Advanced analytics',
+      'Save 2 months FREE!',
+    ],
+    'isPopular': true,
+    'savings': 'Save 16%',
+  },
       ];
 
       res.status(200).json({
