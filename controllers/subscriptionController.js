@@ -8,7 +8,7 @@
           {
     'id': 'monthly',
     'name': 'Monthly Plan',
-    'price': 5,
+    'price': 15,
     'currency': 'usd',
     'duration': '30 days',
     'features': [

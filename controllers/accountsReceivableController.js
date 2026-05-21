@@ -8,7 +8,7 @@ const BankAccount = require('../models/BankAccount');
 async function getOrCreateReceivableAccount(userId) {
   let arAccount = await ChartOfAccount.findOne({ 
     code: '1110',
-    createdBy: userId  // 👈 Only find account created by this user
+    createdBy: userId
   });
   
   if (!arAccount) {
@@ -30,7 +30,7 @@ async function getOrCreateReceivableAccount(userId) {
 async function getOrCreateRevenueAccount(userId) {
   let revenueAccount = await ChartOfAccount.findOne({ 
     code: '4010',
-    createdBy: userId  // 👈 Only find account created by this user
+    createdBy: userId
   });
   
   if (!revenueAccount) {

@@ -10,7 +10,7 @@ const ChartOfAccount = require('../models/ChartOfAccount');
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'PKR',
+    currency: 'USD',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   });

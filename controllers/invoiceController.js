@@ -78,6 +78,7 @@ async function getNextInvoiceNumber() {
   const year = new Date().getFullYear();
   return `INV-${year}-${String(count + 1).padStart(4, '0')}`;
 }
+
 // @desc    Create invoice
 // @route   POST /api/invoices
 // @access  Private

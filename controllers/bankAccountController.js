@@ -163,7 +163,7 @@ exports.createBankAccount = async (req, res) => {
       bankName,
       branchCode: branchCode || '',
       accountType: accountType || 'Current',
-      currency: currency || 'PKR',
+      currency: currency || 'USD',
       openingBalance: openingBalance || 0,
       currentBalance: openingBalance || 0,
       status: 'Active',
