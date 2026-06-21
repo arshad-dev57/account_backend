@@ -1,87 +1,120 @@
+// backend/controllers/invoiceController.js
+
 const Invoice = require('../models/Invoice');
 const Customer = require('../models/Customer');
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 
-// Helper: Get or create Accounts Receivable account
-// Helper: Get or create Accounts Receivable account (WITHOUT duplicate error)
+// ============================================================
+// HELPER: Get or Create Account (Generic)
+// ============================================================
+async function getOrCreateAccount(userId, accountConfig) {
+  const { code, name, type, parentAccount, description, taxCode } = accountConfig;
+  
+  // ✅ Find existing account for this user
+  let account = await ChartOfAccount.findOne({ 
+    code: code,
+    createdBy: userId
+  });
+  
+  if (!account) {
+    // ✅ Check if code already exists for other users
+    const existingCode = await ChartOfAccount.findOne({ code: code });
+    let newCode = code;
+    
+    if (existingCode) {
+      let counter = 1;
+      // ✅ Find unique code for this user
+      while (await ChartOfAccount.findOne({ code: newCode, createdBy: userId })) {
+        newCode = `${code}${counter}`;
+        counter++;
+      }
+    }
+    
+    // ✅ Create new account
+    account = await ChartOfAccount.create({
+      code: newCode,
+      name: name,
+      type: type,
+      parentAccount: parentAccount,
+      openingBalance: 0,
+      currentBalance: 0,
+      description: description,
+      taxCode: taxCode || 'N/A',
+      createdBy: userId,
+    });
+    
+    console.log(`✅ Created account: ${name} (${newCode}) for user ${userId}`);
+  }
+  
+  return account;
+}
+
+// ============================================================
+// HELPER: Get or Create Accounts Receivable
+// ============================================================
 async function getOrCreateReceivableAccount(userId) {
-  let arAccount = await ChartOfAccount.findOne({ 
+  return getOrCreateAccount(userId, {
     code: '1110',
-    createdBy: userId
+    name: 'Accounts Receivable',
+    type: 'Assets',
+    parentAccount: 'Current Assets',
+    description: 'Amount due from customers',
+    taxCode: 'N/A',
   });
-  
-  if (!arAccount) {
-    // Check if code exists for other user
-    const existingCode = await ChartOfAccount.findOne({ code: '1110' });
-    let newCode = '1110';
-    
-    if (existingCode) {
-      let counter = 1;
-      while (await ChartOfAccount.findOne({ code: newCode, createdBy: userId })) {
-        newCode = `111${counter}`;
-        counter++;
-      }
-    }
-    
-    arAccount = await ChartOfAccount.create({
-      code: newCode,
-      name: 'Accounts Receivable',
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      currentBalance: 0,
-      description: 'Amount due from customers',
-      taxCode: 'N/A',
-      createdBy: userId,
-    });
-  }
-  return arAccount;
 }
 
-// Helper: Get or create Revenue account (WITHOUT duplicate error)
+// ============================================================
+// HELPER: Get or Create Revenue Account
+// ============================================================
 async function getOrCreateRevenueAccount(userId) {
-  let revenueAccount = await ChartOfAccount.findOne({ 
+  return getOrCreateAccount(userId, {
     code: '4010',
-    createdBy: userId
+    name: 'Sales Revenue',
+    type: 'Income',
+    parentAccount: 'Operating Income',
+    description: 'Revenue from sales',
+    taxCode: 'GST-13%',
   });
-  
-  if (!revenueAccount) {
-    const existingCode = await ChartOfAccount.findOne({ code: '4010' });
-    let newCode = '4010';
-    
-    if (existingCode) {
-      let counter = 1;
-      while (await ChartOfAccount.findOne({ code: newCode, createdBy: userId })) {
-        newCode = `401${counter}`;
-        counter++;
-      }
-    }
-    
-    revenueAccount = await ChartOfAccount.create({
-      code: newCode,
-      name: 'Sales Revenue',
-      type: 'Income',
-      parentAccount: 'Operating Income',
-      openingBalance: 0,
-      currentBalance: 0,
-      description: 'Revenue from sales',
-      taxCode: 'GST-13%',
-      createdBy: userId,
-    });
-  }
-  return revenueAccount;
-}
-// Helper: Generate next invoice number
-async function getNextInvoiceNumber() {
-  const count = await Invoice.countDocuments();
-  const year = new Date().getFullYear();
-  return `INV-${year}-${String(count + 1).padStart(4, '0')}`;
 }
 
-// @desc    Create invoice
-// @route   POST /api/invoices
-// @access  Private
+// ============================================================
+// HELPER: Generate Next Invoice Number (FIXED)
+// ============================================================
+async function getNextInvoiceNumber(userId) {
+  const year = new Date().getFullYear();
+  
+  // ✅ Get the last invoice number for this user
+  const lastInvoice = await Invoice.findOne(
+    { 
+      createdBy: userId,
+      invoiceNumber: { $regex: `^INV-${year}-` } 
+    }
+  )
+  .sort({ invoiceNumber: -1 })
+  .limit(1);
+  
+  let nextNumber = 1;
+  
+  if (lastInvoice) {
+    // ✅ Extract number from last invoice
+    const parts = lastInvoice.invoiceNumber.split('-');
+    if (parts.length === 3) {
+      const lastNum = parseInt(parts[2]);
+      if (!isNaN(lastNum)) {
+        nextNumber = lastNum + 1;
+      }
+    }
+  }
+  
+  // ✅ Format: INV-2026-0004
+  const paddedNumber = String(nextNumber).padStart(4, '0');
+  return `INV-${year}-${paddedNumber}`;
+}
+
+// ============================================================
+// CREATE INVOICE (FIXED)
+// ============================================================
 exports.createInvoice = async (req, res) => {
   try {
     const { customerId, date, dueDate, items, discount, notes } = req.body;
@@ -99,7 +132,7 @@ exports.createInvoice = async (req, res) => {
       });
     }
     
-    // ✅ Validate items exist
+    // ✅ Validate items
     if (!items || items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -107,7 +140,48 @@ exports.createInvoice = async (req, res) => {
       });
     }
     
-    // Calculate totals
+    // ✅ Generate UNIQUE invoice number with retry logic
+    let invoiceNumber = await getNextInvoiceNumber(req.user.id);
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+    
+    // ✅ Check if invoice number already exists (extra safety)
+    let existingInvoice = await Invoice.findOne({ 
+      invoiceNumber: invoiceNumber,
+      createdBy: req.user.id 
+    });
+    
+    while (existingInvoice && retryCount < MAX_RETRIES) {
+      console.log(`⚠️ Invoice number ${invoiceNumber} exists, retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+      
+      // ✅ Generate new number using timestamp fallback
+      const timestamp = Date.now().toString().slice(-6);
+      const fallbackNumber = `INV-${new Date().getFullYear()}-${timestamp}`;
+      
+      // ✅ Check if fallback also exists
+      const fallbackExists = await Invoice.findOne({ 
+        invoiceNumber: fallbackNumber,
+        createdBy: req.user.id 
+      });
+      
+      if (!fallbackExists) {
+        invoiceNumber = fallbackNumber;
+        break;
+      }
+      
+      // ✅ Extreme fallback: random number
+      const random = Math.floor(1000 + Math.random() * 9000);
+      invoiceNumber = `INV-${new Date().getFullYear()}-${random}`;
+      
+      existingInvoice = await Invoice.findOne({ 
+        invoiceNumber: invoiceNumber,
+        createdBy: req.user.id 
+      });
+      
+      retryCount++;
+    }
+    
+    // ✅ Calculate totals
     let subtotal = 0;
     let taxTotal = 0;
     
@@ -134,20 +208,18 @@ exports.createInvoice = async (req, res) => {
     const discountAmount = discount || 0;
     let totalAmount = subtotal + taxTotal - discountAmount;
     
-    // ✅ Ensure totalAmount is not negative
-    if (totalAmount < 0) {
-      totalAmount = 0;
-    }
+    if (totalAmount < 0) totalAmount = 0;
     
     console.log("📊 Invoice Calculation:");
+    console.log("   Invoice Number:", invoiceNumber);
     console.log("   Subtotal:", subtotal);
     console.log("   Tax Total:", taxTotal);
     console.log("   Discount:", discountAmount);
     console.log("   Total Amount:", totalAmount);
     
-    // Create invoice
+    // ✅ Create invoice
     const invoice = await Invoice.create({
-      invoiceNumber: await getNextInvoiceNumber(req.user.id),
+      invoiceNumber: invoiceNumber,
       customerId,
       customerName: customer.name,
       date: date || new Date(),
@@ -164,7 +236,9 @@ exports.createInvoice = async (req, res) => {
       paidAmount: 0,
     });
     
-    // ✅ Only create journal entry if totalAmount > 0
+    console.log(`✅ Invoice created: ${invoiceNumber}`);
+    
+    // ✅ Create journal entry if totalAmount > 0
     if (totalAmount > 0) {
       const arAccount = await getOrCreateReceivableAccount(req.user.id);
       const revenueAccount = await getOrCreateRevenueAccount(req.user.id);
@@ -195,16 +269,57 @@ exports.createInvoice = async (req, res) => {
         postedBy: req.user.id,
         postedAt: new Date(),
       });
+      
+      console.log(`✅ Journal entry created for invoice ${invoiceNumber}`);
     }
     
     res.status(201).json({
       success: true,
+      message: 'Invoice created successfully',
       data: invoice,
     });
+    
   } catch (error) {
     console.error('Create invoice error:', error);
     
-    // Handle validation errors
+    // ✅ Handle duplicate key error specifically
+    if (error.code === 11000 && error.keyPattern?.invoiceNumber) {
+      console.log('⚠️ Duplicate invoice number detected, retrying with new number...');
+      
+      try {
+        // ✅ Generate new number with timestamp
+        const timestamp = Date.now().toString().slice(-6);
+        const fallbackNumber = `INV-${new Date().getFullYear()}-${timestamp}`;
+        
+        // ✅ Update invoice with new number
+        const invoiceData = req.body;
+        invoiceData.invoiceNumber = fallbackNumber;
+        invoiceData.createdBy = req.user.id;
+        
+        // ✅ Recreate using same logic
+        const newInvoice = await Invoice.create({
+          ...invoiceData,
+          invoiceNumber: fallbackNumber,
+          createdBy: req.user.id,
+        });
+        
+        return res.status(201).json({
+          success: true,
+          message: 'Invoice created successfully (retry)',
+          data: newInvoice,
+        });
+        
+      } catch (retryError) {
+        console.error('Retry failed:', retryError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to create invoice after retry',
+          error: retryError.message,
+        });
+      }
+    }
+    
+    // ✅ Handle validation errors
     if (error.name === 'ValidationError') {
       const errors = {};
       for (const field in error.errors) {
@@ -224,25 +339,15 @@ exports.createInvoice = async (req, res) => {
   }
 };
 
-// Helper: Generate next invoice number (with user isolation)
-async function getNextInvoiceNumber(userId) {
-  const count = await Invoice.countDocuments({ createdBy: userId });
-  const year = new Date().getFullYear();
-  return `INV-${year}-${String(count + 1).padStart(4, '0')}`;
-}
-// @desc    Get all invoices
-// @route   GET /api/invoices
-// @access  Private
-// @desc    Get all invoices
-// @route   GET /api/invoices
-// @access  Private
+// ============================================================
+// GET ALL INVOICES
+// ============================================================
 exports.getInvoices = async (req, res) => {
   try {
     const { customerId, status, startDate, endDate } = req.query;
     let query = { createdBy: req.user.id };
     
     if (customerId) {
-      // Verify customer belongs to user
       const customer = await Customer.findOne({
         _id: customerId,
         createdBy: req.user.id
@@ -271,13 +376,18 @@ exports.getInvoices = async (req, res) => {
       message: error.message,
     });
   }
-};// @desc    Get single invoice
-// @route   GET /api/invoices/:id
-// @access  Private
+};
+
+// ============================================================
+// GET SINGLE INVOICE
+// ============================================================
 exports.getInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id)
-      .populate('customerId', 'name email phone address');
+    const invoice = await Invoice.findOne({ 
+      _id: req.params.id, 
+      createdBy: req.user.id 
+    })
+    .populate('customerId', 'name email phone address');
     
     if (!invoice) {
       return res.status(404).json({
@@ -299,12 +409,15 @@ exports.getInvoice = async (req, res) => {
   }
 };
 
-// @desc    Update invoice
-// @route   PUT /api/invoices/:id
-// @access  Private
+// ============================================================
+// UPDATE INVOICE
+// ============================================================
 exports.updateInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id);
+    const invoice = await Invoice.findOne({ 
+      _id: req.params.id, 
+      createdBy: req.user.id 
+    });
     
     if (!invoice) {
       return res.status(404).json({
@@ -350,6 +463,24 @@ exports.updateInvoice = async (req, res) => {
       invoice.subtotal = subtotal;
       invoice.taxTotal = taxTotal;
       invoice.totalAmount = subtotal + taxTotal - invoice.discount;
+      invoice.outstanding = invoice.totalAmount - invoice.paidAmount;
+      
+      // ✅ Update journal entry
+      const je = await JournalEntry.findOne({ 
+        reference: invoice.invoiceNumber, 
+        createdBy: req.user.id 
+      });
+      
+      if (je && je.lines && je.lines.length >= 2) {
+        const arLine = je.lines.find(l => l.debit > 0);
+        const revLine = je.lines.find(l => l.credit > 0);
+        
+        if (arLine && revLine) {
+          arLine.debit = invoice.totalAmount;
+          revLine.credit = invoice.totalAmount;
+          await je.save();
+        }
+      }
     }
     
     await invoice.save();
@@ -367,12 +498,15 @@ exports.updateInvoice = async (req, res) => {
   }
 };
 
-// @desc    Delete invoice
-// @route   DELETE /api/invoices/:id
-// @access  Private
+// ============================================================
+// DELETE INVOICE
+// ============================================================
 exports.deleteInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id);
+    const invoice = await Invoice.findOne({ 
+      _id: req.params.id, 
+      createdBy: req.user.id 
+    });
     
     if (!invoice) {
       return res.status(404).json({
@@ -388,8 +522,10 @@ exports.deleteInvoice = async (req, res) => {
       });
     }
     
-    // Delete associated journal entries
-    await JournalEntry.deleteMany({ reference: invoice.invoiceNumber });
+    await JournalEntry.deleteMany({ 
+      reference: invoice.invoiceNumber,
+      createdBy: req.user.id 
+    });
     
     await invoice.deleteOne();
     

@@ -52,6 +52,27 @@ resetOtpExpiry: {
   type: Date,
   default: null,
 },
+  // Rate limiting and Login OTP fields
+  failedLoginAttempts: {
+    type: Number,
+    default: 0,
+  },
+  lockUntil: {
+    type: Date,
+    default: null,
+  },
+  requiresLoginOtp: {
+    type: Boolean,
+    default: false,
+  },
+  loginOtp: {
+    type: String,
+    default: null,
+  },
+  loginOtpExpiry: {
+    type: Date,
+    default: null,
+  },
   // ✅ NEW PROFILE FIELDS
   organizationName: {
     type: String,
@@ -105,6 +126,11 @@ UserSchema.methods.matchPassword = async function(enteredPassword) {
 UserSchema.methods.isTrialExpired = function() {
   if (!this.subscription.trialEndDate) return true;
   return new Date() > this.subscription.trialEndDate;
+};
+
+// Check if account is locked due to failed attempts
+UserSchema.methods.isLocked = function() {
+  return this.lockUntil && this.lockUntil > Date.now();
 };
 
 // Check if user has active subscription

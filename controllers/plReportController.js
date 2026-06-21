@@ -1,8 +1,10 @@
 const Income = require('../models/Income');
 const Expense = require('../models/Expense');
 const ChartOfAccount = require('../models/ChartOfAccount');
+const Invoice = require('../models/Invoice');
+const CreditNote = require('../models/CreditNote');
+const Bill = require('../models/Bill');
 
-// ==================== HELPER FUNCTION ====================
 function _getPeriodDisplayText(period, start, end) {
   if (period && period !== 'Custom Range') {
     switch (period) {
@@ -17,18 +19,18 @@ function _getPeriodDisplayText(period, start, end) {
   return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
 }
 
-// ==================== GET PROFIT & LOSS STATEMENT ====================
 exports.getProfitLossStatement = async (req, res) => {
+
   try {
     console.log('\n========== PROFIT & LOSS STATEMENT DEBUG ==========');
     console.log('🔍 User ID from token:', req.user?._id || req.user?.id);
     console.log('🔍 User Email:', req.user?.email);
-    
+
     const { startDate, endDate, period } = req.query;
     console.log('📅 Request params:', { startDate, endDate, period });
-    
+
     let start, end;
-    
+
     // Handle period presets
     const now = new Date();
     switch (period) {
@@ -70,24 +72,43 @@ exports.getProfitLossStatement = async (req, res) => {
           end.setHours(23, 59, 59, 999);
         }
     }
-    
+
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
-    
+
     const dateFilter = {
       date: { $gte: start, $lte: end },
       status: 'Posted',
       createdBy: req.user._id || req.user.id
     };
-    
+
     console.log('📊 Date Filter:', JSON.stringify(dateFilter, null, 2));
-    
+
     // Get all incomes and expenses for this user
     const incomes = await Income.find(dateFilter);
     const expenses = await Expense.find(dateFilter);
-    
+
+    const invoices = await Invoice.find({
+      date: { $gte: start, $lte: end },
+      status: { $ne: 'Draft' },
+      createdBy: req.user._id || req.user.id
+    });
+
+    const creditNotes = await CreditNote.find({
+      date: { $gte: start, $lte: end },
+      createdBy: req.user._id || req.user.id
+    });
+
+    const bills = await Bill.find({
+      date: { $gte: start, $lte: end },
+      createdBy: req.user._id || req.user.id
+    });
+
     console.log('💰 Incomes found:', incomes.length);
+    console.log('📄 Invoices found:', invoices.length);
+    console.log('📉 Credit Notes found:', creditNotes.length);
     console.log('💸 Expenses found:', expenses.length);
-    
+    console.log('🧾 Bills found:', bills.length);
+
     // Debug: Check if any incomes without createdBy
     if (incomes.length === 0) {
       const allIncomes = await Income.find({ status: 'Posted' }).limit(5);
@@ -96,60 +117,91 @@ exports.getProfitLossStatement = async (req, res) => {
         console.log(`  ${idx + 1}. ID: ${inc._id}, Type: ${inc.incomeType}, Amount: ${inc.totalAmount}, CreatedBy: ${inc.createdBy}`);
       });
     }
-    
+
     // Group incomes by type
     const revenueByType = {};
     let totalRevenue = 0;
-    
+
     incomes.forEach(inc => {
       const type = inc.incomeType;
       const amount = inc.totalAmount;
-      
+
       if (!revenueByType[type]) {
         revenueByType[type] = 0;
       }
       revenueByType[type] += amount;
       totalRevenue += amount;
     });
-    
+
+    // Add Invoices to revenue
+    let invoicesTotal = 0;
+    invoices.forEach(inv => {
+      invoicesTotal += inv.totalAmount;
+    });
+    if (invoicesTotal > 0) {
+      revenueByType['Sales from Invoices'] = invoicesTotal;
+      totalRevenue += invoicesTotal;
+    }
+
+    // Subtract Credit Notes from revenue
+    let creditNotesTotal = 0;
+    creditNotes.forEach(cn => {
+      creditNotesTotal += cn.amount;
+    });
+    if (creditNotesTotal > 0) {
+      revenueByType['Credit Notes / Refunds'] = -creditNotesTotal;
+      totalRevenue -= creditNotesTotal;
+    }
+
     console.log('📈 Revenue by type:', revenueByType);
     console.log('💰 Total Revenue:', totalRevenue);
-    
+
     // Group expenses by type
     const expensesByType = {};
     let totalExpenses = 0;
     let costOfGoodsSold = 0;
     let operatingExpenses = 0;
-    
+
     expenses.forEach(exp => {
       const type = exp.expenseType;
       const amount = exp.totalAmount;
-      
+
       if (!expensesByType[type]) {
         expensesByType[type] = 0;
       }
       expensesByType[type] += amount;
       totalExpenses += amount;
-      
+
       if (type === 'Cost of Goods Sold' || type === 'Inventory Purchase') {
         costOfGoodsSold += amount;
       } else {
         operatingExpenses += amount;
       }
     });
-    
+
+    // Add Bills to Expenses
+    let billsTotal = 0;
+    bills.forEach(bill => {
+      billsTotal += bill.totalAmount;
+    });
+    if (billsTotal > 0) {
+      expensesByType['Purchases / Bills'] = billsTotal;
+      totalExpenses += billsTotal;
+      operatingExpenses += billsTotal;
+    }
+
     console.log('📉 Expenses by type:', expensesByType);
     console.log('💸 Total Expenses:', totalExpenses);
-    
+
     // Separate operating vs other
-    const operatingIncomeTypes = ['Sales', 'Services'];
+    const operatingIncomeTypes = ['Sales', 'Services', 'Sales from Invoices', 'Credit Notes / Refunds'];
     const otherIncomeTypes = ['Interest Income', 'Rental Income', 'Dividend Income', 'Other Income'];
-    const operatingExpenseTypes = ['Rent', 'Salaries', 'Utilities', 'Office Supplies', 'Marketing', 'Insurance', 'Maintenance', 'Software'];
+    const operatingExpenseTypes = ['Rent', 'Salaries', 'Utilities', 'Office Supplies', 'Marketing', 'Insurance', 'Maintenance', 'Software', 'Purchases / Bills'];
     const otherExpenseTypes = ['Taxes', 'Travel', 'Meals', 'Other'];
-    
+
     let operatingRevenue = 0;
     let otherRevenue = 0;
-    
+
     Object.entries(revenueByType).forEach(([type, amount]) => {
       if (operatingIncomeTypes.includes(type)) {
         operatingRevenue += amount;
@@ -159,10 +211,10 @@ exports.getProfitLossStatement = async (req, res) => {
         operatingRevenue += amount;
       }
     });
-    
+
     let operatingExpenseTotal = 0;
     let otherExpenseTotal = 0;
-    
+
     Object.entries(expensesByType).forEach(([type, amount]) => {
       if (operatingExpenseTypes.includes(type)) {
         operatingExpenseTotal += amount;
@@ -172,7 +224,7 @@ exports.getProfitLossStatement = async (req, res) => {
         operatingExpenseTotal += amount;
       }
     });
-    
+
     // Prepare revenue items
     const revenueItems = [];
     for (const [type, amount] of Object.entries(revenueByType)) {
@@ -181,7 +233,7 @@ exports.getProfitLossStatement = async (req, res) => {
         amount: amount
       });
     }
-    
+
     // Prepare expense items
     const expenseItems = [];
     for (const [type, amount] of Object.entries(expensesByType)) {
@@ -190,7 +242,7 @@ exports.getProfitLossStatement = async (req, res) => {
         amount: amount
       });
     }
-    
+
     // Prepare other income items
     const otherIncomeItems = [];
     for (const [type, amount] of Object.entries(revenueByType)) {
@@ -201,7 +253,7 @@ exports.getProfitLossStatement = async (req, res) => {
         });
       }
     }
-    
+
     // Prepare other expense items
     const otherExpenseItems = [];
     for (const [type, amount] of Object.entries(expensesByType)) {
@@ -212,12 +264,12 @@ exports.getProfitLossStatement = async (req, res) => {
         });
       }
     }
-    
+
     // Calculate final figures
     const grossProfit = operatingRevenue - costOfGoodsSold;
     const netOperatingIncome = grossProfit - operatingExpenseTotal;
     const netProfit = netOperatingIncome + otherRevenue - otherExpenseTotal;
-    
+
     console.log('📊 Final Calculations:');
     console.log('   Operating Revenue:', operatingRevenue);
     console.log('   Cost of Goods Sold:', costOfGoodsSold);
@@ -228,7 +280,7 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('   Other Expenses:', otherExpenseTotal);
     console.log('   Net Profit:', netProfit);
     console.log('========== END DEBUG ==========\n');
-    
+
     res.status(200).json({
       success: true,
       data: {
@@ -275,67 +327,137 @@ exports.getSummary = async (req, res) => {
   try {
     console.log('\n========== PROFIT & LOSS SUMMARY DEBUG ==========');
     console.log('🔍 User ID:', req.user?._id || req.user?.id);
-    
+
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now);
     endOfMonth.setHours(23, 59, 59, 999);
-    
+
     const startOfYear = new Date(now.getFullYear(), 0, 1);
     const endOfYear = new Date(now);
     endOfYear.setHours(23, 59, 59, 999);
-    
+
     const userId = req.user._id || req.user.id;
-    
+
     // Current month - only posted entries created by this user
     const monthIncomes = await Income.aggregate([
-      { $match: { 
-        date: { $gte: startOfMonth, $lte: endOfMonth }, 
-        status: 'Posted',
-        createdBy: userId
-      } },
+      {
+        $match: {
+          date: { $gte: startOfMonth, $lte: endOfMonth },
+          status: 'Posted',
+          createdBy: userId
+        }
+      },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]);
-    
+
+    const monthInvoices = await Invoice.aggregate([
+      {
+        $match: {
+          date: { $gte: startOfMonth, $lte: endOfMonth },
+          status: { $ne: 'Draft' },
+          createdBy: userId
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+
+    const monthCreditNotes = await CreditNote.aggregate([
+      {
+        $match: {
+          date: { $gte: startOfMonth, $lte: endOfMonth },
+          createdBy: userId
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+
     const monthExpenses = await Expense.aggregate([
-      { $match: { 
-        date: { $gte: startOfMonth, $lte: endOfMonth }, 
-        status: 'Posted',
-        createdBy: userId
-      } },
+      {
+        $match: {
+          date: { $gte: startOfMonth, $lte: endOfMonth },
+          status: 'Posted',
+          createdBy: userId
+        }
+      },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]);
-    
+
+    const monthBills = await Bill.aggregate([
+      {
+        $match: {
+          date: { $gte: startOfMonth, $lte: endOfMonth },
+          createdBy: userId
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+
     // Current year - only posted entries created by this user
     const yearIncomes = await Income.aggregate([
-      { $match: { 
-        date: { $gte: startOfYear, $lte: endOfYear }, 
-        status: 'Posted',
-        createdBy: userId
-      } },
+      {
+        $match: {
+          date: { $gte: startOfYear, $lte: endOfYear },
+          status: 'Posted',
+          createdBy: userId
+        }
+      },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]);
-    
+
+    const yearInvoices = await Invoice.aggregate([
+      {
+        $match: {
+          date: { $gte: startOfYear, $lte: endOfYear },
+          status: { $ne: 'Draft' },
+          createdBy: userId
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+
+    const yearCreditNotes = await CreditNote.aggregate([
+      {
+        $match: {
+          date: { $gte: startOfYear, $lte: endOfYear },
+          createdBy: userId
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+
     const yearExpenses = await Expense.aggregate([
-      { $match: { 
-        date: { $gte: startOfYear, $lte: endOfYear }, 
-        status: 'Posted',
-        createdBy: userId
-      } },
+      {
+        $match: {
+          date: { $gte: startOfYear, $lte: endOfYear },
+          status: 'Posted',
+          createdBy: userId
+        }
+      },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]);
-    
-    const monthRevenue = monthIncomes[0]?.total || 0;
-    const monthExpense = monthExpenses[0]?.total || 0;
-    const yearRevenue = yearIncomes[0]?.total || 0;
-    const yearExpense = yearExpenses[0]?.total || 0;
-    
+
+    const yearBills = await Bill.aggregate([
+      {
+        $match: {
+          date: { $gte: startOfYear, $lte: endOfYear },
+          createdBy: userId
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+
+    const monthRevenue = (monthIncomes[0]?.total || 0) + (monthInvoices[0]?.total || 0) - (monthCreditNotes[0]?.total || 0);
+    const monthExpense = (monthExpenses[0]?.total || 0) + (monthBills[0]?.total || 0);
+    const yearRevenue = (yearIncomes[0]?.total || 0) + (yearInvoices[0]?.total || 0) - (yearCreditNotes[0]?.total || 0);
+    const yearExpense = (yearExpenses[0]?.total || 0) + (yearBills[0]?.total || 0);
+
     console.log('📊 Month Revenue:', monthRevenue);
     console.log('📊 Month Expense:', monthExpense);
     console.log('📊 Year Revenue:', yearRevenue);
     console.log('📊 Year Expense:', yearExpense);
     console.log('========== END SUMMARY DEBUG ==========\n');
-    
+
     res.status(200).json({
       success: true,
       data: {
@@ -367,43 +489,78 @@ exports.getTrendData = async (req, res) => {
   try {
     console.log('\n========== TREND DATA DEBUG ==========');
     console.log('🔍 User ID:', req.user?._id || req.user?.id);
-    
+
     const { months = 12 } = req.query;
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(endDate.getMonth() - parseInt(months));
-    
+
     const userId = req.user._id || req.user.id;
     const monthlyData = [];
-    
+
     for (let i = 0; i <= parseInt(months); i++) {
       const date = new Date(startDate);
       date.setMonth(startDate.getMonth() + i);
       const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
       const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
       monthEnd.setHours(23, 59, 59, 999);
-      
+
       const monthIncomes = await Income.aggregate([
-        { $match: { 
-          date: { $gte: monthStart, $lte: monthEnd }, 
-          status: 'Posted',
-          createdBy: userId
-        } },
+        {
+          $match: {
+            date: { $gte: monthStart, $lte: monthEnd },
+            status: 'Posted',
+            createdBy: userId
+          }
+        },
         { $group: { _id: null, total: { $sum: '$totalAmount' } } }
       ]);
-      
+
+      const monthInvoices = await Invoice.aggregate([
+        {
+          $match: {
+            date: { $gte: monthStart, $lte: monthEnd },
+            status: { $ne: 'Draft' },
+            createdBy: userId
+          }
+        },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]);
+
+      const monthCreditNotes = await CreditNote.aggregate([
+        {
+          $match: {
+            date: { $gte: monthStart, $lte: monthEnd },
+            createdBy: userId
+          }
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+
       const monthExpenses = await Expense.aggregate([
-        { $match: { 
-          date: { $gte: monthStart, $lte: monthEnd }, 
-          status: 'Posted',
-          createdBy: userId
-        } },
+        {
+          $match: {
+            date: { $gte: monthStart, $lte: monthEnd },
+            status: 'Posted',
+            createdBy: userId
+          }
+        },
         { $group: { _id: null, total: { $sum: '$totalAmount' } } }
       ]);
-      
-      const revenue = monthIncomes[0]?.total || 0;
-      const expenses = monthExpenses[0]?.total || 0;
-      
+
+      const monthBills = await Bill.aggregate([
+        {
+          $match: {
+            date: { $gte: monthStart, $lte: monthEnd },
+            createdBy: userId
+          }
+        },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ]);
+
+      const revenue = (monthIncomes[0]?.total || 0) + (monthInvoices[0]?.total || 0) - (monthCreditNotes[0]?.total || 0);
+      const expenses = (monthExpenses[0]?.total || 0) + (monthBills[0]?.total || 0);
+
       monthlyData.push({
         month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
         revenue: revenue,
@@ -411,10 +568,10 @@ exports.getTrendData = async (req, res) => {
         profit: revenue - expenses
       });
     }
-    
+
     console.log('📊 Monthly Data Points:', monthlyData.length);
     console.log('========== END TREND DEBUG ==========\n');
-    
+
     res.status(200).json({
       success: true,
       data: monthlyData
@@ -433,31 +590,31 @@ exports.getBalanceSheet = async (req, res) => {
   try {
     console.log('\n========== BALANCE SHEET DEBUG ==========');
     console.log('🔍 User ID:', req.user?._id || req.user?.id);
-    
+
     const { asOfDate } = req.query;
     const date = asOfDate ? new Date(asOfDate) : new Date();
     date.setHours(23, 59, 59, 999);
-    
+
     const userId = req.user._id || req.user.id;
-    
+
     // Get all chart of accounts created by this user
-    const accounts = await ChartOfAccount.find({ 
+    const accounts = await ChartOfAccount.find({
       createdBy: userId
     });
-    
+
     console.log('📊 Chart of Accounts found:', accounts.length);
-    
+
     let totalAssets = 0;
     let totalLiabilities = 0;
     let totalEquity = 0;
-    
+
     const assets = [];
     const liabilities = [];
     const equity = [];
-    
+
     accounts.forEach(account => {
       const balance = account.currentBalance || account.openingBalance || 0;
-      
+
       if (account.type === 'Assets') {
         totalAssets += balance;
         assets.push({
@@ -481,35 +638,39 @@ exports.getBalanceSheet = async (req, res) => {
         });
       }
     });
-    
+
     // Get current period profit/loss
     const startOfPeriod = new Date(date.getFullYear(), 0, 1);
     const incomes = await Income.aggregate([
-      { $match: { 
-        date: { $gte: startOfPeriod, $lte: date }, 
-        status: 'Posted',
-        createdBy: userId
-      } },
+      {
+        $match: {
+          date: { $gte: startOfPeriod, $lte: date },
+          status: 'Posted',
+          createdBy: userId
+        }
+      },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]);
-    
+
     const expenses = await Expense.aggregate([
-      { $match: { 
-        date: { $gte: startOfPeriod, $lte: date }, 
-        status: 'Posted',
-        createdBy: userId
-      } },
+      {
+        $match: {
+          date: { $gte: startOfPeriod, $lte: date },
+          status: 'Posted',
+          createdBy: userId
+        }
+      },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } }
     ]);
-    
+
     const currentProfit = (incomes[0]?.total || 0) - (expenses[0]?.total || 0);
-    
+
     console.log('📊 Total Assets:', totalAssets);
     console.log('📊 Total Liabilities:', totalLiabilities);
     console.log('📊 Total Equity:', totalEquity);
     console.log('📊 Current Profit:', currentProfit);
     console.log('========== END BALANCE SHEET DEBUG ==========\n');
-    
+
     res.status(200).json({
       success: true,
       data: {
@@ -544,10 +705,10 @@ exports.getCashFlowStatement = async (req, res) => {
   try {
     console.log('\n========== CASH FLOW STATEMENT DEBUG ==========');
     console.log('🔍 User ID:', req.user?._id || req.user?.id);
-    
+
     const { startDate, endDate } = req.query;
     let start, end;
-    
+
     if (startDate && endDate) {
       start = new Date(startDate);
       end = new Date(endDate);
@@ -558,27 +719,27 @@ exports.getCashFlowStatement = async (req, res) => {
       end = new Date(now);
       end.setHours(23, 59, 59, 999);
     }
-    
+
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
-    
+
     const userId = req.user._id || req.user.id;
     const dateFilter = {
       date: { $gte: start, $lte: end },
       status: 'Posted',
       createdBy: userId
     };
-    
+
     // Get all incomes (cash inflows)
     const incomes = await Income.find(dateFilter);
     const totalInflows = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-    
+
     // Get all expenses (cash outflows)
     const expenses = await Expense.find(dateFilter);
     const totalOutflows = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
-    
+
     console.log('💰 Total Inflows:', totalInflows);
     console.log('💸 Total Outflows:', totalOutflows);
-    
+
     // Categorize cash flows
     let operatingInflows = 0;
     let operatingOutflows = 0;
@@ -586,10 +747,10 @@ exports.getCashFlowStatement = async (req, res) => {
     let investingOutflows = 0;
     let financingInflows = 0;
     let financingOutflows = 0;
-    
+
     const operatingIncomeTypes = ['Sales', 'Services'];
     const operatingExpenseTypes = ['Rent', 'Salaries', 'Utilities', 'Office Supplies', 'Marketing', 'Insurance', 'Maintenance', 'Software'];
-    
+
     incomes.forEach(inc => {
       if (operatingIncomeTypes.includes(inc.incomeType)) {
         operatingInflows += inc.totalAmount;
@@ -601,7 +762,7 @@ exports.getCashFlowStatement = async (req, res) => {
         operatingInflows += inc.totalAmount;
       }
     });
-    
+
     expenses.forEach(exp => {
       if (operatingExpenseTypes.includes(exp.expenseType)) {
         operatingOutflows += exp.totalAmount;
@@ -613,17 +774,17 @@ exports.getCashFlowStatement = async (req, res) => {
         operatingOutflows += exp.totalAmount;
       }
     });
-    
+
     const netCashFlow = totalInflows - totalOutflows;
     const openingCashBalance = 0;
     const closingCashBalance = openingCashBalance + netCashFlow;
-    
+
     console.log('📊 Operating Net:', operatingInflows - operatingOutflows);
     console.log('📊 Investing Net:', investingInflows - investingOutflows);
     console.log('📊 Financing Net:', financingInflows - financingOutflows);
     console.log('📊 Net Cash Flow:', netCashFlow);
     console.log('========== END CASH FLOW DEBUG ==========\n');
-    
+
     res.status(200).json({
       success: true,
       data: {

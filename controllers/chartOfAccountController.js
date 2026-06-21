@@ -10,6 +10,7 @@ exports.createAccount = async (req, res) => {
     // Check if account code already exists
     const existingAccount = await ChartOfAccount.findOne({
       code: req.body.code,
+        createdBy: req.user.id, // ✅ yeh add karo
     });
 
     if (existingAccount) {
@@ -35,18 +36,22 @@ exports.createAccount = async (req, res) => {
   }
 };
 
-// @desc    Get all accounts
-// @route   GET /api/chart-of-accounts
-// @access  Private
-// @desc    Get all accounts
+// @desc    Get all accounts with pagination
 // @route   GET /api/chart-of-accounts
 // @access  Private
 exports.getAccounts = async (req, res) => {
   try {
-    const { type, search } = req.query;
+    const { 
+      type, 
+      search, 
+      page = 1, 
+      limit = 6,
+      sortBy = 'code',
+      sortOrder = 'asc'
+    } = req.query;
     
     let query = {
-      createdBy: req.user.id  // 👈 Only show accounts created by this user
+      createdBy: req.user.id
     };
 
     // Filter by account type
@@ -62,28 +67,102 @@ exports.getAccounts = async (req, res) => {
       ];
     }
 
-    const accounts = await ChartOfAccount.find(query).sort({ code: 1 });
-
-    // Calculate summary totals
+    // Calculate total count for pagination
+    const totalCount = await ChartOfAccount.countDocuments(query);
+    
+    // Check if user wants all records (no pagination)
+    if (req.query.page === 'all' || req.query.limit === 'all') {
+      const accounts = await ChartOfAccount.find(query).sort({ code: 1 });
+      
+      // Calculate summary totals
+      const summary = {
+        Assets: 0,
+        Liabilities: 0,
+        Equity: 0,
+        Income: 0,
+        Expenses: 0,
+        totalBalance: 0
+      };
+      
+      accounts.forEach((account) => {
+        if (summary[account.type] !== undefined) {
+          summary[account.type] += account.currentBalance;
+        }
+        summary.totalBalance += account.currentBalance;
+      });
+      
+      return res.status(200).json({
+        success: true,
+        count: accounts.length,
+        data: accounts,
+        summary,
+        pagination: {
+          total: accounts.length,
+          page: 1,
+          pages: 1,
+          hasNext: false,
+          hasPrev: false,
+          isAllRecords: true
+        }
+      });
+    }
+    
+    // Calculate pagination values
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+    
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    
+    // Get paginated accounts
+    const accounts = await ChartOfAccount.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum);
+    
+    // Calculate summary totals (for paginated data)
     const summary = {
       Assets: 0,
       Liabilities: 0,
       Equity: 0,
       Income: 0,
       Expenses: 0,
+      totalBalance: 0
     };
-
+    
     accounts.forEach((account) => {
       if (summary[account.type] !== undefined) {
         summary[account.type] += account.currentBalance;
       }
+      summary.totalBalance += account.currentBalance;
     });
-
+    
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limitNum);
+    const hasNext = pageNum < totalPages;
+    const hasPrev = pageNum > 1;
+    
     res.status(200).json({
       success: true,
       count: accounts.length,
+      totalCount: totalCount,
       data: accounts,
       summary,
+      pagination: {
+        total: totalCount,
+        page: pageNum,
+        limit: limitNum,
+        pages: totalPages,
+        hasNext: hasNext,
+        hasPrev: hasPrev,
+        nextPage: hasNext ? pageNum + 1 : null,
+        prevPage: hasPrev ? pageNum - 1 : null,
+        startIndex: skip + 1,
+        endIndex: Math.min(skip + limitNum, totalCount),
+        isAllRecords: false
+      }
     });
   } catch (error) {
     console.error(error);
@@ -94,6 +173,7 @@ exports.getAccounts = async (req, res) => {
     });
   }
 };
+
 // @desc    Get single account
 // @route   GET /api/chart-of-accounts/:id
 // @access  Private
@@ -173,7 +253,7 @@ exports.updateAccount = async (req, res) => {
   }
 };
 
-// @desc    Delete account
+// @desc    Delete account (with balance and transaction checks)
 // @route   DELETE /api/chart-of-accounts/:id
 // @access  Private
 exports.deleteAccount = async (req, res) => {
@@ -187,10 +267,38 @@ exports.deleteAccount = async (req, res) => {
       });
     }
 
+    // Check if account has non-zero balance
+    if (account.currentBalance !== 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete account with non-zero balance. Please transfer or reconcile balance first.',
+      });
+    }
+
+    // Optional: Check if account is linked to any journal entries
+    // Uncomment this section if you have JournalEntry model
+    /*
+    const JournalEntry = require('../models/JournalEntry');
+    const linkedEntries = await JournalEntry.findOne({
+      $or: [
+        { 'debitEntries.accountId': account._id },
+        { 'creditEntries.accountId': account._id }
+      ]
+    });
+    
+    if (linkedEntries) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete account linked to journal entries. Account is in use.',
+      });
+    }
+    */
+
     await account.deleteOne();
 
     res.status(200).json({
       success: true,
+      message: 'Account deleted successfully',
       data: {},
     });
   } catch (error) {
@@ -203,61 +311,37 @@ exports.deleteAccount = async (req, res) => {
   }
 };
 
-// @desc    Create default accounts
-// @route   POST /api/chart-of-accounts/default
+// @desc    Archive/Deactivate account (Soft delete)
+// @route   PATCH /api/chart-of-accounts/:id/archive
 // @access  Private
-exports.createDefaultAccounts  = async (req, res) => {
+exports.archiveAccount = async (req, res) => {
   try {
-    const defaultAccounts = [
-      // Assets
-      { code: '1010', name: 'Cash in Hand', type: 'Assets', parentAccount: 'Current Assets', openingBalance: 0, description: 'Physical cash in office' },
-      { code: '1020', name: 'Bank Account', type: 'Assets', parentAccount: 'Current Assets', openingBalance: 0, description: 'Main business bank account' },
-      { code: '1110', name: 'Accounts Receivable', type: 'Assets', parentAccount: 'Current Assets', openingBalance: 0, description: 'Amount due from customers' },
-      { code: '1120', name: 'Inventory', type: 'Assets', parentAccount: 'Current Assets', openingBalance: 0, description: 'Stock and supplies' },
-      { code: '1210', name: 'Fixed Assets', type: 'Assets', parentAccount: 'Fixed Assets', openingBalance: 0, description: 'Long-term assets' },
-      
-      // Liabilities
-      { code: '2010', name: 'Accounts Payable', type: 'Liabilities', parentAccount: 'Current Liabilities', openingBalance: 0, description: 'Amount due to vendors' },
-      { code: '2020', name: 'Tax Payable', type: 'Liabilities', parentAccount: 'Current Liabilities', openingBalance: 0, description: 'Sales tax payable' },
-      { code: '2030', name: 'Loans Payable', type: 'Liabilities', parentAccount: 'Long Term Liabilities', openingBalance: 0, description: 'Bank loans and borrowings' },
-      
-      // Equity
-      { code: '3010', name: "Owner's Capital", type: 'Equity', parentAccount: 'Equity', openingBalance: 0, description: 'Owner investment' },
-      { code: '3020', name: 'Retained Earnings', type: 'Equity', parentAccount: 'Equity', openingBalance: 0, description: 'Accumulated profits' },
-      
-      // Income
-      { code: '4010', name: 'Sales Revenue', type: 'Income', parentAccount: 'Operating Income', openingBalance: 0, description: 'Revenue from sales' },
-      { code: '4020', name: 'Service Revenue', type: 'Income', parentAccount: 'Operating Income', openingBalance: 0, description: 'Revenue from services' },
-      { code: '4030', name: 'Other Income', type: 'Income', parentAccount: 'Operating Income', openingBalance: 0, description: 'Miscellaneous income' },
-      
-      // Expenses
-      { code: '5010', name: 'Rent Expense', type: 'Expenses', parentAccount: 'Operating Expenses', openingBalance: 0, description: 'Office rent' },
-      { code: '5020', name: 'Salary Expense', type: 'Expenses', parentAccount: 'Operating Expenses', openingBalance: 0, description: 'Employee salaries' },
-      { code: '5030', name: 'Utilities Expense', type: 'Expenses', parentAccount: 'Operating Expenses', openingBalance: 0, description: 'Electricity, water, gas' },
-      { code: '5040', name: 'Office Supplies', type: 'Expenses', parentAccount: 'Operating Expenses', openingBalance: 0, description: 'Stationery and supplies' },
-      { code: '5050', name: 'Marketing Expense', type: 'Expenses', parentAccount: 'Operating Expenses', openingBalance: 0, description: 'Advertising and marketing' },
-    ];
+    const { isActive } = req.body;
+    
+    const account = await ChartOfAccount.findById(req.params.id);
 
-    const createdAccounts = [];
-
-    for (const account of defaultAccounts) {
-      account.createdBy = req.user.id;
-      
-      const existing = await ChartOfAccount.findOne({
-        code: account.code,
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Account not found',
       });
-      
-      if (!existing) {
-        const newAccount = await ChartOfAccount.create(account);
-        createdAccounts.push(newAccount);
-      }
     }
 
-    res.status(201).json({
+    // If deactivating, check if account has balance
+    if (isActive === false && account.currentBalance !== 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot deactivate account with non-zero balance',
+      });
+    }
+
+    account.isActive = isActive !== undefined ? isActive : !account.isActive;
+    await account.save();
+
+    res.status(200).json({
       success: true,
-      count: createdAccounts.length,
-      data: createdAccounts,
-      message: `${createdAccounts.length} default accounts created`,
+      message: account.isActive ? 'Account activated successfully' : 'Account archived successfully',
+      data: account,
     });
   } catch (error) {
     console.error(error);

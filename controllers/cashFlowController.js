@@ -5,6 +5,7 @@ const Loan = require('../models/Loan');
 const FixedAsset = require('../models/FixedAsset');
 const Invoice = require('../models/Invoice');
 const PaymentMade = require('../models/PaymentMade');
+const EquityAccount = require('../models/EquityAccount');
 
 // ==================== GET CASH FLOW STATEMENT ====================
 exports.getCashFlowStatement = async (req, res) => {
@@ -64,9 +65,18 @@ exports.getCashFlowStatement = async (req, res) => {
     const incomes = await Income.find(dateFilter);
     const cashReceiptsFromCustomers = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
     
-    // Cash outflows to suppliers (Expense records) - only for this user
+    // Cash outflows to suppliers (Expense records + Bill Payments) - only for this user
     const expenses = await Expense.find(dateFilter);
-    const cashPaidToSuppliers = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const expenseTotal = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    
+    const billPayments = await PaymentMade.find({
+      paymentDate: { $gte: start, $lte: end },
+      billId: { $exists: true },
+      createdBy: req.user.id
+    });
+    const cashPaidForBills = billPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
+    
+    const cashPaidToSuppliers = expenseTotal + cashPaidForBills;
     
     // Cash paid for salaries (filter salary expenses)
     const salaryExpenses = expenses.filter(exp => exp.expenseType === 'Salaries');
@@ -122,19 +132,33 @@ exports.getCashFlowStatement = async (req, res) => {
     });
     const loanProceeds = newLoans.reduce((sum, loan) => sum + loan.loanAmount, 0);
     
-    // Loan repayments (payments made on loans) - only for this user
-    const loanPayments = await PaymentMade.find({
-      paymentDate: { $gte: start, $lte: end },
-      loanId: { $exists: true },
-      createdBy: req.user.id  // 👈 Only show payments created by this user
+    // Loan repayments (from payments array inside Loan model) - only for this user
+    const userLoans = await Loan.find({ createdBy: req.user.id });
+    let loanRepayments = 0;
+    userLoans.forEach(loan => {
+      loan.payments.forEach(payment => {
+        if (payment.date >= start && payment.date <= end && payment.status === 'Paid') {
+          loanRepayments += payment.amount;
+        }
+      });
     });
-    const loanRepayments = loanPayments.reduce((sum, payment) => sum + payment.amount, 0);
     
-    // Capital investment (from equity additions) - TODO: Add EquityAccount model
-    const capitalInvestments = 0;
+    // Capital investment and Owner drawings (from EquityAccount transactions)
+    const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
+    let capitalInvestments = 0;
+    let ownerDrawings = 0;
     
-    // Owner drawings (from equity withdrawals) - TODO: Add EquityAccount model
-    const ownerDrawings = 0;
+    userEquityAccounts.forEach(account => {
+      account.transactions.forEach(tx => {
+        if (tx.date >= start && tx.date <= end && tx.status === 'Posted') {
+          if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
+            capitalInvestments += tx.amount;
+          } else if (tx.type === 'Drawings') {
+            ownerDrawings += tx.amount;
+          }
+        }
+      });
+    });
     
     // Calculate financing activities
     const cashFlowFromFinancing = loanProceeds - loanRepayments + capitalInvestments - ownerDrawings;
@@ -244,8 +268,48 @@ exports.getSummary = async (req, res) => {
       createdBy: req.user.id  // 👈 Only show expenses created by this user
     });
     
-    const monthCashInflow = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-    const monthCashOutflow = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    // Add bill payments
+    const monthBillPayments = await PaymentMade.find({
+      paymentDate: { $gte: startOfMonth, $lte: endOfMonth },
+      billId: { $exists: true },
+      createdBy: req.user.id
+    });
+    
+    // Add loan payments
+    const userLoans = await Loan.find({ createdBy: req.user.id });
+    let monthLoanPayments = 0;
+    userLoans.forEach(loan => {
+      loan.payments.forEach(payment => {
+        if (payment.date >= startOfMonth && payment.date <= endOfMonth && payment.status === 'Paid') {
+          monthLoanPayments += payment.amount;
+        }
+      });
+    });
+    
+    // Add equity transactions
+    const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
+    let monthCapitalInvestments = 0;
+    let monthOwnerDrawings = 0;
+    
+    userEquityAccounts.forEach(account => {
+      account.transactions.forEach(tx => {
+        if (tx.date >= startOfMonth && tx.date <= endOfMonth && tx.status === 'Posted') {
+          if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
+            monthCapitalInvestments += tx.amount;
+          } else if (tx.type === 'Drawings') {
+            monthOwnerDrawings += tx.amount;
+          }
+        }
+      });
+    });
+    
+    const monthIncomeTotal = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    const monthCashInflow = monthIncomeTotal + monthCapitalInvestments;
+    
+    const monthExpenseTotal = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const monthBillTotal = monthBillPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
+    const monthCashOutflow = monthExpenseTotal + monthBillTotal + monthLoanPayments + monthOwnerDrawings;
+    
     const monthNetCashFlow = monthCashInflow - monthCashOutflow;
     
     // Get bank balances - only for this user
@@ -312,8 +376,48 @@ exports.getTrend = async (req, res) => {
         { $group: { _id: null, total: { $sum: '$totalAmount' } } }
       ]);
       
-      const inflow = monthIncomes[0]?.total || 0;
-      const outflow = monthExpenses[0]?.total || 0;
+      // Get bill payments for this month
+      const monthBillPayments = await PaymentMade.aggregate([
+        { $match: { 
+          paymentDate: { $gte: monthStart, $lte: monthEnd }, 
+          billId: { $exists: true },
+          createdBy: req.user.id
+        } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      
+      // Get loan payments and equity transactions
+      const userLoans = await Loan.find({ createdBy: req.user.id });
+      let monthLoanPayments = 0;
+      userLoans.forEach(loan => {
+        loan.payments.forEach(payment => {
+          if (payment.date >= monthStart && payment.date <= monthEnd && payment.status === 'Paid') {
+            monthLoanPayments += payment.amount;
+          }
+        });
+      });
+      
+      const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
+      let monthCapitalInvestments = 0;
+      let monthOwnerDrawings = 0;
+      userEquityAccounts.forEach(account => {
+        account.transactions.forEach(tx => {
+          if (tx.date >= monthStart && tx.date <= monthEnd && tx.status === 'Posted') {
+            if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
+              monthCapitalInvestments += tx.amount;
+            } else if (tx.type === 'Drawings') {
+              monthOwnerDrawings += tx.amount;
+            }
+          }
+        });
+      });
+      
+      const incomeTotal = monthIncomes[0]?.total || 0;
+      const inflow = incomeTotal + monthCapitalInvestments;
+      
+      const expenseTotal = monthExpenses[0]?.total || 0;
+      const billTotal = monthBillPayments[0]?.total || 0;
+      const outflow = expenseTotal + billTotal + monthLoanPayments + monthOwnerDrawings;
       
       monthlyData.push({
         month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
@@ -383,8 +487,75 @@ exports.getDetailedCashFlow = async (req, res) => {
       paymentMethod: exp.paymentMethod
     }));
     
-    const totalInflow = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-    const totalOutflow = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    // Get bill payments
+    const billPayments = await PaymentMade.find({
+      paymentDate: { $gte: start, $lte: end },
+      billId: { $exists: true },
+      createdBy: req.user.id
+    }).sort({ paymentDate: -1 });
+    
+    billPayments.forEach(pmt => {
+      expenseDetails.push({
+        date: pmt.paymentDate,
+        type: 'Bill Payment',
+        description: `Payment for Bill ${pmt.billNumber}`,
+        amount: pmt.amount,
+        reference: pmt.reference,
+        paymentMethod: pmt.paymentMethod
+      });
+    });
+    
+    // Get loan repayments
+    const userLoans = await Loan.find({ createdBy: req.user.id });
+    userLoans.forEach(loan => {
+      loan.payments.forEach(payment => {
+        if (payment.date >= start && payment.date <= end && payment.status === 'Paid') {
+          expenseDetails.push({
+            date: payment.date,
+            type: 'Loan Repayment',
+            description: `Payment for Loan ${loan.loanNumber}`,
+            amount: payment.amount,
+            reference: payment.reference,
+            paymentMethod: 'Bank Transfer'
+          });
+        }
+      });
+    });
+    
+    // Get equity withdrawals
+    const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
+    userEquityAccounts.forEach(account => {
+      account.transactions.forEach(tx => {
+        if (tx.date >= start && tx.date <= end && tx.status === 'Posted') {
+          if (tx.type === 'Drawings') {
+            expenseDetails.push({
+              date: tx.date,
+              type: 'Owner Drawings',
+              description: tx.description || 'Owner Withdrawal',
+              amount: tx.amount,
+              reference: tx.reference,
+              paymentMethod: 'N/A'
+            });
+          } else if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
+            incomeDetails.push({
+              date: tx.date,
+              type: tx.type,
+              description: tx.description || 'Capital Investment',
+              amount: tx.amount,
+              reference: tx.reference,
+              paymentMethod: 'N/A'
+            });
+          }
+        }
+      });
+    });
+
+    // Sort combined arrays by date
+    incomeDetails.sort((a, b) => new Date(b.date) - new Date(a.date));
+    expenseDetails.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    const totalInflow = incomeDetails.reduce((sum, inc) => sum + inc.amount, 0);
+    const totalOutflow = expenseDetails.reduce((sum, exp) => sum + exp.amount, 0);
     
     res.status(200).json({
       success: true,

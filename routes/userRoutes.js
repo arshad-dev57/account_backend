@@ -6,16 +6,22 @@ const {
   getMe,
   changePassword,
   forgotPassword,
-  verifyOTP,
+  passwordverifyOTP,
+refreshToken,
+verifyLoginOTP,
   resetPassword,
 } = require('../controllers/userController');
+
+// Public routes mein add karo:
+router.post('/verify-login-otp', verifyLoginOTP);
+router.post('/refresh-token', refreshToken);
 const { protect, protectOnly } = require('../middleware/authMiddleware');  // ✅ protectOnly import karo
 
 // ========== PUBLIC ROUTES (No authentication) ==========
 router.post('/register', register);
 router.post('/login', login);
 router.post('/forgot-password', forgotPassword);
-router.post('/verify-otp', verifyOTP);
+router.post('/verify-otp', passwordverifyOTP);
 router.post('/reset-password', resetPassword);
 
 // ========== PROTECTED ROUTES (Only authentication, NO subscription check) ==========

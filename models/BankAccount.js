@@ -35,7 +35,7 @@ const BankAccountSchema = new mongoose.Schema(
     },
     currency: {
       type: String,
-      enum: ['PKR', 'USD', 'EUR', 'GBP'],
+      enum: ['$', 'USD', 'EUR', 'GBP'],
       default: 'PKR',
     },
     

@@ -266,10 +266,28 @@ exports.createIncome = async (req, res) => {
       postedAt: new Date(),
     });
 
+    if (bankAccountId && paymentMethod !== 'Cash') {
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id,
+      });
+      if (bankAccount) {
+        bankAccount.currentBalance += totalAmount;
+        await bankAccount.save();
+        await ChartOfAccount.findOneAndUpdate(
+          { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
+          { currentBalance: bankAccount.currentBalance }
+        );
+      }
+    } else if (cashOrBankAccount) {
+      cashOrBankAccount.currentBalance = (cashOrBankAccount.currentBalance || 0) + totalAmount;
+      await cashOrBankAccount.save();
+    }
+
     res.status(201).json({
       success: true,
       data: income,
-      message: 'Income recorded successfully',
+      message: 'Income recorded and posted to ledger',
     });
   } catch (error) {
     console.error("🔥 ERROR in createIncome:", error);
@@ -489,11 +507,16 @@ exports.deleteIncome = async (req, res) => {
     });
   }
 };
-
 // ==================== GET SUMMARY ====================
 exports.getSummary = async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { 
+      startDate, 
+      endDate,
+      page = 1,
+      limit = 10
+    } = req.query;
+    
     let dateFilter = {};
 
     if (startDate && endDate) {
@@ -505,11 +528,18 @@ exports.getSummary = async (req, res) => {
       };
     }
 
-    const allIncomes = await Income.find({ 
-      ...dateFilter, 
+    // Base query
+    const baseQuery = {
+      ...dateFilter,
       status: 'Posted',
       createdBy: req.user.id
-    });
+    };
+
+    // Get total count for pagination
+    const totalCount = await Income.countDocuments(baseQuery);
+
+    // Get all incomes for summary calculation (no pagination for summary data)
+    const allIncomes = await Income.find(baseQuery);
     
     const totalIncome = allIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
     const totalTax = allIncomes.reduce((sum, inc) => sum + inc.taxAmount, 0);
@@ -565,15 +595,76 @@ exports.getSummary = async (req, res) => {
       },
     ]);
 
+    // ==================== PAGINATION FOR INCOME LIST ====================
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Check if user wants all records
+    if (req.query.page === 'all' || req.query.limit === 'all') {
+      const allPaginatedIncomes = await Income.find(baseQuery)
+        .sort({ date: -1 });
+      
+      return res.status(200).json({
+        success: true,
+        data: {
+          summary: {
+            totalIncome,
+            totalTax,
+            totalCount: allIncomes.length,
+            byType,
+            thisMonth: thisMonth[0]?.total || 0,
+            thisWeek: thisWeek[0]?.total || 0,
+          },
+          incomes: allPaginatedIncomes,
+          pagination: {
+            total: allPaginatedIncomes.length,
+            page: 1,
+            pages: 1,
+            hasNext: false,
+            hasPrev: false,
+            isAllRecords: true
+          }
+        },
+      });
+    }
+
+    // Get paginated incomes
+    const paginatedIncomes = await Income.find(baseQuery)
+      .sort({ date: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limitNum);
+    const hasNext = pageNum < totalPages;
+    const hasPrev = pageNum > 1;
+
     res.status(200).json({
       success: true,
       data: {
-        totalIncome,
-        totalTax,
-        totalCount: allIncomes.length,
-        byType,
-        thisMonth: thisMonth[0]?.total || 0,
-        thisWeek: thisWeek[0]?.total || 0,
+        summary: {
+          totalIncome,
+          totalTax,
+          totalCount: allIncomes.length,
+          byType,
+          thisMonth: thisMonth[0]?.total || 0,
+          thisWeek: thisWeek[0]?.total || 0,
+        },
+        incomes: paginatedIncomes,
+        pagination: {
+          total: totalCount,
+          page: pageNum,
+          limit: limitNum,
+          pages: totalPages,
+          hasNext: hasNext,
+          hasPrev: hasPrev,
+          nextPage: hasNext ? pageNum + 1 : null,
+          prevPage: hasPrev ? pageNum - 1 : null,
+          startIndex: skip + 1,
+          endIndex: Math.min(skip + limitNum, totalCount),
+          isAllRecords: false
+        }
       },
     });
   } catch (error) {
@@ -584,7 +675,6 @@ exports.getSummary = async (req, res) => {
     });
   }
 };
-
 // ==================== POST INCOME (for draft to posted) ====================
 exports.postIncome = async (req, res) => {
   try {

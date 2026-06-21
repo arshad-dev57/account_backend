@@ -14,6 +14,7 @@ const {
   recordPayment,
   // Summary
   getSummary,
+  getAgedReceivables,
 } = require('../controllers/accountsReceivableController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -23,6 +24,7 @@ router.use(protect);
 
 // Summary
 router.get('/summary', getSummary);
+router.get('/aged', getAgedReceivables);
 
 // Customer routes
 router.route('/customers')

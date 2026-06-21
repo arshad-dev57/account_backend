@@ -103,10 +103,10 @@ exports.recordPayment = async (req, res) => {
     // 4. Get bank account if selected - must belong to user
     let bankAccount = null;
     let bankChartAccount = null;
-    if (bankAccountId && paymentMethod === 'Bank Transfer') {
+    if (bankAccountId && paymentMethod !== 'Cash') {
       bankAccount = await BankAccount.findOne({
         _id: bankAccountId,
-        createdBy: req.user.id  // 👈 Only find bank account created by this user
+        createdBy: req.user.id
       });
       if (bankAccount) {
         bankChartAccount = await ChartOfAccount.findOne({
@@ -189,7 +189,7 @@ exports.recordPayment = async (req, res) => {
     }
 
     // 10. Update cash account balance if cash payment
-    if (paymentMethod === 'Cash') {
+    if (paymentMethod === 'Cash' || !bankAccountId) {
       const cashChartAccount = await ChartOfAccount.findOne({
         _id: cashAccount._id,
         createdBy: req.user.id  // 👈 Only find chart account created by this user

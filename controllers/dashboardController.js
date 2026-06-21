@@ -5,6 +5,8 @@ const BankAccount = require('../models/BankAccount');
 const PaymentReceived = require('../models/PaymentReceived');
 const PaymentMade = require('../models/PaymentMade');
 const ChartOfAccount = require('../models/ChartOfAccount');
+const CreditNote = require('../models/CreditNote');
+const Bill = require('../models/Bill');
 
 // ==================== HELPER FUNCTION ====================
 function formatAmount(amount) {
@@ -35,53 +37,35 @@ exports.getDashboardSummary = async (req, res) => {
     endOfDay.setHours(23, 59, 59, 999);
     
     // ✅ Get all incomes for current month (only current user)
-    const monthIncomes = await Income.find({
-      date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
-    
-    const monthExpenses = await Expense.find({
-      date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
+    const monthIncomes = await Income.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
+    const monthInvoices = await Invoice.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, status: { $ne: 'Draft' }, createdBy: req.user.id });
+    const monthCreditNotes = await CreditNote.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, createdBy: req.user.id });
+    const monthExpenses = await Expense.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
+    const monthBills = await Bill.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, createdBy: req.user.id });
     
     // ✅ Get all incomes for current week (only current user)
-    const weekIncomes = await Income.find({
-      date: { $gte: startOfWeek, $lte: endOfMonth },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
-    
-    const weekExpenses = await Expense.find({
-      date: { $gte: startOfWeek, $lte: endOfMonth },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
+    const weekIncomes = await Income.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
+    const weekInvoices = await Invoice.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, status: { $ne: 'Draft' }, createdBy: req.user.id });
+    const weekCreditNotes = await CreditNote.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, createdBy: req.user.id });
+    const weekExpenses = await Expense.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
+    const weekBills = await Bill.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, createdBy: req.user.id });
     
     // ✅ Get all incomes for today (only current user)
-    const dayIncomes = await Income.find({
-      date: { $gte: startOfDay, $lte: endOfDay },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
-    
-    const dayExpenses = await Expense.find({
-      date: { $gte: startOfDay, $lte: endOfDay },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
+    const dayIncomes = await Income.find({ date: { $gte: startOfDay, $lte: endOfDay }, status: 'Posted', createdBy: req.user.id });
+    const dayInvoices = await Invoice.find({ date: { $gte: startOfDay, $lte: endOfDay }, status: { $ne: 'Draft' }, createdBy: req.user.id });
+    const dayCreditNotes = await CreditNote.find({ date: { $gte: startOfDay, $lte: endOfDay }, createdBy: req.user.id });
+    const dayExpenses = await Expense.find({ date: { $gte: startOfDay, $lte: endOfDay }, status: 'Posted', createdBy: req.user.id });
+    const dayBills = await Bill.find({ date: { $gte: startOfDay, $lte: endOfDay }, createdBy: req.user.id });
     
     // Calculate totals
-    const totalRevenueMonth = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-    const totalExpensesMonth = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const totalRevenueMonth = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + monthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - monthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
+    const totalExpensesMonth = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + monthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
     
-    const totalRevenueWeek = weekIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-    const totalExpensesWeek = weekExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const totalRevenueWeek = weekIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + weekInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - weekCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
+    const totalExpensesWeek = weekExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + weekBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
     
-    const totalRevenueDay = dayIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-    const totalExpensesDay = dayExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const totalRevenueDay = dayIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + dayInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - dayCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
+    const totalExpensesDay = dayExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + dayBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
     
     // ✅ Get outstanding invoices (only current user)
     const outstandingInvoices = await Invoice.find({
@@ -104,22 +88,17 @@ exports.getDashboardSummary = async (req, res) => {
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     lastMonthEnd.setHours(23, 59, 59, 999);
     
-    const lastMonthIncomes = await Income.find({
-      date: { $gte: lastMonthStart, $lte: lastMonthEnd },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
-    const lastMonthRevenue = lastMonthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    const lastMonthIncomes = await Income.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, status: 'Posted', createdBy: req.user.id });
+    const lastMonthInvoices = await Invoice.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, status: { $ne: 'Draft' }, createdBy: req.user.id });
+    const lastMonthCreditNotes = await CreditNote.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, createdBy: req.user.id });
+    const lastMonthRevenue = lastMonthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + lastMonthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - lastMonthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
     const revenueChange = lastMonthRevenue > 0 
       ? ((totalRevenueMonth - lastMonthRevenue) / lastMonthRevenue) * 100 
       : totalRevenueMonth > 0 ? 100 : 0;
     
-    const lastMonthExpenses = await Expense.find({
-      date: { $gte: lastMonthStart, $lte: lastMonthEnd },
-      status: 'Posted',
-      createdBy: req.user.id
-    });
-    const lastMonthExpenseTotal = lastMonthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const lastMonthExpenses = await Expense.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, status: 'Posted', createdBy: req.user.id });
+    const lastMonthBills = await Bill.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, createdBy: req.user.id });
+    const lastMonthExpenseTotal = lastMonthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + lastMonthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
     const expenseChange = lastMonthExpenseTotal > 0 
       ? ((totalExpensesMonth - lastMonthExpenseTotal) / lastMonthExpenseTotal) * 100 
       : totalExpensesMonth > 0 ? 100 : 0;
@@ -207,20 +186,14 @@ exports.getChartData = async (req, res) => {
       monthEnd.setHours(23, 59, 59, 999);
       
       // ✅ Only get current user's data
-      const monthIncomes = await Income.find({
-        date: { $gte: monthStart, $lte: monthEnd },
-        status: 'Posted',
-        createdBy: req.user.id
-      });
+      const monthIncomes = await Income.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
+      const monthInvoices = await Invoice.find({ date: { $gte: monthStart, $lte: monthEnd }, status: { $ne: 'Draft' }, createdBy: req.user.id });
+      const monthCreditNotes = await CreditNote.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
+      const monthExpenses = await Expense.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
+      const monthBills = await Bill.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
       
-      const monthExpenses = await Expense.find({
-        date: { $gte: monthStart, $lte: monthEnd },
-        status: 'Posted',
-        createdBy: req.user.id
-      });
-      
-      const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-      const expenses = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+      const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + monthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - monthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
+      const expenses = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + monthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
       
       chartData.push({
         month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
@@ -264,6 +237,7 @@ exports.getExpenseCategories = async (req, res) => {
     }
     
     const expenses = await Expense.find(dateFilter);
+    const bills = await Bill.find({ date: dateFilter.date, createdBy: req.user.id });
     
     const categories = {};
     let totalAmount = 0;
@@ -274,6 +248,12 @@ exports.getExpenseCategories = async (req, res) => {
       }
       categories[exp.expenseType] += exp.totalAmount;
       totalAmount += exp.totalAmount;
+    });
+
+    bills.forEach(bill => {
+      if (!categories['Purchases (Bills)']) categories['Purchases (Bills)'] = 0;
+      categories['Purchases (Bills)'] += bill.totalAmount;
+      totalAmount += bill.totalAmount;
     });
     
     const categoryData = Object.entries(categories).map(([name, amount]) => ({
@@ -324,20 +304,13 @@ exports.getRecentTransactions = async (req, res) => {
       .populate('billId', 'billNumber');
     
     // ✅ Get recent incomes (only current user)
-    const recentIncomes = await Income.find({ 
-      createdBy: req.user.id,
-      status: 'Posted'
-    })
-      .sort({ date: -1 })
-      .limit(limitNum);
-    
+    const recentIncomes = await Income.find({ createdBy: req.user.id, status: 'Posted' }).sort({ date: -1 }).limit(limitNum);
     // ✅ Get recent expenses (only current user)
-    const recentExpenses = await Expense.find({ 
-      createdBy: req.user.id,
-      status: 'Posted'
-    })
-      .sort({ date: -1 })
-      .limit(limitNum);
+    const recentExpenses = await Expense.find({ createdBy: req.user.id, status: 'Posted' }).sort({ date: -1 }).limit(limitNum);
+    // ✅ Get recent invoices
+    const recentInvoices = await Invoice.find({ createdBy: req.user.id, status: { $ne: 'Draft' } }).sort({ date: -1 }).limit(limitNum);
+    // ✅ Get recent bills
+    const recentBills = await Bill.find({ createdBy: req.user.id }).sort({ date: -1 }).limit(limitNum);
     
     // Combine and sort
     const transactions = [];
@@ -393,6 +366,32 @@ exports.getRecentTransactions = async (req, res) => {
         icon: 'trending_down',
         reference: expense.reference,
         source: 'expense'
+      });
+    });
+
+    recentInvoices.forEach(inv => {
+      transactions.push({
+        id: inv._id,
+        title: `Invoice to ${inv.customerName}`,
+        amount: inv.totalAmount,
+        date: inv.date,
+        type: 'income',
+        icon: 'receipt_long',
+        reference: inv.invoiceNumber,
+        source: 'invoice'
+      });
+    });
+
+    recentBills.forEach(bill => {
+      transactions.push({
+        id: bill._id,
+        title: `Bill from ${bill.vendorName}`,
+        amount: bill.totalAmount,
+        date: bill.date,
+        type: 'expense',
+        icon: 'receipt',
+        reference: bill.billNumber,
+        source: 'bill'
       });
     });
     
@@ -481,20 +480,14 @@ exports.getYearlySummary = async (req, res) => {
       const monthEnd = new Date(year, month + 1, 0);
       monthEnd.setHours(23, 59, 59, 999);
       
-      const monthIncomes = await Income.find({
-        date: { $gte: monthStart, $lte: monthEnd },
-        status: 'Posted',
-        createdBy: req.user.id
-      });
+      const monthIncomes = await Income.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
+      const monthInvoices = await Invoice.find({ date: { $gte: monthStart, $lte: monthEnd }, status: { $ne: 'Draft' }, createdBy: req.user.id });
+      const monthCreditNotes = await CreditNote.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
+      const monthExpenses = await Expense.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
+      const monthBills = await Bill.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
       
-      const monthExpenses = await Expense.find({
-        date: { $gte: monthStart, $lte: monthEnd },
-        status: 'Posted',
-        createdBy: req.user.id
-      });
-      
-      const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-      const expenses = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+      const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + monthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - monthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
+      const expenses = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + monthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
       
       monthlyData.push({
         month: monthStart.toLocaleString('default', { month: 'long' }),

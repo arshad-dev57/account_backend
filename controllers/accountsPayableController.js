@@ -593,7 +593,6 @@ exports.recordPayment = async (req, res) => {
   }
 };
 
-// ==================== ACCOUNTS PAYABLE SUMMARY ====================
 
 // @desc    Get AP summary
 // @route   GET /api/accounts-payable/summary

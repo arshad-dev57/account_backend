@@ -267,10 +267,29 @@ exports.createExpense = async (req, res) => {
       postedAt: new Date(),
     });
 
+    // Update cash/bank subsidiary balances
+    if (bankAccountId && paymentMethod !== 'Cash') {
+      const bankAccount = await BankAccount.findOne({
+        _id: bankAccountId,
+        createdBy: req.user.id,
+      });
+      if (bankAccount) {
+        bankAccount.currentBalance -= totalAmount;
+        await bankAccount.save();
+        await ChartOfAccount.findOneAndUpdate(
+          { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
+          { currentBalance: bankAccount.currentBalance }
+        );
+      }
+    } else if (cashOrBankAccount) {
+      cashOrBankAccount.currentBalance = (cashOrBankAccount.currentBalance || 0) - totalAmount;
+      await cashOrBankAccount.save();
+    }
+
     res.status(201).json({
       success: true,
       data: expense,
-      message: 'Expense recorded successfully',
+      message: 'Expense recorded and posted to ledger',
     });
   } catch (error) {
     console.error("🔥 ERROR in createExpense:", error);

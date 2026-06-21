@@ -26,6 +26,27 @@ async function getOrCreateReceivableAccount(userId) {
   return arAccount;
 }
 
+async function getOrCreateCashAccount(userId) {
+  let cashAccount = await ChartOfAccount.findOne({
+    code: '1010',
+    createdBy: userId,
+  });
+
+  if (!cashAccount) {
+    cashAccount = await ChartOfAccount.create({
+      code: '1010',
+      name: 'Cash in Hand',
+      type: 'Assets',
+      parentAccount: 'Current Assets',
+      openingBalance: 0,
+      description: 'Physical cash in office',
+      taxCode: 'N/A',
+      createdBy: userId,
+    });
+  }
+  return cashAccount;
+}
+
 // Helper: Get or create Revenue account
 async function getOrCreateRevenueAccount(userId) {
   let revenueAccount = await ChartOfAccount.findOne({ 
@@ -88,7 +109,7 @@ exports.getCustomers = async (req, res) => {
         { phone: { $regex: search, $options: 'i' } },
       ];
     }
-    
+
     if (status === 'active') query.isActive = true;
     if (status === 'inactive') query.isActive = false;
     
@@ -459,16 +480,24 @@ exports.recordPayment = async (req, res) => {
     
     // Get bank account and AR account
     const arAccount = await getOrCreateReceivableAccount(req.user.id);
-    
+    const cashAccount = await getOrCreateCashAccount(req.user.id);
+
     let bankAccount = null;
+    let debitAccount = cashAccount;
     if (bankAccountId) {
       bankAccount = await BankAccount.findOne({
         _id: bankAccountId,
-        createdBy: req.user.id  // 👈 Only find bank account created by this user
+        createdBy: req.user.id,
       });
+      if (bankAccount) {
+        const bankCoa = await ChartOfAccount.findOne({
+          _id: bankAccount.chartOfAccountId,
+          createdBy: req.user.id,
+        });
+        if (bankCoa) debitAccount = bankCoa;
+      }
     }
-    
-    // Create journal entry for payment
+
     await JournalEntry.create({
       entryNumber: `JE-${Date.now()}`,
       date: paymentDate || new Date(),
@@ -476,9 +505,9 @@ exports.recordPayment = async (req, res) => {
       reference: reference || `PAY-${invoice.invoiceNumber}`,
       lines: [
         {
-          accountId: bankAccount ? bankAccount.chartOfAccountId : arAccount._id,
-          accountName: bankAccount ? bankAccount.accountName : 'Cash in Hand',
-          accountCode: bankAccount ? bankAccount.accountCode : '1010',
+          accountId: debitAccount._id,
+          accountName: debitAccount.name,
+          accountCode: debitAccount.code,
           debit: amount,
           credit: 0,
         },
@@ -495,22 +524,17 @@ exports.recordPayment = async (req, res) => {
       postedBy: req.user.id,
       postedAt: new Date(),
     });
-    
-    // Update bank account balance if bank account selected
-    if (bankAccountId && bankAccount) {
+
+    if (bankAccount) {
       bankAccount.currentBalance += amount;
       await bankAccount.save();
-      
-      // Update Chart of Accounts balance
       await ChartOfAccount.findOneAndUpdate(
-        { 
-          _id: bankAccount.chartOfAccountId,
-          createdBy: req.user.id  // 👈 Only update if user owns this account
-        },
-        {
-          currentBalance: bankAccount.currentBalance,
-        }
+        { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
+        { currentBalance: bankAccount.currentBalance }
       );
+    } else {
+      cashAccount.currentBalance = (cashAccount.currentBalance || 0) + amount;
+      await cashAccount.save();
     }
     
     res.status(200).json({
@@ -574,7 +598,7 @@ exports.getSummary = async (req, res) => {
     
     const activeCustomers = await Customer.countDocuments({ 
       isActive: true,
-      createdBy: req.user.id  // 👈 Only count customers created by this user
+      createdBy: req.user.id
     });
     
     res.status(200).json({
@@ -586,6 +610,109 @@ exports.getSummary = async (req, res) => {
         dueThisMonth,
         activeCustomers,
       },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// @desc    Get aged receivables report
+// @route   GET /api/accounts-receivable/aged
+// @access  Private
+exports.getAgedReceivables = async (req, res) => {
+  try {
+    const invoices = await Invoice.find({
+      createdBy: req.user.id,
+      status: { $ne: 'Paid' },
+    }).populate('customerId', 'name email phone');
+
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const customerMap = new Map();
+
+    for (const invoice of invoices) {
+      const outstanding = invoice.totalAmount - (invoice.paidAmount || 0);
+      if (outstanding <= 0) continue;
+
+      const customerId = invoice.customerId?._id?.toString() || 'unknown';
+      const customerName = invoice.customerId?.name || 'Unknown Customer';
+
+      if (!customerMap.has(customerId)) {
+        customerMap.set(customerId, {
+          id: customerId,
+          name: customerName,
+          email: invoice.customerId?.email || '',
+          phone: invoice.customerId?.phone || '',
+          invoices: [],
+          current: 0,
+          days1to30: 0,
+          days31to60: 0,
+          days61to90: 0,
+          days90plus: 0,
+          totalOutstanding: 0,
+        });
+      }
+
+      const customer = customerMap.get(customerId);
+      const dueDate = new Date(invoice.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      const daysPastDue = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
+
+      let bucket = 'current';
+      if (daysPastDue <= 0) {
+        customer.current += outstanding;
+      } else if (daysPastDue <= 30) {
+        customer.days1to30 += outstanding;
+        bucket = '1-30';
+      } else if (daysPastDue <= 60) {
+        customer.days31to60 += outstanding;
+        bucket = '31-60';
+      } else if (daysPastDue <= 90) {
+        customer.days61to90 += outstanding;
+        bucket = '61-90';
+      } else {
+        customer.days90plus += outstanding;
+        bucket = '90+';
+      }
+
+      customer.totalOutstanding += outstanding;
+      customer.invoices.push({
+        id: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.invoiceDate,
+        dueDate: invoice.dueDate,
+        amount: invoice.totalAmount,
+        paidAmount: invoice.paidAmount || 0,
+        outstanding,
+        daysPastDue: Math.max(0, daysPastDue),
+        bucket,
+      });
+    }
+
+    const customers = Array.from(customerMap.values()).sort(
+      (a, b) => b.totalOutstanding - a.totalOutstanding
+    );
+
+    const summary = customers.reduce(
+      (acc, c) => ({
+        current: acc.current + c.current,
+        days1to30: acc.days1to30 + c.days1to30,
+        days31to60: acc.days31to60 + c.days31to60,
+        days61to90: acc.days61to90 + c.days61to90,
+        days90plus: acc.days90plus + c.days90plus,
+        totalOutstanding: acc.totalOutstanding + c.totalOutstanding,
+      }),
+      { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0, totalOutstanding: 0 }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: { customers, summary },
     });
   } catch (error) {
     console.error(error);

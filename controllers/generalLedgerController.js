@@ -1,9 +1,6 @@
 const JournalEntry = require('../models/JournalEntry');
 const ChartOfAccount = require('../models/ChartOfAccount');
 
-// @desc    Get all accounts summary for General Ledger
-// @route   GET /api/general-ledger/accounts
-// @access  Private
 exports.getAccountSummaries = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -11,7 +8,7 @@ exports.getAccountSummaries = async (req, res) => {
     // Build date filter
     let dateFilter = { 
       status: 'Posted',
-      createdBy: req.user.id  // 👈 Only show entries created by this user
+      createdBy: req.user.id  
     };
     
     if (startDate && endDate) {
@@ -21,13 +18,12 @@ exports.getAccountSummaries = async (req, res) => {
       };
     }
     
-    // Get all posted journal entries for this user
+   
     const journalEntries = await JournalEntry.find(dateFilter);
-    
-    // Get all accounts created by this user
+ 
     const accounts = await ChartOfAccount.find({ 
       isActive: true,
-      createdBy: req.user.id  // 👈 Only show accounts created by this user
+      createdBy: req.user.id  
     });
     
     // Calculate summary for each account
@@ -42,7 +38,6 @@ exports.getAccountSummaries = async (req, res) => {
       let totalDebit = 0;
       let totalCredit = 0;
       
-      // Calculate totals
       accountEntries.forEach(entry => {
         entry.lines.forEach(line => {
           if (line.accountId.toString() === account._id.toString()) {
@@ -52,7 +47,6 @@ exports.getAccountSummaries = async (req, res) => {
         });
       });
       
-      // Calculate closing balance
       let closingBalance = account.openingBalance;
       if (account.type === 'Assets' || account.type === 'Expenses') {
         closingBalance = account.openingBalance + totalDebit - totalCredit;
@@ -87,9 +81,7 @@ exports.getAccountSummaries = async (req, res) => {
   }
 };
 
-// @desc    Get ledger entries for a specific account
-// @route   GET /api/general-ledger/entries/:accountId
-// @access  Private
+
 exports.getLedgerEntries = async (req, res) => {
   try {
     const { accountId } = req.params;
@@ -98,7 +90,7 @@ exports.getLedgerEntries = async (req, res) => {
     // Get account details - must belong to user
     const account = await ChartOfAccount.findOne({
       _id: accountId,
-      createdBy: req.user.id  // 👈 Only allow if user owns this account
+      createdBy: req.user.id 
     });
     
     if (!account) {
@@ -108,10 +100,9 @@ exports.getLedgerEntries = async (req, res) => {
       });
     }
     
-    // Build query - only posted entries created by this user
     let query = { 
       status: 'Posted',
-      createdBy: req.user.id  // 👈 Only show entries created by this user
+      createdBy: req.user.id  
     };
     
     // Filter by date range
@@ -122,10 +113,8 @@ exports.getLedgerEntries = async (req, res) => {
       };
     }
     
-    // Get journal entries
     let journalEntries = await JournalEntry.find(query).sort({ date: 1 });
     
-    // Filter entries that have this account in lines
     const filteredEntries = journalEntries.filter(entry => {
       return entry.lines.some(line => 
         line.accountId.toString() === accountId
@@ -204,12 +193,21 @@ exports.getLedgerEntries = async (req, res) => {
 // @access  Private
 exports.getAllLedgerEntries = async (req, res) => {
   try {
-    const { startDate, endDate, accountId, search } = req.query;
+    const { 
+      startDate, 
+      endDate, 
+      accountId, 
+      search,
+      page = 1,
+      limit = 20,
+      sortBy = 'date',
+      sortOrder = 'desc'
+    } = req.query;
     
     // Build query - only posted entries created by this user
     let query = { 
       status: 'Posted',
-      createdBy: req.user.id  // 👈 Only show entries created by this user
+      createdBy: req.user.id
     };
     
     if (startDate && endDate) {
@@ -252,7 +250,7 @@ exports.getAllLedgerEntries = async (req, res) => {
     // Initialize account balances - only accounts created by this user
     const accounts = await ChartOfAccount.find({ 
       isActive: true,
-      createdBy: req.user.id  // 👈 Only accounts created by this user
+      createdBy: req.user.id
     });
     
     accounts.forEach(account => {
@@ -266,8 +264,8 @@ exports.getAllLedgerEntries = async (req, res) => {
     
     filteredEntries.forEach(entry => {
       entry.lines.forEach(line => {
-        const accountId = line.accountId.toString();
-        const accountData = accountBalances.get(accountId);
+        const accountIdStr = line.accountId.toString();
+        const accountData = accountBalances.get(accountIdStr);
         
         if (accountData) {
           const { debit, credit } = line;
@@ -282,7 +280,7 @@ exports.getAllLedgerEntries = async (req, res) => {
           allEntries.push({
             id: entry.entryNumber,
             date: entry.date,
-            accountId: accountId,
+            accountId: accountIdStr,
             accountName: accountData.name,
             accountCode: accountData.code,
             description: entry.description,
@@ -306,10 +304,82 @@ exports.getAllLedgerEntries = async (req, res) => {
       );
     }
     
+    // ==================== PAGINATION ====================
+    const totalCount = filteredResult.length;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+    
+    // Sort the results
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+    filteredResult.sort((a, b) => {
+      if (sortBy === 'date') {
+        return sortDirection * (new Date(a.date) - new Date(b.date));
+      } else if (sortBy === 'debit') {
+        return sortDirection * (a.debit - b.debit);
+      } else if (sortBy === 'credit') {
+        return sortDirection * (a.credit - b.credit);
+      } else if (sortBy === 'balance') {
+        return sortDirection * (a.balance - b.balance);
+      } else if (sortBy === 'accountName') {
+        return sortDirection * a.accountName.localeCompare(b.accountName);
+      } else {
+        return sortDirection * (new Date(a.date) - new Date(b.date));
+      }
+    });
+    
+    // Check if user wants all records (no pagination)
+    if (req.query.page === 'all' || req.query.limit === 'all') {
+      return res.status(200).json({
+        success: true,
+        count: filteredResult.length,
+        data: filteredResult,
+        pagination: {
+          total: filteredResult.length,
+          page: 1,
+          pages: 1,
+          hasNext: false,
+          hasPrev: false,
+          isAllRecords: true
+        }
+      });
+    }
+    
+    // Apply pagination
+    const paginatedData = filteredResult.slice(skip, skip + limitNum);
+    
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limitNum);
+    const hasNext = pageNum < totalPages;
+    const hasPrev = pageNum > 1;
+    
+    // Calculate summary (optional - useful for dashboard)
+    const totalDebit = paginatedData.reduce((sum, entry) => sum + entry.debit, 0);
+    const totalCredit = paginatedData.reduce((sum, entry) => sum + entry.credit, 0);
+    
     res.status(200).json({
       success: true,
-      count: filteredResult.length,
-      data: filteredResult,
+      count: paginatedData.length,
+      totalCount: totalCount,
+      data: paginatedData,
+      summary: {
+        totalDebit: totalDebit,
+        totalCredit: totalCredit,
+        difference: totalDebit - totalCredit
+      },
+      pagination: {
+        total: totalCount,
+        page: pageNum,
+        limit: limitNum,
+        pages: totalPages,
+        hasNext: hasNext,
+        hasPrev: hasPrev,
+        nextPage: hasNext ? pageNum + 1 : null,
+        prevPage: hasPrev ? pageNum - 1 : null,
+        startIndex: skip + 1,
+        endIndex: Math.min(skip + limitNum, totalCount),
+        isAllRecords: false
+      }
     });
   } catch (error) {
     console.error(error);

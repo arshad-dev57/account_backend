@@ -126,17 +126,6 @@ InvoiceSchema.pre('save', function() {
   
 });
 
-// Generate invoice number
-InvoiceSchema.pre('save', async function() {
-  if (this.isNew) {
-    try {
-      const count = await mongoose.model('Invoice').countDocuments();
-      const year = new Date().getFullYear();
-      this.invoiceNumber = `INV-${year}-${String(count + 1).padStart(4, '0')}`;
-    } catch (error) {
-    }
-  }
-});
 
 // Method to check if invoice can have credit note
 InvoiceSchema.methods.canApplyCreditNote = function(amount) {

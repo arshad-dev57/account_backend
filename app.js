@@ -4,32 +4,24 @@ const cors = require('cors');
 
 const app = express();
 
-// ✅ CORS pehle
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true
 }));
-
-// ==================== ⚠️ WEBHOOK — express.json() SE PEHLE ====================
-// Yeh line express.json() se upar honi CHAHIYE — warna webhook kaam nahi karega
 const { handleWebhook } = require('./controllers/stripeController');
 app.post(
   '/api/subscription/stripe/webhook',
-  express.raw({ type: 'application/json' }), // Raw body — Stripe signature verify hogi
+  express.raw({ type: 'application/json' }),
   handleWebhook
 );
-// =========================================================================
 
-// ✅ Ab normal JSON middleware — baaki saari routes ke liye
 app.use(express.json());
 
-// ✅ Root route
 app.get('/', (req, res) => {
   res.send('API is running 🚀');
 });
 
-// ================= ROUTES =================
 const userRoutes = require('./routes/userRoutes');
 const chartOfAccountRoutes = require('./routes/chartOfAccountRoutes');
 const journalEntryRoutes = require('./routes/journalEntryRoutes');
@@ -57,11 +49,24 @@ const incomeRoutes = require('./routes/incomeRoutes');
 const equityRoutes = require('./routes/equityRoutes');
 const loanRoutes = require('./routes/loanRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const productRoutes = require('./warehouse/routes/product_routes');
+const WarehouseCategory = require('./warehouse/routes/category_routes');
+const supplierRoutes = require("./warehouse/routes/supplier_routes");
+const OrderRoutes = require("./warehouse/routes/order_routes");
+const StockRoutes = require("./warehouse/routes/stock_routes");
+const InventoryRoutes = require("./warehouse/routes/inventory_routes");
+const DashboardRoutes = require("./warehouse/routes/warehouse_dashboard_routes");
 
-// ================= MOUNT ROUTES =================
+app.use("/api/warehouse/dashboard",DashboardRoutes);
+app.use("/api/warehouse/inventory",InventoryRoutes);
+app.use("/api/warehouse/stock",StockRoutes);
+app.use("/api/warehouse/order",OrderRoutes);
+app.use("/api/warehouse/supplier",supplierRoutes)
+app.use('/api/warehouse/categories',WarehouseCategory);
+app.use('/api/warehouse/products',productRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/subscription', subscriptionRoutes); // ✅ Webhook yahan nahi — upar already handle hua
+app.use('/api/subscription', subscriptionRoutes); 
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports/cash-flow', cashFlowRoutes);
@@ -80,7 +85,6 @@ app.use('/api/accounts-payable', accountsPayableRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/accounts-receivable', accountsReceivableRoutes);
 app.use('/api/transfers', transferRoutes);
-app.use('/api/bank-reconciliation', bankReconciliationRoutes);
 app.use('/api/bank-accounts', bankAccountRoutes);
 app.use('/api/trial-balance', trialBalanceRoutes);
 app.use('/api/general-ledger', generalLedgerRoutes);
