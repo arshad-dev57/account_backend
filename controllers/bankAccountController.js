@@ -1,113 +1,121 @@
-const BankAccount = require('../models/BankAccount');
-const ChartOfAccount = require('../models/ChartOfAccount');
-const JournalEntry = require('../models/JournalEntry');
+// controllers/bankAccountController.js - COMPLETE FIXED VERSION
 
-// ==================== HELPER FUNCTIONS ====================
+const BankAccountModel = require('../models/BankAccount');
+const prisma = require('../prisma/client');
 
-// Generate next account code for bank accounts (1020, 1021, 1022...)
-async function getNextBankAccountCode(userId) {
-  const accounts = await ChartOfAccount.find({
-    code: /^102/,
-    createdBy: userId
+// ─── HELPER: Get or create Opening Balance Equity ────────────────
+async function getOrCreateOpeningBalanceEquity(userId) {
+  let equityAccount = await prisma.chartOfAccount.findFirst({
+    where: {
+      OR: [
+        { code: '3010', createdBy: userId },
+        { name: 'Opening Balance Equity', createdBy: userId }
+      ]
+    }
   });
-  if (accounts.length === 0) return '1020';
-  
-  const codes = accounts.map(a => parseInt(a.code));
-  const maxCode = Math.max(...codes);
-  return (maxCode + 1).toString();
-}
 
-// Get or create Capital account for this user (NO duplicate error)
-async function getOrCreateCapitalAccount(userId) {
-  // First try to find capital account by code OR name for this user
-  let capitalAccount = await ChartOfAccount.findOne({
-    $or: [
-      { code: '3010', createdBy: userId },
-      { name: "Owner's Capital", createdBy: userId }
-    ]
-  });
-  
-  if (!capitalAccount) {
-    // Check if code 3010 already exists for ANY user
-    const existingCode = await ChartOfAccount.findOne({ code: '3010' });
+  if (!equityAccount) {
+    const maxCode = await prisma.chartOfAccount.aggregate({
+      where: { createdBy: userId },
+      _max: { code: true }
+    });
     
     let newCode = '3010';
-    if (existingCode) {
-      // Generate a unique code for this user
-      let counter = 1;
-      let codeExists = true;
-      while (codeExists) {
-        newCode = `301${counter}`;
-        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
-        if (!existing) {
-          codeExists = false;
-        }
-        counter++;
-      }
+    if (maxCode._max.code) {
+      const num = parseInt(maxCode._max.code) + 1;
+      newCode = num.toString();
     }
-    
-    capitalAccount = await ChartOfAccount.create({
-      code: newCode,
-      name: "Owner's Capital",
-      type: 'Equity',
-      parentAccount: 'Equity',
-      openingBalance: 0,
-      currentBalance: 0,
-      description: 'Owner investment',
-      taxCode: 'N/A',
-      createdBy: userId,
+
+    equityAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: newCode,
+        name: 'Opening Balance Equity',
+        type: 'Equity',
+        parentAccount: 'Equity',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Opening balance equity account - DO NOT DELETE',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId
+      }
     });
   }
-  
-  return capitalAccount;
+
+  return equityAccount;
 }
 
-// Create journal entry for opening balance
-async function createOpeningBalanceJournalEntry(bankChartAccountId, accountName, openingBalance, userId) {
-  const capitalAccount = await getOrCreateCapitalAccount(userId);
-  
-  const bankChartAccount = await ChartOfAccount.findOne({
-    _id: bankChartAccountId,
-    createdBy: userId
+// ─── HELPER: Get or create opening balance entry ──────────────────
+async function getOrCreateOpeningBalanceEntry(userId) {
+  let openingEntry = await prisma.journalEntry.findFirst({
+    where: {
+      createdBy: userId,
+      description: {
+        contains: 'Opening Balance'
+      },
+      status: 'Posted'
+    }
   });
-  
-  if (!bankChartAccount) {
-    throw new Error('Bank chart account not found');
+
+  if (!openingEntry) {
+    openingEntry = await prisma.journalEntry.create({
+      data: {
+        entryNumber: `OB-${Date.now()}`,
+        date: new Date(),
+        description: 'Opening Balance Initialization',
+        reference: 'SYSTEM-OB',
+        status: 'Posted',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date()
+      }
+    });
   }
-  
-  const journalEntry = await JournalEntry.create({
-    date: new Date(),
-    description: `Opening balance for ${accountName}`,
-    reference: `BANK-${Date.now()}`,
-    lines: [
-      {
-        accountId: bankChartAccount._id,
-        accountName: bankChartAccount.name,
-        accountCode: bankChartAccount.code,
-        debit: openingBalance,
-        credit: 0,
-      },
-      {
-        accountId: capitalAccount._id,
-        accountName: capitalAccount.name,
-        accountCode: capitalAccount.code,
-        debit: 0,
-        credit: openingBalance,
-      },
-    ],
-    status: 'Posted',
-    createdBy: userId,
-    postedBy: userId,
-    postedAt: new Date(),
-  });
-  
-  return journalEntry;
+
+  return openingEntry;
 }
 
-// ==================== CREATE BANK ACCOUNT ====================
+// ─── HELPER: Generate unique account code ─────────────────────────
+async function generateUniqueAccountCode(userId) {
+  const accounts = await prisma.chartOfAccount.findMany({
+    where: { createdBy: userId },
+    select: { code: true },
+    orderBy: { code: 'asc' }
+  });
+
+  if (accounts.length === 0) {
+    return '1010';
+  }
+
+  const codes = accounts
+    .map(a => parseInt(a.code))
+    .filter(c => !isNaN(c))
+    .sort((a, b) => a - b);
+
+  if (codes.length === 0) {
+    return '1010';
+  }
+
+  let nextCode = Math.max(...codes) + 1;
+  
+  if (nextCode > 9999) {
+    for (let i = 1010; i < 9999; i++) {
+      if (!codes.includes(i)) {
+        nextCode = i;
+        break;
+      }
+    }
+  }
+
+  return nextCode.toString();
+}
+
+// ============================================================
 // @desc    Create new bank account
 // @route   POST /api/bank-accounts
 // @access  Private
+// ============================================================
 exports.createBankAccount = async (req, res) => {
   try {
     const {
@@ -118,421 +126,732 @@ exports.createBankAccount = async (req, res) => {
       accountType,
       currency,
       openingBalance,
+      status
     } = req.body;
 
-    // Validation
+    const userId = req.user.id;
+
     if (!accountName || !accountNumber || !bankName) {
       return res.status(400).json({
         success: false,
-        message: 'Account name, account number and bank name are required',
+        message: 'Account name, account number and bank name are required'
       });
     }
 
-    // Check if account number already exists for this user
-    const existingAccount = await BankAccount.findOne({
-      accountNumber,
-      createdBy: req.user.id,
-    });
-
+    const existingAccount = await BankAccountModel.findByAccountNumber(accountNumber, userId);
     if (existingAccount) {
       return res.status(400).json({
         success: false,
-        message: 'Bank account number already exists',
+        message: 'Bank account number already exists'
       });
     }
 
-    // 1. Create entry in Chart of Accounts
-    const nextCode = await getNextBankAccountCode(req.user.id);
-    
-    const chartAccount = await ChartOfAccount.create({
-      code: nextCode,
-      name: accountName,
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: openingBalance || 0,
-      currentBalance: openingBalance || 0,
-      description: `${bankName} bank account - ${accountNumber}`,
-      taxCode: 'N/A',
-      createdBy: req.user.id,
+    const accountCode = await generateUniqueAccountCode(userId);
+
+    const chartAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: accountCode,
+        name: accountName,
+        type: 'Asset',
+        parentAccount: 'Current Assets',
+        openingBalance: openingBalance || 0,
+        currentBalance: openingBalance || 0,
+        description: `${bankName} bank account - ${accountNumber}`,
+        taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
+        createdBy: userId
+      }
     });
 
-    // 2. Create bank account record
-    const bankAccount = await BankAccount.create({
+    const bankAccount = await BankAccountModel.create({
       accountName,
       accountNumber,
       bankName,
       branchCode: branchCode || '',
       accountType: accountType || 'Current',
-      currency: currency || 'USD',
+      currency: currency || 'PKR',
       openingBalance: openingBalance || 0,
-      currentBalance: openingBalance || 0,
-      status: 'Active',
-      lastReconciled: new Date(),
-      chartOfAccountId: chartAccount._id,
-      createdBy: req.user.id,
+      status: status || 'Active',
+      chartOfAccountId: chartAccount.id,
+      createdBy: userId
     });
 
-    // 3. Create journal entry for opening balance (if > 0)
     if (openingBalance && openingBalance > 0) {
-      await createOpeningBalanceJournalEntry(
-        chartAccount._id,
-        accountName,
-        openingBalance,
-        req.user.id
-      );
+      const openingEntry = await getOrCreateOpeningBalanceEntry(userId);
+      const equityAccount = await getOrCreateOpeningBalanceEquity(userId);
+
+      const existingLine = await prisma.journalLine.findFirst({
+        where: {
+          journalId: openingEntry.id,
+          accountId: chartAccount.id
+        }
+      });
+
+      if (!existingLine) {
+        await prisma.journalLine.create({
+          data: {
+            journalId: openingEntry.id,
+            accountId: chartAccount.id,
+            accountName: chartAccount.name,
+            accountCode: chartAccount.code,
+            debit: openingBalance,
+            credit: 0,
+            isReconciled: false
+          }
+        });
+
+        const allLines = await prisma.journalLine.findMany({
+          where: { journalId: openingEntry.id }
+        });
+
+        let totalDebit = allLines.reduce((sum, l) => sum + l.debit, 0);
+        let totalCredit = allLines.reduce((sum, l) => sum + l.credit, 0);
+        const difference = totalDebit - totalCredit;
+
+        let equityLine = allLines.find(l => l.accountId === equityAccount.id);
+        
+        if (!equityLine) {
+          equityLine = await prisma.journalLine.create({
+            data: {
+              journalId: openingEntry.id,
+              accountId: equityAccount.id,
+              accountName: equityAccount.name,
+              accountCode: equityAccount.code,
+              debit: 0,
+              credit: 0,
+              isReconciled: false
+            }
+          });
+        }
+
+        if (difference > 0) {
+          await prisma.journalLine.update({
+            where: { id: equityLine.id },
+            data: { debit: 0, credit: difference }
+          });
+        } else if (difference < 0) {
+          await prisma.journalLine.update({
+            where: { id: equityLine.id },
+            data: { debit: Math.abs(difference), credit: 0 }
+          });
+        }
+
+        const updatedLines = await prisma.journalLine.findMany({
+          where: { journalId: openingEntry.id }
+        });
+
+        const equityBalance = updatedLines.reduce((sum, l) => {
+          if (l.accountId === equityAccount.id) {
+            return sum + l.credit - l.debit;
+          }
+          return sum;
+        }, 0);
+
+        await prisma.chartOfAccount.update({
+          where: { id: equityAccount.id },
+          data: { currentBalance: equityBalance }
+        });
+      }
     }
 
     res.status(201).json({
       success: true,
-      data: {
-        bankAccount,
-        chartAccount,
-      },
-      message: 'Bank account created successfully',
+      data: bankAccount,
+      message: 'Bank account created successfully'
     });
   } catch (error) {
-    console.error('Create bank account error:', error);
-    
-    // Handle duplicate key error (MongoDB E11000)
-    if (error.code === 11000) {
+    console.error('❌ Create bank account error:', error);
+
+    if (error.code === 'P2002') {
       return res.status(400).json({
         success: false,
-        message: 'Duplicate entry. Please try again with different details.',
+        message: 'Duplicate entry. Please try again with different details.'
       });
     }
-    
+
     res.status(500).json({
       success: false,
-      message: error.message || 'Server Error',
+      message: error.message || 'Server Error'
     });
   }
 };
 
-// ==================== GET ALL BANK ACCOUNTS ====================
+// ============================================================
 // @desc    Get all bank accounts
 // @route   GET /api/bank-accounts
 // @access  Private
+// ============================================================
 exports.getBankAccounts = async (req, res) => {
   try {
-    const { status, search } = req.query;
-    
-    let query = { createdBy: req.user.id };
-    
+    const { status, search, page = 1, limit = 10 } = req.query;
+    const userId = req.user.id;
+
+    const filter = { createdBy: userId };
+
     if (status && status !== 'All') {
-      query.status = status;
+      filter.status = status;
     }
-    
+
     if (search) {
-      query.$or = [
-        { accountName: { $regex: search, $options: 'i' } },
-        { accountNumber: { $regex: search, $options: 'i' } },
-        { bankName: { $regex: search, $options: 'i' } },
+      filter.OR = [
+        { accountName: { contains: search, mode: 'insensitive' } },
+        { accountNumber: { contains: search, mode: 'insensitive' } },
+        { bankName: { contains: search, mode: 'insensitive' } }
       ];
     }
-    
-    const bankAccounts = await BankAccount.find(query)
-      .populate('chartOfAccountId', 'code name currentBalance')
-      .sort({ createdAt: -1 });
-    
-    // Calculate summaries
-    const activeAccounts = bankAccounts.filter(acc => acc.status === 'Active');
-    const totalBalance = activeAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
-    const totalPKR = activeAccounts
-      .filter(acc => acc.currency === 'PKR')
-      .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
-    const totalUSD = activeAccounts
-      .filter(acc => acc.currency === 'USD')
-      .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
-    
+
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    const bankAccounts = await prisma.bankAccount.findMany({
+      where: filter,
+      skip,
+      take: limitNum,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        chartOfAccount: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            currentBalance: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    const accountsWithBalance = bankAccounts.map(account => {
+      return {
+        ...account,
+        currentBalance: account.chartOfAccount?.currentBalance || account.currentBalance
+      };
+    });
+
+    const totalCount = await prisma.bankAccount.count({ where: filter });
+    const totalPages = Math.ceil(totalCount / limitNum);
+
     res.status(200).json({
       success: true,
-      count: bankAccounts.length,
-      data: bankAccounts,
-      summary: {
-        totalBalance,
-        totalPKR,
-        totalUSD,
-        activeCount: activeAccounts.length,
-      },
+      count: accountsWithBalance.length,
+      total: totalCount,
+      page: pageNum,
+      pages: totalPages,
+      data: accountsWithBalance
     });
   } catch (error) {
-    console.error('Get bank accounts error:', error);
+    console.error('❌ Get bank accounts error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
 
-// ==================== GET SINGLE BANK ACCOUNT ====================
+// ============================================================
 // @desc    Get single bank account
 // @route   GET /api/bank-accounts/:id
 // @access  Private
+// ============================================================
 exports.getBankAccount = async (req, res) => {
   try {
-    const bankAccount = await BankAccount.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id,
-    }).populate('chartOfAccountId', 'code name currentBalance');
-    
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      },
+      include: {
+        chartOfAccount: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            type: true,
+            currentBalance: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
     if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
-    
+
     res.status(200).json({
       success: true,
-      data: bankAccount,
+      data: bankAccount
     });
   } catch (error) {
-    console.error('Get bank account error:', error);
+    console.error('❌ Get bank account error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
 
-// ==================== UPDATE BANK ACCOUNT ====================
+// ============================================================
 // @desc    Update bank account
 // @route   PUT /api/bank-accounts/:id
 // @access  Private
+// ============================================================
 exports.updateBankAccount = async (req, res) => {
   try {
-    const { accountName, accountNumber, bankName, branchCode, accountType, currency, status } = req.body;
-    
-    const bankAccount = await BankAccount.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id,
+    const { id } = req.params;
+    const {
+      accountName,
+      accountNumber,
+      bankName,
+      branchCode,
+      accountType,
+      currency,
+      status
+    } = req.body;
+    const userId = req.user.id;
+
+    const existing = await prisma.bankAccount.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
-    
-    if (!bankAccount) {
+
+    if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
-    
-    // Check duplicate account number
-    if (accountNumber && accountNumber !== bankAccount.accountNumber) {
-      const existingAccount = await BankAccount.findOne({
-        accountNumber,
-        createdBy: req.user.id,
-        _id: { $ne: req.params.id },
+
+    if (accountNumber && accountNumber !== existing.accountNumber) {
+      const duplicate = await prisma.bankAccount.findFirst({
+        where: {
+          accountNumber,
+          createdBy: userId,
+          NOT: { id }
+        }
       });
-      if (existingAccount) {
+
+      if (duplicate) {
         return res.status(400).json({
           success: false,
-          message: 'Bank account number already exists',
+          message: 'Bank account number already exists'
         });
       }
     }
-    
-    // Update fields
-    if (accountName) bankAccount.accountName = accountName;
-    if (accountNumber) bankAccount.accountNumber = accountNumber;
-    if (bankName) bankAccount.bankName = bankName;
-    if (branchCode !== undefined) bankAccount.branchCode = branchCode;
-    if (accountType) bankAccount.accountType = accountType;
-    if (currency) bankAccount.currency = currency;
-    if (status) bankAccount.status = status;
-    
-    await bankAccount.save();
-    
-    // Update Chart of Accounts name if changed
-    if (accountName) {
-      await ChartOfAccount.findOneAndUpdate(
-        { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
-        { name: accountName, isActive: status === 'Active' }
-      );
+
+    const updated = await BankAccountModel.update(id, {
+      accountName,
+      accountNumber,
+      bankName,
+      branchCode,
+      accountType,
+      currency,
+      status
+    });
+
+    if (accountName || status) {
+      await prisma.chartOfAccount.update({
+        where: { id: existing.chartOfAccountId },
+        data: {
+          name: accountName || existing.accountName,
+          isActive: status === 'Active'
+        }
+      });
     }
-    
+
     res.status(200).json({
       success: true,
-      data: bankAccount,
-      message: 'Bank account updated successfully',
+      data: updated,
+      message: 'Bank account updated successfully'
     });
   } catch (error) {
-    console.error('Update bank account error:', error);
+    console.error('❌ Update bank account error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
 
-// ==================== DELETE BANK ACCOUNT ====================
+// ============================================================
 // @desc    Delete bank account
 // @route   DELETE /api/bank-accounts/:id
 // @access  Private
+// ============================================================
 exports.deleteBankAccount = async (req, res) => {
   try {
-    const bankAccount = await BankAccount.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id,
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      },
+      include: {
+        chartOfAccount: true
+      }
     });
-    
+
     if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
-    
-    // Check if account has transactions
-    const hasTransactions = await JournalEntry.findOne({
-      'lines.accountId': bankAccount.chartOfAccountId,
-      createdBy: req.user.id
+
+    const hasTransactions = await prisma.journalLine.findFirst({
+      where: {
+        accountId: bankAccount.chartOfAccountId,
+        journal: {
+          createdBy: userId
+        }
+      }
     });
-    
+
     if (hasTransactions) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete account with existing transactions. Please deactivate instead.',
+        message: 'Cannot delete account with existing transactions. Please deactivate instead.'
       });
     }
-    
-    // Delete from BankAccount and ChartOfAccount
-    await bankAccount.deleteOne();
-    await ChartOfAccount.findOneAndDelete({
-      _id: bankAccount.chartOfAccountId,
-      createdBy: req.user.id
+
+    await BankAccountModel.delete(id);
+
+    await prisma.chartOfAccount.delete({
+      where: { id: bankAccount.chartOfAccountId }
     });
-    
+
     res.status(200).json({
       success: true,
-      message: 'Bank account deleted successfully',
+      message: 'Bank account deleted successfully'
     });
   } catch (error) {
-    console.error('Delete bank account error:', error);
+    console.error('❌ Delete bank account error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
 
-// ==================== UPDATE BANK BALANCE ====================
-// @desc    Update bank account balance (called from transactions)
-// @route   PUT /api/bank-accounts/:id/balance
+// ============================================================
+// @desc    Update bank account balance
+// @route   PATCH /api/bank-accounts/:id/balance
 // @access  Private
+// ============================================================
 exports.updateBalance = async (req, res) => {
   try {
+    const { id } = req.params;
     const { amount, type } = req.body;
-    
+    const userId = req.user.id;
+
     if (!amount || !type) {
       return res.status(400).json({
         success: false,
-        message: 'Amount and type are required',
+        message: 'Amount and type are required'
       });
     }
-    
-    const bankAccount = await BankAccount.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id,
+
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
-    
+
     if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
-    
-    let newBalance = bankAccount.currentBalance;
-    if (type === 'credit') {
-      newBalance += amount;
-    } else if (type === 'debit') {
-      newBalance -= amount;
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid type. Use "credit" or "debit"',
-      });
-    }
-    
-    bankAccount.currentBalance = newBalance;
-    await bankAccount.save();
-    
-    // Update Chart of Accounts balance
-    await ChartOfAccount.findOneAndUpdate(
-      { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
-      { currentBalance: newBalance }
-    );
-    
+
+    const updated = await BankAccountModel.updateBalance(id, amount, type);
+
     res.status(200).json({
       success: true,
-      data: { currentBalance: newBalance },
-      message: 'Balance updated successfully',
+      data: {
+        currentBalance: updated.currentBalance,
+        previousBalance: bankAccount.currentBalance,
+        change: updated.currentBalance - bankAccount.currentBalance
+      },
+      message: 'Balance updated successfully'
     });
   } catch (error) {
-    console.error('Update balance error:', error);
+    console.error('❌ Update balance error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
 
-// ==================== RECONCILE BANK ACCOUNT ====================
+// ============================================================
 // @desc    Reconcile bank account
 // @route   POST /api/bank-accounts/:id/reconcile
 // @access  Private
+// ============================================================
 exports.reconcileBankAccount = async (req, res) => {
   try {
+    const { id } = req.params;
     const { statementBalance, reconciledDate } = req.body;
-    
+    const userId = req.user.id;
+
     if (statementBalance === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Statement balance is required',
+        message: 'Statement balance is required'
       });
     }
-    
-    const bankAccount = await BankAccount.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id,
+
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
-    
+
     if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
-    
+
+    const updated = await BankAccountModel.reconcile(
+      id,
+      statementBalance,
+      reconciledDate
+    );
+
     const difference = statementBalance - bankAccount.currentBalance;
-    
-    bankAccount.lastReconciled = reconciledDate ? new Date(reconciledDate) : new Date();
-    await bankAccount.save();
-    
+
     res.status(200).json({
       success: true,
       data: {
-        accountId: bankAccount._id,
-        accountName: bankAccount.accountName,
-        currentBalance: bankAccount.currentBalance,
-        statementBalance: statementBalance,
-        difference: difference,
-        lastReconciled: bankAccount.lastReconciled,
+        accountId: updated.id,
+        accountName: updated.accountName,
+        currentBalance: updated.currentBalance,
+        statementBalance,
+        difference,
+        lastReconciled: updated.lastReconciled
       },
-      message: difference === 0 
-        ? 'Account reconciled successfully' 
-        : `Account reconciled with difference of ${difference}`,
+      message: difference === 0
+        ? 'Account reconciled successfully'
+        : `Account reconciled with difference of ${difference}`
     });
   } catch (error) {
-    console.error('Reconcile error:', error);
+    console.error('❌ Reconcile error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
+    });
+  }
+};
+
+// ============================================================
+// @desc    Get bank account transactions
+// @route   GET /api/bank-accounts/:id/transactions
+// @access  Private
+// ============================================================
+exports.getBankAccountTransactions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { startDate, endDate, limit = 20, page = 1 } = req.query;
+    const userId = req.user.id;
+
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
+    });
+
+    if (!bankAccount) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bank account not found'
+      });
+    }
+
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    const { transactions, total } = await BankAccountModel.getTransactions(id, {
+      startDate,
+      endDate,
+      skip,
+      take: limitNum
+    });
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    res.status(200).json({
+      success: true,
+      account: {
+        id: bankAccount.id,
+        accountName: bankAccount.accountName,
+        accountNumber: bankAccount.accountNumber,
+        bankName: bankAccount.bankName,
+        currentBalance: bankAccount.currentBalance
+      },
+      count: transactions.length,
+      total,
+      page: pageNum,
+      pages: totalPages,
+      data: transactions
+    });
+  } catch (error) {
+    console.error('❌ Get bank account transactions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// ============================================================
+// @desc    Get bank account summary
+// @route   GET /api/bank-accounts/summary
+// @access  Private
+// ============================================================
+exports.getBankAccountSummary = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const bankAccounts = await prisma.bankAccount.findMany({
+      where: {
+        createdBy: userId,
+        status: 'Active'
+      }
+    });
+
+    const summary = await BankAccountModel.getSummary(bankAccounts);
+    const balanceByCurrency = await BankAccountModel.getBalanceByCurrency(userId);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary,
+        balanceByCurrency,
+        accounts: bankAccounts.map(acc => ({
+          id: acc.id,
+          accountName: acc.accountName,
+          accountNumber: acc.accountNumber,
+          bankName: acc.bankName,
+          currency: acc.currency,
+          balance: acc.currentBalance,
+          lastReconciled: acc.lastReconciled
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('❌ Get bank account summary error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// ============================================================
+// @desc    Bulk import bank accounts
+// @route   POST /api/bank-accounts/bulk-import
+// @access  Private
+// ============================================================
+exports.bulkImportBankAccounts = async (req, res) => {
+  try {
+    const { accounts } = req.body;
+    const userId = req.user.id;
+
+    if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an array of bank accounts'
+      });
+    }
+
+    const results = await BankAccountModel.bulkImport(accounts, userId);
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully imported ${results.success.length} of ${results.total} bank accounts`,
+      data: results
+    });
+  } catch (error) {
+    console.error('❌ Bulk import bank accounts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// ============================================================
+// @desc    Get bank account with latest transactions
+// @route   GET /api/bank-accounts/:id/with-transactions
+// @access  Private
+// ============================================================
+exports.getBankAccountWithTransactions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 5 } = req.query;
+    const userId = req.user.id;
+
+    const result = await BankAccountModel.getWithLatestTransactions(id, parseInt(limit));
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bank account not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('❌ Get bank account with transactions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
     });
   }
 };

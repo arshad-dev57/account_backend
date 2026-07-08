@@ -1,11 +1,21 @@
-const Income = require('../models/Income');
-const Expense = require('../models/Expense');
-const ChartOfAccount = require('../models/ChartOfAccount');
-const Invoice = require('../models/Invoice');
-const CreditNote = require('../models/CreditNote');
-const Bill = require('../models/Bill');
+// ✅ SAB SE IMPORTANT - PRISMA IMPORT
+const prisma = require('../prisma/client');
 
-function _getPeriodDisplayText(period, start, end) {
+// ✅ Debug: Check if prisma is loaded
+console.log('========================================');
+console.log('🔍 DEBUG: Checking prisma import');
+console.log('🔍 prisma object:', typeof prisma);
+console.log('🔍 prisma.income:', typeof prisma?.income);
+console.log('🔍 prisma.expense:', typeof prisma?.expense);
+console.log('🔍 prisma.invoice:', typeof prisma?.invoice);
+console.log('🔍 prisma.creditNote:', typeof prisma?.creditNote);
+console.log('🔍 prisma.bill:', typeof prisma?.bill);
+console.log('========================================');
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
+
+function getPeriodDisplayText(period, start, end) {
   if (period && period !== 'Custom Range') {
     switch (period) {
       case 'Today': return new Date(start).toLocaleDateString();
@@ -19,88 +29,129 @@ function _getPeriodDisplayText(period, start, end) {
   return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
 }
 
-exports.getProfitLossStatement = async (req, res) => {
+function getDateRange(period, startDate, endDate) {
+  const now = new Date();
+  let start, end;
 
+  switch (period) {
+    case 'Today':
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      break;
+    case 'This Week':
+      start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      start.setHours(0, 0, 0, 0);
+      end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      break;
+    case 'This Month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      break;
+    case 'This Quarter':
+      const quarter = Math.floor(now.getMonth() / 3);
+      start = new Date(now.getFullYear(), quarter * 3, 1);
+      end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      break;
+    case 'This Year':
+      start = new Date(now.getFullYear(), 0, 1);
+      end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      break;
+    default:
+      if (startDate && endDate) {
+        start = new Date(startDate);
+        end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+      } else {
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now);
+        end.setHours(23, 59, 59, 999);
+      }
+  }
+
+  return { start, end };
+}
+
+// ============================================================
+// @desc    Get Profit & Loss Statement
+// @route   GET /api/pl-reports/profit-loss
+// @access  Private
+// ============================================================
+exports.getProfitLossStatement = async (req, res) => {
   try {
     console.log('\n========== PROFIT & LOSS STATEMENT DEBUG ==========');
-    console.log('🔍 User ID from token:', req.user?._id || req.user?.id);
-    console.log('🔍 User Email:', req.user?.email);
+    console.log('🔍 User ID from token:', req.user.id);
 
     const { startDate, endDate, period } = req.query;
     console.log('📅 Request params:', { startDate, endDate, period });
 
-    let start, end;
-
-    // Handle period presets
-    const now = new Date();
-    switch (period) {
-      case 'Today':
-        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-        break;
-      case 'This Week':
-        start = new Date(now);
-        start.setDate(now.getDate() - now.getDay());
-        start.setHours(0, 0, 0, 0);
-        end = new Date(now);
-        end.setHours(23, 59, 59, 999);
-        break;
-      case 'This Month':
-        start = new Date(now.getFullYear(), now.getMonth(), 1);
-        end = new Date(now);
-        end.setHours(23, 59, 59, 999);
-        break;
-      case 'This Quarter':
-        const quarter = Math.floor(now.getMonth() / 3);
-        start = new Date(now.getFullYear(), quarter * 3, 1);
-        end = new Date(now);
-        end.setHours(23, 59, 59, 999);
-        break;
-      case 'This Year':
-        start = new Date(now.getFullYear(), 0, 1);
-        end = new Date(now);
-        end.setHours(23, 59, 59, 999);
-        break;
-      default:
-        if (startDate && endDate) {
-          start = new Date(startDate);
-          end = new Date(endDate);
-          end.setHours(23, 59, 59, 999);
-        } else {
-          start = new Date(now.getFullYear(), now.getMonth(), 1);
-          end = new Date(now);
-          end.setHours(23, 59, 59, 999);
-        }
-    }
+    const userId = req.user.id;
+    const { start, end } = getDateRange(period, startDate, endDate);
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
-    const dateFilter = {
-      date: { $gte: start, $lte: end },
-      status: 'Posted',
-      createdBy: req.user._id || req.user.id
-    };
-
-    console.log('📊 Date Filter:', JSON.stringify(dateFilter, null, 2));
-
-    // Get all incomes and expenses for this user
-    const incomes = await Income.find(dateFilter);
-    const expenses = await Expense.find(dateFilter);
-
-    const invoices = await Invoice.find({
-      date: { $gte: start, $lte: end },
-      status: { $ne: 'Draft' },
-      createdBy: req.user._id || req.user.id
+    // ─── GET INCOMES ──────────────────────────────────────────────
+    const incomes = await prisma.income.findMany({
+      where: {
+        createdBy: userId,
+        date: {
+          gte: start,
+          lte: end
+        },
+        status: 'Posted'
+      }
     });
 
-    const creditNotes = await CreditNote.find({
-      date: { $gte: start, $lte: end },
-      createdBy: req.user._id || req.user.id
+    // ─── GET EXPENSES ──────────────────────────────────────────────
+    const expenses = await prisma.expense.findMany({
+      where: {
+        createdBy: userId,
+        date: {
+          gte: start,
+          lte: end
+        },
+        status: 'Posted'
+      }
     });
 
-    const bills = await Bill.find({
-      date: { $gte: start, $lte: end },
-      createdBy: req.user._id || req.user.id
+    // ─── GET INVOICES ──────────────────────────────────────────────
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        createdBy: userId,
+        date: {
+          gte: start,
+          lte: end
+        },
+        status: {
+          not: 'Draft'
+        }
+      }
+    });
+
+    // ─── GET CREDIT NOTES ──────────────────────────────────────────
+    const creditNotes = await prisma.creditNote.findMany({
+      where: {
+        createdBy: userId,
+        date: {
+          gte: start,
+          lte: end
+        }
+      }
+    });
+
+    // ─── GET BILLS ──────────────────────────────────────────────────
+    const bills = await prisma.bill.findMany({
+      where: {
+        createdBy: userId,
+        date: {
+          gte: start,
+          lte: end
+        }
+      }
     });
 
     console.log('💰 Incomes found:', incomes.length);
@@ -109,44 +160,31 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('💸 Expenses found:', expenses.length);
     console.log('🧾 Bills found:', bills.length);
 
-    // Debug: Check if any incomes without createdBy
-    if (incomes.length === 0) {
-      const allIncomes = await Income.find({ status: 'Posted' }).limit(5);
-      console.log('⚠️ Sample of all incomes in DB (first 5):');
-      allIncomes.forEach((inc, idx) => {
-        console.log(`  ${idx + 1}. ID: ${inc._id}, Type: ${inc.incomeType}, Amount: ${inc.totalAmount}, CreatedBy: ${inc.createdBy}`);
-      });
-    }
-
-    // Group incomes by type
+    // ─── GROUP INCOMES BY TYPE ──────────────────────────────────
     const revenueByType = {};
     let totalRevenue = 0;
 
     incomes.forEach(inc => {
-      const type = inc.incomeType;
-      const amount = inc.totalAmount;
-
-      if (!revenueByType[type]) {
-        revenueByType[type] = 0;
-      }
-      revenueByType[type] += amount;
+      const type = inc.incomeType || 'Other Income';
+      const amount = inc.totalAmount || inc.amount || 0;
+      revenueByType[type] = (revenueByType[type] || 0) + amount;
       totalRevenue += amount;
     });
 
-    // Add Invoices to revenue
+    // ─── ADD INVOICES TO REVENUE ────────────────────────────────
     let invoicesTotal = 0;
     invoices.forEach(inv => {
-      invoicesTotal += inv.totalAmount;
+      invoicesTotal += inv.totalAmount || inv.grandTotal || 0;
     });
     if (invoicesTotal > 0) {
       revenueByType['Sales from Invoices'] = invoicesTotal;
       totalRevenue += invoicesTotal;
     }
 
-    // Subtract Credit Notes from revenue
+    // ─── SUBTRACT CREDIT NOTES FROM REVENUE ────────────────────
     let creditNotesTotal = 0;
     creditNotes.forEach(cn => {
-      creditNotesTotal += cn.amount;
+      creditNotesTotal += cn.amount || 0;
     });
     if (creditNotesTotal > 0) {
       revenueByType['Credit Notes / Refunds'] = -creditNotesTotal;
@@ -156,20 +194,16 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('📈 Revenue by type:', revenueByType);
     console.log('💰 Total Revenue:', totalRevenue);
 
-    // Group expenses by type
+    // ─── GROUP EXPENSES BY TYPE ──────────────────────────────────
     const expensesByType = {};
     let totalExpenses = 0;
     let costOfGoodsSold = 0;
     let operatingExpenses = 0;
 
     expenses.forEach(exp => {
-      const type = exp.expenseType;
-      const amount = exp.totalAmount;
-
-      if (!expensesByType[type]) {
-        expensesByType[type] = 0;
-      }
-      expensesByType[type] += amount;
+      const type = exp.expenseType || 'Other Expense';
+      const amount = exp.totalAmount || exp.amount || 0;
+      expensesByType[type] = (expensesByType[type] || 0) + amount;
       totalExpenses += amount;
 
       if (type === 'Cost of Goods Sold' || type === 'Inventory Purchase') {
@@ -179,10 +213,10 @@ exports.getProfitLossStatement = async (req, res) => {
       }
     });
 
-    // Add Bills to Expenses
+    // ─── ADD BILLS TO EXPENSES ──────────────────────────────────
     let billsTotal = 0;
     bills.forEach(bill => {
-      billsTotal += bill.totalAmount;
+      billsTotal += bill.totalAmount || 0;
     });
     if (billsTotal > 0) {
       expensesByType['Purchases / Bills'] = billsTotal;
@@ -193,7 +227,7 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('📉 Expenses by type:', expensesByType);
     console.log('💸 Total Expenses:', totalExpenses);
 
-    // Separate operating vs other
+    // ─── SEPARATE OPERATING VS OTHER ────────────────────────────
     const operatingIncomeTypes = ['Sales', 'Services', 'Sales from Invoices', 'Credit Notes / Refunds'];
     const otherIncomeTypes = ['Interest Income', 'Rental Income', 'Dividend Income', 'Other Income'];
     const operatingExpenseTypes = ['Rent', 'Salaries', 'Utilities', 'Office Supplies', 'Marketing', 'Insurance', 'Maintenance', 'Software', 'Purchases / Bills'];
@@ -225,47 +259,35 @@ exports.getProfitLossStatement = async (req, res) => {
       }
     });
 
-    // Prepare revenue items
+    // ─── PREPARE REVENUE ITEMS ──────────────────────────────────
     const revenueItems = [];
     for (const [type, amount] of Object.entries(revenueByType)) {
-      revenueItems.push({
-        name: type,
-        amount: amount
-      });
+      revenueItems.push({ name: type, amount: amount });
     }
 
-    // Prepare expense items
+    // ─── PREPARE EXPENSE ITEMS ──────────────────────────────────
     const expenseItems = [];
     for (const [type, amount] of Object.entries(expensesByType)) {
-      expenseItems.push({
-        name: type,
-        amount: amount
-      });
+      expenseItems.push({ name: type, amount: amount });
     }
 
-    // Prepare other income items
+    // ─── PREPARE OTHER INCOME/EXPENSE ITEMS ────────────────────
     const otherIncomeItems = [];
+    const otherExpenseItems = [];
+
     for (const [type, amount] of Object.entries(revenueByType)) {
       if (otherIncomeTypes.includes(type)) {
-        otherIncomeItems.push({
-          name: type,
-          amount: amount
-        });
+        otherIncomeItems.push({ name: type, amount: amount });
       }
     }
 
-    // Prepare other expense items
-    const otherExpenseItems = [];
     for (const [type, amount] of Object.entries(expensesByType)) {
       if (otherExpenseTypes.includes(type)) {
-        otherExpenseItems.push({
-          name: type,
-          amount: amount
-        });
+        otherExpenseItems.push({ name: type, amount: amount });
       }
     }
 
-    // Calculate final figures
+    // ─── CALCULATE FINAL FIGURES ──────────────────────────────────
     const grossProfit = operatingRevenue - costOfGoodsSold;
     const netOperatingIncome = grossProfit - operatingExpenseTotal;
     const netProfit = netOperatingIncome + otherRevenue - otherExpenseTotal;
@@ -287,7 +309,7 @@ exports.getProfitLossStatement = async (req, res) => {
         period: {
           start: start,
           end: end,
-          displayText: _getPeriodDisplayText(period, start, end)
+          displayText: getPeriodDisplayText(period, start, end)
         },
         revenue: {
           total: totalRevenue,
@@ -315,6 +337,7 @@ exports.getProfitLossStatement = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error generating P&L statement:', error);
+    console.error('📚 Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: error.message
@@ -322,13 +345,19 @@ exports.getProfitLossStatement = async (req, res) => {
   }
 };
 
-// ==================== GET SUMMARY (Quick Stats) ====================
+// ============================================================
+// @desc    Get Profit & Loss Summary (Quick Stats)
+// @route   GET /api/pl-reports/profit-loss/summary
+// @access  Private
+// ============================================================
 exports.getSummary = async (req, res) => {
   try {
     console.log('\n========== PROFIT & LOSS SUMMARY DEBUG ==========');
-    console.log('🔍 User ID:', req.user?._id || req.user?.id);
+    console.log('🔍 User ID:', req.user.id);
 
     const now = new Date();
+    const userId = req.user.id;
+
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now);
     endOfMonth.setHours(23, 59, 59, 999);
@@ -337,120 +366,98 @@ exports.getSummary = async (req, res) => {
     const endOfYear = new Date(now);
     endOfYear.setHours(23, 59, 59, 999);
 
-    const userId = req.user._id || req.user.id;
-
-    // Current month - only posted entries created by this user
-    const monthIncomes = await Income.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfMonth, $lte: endOfMonth },
-          status: 'Posted',
-          createdBy: userId
-        }
+    // ─── MONTH INCOMES ──────────────────────────────────────────
+    const monthIncomes = await prisma.income.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfMonth, lte: endOfMonth },
+        status: 'Posted'
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const monthInvoices = await Invoice.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfMonth, $lte: endOfMonth },
-          status: { $ne: 'Draft' },
-          createdBy: userId
-        }
+    const monthInvoices = await prisma.invoice.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfMonth, lte: endOfMonth },
+        status: { not: 'Draft' }
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const monthCreditNotes = await CreditNote.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfMonth, $lte: endOfMonth },
-          createdBy: userId
-        }
+    const monthCreditNotes = await prisma.creditNote.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfMonth, lte: endOfMonth }
       },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
+      _sum: { amount: true }
+    });
 
-    const monthExpenses = await Expense.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfMonth, $lte: endOfMonth },
-          status: 'Posted',
-          createdBy: userId
-        }
+    const monthExpenses = await prisma.expense.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfMonth, lte: endOfMonth },
+        status: 'Posted'
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const monthBills = await Bill.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfMonth, $lte: endOfMonth },
-          createdBy: userId
-        }
+    const monthBills = await prisma.bill.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfMonth, lte: endOfMonth }
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    // Current year - only posted entries created by this user
-    const yearIncomes = await Income.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfYear, $lte: endOfYear },
-          status: 'Posted',
-          createdBy: userId
-        }
+    // ─── YEAR INCOMES ────────────────────────────────────────────
+    const yearIncomes = await prisma.income.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfYear, lte: endOfYear },
+        status: 'Posted'
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const yearInvoices = await Invoice.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfYear, $lte: endOfYear },
-          status: { $ne: 'Draft' },
-          createdBy: userId
-        }
+    const yearInvoices = await prisma.invoice.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfYear, lte: endOfYear },
+        status: { not: 'Draft' }
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const yearCreditNotes = await CreditNote.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfYear, $lte: endOfYear },
-          createdBy: userId
-        }
+    const yearCreditNotes = await prisma.creditNote.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfYear, lte: endOfYear }
       },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
+      _sum: { amount: true }
+    });
 
-    const yearExpenses = await Expense.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfYear, $lte: endOfYear },
-          status: 'Posted',
-          createdBy: userId
-        }
+    const yearExpenses = await prisma.expense.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfYear, lte: endOfYear },
+        status: 'Posted'
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const yearBills = await Bill.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfYear, $lte: endOfYear },
-          createdBy: userId
-        }
+    const yearBills = await prisma.bill.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfYear, lte: endOfYear }
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const monthRevenue = (monthIncomes[0]?.total || 0) + (monthInvoices[0]?.total || 0) - (monthCreditNotes[0]?.total || 0);
-    const monthExpense = (monthExpenses[0]?.total || 0) + (monthBills[0]?.total || 0);
-    const yearRevenue = (yearIncomes[0]?.total || 0) + (yearInvoices[0]?.total || 0) - (yearCreditNotes[0]?.total || 0);
-    const yearExpense = (yearExpenses[0]?.total || 0) + (yearBills[0]?.total || 0);
+    const monthRevenue = (monthIncomes._sum.totalAmount || 0) + (monthInvoices._sum.totalAmount || 0) - (monthCreditNotes._sum.amount || 0);
+    const monthExpense = (monthExpenses._sum.totalAmount || 0) + (monthBills._sum.totalAmount || 0);
+    const yearRevenue = (yearIncomes._sum.totalAmount || 0) + (yearInvoices._sum.totalAmount || 0) - (yearCreditNotes._sum.amount || 0);
+    const yearExpense = (yearExpenses._sum.totalAmount || 0) + (yearBills._sum.totalAmount || 0);
 
     console.log('📊 Month Revenue:', monthRevenue);
     console.log('📊 Month Expense:', monthExpense);
@@ -477,6 +484,7 @@ exports.getSummary = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error in getSummary:', error);
+    console.error('📚 Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: error.message
@@ -484,18 +492,22 @@ exports.getSummary = async (req, res) => {
   }
 };
 
-// ==================== GET TREND DATA (Chart) ====================
+// ============================================================
+// @desc    Get Trend Data (Chart)
+// @route   GET /api/pl-reports/trend
+// @access  Private
+// ============================================================
 exports.getTrendData = async (req, res) => {
   try {
     console.log('\n========== TREND DATA DEBUG ==========');
-    console.log('🔍 User ID:', req.user?._id || req.user?.id);
+    console.log('🔍 User ID:', req.user.id);
 
     const { months = 12 } = req.query;
+    const userId = req.user.id;
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(endDate.getMonth() - parseInt(months));
 
-    const userId = req.user._id || req.user.id;
     const monthlyData = [];
 
     for (let i = 0; i <= parseInt(months); i++) {
@@ -505,61 +517,51 @@ exports.getTrendData = async (req, res) => {
       const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
       monthEnd.setHours(23, 59, 59, 999);
 
-      const monthIncomes = await Income.aggregate([
-        {
-          $match: {
-            date: { $gte: monthStart, $lte: monthEnd },
-            status: 'Posted',
-            createdBy: userId
-          }
+      const monthIncomes = await prisma.income.aggregate({
+        where: {
+          createdBy: userId,
+          date: { gte: monthStart, lte: monthEnd },
+          status: 'Posted'
         },
-        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-      ]);
+        _sum: { totalAmount: true }
+      });
 
-      const monthInvoices = await Invoice.aggregate([
-        {
-          $match: {
-            date: { $gte: monthStart, $lte: monthEnd },
-            status: { $ne: 'Draft' },
-            createdBy: userId
-          }
+      const monthInvoices = await prisma.invoice.aggregate({
+        where: {
+          createdBy: userId,
+          date: { gte: monthStart, lte: monthEnd },
+          status: { not: 'Draft' }
         },
-        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-      ]);
+        _sum: { totalAmount: true }
+      });
 
-      const monthCreditNotes = await CreditNote.aggregate([
-        {
-          $match: {
-            date: { $gte: monthStart, $lte: monthEnd },
-            createdBy: userId
-          }
+      const monthCreditNotes = await prisma.creditNote.aggregate({
+        where: {
+          createdBy: userId,
+          date: { gte: monthStart, lte: monthEnd }
         },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
+        _sum: { amount: true }
+      });
 
-      const monthExpenses = await Expense.aggregate([
-        {
-          $match: {
-            date: { $gte: monthStart, $lte: monthEnd },
-            status: 'Posted',
-            createdBy: userId
-          }
+      const monthExpenses = await prisma.expense.aggregate({
+        where: {
+          createdBy: userId,
+          date: { gte: monthStart, lte: monthEnd },
+          status: 'Posted'
         },
-        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-      ]);
+        _sum: { totalAmount: true }
+      });
 
-      const monthBills = await Bill.aggregate([
-        {
-          $match: {
-            date: { $gte: monthStart, $lte: monthEnd },
-            createdBy: userId
-          }
+      const monthBills = await prisma.bill.aggregate({
+        where: {
+          createdBy: userId,
+          date: { gte: monthStart, lte: monthEnd }
         },
-        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-      ]);
+        _sum: { totalAmount: true }
+      });
 
-      const revenue = (monthIncomes[0]?.total || 0) + (monthInvoices[0]?.total || 0) - (monthCreditNotes[0]?.total || 0);
-      const expenses = (monthExpenses[0]?.total || 0) + (monthBills[0]?.total || 0);
+      const revenue = (monthIncomes._sum.totalAmount || 0) + (monthInvoices._sum.totalAmount || 0) - (monthCreditNotes._sum.amount || 0);
+      const expenses = (monthExpenses._sum.totalAmount || 0) + (monthBills._sum.totalAmount || 0);
 
       monthlyData.push({
         month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
@@ -578,6 +580,7 @@ exports.getTrendData = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error in getTrendData:', error);
+    console.error('📚 Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: error.message
@@ -585,21 +588,25 @@ exports.getTrendData = async (req, res) => {
   }
 };
 
-// ==================== GET BALANCE SHEET ====================
+// ============================================================
+// @desc    Get Balance Sheet
+// @route   GET /api/pl-reports/balance-sheet
+// @access  Private
+// ============================================================
 exports.getBalanceSheet = async (req, res) => {
   try {
     console.log('\n========== BALANCE SHEET DEBUG ==========');
-    console.log('🔍 User ID:', req.user?._id || req.user?.id);
+    console.log('🔍 User ID:', req.user.id);
 
     const { asOfDate } = req.query;
     const date = asOfDate ? new Date(asOfDate) : new Date();
     date.setHours(23, 59, 59, 999);
 
-    const userId = req.user._id || req.user.id;
+    const userId = req.user.id;
 
-    // Get all chart of accounts created by this user
-    const accounts = await ChartOfAccount.find({
-      createdBy: userId
+    // ─── GET CHART OF ACCOUNTS ──────────────────────────────────
+    const accounts = await prisma.chartOfAccount.findMany({
+      where: { createdBy: userId }
     });
 
     console.log('📊 Chart of Accounts found:', accounts.length);
@@ -617,53 +624,38 @@ exports.getBalanceSheet = async (req, res) => {
 
       if (account.type === 'Assets') {
         totalAssets += balance;
-        assets.push({
-          code: account.code,
-          name: account.name,
-          balance: balance
-        });
+        assets.push({ code: account.code, name: account.name, balance: balance });
       } else if (account.type === 'Liabilities') {
         totalLiabilities += balance;
-        liabilities.push({
-          code: account.code,
-          name: account.name,
-          balance: balance
-        });
+        liabilities.push({ code: account.code, name: account.name, balance: balance });
       } else if (account.type === 'Equity') {
         totalEquity += balance;
-        equity.push({
-          code: account.code,
-          name: account.name,
-          balance: balance
-        });
+        equity.push({ code: account.code, name: account.name, balance: balance });
       }
     });
 
-    // Get current period profit/loss
+    // ─── GET CURRENT PERIOD PROFIT/LOSS ──────────────────────────
     const startOfPeriod = new Date(date.getFullYear(), 0, 1);
-    const incomes = await Income.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfPeriod, $lte: date },
-          status: 'Posted',
-          createdBy: userId
-        }
+    
+    const incomes = await prisma.income.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfPeriod, lte: date },
+        status: 'Posted'
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const expenses = await Expense.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfPeriod, $lte: date },
-          status: 'Posted',
-          createdBy: userId
-        }
+    const expenses = await prisma.expense.aggregate({
+      where: {
+        createdBy: userId,
+        date: { gte: startOfPeriod, lte: date },
+        status: 'Posted'
       },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-    ]);
+      _sum: { totalAmount: true }
+    });
 
-    const currentProfit = (incomes[0]?.total || 0) - (expenses[0]?.total || 0);
+    const currentProfit = (incomes._sum.totalAmount || 0) - (expenses._sum.totalAmount || 0);
 
     console.log('📊 Total Assets:', totalAssets);
     console.log('📊 Total Liabilities:', totalLiabilities);
@@ -693,6 +685,7 @@ exports.getBalanceSheet = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error generating balance sheet:', error);
+    console.error('📚 Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: error.message
@@ -700,11 +693,15 @@ exports.getBalanceSheet = async (req, res) => {
   }
 };
 
-// ==================== GET CASH FLOW STATEMENT ====================
+// ============================================================
+// @desc    Get Cash Flow Statement
+// @route   GET /api/pl-reports/cash-flow
+// @access  Private
+// ============================================================
 exports.getCashFlowStatement = async (req, res) => {
   try {
     console.log('\n========== CASH FLOW STATEMENT DEBUG ==========');
-    console.log('🔍 User ID:', req.user?._id || req.user?.id);
+    console.log('🔍 User ID:', req.user.id);
 
     const { startDate, endDate } = req.query;
     let start, end;
@@ -722,25 +719,54 @@ exports.getCashFlowStatement = async (req, res) => {
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
-    const userId = req.user._id || req.user.id;
-    const dateFilter = {
-      date: { $gte: start, $lte: end },
-      status: 'Posted',
-      createdBy: userId
-    };
+    const userId = req.user.id;
 
-    // Get all incomes (cash inflows)
-    const incomes = await Income.find(dateFilter);
-    const totalInflows = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    // ─── GET INCOMES ──────────────────────────────────────────────
+    const incomes = await prisma.income.findMany({
+      where: {
+        createdBy: userId,
+        date: { gte: start, lte: end },
+        status: 'Posted'
+      }
+    });
 
-    // Get all expenses (cash outflows)
-    const expenses = await Expense.find(dateFilter);
-    const totalOutflows = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    // ─── GET EXPENSES ──────────────────────────────────────────────
+    const expenses = await prisma.expense.findMany({
+      where: {
+        createdBy: userId,
+        date: { gte: start, lte: end },
+        status: 'Posted'
+      }
+    });
+
+    // ─── GET INVOICES ──────────────────────────────────────────────
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        createdBy: userId,
+        date: { gte: start, lte: end },
+        status: { not: 'Draft' }
+      }
+    });
+
+    // ─── GET BILLS ──────────────────────────────────────────────────
+    const bills = await prisma.bill.findMany({
+      where: {
+        createdBy: userId,
+        date: { gte: start, lte: end }
+      }
+    });
+
+    // ─── CALCULATE TOTALS ──────────────────────────────────────────
+    const totalInflows = incomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0) +
+      invoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+
+    const totalOutflows = expenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0) +
+      bills.reduce((sum, bill) => sum + (bill.totalAmount || 0), 0);
 
     console.log('💰 Total Inflows:', totalInflows);
     console.log('💸 Total Outflows:', totalOutflows);
 
-    // Categorize cash flows
+    // ─── CATEGORIZE CASH FLOWS ──────────────────────────────────
     let operatingInflows = 0;
     let operatingOutflows = 0;
     let investingInflows = 0;
@@ -750,29 +776,43 @@ exports.getCashFlowStatement = async (req, res) => {
 
     const operatingIncomeTypes = ['Sales', 'Services'];
     const operatingExpenseTypes = ['Rent', 'Salaries', 'Utilities', 'Office Supplies', 'Marketing', 'Insurance', 'Maintenance', 'Software'];
+    const investingIncomeTypes = ['Interest Income'];
+    const investingExpenseTypes = ['Equipment Purchase', 'Asset Purchase'];
+    const financingIncomeTypes = ['Loan Received'];
+    const financingExpenseTypes = ['Loan Payment', 'Dividend Payment'];
 
     incomes.forEach(inc => {
+      const amount = inc.totalAmount || inc.amount || 0;
       if (operatingIncomeTypes.includes(inc.incomeType)) {
-        operatingInflows += inc.totalAmount;
-      } else if (inc.incomeType === 'Interest Income') {
-        investingInflows += inc.totalAmount;
-      } else if (inc.incomeType === 'Loan Received') {
-        financingInflows += inc.totalAmount;
+        operatingInflows += amount;
+      } else if (investingIncomeTypes.includes(inc.incomeType)) {
+        investingInflows += amount;
+      } else if (financingIncomeTypes.includes(inc.incomeType)) {
+        financingInflows += amount;
       } else {
-        operatingInflows += inc.totalAmount;
+        operatingInflows += amount;
       }
     });
 
+    invoices.forEach(inv => {
+      operatingInflows += inv.totalAmount || 0;
+    });
+
     expenses.forEach(exp => {
+      const amount = exp.totalAmount || exp.amount || 0;
       if (operatingExpenseTypes.includes(exp.expenseType)) {
-        operatingOutflows += exp.totalAmount;
-      } else if (exp.expenseType === 'Equipment Purchase' || exp.expenseType === 'Asset Purchase') {
-        investingOutflows += exp.totalAmount;
-      } else if (exp.expenseType === 'Loan Payment' || exp.expenseType === 'Dividend Payment') {
-        financingOutflows += exp.totalAmount;
+        operatingOutflows += amount;
+      } else if (investingExpenseTypes.includes(exp.expenseType)) {
+        investingOutflows += amount;
+      } else if (financingExpenseTypes.includes(exp.expenseType)) {
+        financingOutflows += amount;
       } else {
-        operatingOutflows += exp.totalAmount;
+        operatingOutflows += amount;
       }
+    });
+
+    bills.forEach(bill => {
+      operatingOutflows += bill.totalAmount || 0;
     });
 
     const netCashFlow = totalInflows - totalOutflows;
@@ -816,6 +856,7 @@ exports.getCashFlowStatement = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error generating cash flow statement:', error);
+    console.error('📚 Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: error.message

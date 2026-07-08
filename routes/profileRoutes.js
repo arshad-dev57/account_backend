@@ -1,19 +1,28 @@
+// routes/profileRoutes.js
+
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
 const {
   getProfile,
   updateProfile,
+  updateBusinessDetails,
+  getBusinessDetails,
+  updateProfileImage,
 } = require('../controllers/profileController');
-const { protect } = require('../middleware/authMiddleware');
 
-const router = express.Router();
-
-// All profile routes require authentication
+// ─── ALL ROUTES PROTECTED ──────────────────────────────────
 router.use(protect);
 
-// Get profile
+// ─── PROFILE ROUTES ────────────────────────────────────────
 router.get('/', getProfile);
-
-// Update profile
 router.put('/', updateProfile);
+
+// ─── BUSINESS DETAILS ROUTES ──────────────────────────────
+router.get('/business', getBusinessDetails);
+router.put('/business', updateBusinessDetails);
+
+// ─── PROFILE IMAGE ROUTES ──────────────────────────────────
+router.put('/image', updateProfileImage);
 
 module.exports = router;

@@ -1,44 +1,35 @@
+// routes/accountsPayableRoutes.js
+
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
 const {
-  createVendor,
-  getVendors,
-  getVendor,
-  updateVendor,
-  deleteVendor,
+  getSuppliers,      // ✅ From warehouse
+  getSupplier,       // ✅ From warehouse
   createBill,
   getBills,
   getBill,
   recordPayment,
   getSummary,
+  getAgedPayables
 } = require('../controllers/accountsPayableController');
-const { protect } = require('../middleware/authMiddleware');
 
-const router = express.Router();
+// ─── Supplier Routes (Using Warehouse Supplier) ──────────────────
+router.get('/suppliers', protect, getSuppliers);
+router.get('/suppliers/:id', protect, getSupplier);
 
-router.use(protect);
-
-// Summary
-router.get('/summary', getSummary);
-
-// Vendor routes
-router.route('/vendors')
-  .get(getVendors)
-  .post(createVendor);
-
-router.route('/vendors/:id')
-  .get(getVendor)
-  .put(updateVendor)
-  .delete(deleteVendor);
-
-// Bill routes
+// ─── Bill Routes ──────────────────────────────────────────────────
 router.route('/bills')
-  .get(getBills)
-  .post(createBill);
+  .post(protect, createBill)
+  .get(protect, getBills);
 
-router.route('/bills/:id')
-  .get(getBill);
+router.get('/bills/:id', protect, getBill);
 
-// Payment
-router.post('/payments', recordPayment);
+// ─── Payment Routes ──────────────────────────────────────────────
+router.post('/payments', protect, recordPayment);
+
+// ─── Summary Routes ──────────────────────────────────────────────
+router.get('/summary', protect, getSummary);
+router.get('/aged', protect, getAgedPayables);
 
 module.exports = router;

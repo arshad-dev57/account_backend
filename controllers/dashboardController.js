@@ -1,14 +1,9 @@
-const Income = require('../models/Income');
-const Expense = require('../models/Expense');
-const Invoice = require('../models/Invoice');
-const BankAccount = require('../models/BankAccount');
-const PaymentReceived = require('../models/PaymentReceived');
-const PaymentMade = require('../models/PaymentMade');
-const ChartOfAccount = require('../models/ChartOfAccount');
-const CreditNote = require('../models/CreditNote');
-const Bill = require('../models/Bill');
+// controllers/dashboardController.js - FIXED (Prisma Version)
 
-// ==================== HELPER FUNCTION ====================
+const prisma = require('../prisma/client');
+
+// ─── Helper Functions ──────────────────────────────────────────
+
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -19,100 +14,177 @@ function formatAmount(amount) {
   return formatter.format(amount);
 }
 
-// ==================== GET DASHBOARD SUMMARY ====================
-exports.getDashboardSummary = async (req, res) => {
+function groupByMonth(docs, amountField = 'totalAmount') {
+  const map = {};
+  docs.forEach(doc => {
+    const d = new Date(doc.date);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    map[key] = (map[key] || 0) + (doc[amountField] || 0);
+  });
+  return map;
+}
+
+function inRange(doc, from, to) {
+  const d = new Date(doc.date);
+  return d >= from && d <= to;
+}
+
+function sum(arr, field = 'totalAmount') {
+  return arr.reduce((s, d) => s + (d[field] || 0), 0);
+}
+
+function pct(current, previous) {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+// ─── Get Dashboard Summary ─────────────────────────────────────
+
+const getDashboardSummary = async (req, res) => {
   try {
+    const userId = req.user.id;
     const now = new Date();
+
+    // Date boundaries
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now);
-    endOfMonth.setHours(23, 59, 59, 999);
-    
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
-    
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(now);
     endOfDay.setHours(23, 59, 59, 999);
-    
-    // ✅ Get all incomes for current month (only current user)
-    const monthIncomes = await Income.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
-    const monthInvoices = await Invoice.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, status: { $ne: 'Draft' }, createdBy: req.user.id });
-    const monthCreditNotes = await CreditNote.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, createdBy: req.user.id });
-    const monthExpenses = await Expense.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
-    const monthBills = await Bill.find({ date: { $gte: startOfMonth, $lte: endOfMonth }, createdBy: req.user.id });
-    
-    // ✅ Get all incomes for current week (only current user)
-    const weekIncomes = await Income.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
-    const weekInvoices = await Invoice.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, status: { $ne: 'Draft' }, createdBy: req.user.id });
-    const weekCreditNotes = await CreditNote.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, createdBy: req.user.id });
-    const weekExpenses = await Expense.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, status: 'Posted', createdBy: req.user.id });
-    const weekBills = await Bill.find({ date: { $gte: startOfWeek, $lte: endOfMonth }, createdBy: req.user.id });
-    
-    // ✅ Get all incomes for today (only current user)
-    const dayIncomes = await Income.find({ date: { $gte: startOfDay, $lte: endOfDay }, status: 'Posted', createdBy: req.user.id });
-    const dayInvoices = await Invoice.find({ date: { $gte: startOfDay, $lte: endOfDay }, status: { $ne: 'Draft' }, createdBy: req.user.id });
-    const dayCreditNotes = await CreditNote.find({ date: { $gte: startOfDay, $lte: endOfDay }, createdBy: req.user.id });
-    const dayExpenses = await Expense.find({ date: { $gte: startOfDay, $lte: endOfDay }, status: 'Posted', createdBy: req.user.id });
-    const dayBills = await Bill.find({ date: { $gte: startOfDay, $lte: endOfDay }, createdBy: req.user.id });
-    
-    // Calculate totals
-    const totalRevenueMonth = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + monthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - monthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
-    const totalExpensesMonth = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + monthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-    
-    const totalRevenueWeek = weekIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + weekInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - weekCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
-    const totalExpensesWeek = weekExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + weekBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-    
-    const totalRevenueDay = dayIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + dayInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - dayCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
-    const totalExpensesDay = dayExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + dayBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-    
-    // ✅ Get outstanding invoices (only current user)
-    const outstandingInvoices = await Invoice.find({
-      status: { $in: ['Unpaid', 'Partial', 'Overdue'] },
-      outstanding: { $gt: 0 },
-      createdBy: req.user.id
-    });
-    
-    const totalOutstanding = outstandingInvoices.reduce((sum, inv) => sum + inv.outstanding, 0);
-    
-    // ✅ Get cash balance from bank accounts (only current user)
-    const bankAccounts = await BankAccount.find({ 
-      status: 'Active',
-      createdBy: req.user.id
-    });
-    const cashBalance = bankAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
-    
-    // ✅ Calculate percentage changes with last month data (only current user)
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     lastMonthEnd.setHours(23, 59, 59, 999);
-    
-    const lastMonthIncomes = await Income.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, status: 'Posted', createdBy: req.user.id });
-    const lastMonthInvoices = await Invoice.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, status: { $ne: 'Draft' }, createdBy: req.user.id });
-    const lastMonthCreditNotes = await CreditNote.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, createdBy: req.user.id });
-    const lastMonthRevenue = lastMonthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + lastMonthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - lastMonthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
-    const revenueChange = lastMonthRevenue > 0 
-      ? ((totalRevenueMonth - lastMonthRevenue) / lastMonthRevenue) * 100 
-      : totalRevenueMonth > 0 ? 100 : 0;
-    
-    const lastMonthExpenses = await Expense.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, status: 'Posted', createdBy: req.user.id });
-    const lastMonthBills = await Bill.find({ date: { $gte: lastMonthStart, $lte: lastMonthEnd }, createdBy: req.user.id });
-    const lastMonthExpenseTotal = lastMonthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + lastMonthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-    const expenseChange = lastMonthExpenseTotal > 0 
-      ? ((totalExpensesMonth - lastMonthExpenseTotal) / lastMonthExpenseTotal) * 100 
-      : totalExpensesMonth > 0 ? 100 : 0;
-    
-    const lastMonthOutstanding = 0;
-    const outstandingChange = lastMonthOutstanding > 0 
-      ? ((totalOutstanding - lastMonthOutstanding) / lastMonthOutstanding) * 100 
-      : totalOutstanding > 0 ? 100 : 0;
-    
+
+    // ─── FETCH ALL DATA (User-specific) ──────────────────────────
+    const [
+      allIncomes,
+      allInvoices,
+      allCreditNotes,
+      allExpenses,
+      allBills,
+      outstandingInvoices,
+      bankAccounts
+    ] = await Promise.all([
+      // ✅ Income
+      prisma.income.findMany({
+        where: {
+          userId: userId,
+          date: { gte: lastMonthStart, lte: endOfDay },
+          status: 'Posted'
+        },
+        select: { date: true, amount: true }
+      }),
+      // ✅ WarehouseInvoice (NOT Invoice)
+      prisma.warehouseInvoice.findMany({
+        where: {
+          userId: userId,
+          invoiceDate: { gte: lastMonthStart, lte: endOfDay },
+          invoiceStatus: { not: 'Draft' }
+        },
+        select: { invoiceDate: true, grandTotal: true }
+      }),
+      // ✅ CreditNote
+      prisma.creditNote.findMany({
+        where: {
+          userId: userId,
+          date: { gte: lastMonthStart, lte: endOfDay }
+        },
+        select: { date: true, amount: true }
+      }),
+      // ✅ Expense
+      prisma.expense.findMany({
+        where: {
+          userId: userId,
+          date: { gte: lastMonthStart, lte: endOfDay },
+          status: 'Posted'
+        },
+        select: { date: true, amount: true }
+      }),
+      // ✅ Bill
+      prisma.bill.findMany({
+        where: {
+          userId: userId,
+          date: { gte: lastMonthStart, lte: endOfDay }
+        },
+        select: { date: true, totalAmount: true }
+      }),
+      // ✅ Outstanding Invoices (WarehouseInvoice)
+      prisma.warehouseInvoice.findMany({
+        where: {
+          userId: userId,
+          paymentStatus: { in: ['Unpaid', 'Partial'] },
+          outstanding: { gt: 0 }
+        },
+        select: { outstanding: true }
+      }),
+      // ✅ BankAccount
+      prisma.bankAccount.findMany({
+        where: {
+          userId: userId,
+          status: 'Active'
+        },
+        select: { currentBalance: true }
+      })
+    ]);
+
+    // ─── MAP DATA ──────────────────────────────────────────────────
+    // Map invoiceDate to date for consistency
+    const mappedInvoices = allInvoices.map(inv => ({
+      date: inv.invoiceDate,
+      totalAmount: inv.grandTotal
+    }));
+
+    // ─── FILTER IN JS ─────────────────────────────────────────────
+    const mInc = allIncomes.filter(d => inRange({ date: d.date }, startOfMonth, endOfDay));
+    const mInv = mappedInvoices.filter(d => inRange(d, startOfMonth, endOfDay));
+    const mCN = allCreditNotes.filter(d => inRange({ date: d.date }, startOfMonth, endOfDay));
+    const mExp = allExpenses.filter(d => inRange({ date: d.date }, startOfMonth, endOfDay));
+    const mBill = allBills.filter(d => inRange({ date: d.date }, startOfMonth, endOfDay));
+
+    const totalRevenueMonth = sum(mInc, 'amount') + sum(mInv, 'totalAmount') - sum(mCN, 'amount');
+    const totalExpensesMonth = sum(mExp, 'amount') + sum(mBill, 'totalAmount');
+
+    // ─── WEEK ──────────────────────────────────────────────────────
+    const wInc = allIncomes.filter(d => inRange({ date: d.date }, startOfWeek, endOfDay));
+    const wInv = mappedInvoices.filter(d => inRange(d, startOfWeek, endOfDay));
+    const wCN = allCreditNotes.filter(d => inRange({ date: d.date }, startOfWeek, endOfDay));
+    const wExp = allExpenses.filter(d => inRange({ date: d.date }, startOfWeek, endOfDay));
+    const wBill = allBills.filter(d => inRange({ date: d.date }, startOfWeek, endOfDay));
+
+    const totalRevenueWeek = sum(wInc, 'amount') + sum(wInv, 'totalAmount') - sum(wCN, 'amount');
+    const totalExpensesWeek = sum(wExp, 'amount') + sum(wBill, 'totalAmount');
+
+    // ─── DAY ──────────────────────────────────────────────────────
+    const dInc = allIncomes.filter(d => inRange({ date: d.date }, startOfDay, endOfDay));
+    const dInv = mappedInvoices.filter(d => inRange(d, startOfDay, endOfDay));
+    const dCN = allCreditNotes.filter(d => inRange({ date: d.date }, startOfDay, endOfDay));
+    const dExp = allExpenses.filter(d => inRange({ date: d.date }, startOfDay, endOfDay));
+    const dBill = allBills.filter(d => inRange({ date: d.date }, startOfDay, endOfDay));
+
+    const totalRevenueDay = sum(dInc, 'amount') + sum(dInv, 'totalAmount') - sum(dCN, 'amount');
+    const totalExpensesDay = sum(dExp, 'amount') + sum(dBill, 'totalAmount');
+
+    // ─── LAST MONTH ──────────────────────────────────────────────
+    const lInc = allIncomes.filter(d => inRange({ date: d.date }, lastMonthStart, lastMonthEnd));
+    const lInv = mappedInvoices.filter(d => inRange(d, lastMonthStart, lastMonthEnd));
+    const lCN = allCreditNotes.filter(d => inRange({ date: d.date }, lastMonthStart, lastMonthEnd));
+    const lExp = allExpenses.filter(d => inRange({ date: d.date }, lastMonthStart, lastMonthEnd));
+    const lBill = allBills.filter(d => inRange({ date: d.date }, lastMonthStart, lastMonthEnd));
+
+    const lastMonthRevenue = sum(lInc, 'amount') + sum(lInv, 'totalAmount') - sum(lCN, 'amount');
+    const lastMonthExpenses = sum(lExp, 'amount') + sum(lBill, 'totalAmount');
+
+    // ─── KPIs ──────────────────────────────────────────────────────
+    const totalOutstanding = outstandingInvoices.reduce((s, inv) => s + inv.outstanding, 0);
+    const cashBalance = bankAccounts.reduce((s, acc) => s + (acc.currentBalance || 0), 0);
+
+    const revenueChange = pct(totalRevenueMonth, lastMonthRevenue);
+    const expenseChange = pct(totalExpensesMonth, lastMonthExpenses);
     const lastMonthCash = cashBalance - totalRevenueMonth + totalExpensesMonth;
-    const cashChange = lastMonthCash > 0 
-      ? ((cashBalance - lastMonthCash) / lastMonthCash) * 100 
-      : cashBalance > 0 ? 100 : 0;
-    
+    const cashChange = pct(cashBalance, lastMonthCash);
+
     res.status(200).json({
       success: true,
       data: {
@@ -134,8 +206,8 @@ exports.getDashboardSummary = async (req, res) => {
           outstanding: {
             amount: totalOutstanding,
             formatted: formatAmount(totalOutstanding),
-            change: Math.round(outstandingChange),
-            isPositive: outstandingChange <= 0,
+            change: 0,
+            isPositive: true,
             count: outstandingInvoices.length,
             period: 'Current'
           },
@@ -161,230 +233,290 @@ exports.getDashboardSummary = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting dashboard summary:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET CHART DATA ====================
-exports.getChartData = async (req, res) => {
+// ─── Get Chart Data ────────────────────────────────────────────
+
+const getChartData = async (req, res) => {
   try {
     const { months = 12 } = req.query;
+    const userId = req.user.id;
     const now = new Date();
-    const startDate = new Date(now);
-    startDate.setMonth(now.getMonth() - parseInt(months));
-    
+    const startDate = new Date(now.getFullYear(), now.getMonth() - parseInt(months), 1);
+    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    endDate.setHours(23, 59, 59, 999);
+
+    const [incomes, invoices, creditNotes, expenses, bills] = await Promise.all([
+      prisma.income.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate },
+          status: 'Posted'
+        },
+        select: { date: true, amount: true }
+      }),
+      prisma.warehouseInvoice.findMany({
+        where: {
+          userId: userId,
+          invoiceDate: { gte: startDate, lte: endDate },
+          invoiceStatus: { not: 'Draft' }
+        },
+        select: { invoiceDate: true, grandTotal: true }
+      }),
+      prisma.creditNote.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate }
+        },
+        select: { date: true, amount: true }
+      }),
+      prisma.expense.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate },
+          status: 'Posted'
+        },
+        select: { date: true, amount: true }
+      }),
+      prisma.bill.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate }
+        },
+        select: { date: true, totalAmount: true }
+      })
+    ]);
+
+    // Map invoices
+    const mappedInvoices = invoices.map(inv => ({
+      date: inv.invoiceDate,
+      totalAmount: inv.grandTotal
+    }));
+
+    const incMap = groupByMonth(incomes, 'amount');
+    const invMap = groupByMonth(mappedInvoices, 'totalAmount');
+    const cnMap = groupByMonth(creditNotes, 'amount');
+    const expMap = groupByMonth(expenses, 'amount');
+    const billMap = groupByMonth(bills, 'totalAmount');
+
     const chartData = [];
-    
     for (let i = 0; i <= parseInt(months); i++) {
-      const date = new Date(startDate);
-      date.setMonth(startDate.getMonth() + i);
-      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-      monthEnd.setHours(23, 59, 59, 999);
-      
-      // ✅ Only get current user's data
-      const monthIncomes = await Income.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
-      const monthInvoices = await Invoice.find({ date: { $gte: monthStart, $lte: monthEnd }, status: { $ne: 'Draft' }, createdBy: req.user.id });
-      const monthCreditNotes = await CreditNote.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
-      const monthExpenses = await Expense.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
-      const monthBills = await Bill.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
-      
-      const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + monthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - monthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
-      const expenses = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + monthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-      
+      const d = new Date(now.getFullYear(), now.getMonth() - parseInt(months) + i, 1);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const revenue = (incMap[key] || 0) + (invMap[key] || 0) - (cnMap[key] || 0);
+      const expensesTotal = (expMap[key] || 0) + (billMap[key] || 0);
       chartData.push({
-        month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
-        revenue: revenue,
-        expenses: expenses,
-        profit: revenue - expenses
+        month: d.toLocaleString('default', { month: 'short', year: 'numeric' }),
+        revenue,
+        expenses: expensesTotal,
+        profit: revenue - expensesTotal
       });
     }
-    
-    res.status(200).json({
-      success: true,
-      data: chartData
-    });
+
+    res.status(200).json({ success: true, data: chartData });
   } catch (error) {
     console.error('Error getting chart data:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET EXPENSE CATEGORIES ====================
-exports.getExpenseCategories = async (req, res) => {
+// ─── Get Expense Categories ────────────────────────────────────
+
+const getExpenseCategories = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    let dateFilter = {
-      status: 'Posted',
-      createdBy: req.user.id  // ✅ Only current user
-    };
-    
+    const userId = req.user.id;
+
+    let dateFilter = {};
     if (startDate && endDate) {
-      dateFilter.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+      dateFilter = { gte: new Date(startDate), lte: new Date(endDate) };
     } else {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      dateFilter.date = { $gte: startOfMonth };
+      dateFilter = { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) };
     }
-    
-    const expenses = await Expense.find(dateFilter);
-    const bills = await Bill.find({ date: dateFilter.date, createdBy: req.user.id });
-    
+
+    const [expenses, bills] = await Promise.all([
+      prisma.expense.findMany({
+        where: {
+          userId: userId,
+          date: dateFilter,
+          status: 'Posted'
+        },
+        select: { expenseType: true, amount: true }
+      }),
+      prisma.bill.findMany({
+        where: {
+          userId: userId,
+          date: dateFilter
+        },
+        select: { totalAmount: true }
+      })
+    ]);
+
     const categories = {};
     let totalAmount = 0;
-    
-    expenses.forEach(exp => {
-      if (!categories[exp.expenseType]) {
-        categories[exp.expenseType] = 0;
-      }
-      categories[exp.expenseType] += exp.totalAmount;
-      totalAmount += exp.totalAmount;
-    });
 
+    expenses.forEach(exp => {
+      const type = exp.expenseType || 'Other';
+      categories[type] = (categories[type] || 0) + exp.amount;
+      totalAmount += exp.amount;
+    });
     bills.forEach(bill => {
-      if (!categories['Purchases (Bills)']) categories['Purchases (Bills)'] = 0;
-      categories['Purchases (Bills)'] += bill.totalAmount;
+      categories['Purchases (Bills)'] = (categories['Purchases (Bills)'] || 0) + bill.totalAmount;
       totalAmount += bill.totalAmount;
     });
-    
-    const categoryData = Object.entries(categories).map(([name, amount]) => ({
-      name,
-      amount,
-      formatted: formatAmount(amount),
-      percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0
-    }));
-    
-    // Sort by amount descending
-    categoryData.sort((a, b) => b.amount - a.amount);
-    
-    res.status(200).json({
-      success: true,
-      data: categoryData
-    });
+
+    const categoryData = Object.entries(categories)
+      .map(([name, amount]) => ({
+        name,
+        amount,
+        formatted: formatAmount(amount),
+        percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    res.status(200).json({ success: true, data: categoryData });
   } catch (error) {
     console.error('Error getting expense categories:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET RECENT TRANSACTIONS ====================
-exports.getRecentTransactions = async (req, res) => {
+// ─── Get Recent Transactions ───────────────────────────────────
+
+const getRecentTransactions = async (req, res) => {
   try {
     const { limit = 10 } = req.query;
     const limitNum = parseInt(limit);
-    
-    // ✅ Get recent payments received (only current user)
-    const paymentsReceived = await PaymentReceived.find({ 
-      createdBy: req.user.id,
-      status: 'Posted'
-    })
-      .sort({ paymentDate: -1 })
-      .limit(limitNum)
-      .populate('invoiceId', 'invoiceNumber');
-    
-    // ✅ Get recent payments made (only current user)
-    const paymentsMade = await PaymentMade.find({ 
-      createdBy: req.user.id,
-      status: 'Cleared'
-    })
-      .sort({ paymentDate: -1 })
-      .limit(limitNum)
-      .populate('billId', 'billNumber');
-    
-    // ✅ Get recent incomes (only current user)
-    const recentIncomes = await Income.find({ createdBy: req.user.id, status: 'Posted' }).sort({ date: -1 }).limit(limitNum);
-    // ✅ Get recent expenses (only current user)
-    const recentExpenses = await Expense.find({ createdBy: req.user.id, status: 'Posted' }).sort({ date: -1 }).limit(limitNum);
-    // ✅ Get recent invoices
-    const recentInvoices = await Invoice.find({ createdBy: req.user.id, status: { $ne: 'Draft' } }).sort({ date: -1 }).limit(limitNum);
-    // ✅ Get recent bills
-    const recentBills = await Bill.find({ createdBy: req.user.id }).sort({ date: -1 }).limit(limitNum);
-    
-    // Combine and sort
+    const userId = req.user.id;
+
+    const [paymentsReceived, incomes, expenses, invoices, bills] = await Promise.all([
+      prisma.paymentReceived.findMany({
+        where: { userId: userId },
+        orderBy: { paymentDate: 'desc' },
+        take: limitNum,
+        select: {
+          id: true,
+          reference: true,
+          customerName: true,
+          amount: true,
+          paymentDate: true,
+          invoiceNumber: true
+        }
+      }),
+      prisma.income.findMany({
+        where: { userId: userId, status: 'Posted' },
+        orderBy: { date: 'desc' },
+        take: limitNum,
+        select: {
+          id: true,
+          description: true,
+          incomeType: true,
+          incomeNumber: true,
+          amount: true,
+          date: true,
+          reference: true
+        }
+      }),
+      prisma.expense.findMany({
+        where: { userId: userId, status: 'Posted' },
+        orderBy: { date: 'desc' },
+        take: limitNum,
+        select: {
+          id: true,
+          description: true,
+          expenseType: true,
+          expenseNumber: true,
+          amount: true,
+          date: true,
+          reference: true
+        }
+      }),
+      prisma.warehouseInvoice.findMany({
+        where: { userId: userId, invoiceStatus: { not: 'Draft' } },
+        orderBy: { invoiceDate: 'desc' },
+        take: limitNum,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          customerName: true,
+          grandTotal: true,
+          invoiceDate: true
+        }
+      }),
+      prisma.bill.findMany({
+        where: { userId: userId },
+        orderBy: { date: 'desc' },
+        take: limitNum,
+        select: {
+          id: true,
+          billNumber: true,
+          vendorName: true,
+          totalAmount: true,
+          date: true
+        }
+      })
+    ]);
+
     const transactions = [];
-    
-    paymentsReceived.forEach(payment => {
+
+    paymentsReceived.forEach(p => {
       transactions.push({
-        id: payment._id,
-        title: payment.reference || `Payment from ${payment.customerName}`,
-        amount: payment.amount,
-        date: payment.paymentDate,
+        id: p.id,
+        title: p.reference || `Payment from ${p.customerName}`,
+        amount: p.amount,
+        date: p.paymentDate,
         type: 'income',
         icon: 'payment',
-        reference: payment.reference,
-        invoiceNumber: payment.invoiceId?.invoiceNumber,
+        reference: p.reference,
+        invoiceNumber: p.invoiceNumber,
         source: 'payment_received'
       });
     });
-    
-    paymentsMade.forEach(payment => {
+
+    incomes.forEach(inc => {
       transactions.push({
-        id: payment._id,
-        title: payment.reference || `Payment to ${payment.vendorName}`,
-        amount: payment.amount,
-        date: payment.paymentDate,
-        type: 'expense',
-        icon: 'shopping_bag',
-        reference: payment.reference,
-        billNumber: payment.billId?.billNumber,
-        source: 'payment_made'
-      });
-    });
-    
-    recentIncomes.forEach(income => {
-      transactions.push({
-        id: income._id,
-        title: income.description || `${income.incomeType} - ${income.incomeNumber}`,
-        amount: income.totalAmount,
-        date: income.date,
+        id: inc.id,
+        title: inc.description || `${inc.incomeType} - ${inc.incomeNumber}`,
+        amount: inc.amount,
+        date: inc.date,
         type: 'income',
         icon: 'trending_up',
-        reference: income.reference,
+        reference: inc.reference,
         source: 'income'
       });
     });
-    
-    recentExpenses.forEach(expense => {
+
+    expenses.forEach(exp => {
       transactions.push({
-        id: expense._id,
-        title: expense.description || `${expense.expenseType} - ${expense.expenseNumber}`,
-        amount: expense.totalAmount,
-        date: expense.date,
+        id: exp.id,
+        title: exp.description || `${exp.expenseType} - ${exp.expenseNumber}`,
+        amount: exp.amount,
+        date: exp.date,
         type: 'expense',
         icon: 'trending_down',
-        reference: expense.reference,
+        reference: exp.reference,
         source: 'expense'
       });
     });
 
-    recentInvoices.forEach(inv => {
+    invoices.forEach(inv => {
       transactions.push({
-        id: inv._id,
+        id: inv.id,
         title: `Invoice to ${inv.customerName}`,
-        amount: inv.totalAmount,
-        date: inv.date,
+        amount: inv.grandTotal,
+        date: inv.invoiceDate,
         type: 'income',
         icon: 'receipt_long',
         reference: inv.invoiceNumber,
-        source: 'invoice'
+        source: 'warehouse_invoice'
       });
     });
 
-    recentBills.forEach(bill => {
+    bills.forEach(bill => {
       transactions.push({
-        id: bill._id,
+        id: bill.id,
         title: `Bill from ${bill.vendorName}`,
         amount: bill.totalAmount,
         date: bill.date,
@@ -394,128 +526,133 @@ exports.getRecentTransactions = async (req, res) => {
         source: 'bill'
       });
     });
-    
-    // Sort by date descending
+
     transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-    
+
     res.status(200).json({
       success: true,
       data: transactions.slice(0, limitNum)
     });
   } catch (error) {
     console.error('Error getting recent transactions:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET QUICK ACTIONS ====================
-exports.getQuickActions = async (req, res) => {
-  try {
-    const quickActions = [
-      {
-        id: 'add_income',
-        label: 'Income',
-        icon: 'add_circle_outline',
-        color: '#2ECC71',
-        route: '/income'
-      },
-      {
-        id: 'add_expense',
-        label: 'Expense',
-        icon: 'remove_circle_outline',
-        color: '#E74C3C',
-        route: '/expense'
-      },
-      {
-        id: 'create_invoice',
-        label: 'Invoice',
-        icon: 'receipt_long',
-        color: '#3498DB',
-        route: '/invoices'
-      },
-      {
-        id: 'record_payment',
-        label: 'Payment',
-        icon: 'payment',
-        color: '#F39C12',
-        route: '/payments'
-      },
-      {
-        id: 'add_customer',
-        label: 'Customer',
-        icon: 'person_add',
-        color: '#9B59B6',
-        route: '/customers'
-      }
-    ];
-    
-    res.status(200).json({
-      success: true,
-      data: quickActions
-    });
-  } catch (error) {
-    console.error('Error getting quick actions:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
+// ─── Get Quick Actions ────────────────────────────────────────
+
+const getQuickActions = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: [
+      { id: 'add_income', label: 'Income', icon: 'add_circle_outline', color: '#2ECC71', route: '/income' },
+      { id: 'add_expense', label: 'Expense', icon: 'remove_circle_outline', color: '#E74C3C', route: '/expense' },
+      { id: 'create_invoice', label: 'Invoice', icon: 'receipt_long', color: '#3498DB', route: '/invoices' },
+      { id: 'record_payment', label: 'Payment', icon: 'payment', color: '#F39C12', route: '/payments' },
+      { id: 'add_customer', label: 'Customer', icon: 'person_add', color: '#9B59B6', route: '/customers' }
+    ]
+  });
 };
 
-// ==================== GET YEARLY SUMMARY ====================
-exports.getYearlySummary = async (req, res) => {
+// ─── Get Yearly Summary ───────────────────────────────────────
+
+const getYearlySummary = async (req, res) => {
   try {
     const { year = new Date().getFullYear() } = req.query;
+    const userId = req.user.id;
     const startDate = new Date(year, 0, 1);
     const endDate = new Date(year, 11, 31);
     endDate.setHours(23, 59, 59, 999);
-    
-    const monthlyData = [];
-    
-    for (let month = 0; month < 12; month++) {
-      const monthStart = new Date(year, month, 1);
-      const monthEnd = new Date(year, month + 1, 0);
-      monthEnd.setHours(23, 59, 59, 999);
-      
-      const monthIncomes = await Income.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
-      const monthInvoices = await Invoice.find({ date: { $gte: monthStart, $lte: monthEnd }, status: { $ne: 'Draft' }, createdBy: req.user.id });
-      const monthCreditNotes = await CreditNote.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
-      const monthExpenses = await Expense.find({ date: { $gte: monthStart, $lte: monthEnd }, status: 'Posted', createdBy: req.user.id });
-      const monthBills = await Bill.find({ date: { $gte: monthStart, $lte: monthEnd }, createdBy: req.user.id });
-      
-      const revenue = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0) + monthInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) - monthCreditNotes.reduce((sum, cn) => sum + cn.amount, 0);
-      const expenses = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0) + monthBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-      
-      monthlyData.push({
-        month: monthStart.toLocaleString('default', { month: 'long' }),
-        revenue,
-        expenses,
-        profit: revenue - expenses
-      });
-    }
-    
-    const totalRevenue = monthlyData.reduce((sum, m) => sum + m.revenue, 0);
-    const totalExpenses = monthlyData.reduce((sum, m) => sum + m.expenses, 0);
-    const totalProfit = totalRevenue - totalExpenses;
-    
+
+    const [incomes, invoices, creditNotes, expenses, bills] = await Promise.all([
+      prisma.income.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate },
+          status: 'Posted'
+        },
+        select: { date: true, amount: true }
+      }),
+      prisma.warehouseInvoice.findMany({
+        where: {
+          userId: userId,
+          invoiceDate: { gte: startDate, lte: endDate },
+          invoiceStatus: { not: 'Draft' }
+        },
+        select: { invoiceDate: true, grandTotal: true }
+      }),
+      prisma.creditNote.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate }
+        },
+        select: { date: true, amount: true }
+      }),
+      prisma.expense.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate },
+          status: 'Posted'
+        },
+        select: { date: true, amount: true }
+      }),
+      prisma.bill.findMany({
+        where: {
+          userId: userId,
+          date: { gte: startDate, lte: endDate }
+        },
+        select: { date: true, totalAmount: true }
+      })
+    ]);
+
+    const mappedInvoices = invoices.map(inv => ({
+      date: inv.invoiceDate,
+      totalAmount: inv.grandTotal
+    }));
+
+    const incMap = groupByMonth(incomes, 'amount');
+    const invMap = groupByMonth(mappedInvoices, 'totalAmount');
+    const cnMap = groupByMonth(creditNotes, 'amount');
+    const expMap = groupByMonth(expenses, 'amount');
+    const billMap = groupByMonth(bills, 'totalAmount');
+
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const monthlyData = monthNames.map((name, m) => {
+      const key = `${year}-${m}`;
+      const revenue = (incMap[key] || 0) + (invMap[key] || 0) - (cnMap[key] || 0);
+      const expensesTotal = (expMap[key] || 0) + (billMap[key] || 0);
+      return { month: name, revenue, expenses: expensesTotal, profit: revenue - expensesTotal };
+    });
+
+    const totalRevenue = monthlyData.reduce((s, m) => s + m.revenue, 0);
+    const totalExpenses = monthlyData.reduce((s, m) => s + m.expenses, 0);
+
     res.status(200).json({
       success: true,
       data: {
         year: parseInt(year),
         totalRevenue,
         totalExpenses,
-        totalProfit,
+        totalProfit: totalRevenue - totalExpenses,
         monthlyData
       }
     });
   } catch (error) {
     console.error('Error getting yearly summary:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
+};
+
+// ─── Export ─────────────────────────────────────────────────────
+
+module.exports = {
+  getDashboardSummary,
+  getChartData,
+  getExpenseCategories,
+  getRecentTransactions,
+  getQuickActions,
+  getYearlySummary
 };

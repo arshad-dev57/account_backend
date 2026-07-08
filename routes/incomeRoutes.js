@@ -7,6 +7,7 @@ const {
   deleteIncome,
   getSummary,
   postIncome,
+  getIncomeAccounts,  // ✅ ADD THIS
 } = require('../controllers/incomeController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -14,6 +15,9 @@ const router = express.Router();
 
 // Protect all routes
 router.use(protect);
+
+// ─── ✅ NEW: Income Accounts route ────────────────────────────────
+router.get('/accounts', getIncomeAccounts);
 
 // Summary route
 router.get('/summary', getSummary);

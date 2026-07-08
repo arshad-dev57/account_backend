@@ -1,24 +1,27 @@
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/AuthMiddleware');
 const {
   getProfitLossStatement,
   getBalanceSheet,
   getCashFlowStatement,
   getJournalEntries,
-  getJournalEntry,
+  getJournalEntry
 } = require('../controllers/reportsController');
-const { protect } = require('../middleware/authMiddleware');
 
-const router = express.Router();
-
-// Protect all routes
+// ─── Protected Routes ─────────────────────────────────────────────
 router.use(protect);
 
-// Report routes
-router.get('/', getProfitLossStatement);
+// ─── Profit & Loss ────────────────────────────────────────────────
+router.get('/profit-loss', getProfitLossStatement);
+
+// ─── Balance Sheet ────────────────────────────────────────────────
 router.get('/balance-sheet', getBalanceSheet);
+
+// ─── Cash Flow ────────────────────────────────────────────────────
 router.get('/cash-flow', getCashFlowStatement);
 
-// Journal entries routes (with pagination)
+// ─── Journal Entries ──────────────────────────────────────────────
 router.get('/journal-entries', getJournalEntries);
 router.get('/journal-entries/:id', getJournalEntry);
 

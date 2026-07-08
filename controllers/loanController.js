@@ -1,77 +1,223 @@
-const Loan = require('../models/Loan');
-const Vendor = require('../models/Vendor');
-const BankAccount = require('../models/BankAccount');
-const JournalEntry = require('../models/JournalEntry');
-const ChartOfAccount = require('../models/ChartOfAccount');
+const prisma = require('../prisma/client');
+const LoanModel = require('../models/Loan');
+
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
 
 // Helper: Get or create Loan Liability account
 async function getOrCreateLoanAccount(userId) {
-  let loanAccount = await ChartOfAccount.findOne({ 
-    code: '2100',
-    createdBy: userId  // 👈 Only find account created by this user
-  });
-  
-  if (!loanAccount) {
-    loanAccount = await ChartOfAccount.create({
+  console.log('🔍 [LN] Getting/Creating Loan Liability account');
+  let loanAccount = await prisma.chartOfAccount.findFirst({
+    where: {
       code: '2100',
-      name: 'Loans Payable',
-      type: 'Liabilities',
-      parentAccount: 'Long Term Liabilities',
-      openingBalance: 0,
-      description: 'Loans and borrowings',
-      taxCode: 'N/A',
-      createdBy: userId,
+      createdBy: userId
+    }
+  });
+
+  if (!loanAccount) {
+    console.log('📝 [LN] Creating new Loan Liability account');
+    const existingCode = await prisma.chartOfAccount.findFirst({
+      where: { code: '2100' }
     });
+    
+    let newCode = '2100';
+    if (existingCode) {
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = `21${counter}0`;
+        const existing = await prisma.chartOfAccount.findFirst({
+          where: { code: newCode, createdBy: userId }
+        });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+
+    loanAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: newCode,
+        name: 'Loans Payable',
+        type: 'Liabilities',
+        parentAccount: 'Long Term Liabilities',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Loans and borrowings',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId
+      }
+    });
+    console.log('✅ [LN] Loan Liability account created');
   }
   return loanAccount;
 }
 
 // Helper: Get or create Interest Expense account
 async function getOrCreateInterestExpenseAccount(userId) {
-  let interestAccount = await ChartOfAccount.findOne({ 
-    code: '6200',
-    createdBy: userId  // 👈 Only find account created by this user
-  });
-  
-  if (!interestAccount) {
-    interestAccount = await ChartOfAccount.create({
+  console.log('🔍 [LN] Getting/Creating Interest Expense account');
+  let interestAccount = await prisma.chartOfAccount.findFirst({
+    where: {
       code: '6200',
-      name: 'Interest Expense',
-      type: 'Expenses',
-      parentAccount: 'Financial Expenses',
-      openingBalance: 0,
-      description: 'Interest on loans',
-      taxCode: 'N/A',
-      createdBy: userId,
+      createdBy: userId
+    }
+  });
+
+  if (!interestAccount) {
+    console.log('📝 [LN] Creating new Interest Expense account');
+    const existingCode = await prisma.chartOfAccount.findFirst({
+      where: { code: '6200' }
     });
+    
+    let newCode = '6200';
+    if (existingCode) {
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = `62${counter}0`;
+        const existing = await prisma.chartOfAccount.findFirst({
+          where: { code: newCode, createdBy: userId }
+        });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+
+    interestAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: newCode,
+        name: 'Interest Expense',
+        type: 'Expenses',
+        parentAccount: 'Financial Expenses',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Interest on loans',
+        taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
+        createdBy: userId
+      }
+    });
+    console.log('✅ [LN] Interest Expense account created');
   }
   return interestAccount;
 }
 
-// Helper: Get cash account
+// Helper: Get or create Cash account
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ 
-    code: '1010',
-    createdBy: userId  // 👈 Only find account created by this user
-  });
-  
-  if (!cashAccount) {
-    cashAccount = await ChartOfAccount.create({
+  console.log('🔍 [LN] Getting/Creating Cash account');
+  let cashAccount = await prisma.chartOfAccount.findFirst({
+    where: {
       code: '1010',
-      name: 'Cash in Hand',
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      description: 'Physical cash',
-      taxCode: 'N/A',
-      createdBy: userId,
+      createdBy: userId
+    }
+  });
+
+  if (!cashAccount) {
+    console.log('📝 [LN] Creating new Cash account');
+    const existingCode = await prisma.chartOfAccount.findFirst({
+      where: { code: '1010' }
     });
+    
+    let newCode = '1010';
+    if (existingCode) {
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = `101${counter}`;
+        const existing = await prisma.chartOfAccount.findFirst({
+          where: { code: newCode, createdBy: userId }
+        });
+        if (!existing) {
+          codeExists = false;
+        }
+        counter++;
+      }
+    }
+
+    cashAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: newCode,
+        name: 'Cash in Hand',
+        type: 'Assets',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Physical cash in office',
+        taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
+        createdBy: userId
+      }
+    });
+    console.log('✅ [LN] Cash account created');
   }
   return cashAccount;
 }
 
-// ==================== CREATE LOAN ====================
+// controllers/loanController.js - Update validateLender
+
+// Helper: Validate Lender (returns null instead of throwing)
+async function validateLender(lenderId, userId) {
+  if (!lenderId || lenderId === 'null' || lenderId.trim() === '') {
+    return null;
+  }
+  
+  console.log(`🔍 [LN] Validating lender: ${lenderId}`);
+  const lender = await prisma.supplier.findFirst({
+    where: {
+      id: lenderId,
+      createdBy: userId
+    }
+  });
+
+  if (!lender) {
+    console.log('⚠️ [LN] Lender not found, returning null');
+    return null;
+  }
+  console.log(`✅ [LN] Lender found: ${lender.name}`);
+  return lender;
+}
+// Helper: Validate Bank Account
+// controllers/loanController.js - Update validateBankAccount
+
+// Helper: Validate Bank Account (returns null instead of throwing)
+async function validateBankAccount(bankAccountId, userId) {
+  if (!bankAccountId || bankAccountId === 'null' || bankAccountId.trim() === '') {
+    return null;
+  }
+  
+  console.log(`🔍 [LN] Validating bank account: ${bankAccountId}`);
+  const bankAccount = await prisma.bankAccount.findFirst({
+    where: {
+      id: bankAccountId,
+      createdBy: userId
+    }
+  });
+
+  if (!bankAccount) {
+    console.log('⚠️ [LN] Bank account not found, returning null');
+    return null;
+  }
+  console.log(`✅ [LN] Bank account found: ${bankAccount.accountName}`);
+  return bankAccount;
+}// controllers/loanController.js - Update createLoan function
+
+// ============================================================
+// @desc    Create a new loan
+// @route   POST /api/loans
+// @access  Private
+// ============================================================
 exports.createLoan = async (req, res) => {
+  console.log('📦 [LN] createLoan called');
+  console.log('🔍 [LN] Request body:', JSON.stringify(req.body, null, 2));
+
   try {
     const {
       loanType,
@@ -88,120 +234,119 @@ exports.createLoan = async (req, res) => {
       notes,
     } = req.body;
 
-    // Validate lender if provided - must belong to user
-    if (lenderId) {
-      const lender = await Vendor.findOne({
-        _id: lenderId,
-        createdBy: req.user.id
-      });
-      if (!lender) {
-        return res.status(404).json({
-          success: false,
-          message: 'Lender not found',
-        });
-      }
-    }
+    const userId = req.user.id;
+    console.log('👤 [LN] User ID:', userId);
 
-    // Validate bank account if provided - must belong to user
-    if (bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: bankAccountId,
-        createdBy: req.user.id
-      });
-      if (!bankAccount) {
-        return res.status(404).json({
-          success: false,
-          message: 'Bank account not found',
-        });
+    // ─── 1. Validate Lender (only if provided) ──────────────────
+    let finalLenderId = null;
+    if (lenderId && lenderId !== 'null' && lenderId.trim() !== '') {
+      try {
+        const lender = await validateLender(lenderId, userId);
+        if (lender) {
+          finalLenderId = lender.id;
+          console.log(`✅ [LN] Lender found: ${lender.name}`);
+        }
+      } catch (error) {
+        console.log('⚠️ [LN] Lender not found, continuing without lender');
       }
-    }
-
-    // Calculate EMI
-    const P = loanAmount;
-    const r = (interestRate / 100) / 12;
-    const n = tenureMonths;
-    let emiAmount = 0;
-    
-    if (r === 0) {
-      emiAmount = P / n;
     } else {
-      emiAmount = P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
+      console.log('ℹ️ [LN] No lender provided');
     }
-    emiAmount = Math.round(emiAmount * 100) / 100;
 
-    // Calculate next payment date
-    const nextPaymentDate = new Date(disbursementDate);
-    nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
+    // ─── 2. Validate Bank Account (only if provided) ──────────
+    let finalBankAccountId = null;
+    if (bankAccountId && bankAccountId !== 'null' && bankAccountId.trim() !== '') {
+      try {
+        const bankAccount = await validateBankAccount(bankAccountId, userId);
+        if (bankAccount) {
+          finalBankAccountId = bankAccount.id;
+          console.log(`✅ [LN] Bank account found: ${bankAccount.accountName}`);
+        }
+      } catch (error) {
+        console.log('⚠️ [LN] Bank account not found, continuing without bank account');
+      }
+    } else {
+      console.log('ℹ️ [LN] No bank account provided');
+    }
 
-    // Create loan
-    const loan = await Loan.create({
+    // ─── 3. Create Loan ──────────────────────────────────────
+    const loan = await LoanModel.create({
       loanType,
       lenderName,
-      lenderId: lenderId || null,
-      loanAmount,
-      disbursementDate,
-      interestRate,
-      tenureMonths,
-      emiAmount,
-      totalPaid: 0,
-      outstandingBalance: loanAmount,
-      nextPaymentDate,
-      status: 'Active',
+      lenderId: finalLenderId,
+      loanAmount: parseFloat(loanAmount),
+      disbursementDate: new Date(disbursementDate),
+      interestRate: parseFloat(interestRate),
+      tenureMonths: parseInt(tenureMonths),
       purpose: purpose || '',
       collateral: collateral || '',
       accountNumber: accountNumber || '',
-      bankAccountId: bankAccountId || null,
+      bankAccountId: finalBankAccountId,
       notes: notes || '',
-      createdBy: req.user.id,
+      createdBy: userId
     });
 
-    // Create journal entry for loan disbursement
-    const loanAccount = await getOrCreateLoanAccount(req.user.id);
-    let cashChartAccount;
-    
-    if (bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: bankAccountId,
-        createdBy: req.user.id
+    console.log(`✅ [LN] Loan created: ${loan.loanNumber}`);
+
+    // ─── 4. Create Journal Entry ──────────────────────────────
+    const loanAccount = await getOrCreateLoanAccount(userId);
+    let cashChartAccount = await getOrCreateCashAccount(userId);
+
+    // If bank account is selected, use its chart of account
+    if (finalBankAccountId) {
+      const bankAccount = await prisma.bankAccount.findFirst({
+        where: {
+          id: finalBankAccountId,
+          createdBy: userId
+        }
       });
-      if (bankAccount) {
-        cashChartAccount = await ChartOfAccount.findOne({
-          _id: bankAccount.chartOfAccountId,
-          createdBy: req.user.id
+      if (bankAccount && bankAccount.chartOfAccountId) {
+        const bankChartAccount = await prisma.chartOfAccount.findFirst({
+          where: {
+            id: bankAccount.chartOfAccountId,
+            createdBy: userId
+          }
         });
+        if (bankChartAccount) {
+          cashChartAccount = bankChartAccount;
+        }
       }
     }
-    
-    if (!cashChartAccount) {
-      cashChartAccount = await getOrCreateCashAccount(req.user.id);
-    }
 
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: disbursementDate,
-      description: `Loan disbursement - ${loanType} from ${lenderName}`,
-      reference: loan.loanNumber,
-      lines: [
-        {
-          accountId: cashChartAccount._id,
-          accountName: cashChartAccount.name,
-          accountCode: cashChartAccount.code,
-          debit: loanAmount,
-          credit: 0,
-        },
-        {
-          accountId: loanAccount._id,
-          accountName: loanAccount.name,
-          accountCode: loanAccount.code,
-          debit: 0,
-          credit: loanAmount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
-      postedBy: req.user.id,
-      postedAt: new Date(),
+    await prisma.journalEntry.create({
+      data: {
+        entryNumber: `JE-${Date.now()}`,
+        date: new Date(disbursementDate),
+        description: `Loan disbursement - ${loanType} from ${lenderName}`,
+        reference: loan.loanNumber,
+        status: 'Posted',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        lines: {
+          create: [
+            {
+              accountId: cashChartAccount.id,
+              accountName: cashChartAccount.name,
+              accountCode: cashChartAccount.code,
+              debit: parseFloat(loanAmount),
+              credit: 0,
+              isReconciled: false
+            },
+            {
+              accountId: loanAccount.id,
+              accountName: loanAccount.name,
+              accountCode: loanAccount.code,
+              debit: 0,
+              credit: parseFloat(loanAmount),
+              isReconciled: false
+            }
+          ]
+        }
+      }
     });
+
+    console.log('✅ [LN] Journal entry created');
 
     res.status(201).json({
       success: true,
@@ -209,37 +354,42 @@ exports.createLoan = async (req, res) => {
       message: 'Loan created successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Create loan error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 };
-
-// ==================== GET ALL LOANS ====================
+// ============================================================
+// @desc    Get all loans
+// @route   GET /api/loans
+// @access  Private
+// ============================================================
 exports.getLoans = async (req, res) => {
+  console.log('📦 [LN] getLoans called');
+  console.log('🔍 [LN] Query params:', req.query);
+
   try {
     const { status, loanType, search } = req.query;
-    let query = {
-      createdBy: req.user.id  // 👈 Only show loans created by this user
-    };
+    const userId = req.user.id;
 
-    if (status) query.status = status;
-    if (loanType) query.loanType = loanType;
-    
+    const filter = { createdBy: userId };
+
+    if (status) filter.status = status;
+    if (loanType) filter.loanType = loanType;
+
     if (search) {
-      query.$or = [
-        { loanNumber: { $regex: search, $options: 'i' } },
-        { lenderName: { $regex: search, $options: 'i' } },
-        { loanType: { $regex: search, $options: 'i' } },
+      filter.OR = [
+        { loanNumber: { contains: search, mode: 'insensitive' } },
+        { lenderName: { contains: search, mode: 'insensitive' } },
+        { loanType: { contains: search, mode: 'insensitive' } }
       ];
     }
 
-    const loans = await Loan.find(query)
-      .populate('lenderId', 'name email phone')
-      .populate('bankAccountId', 'accountName accountNumber')
-      .sort({ createdAt: -1 });
+    const loans = await LoanModel.findAll(filter);
+
+    console.log(`✅ [LN] Found ${loans.length} loans`);
 
     res.status(200).json({
       success: true,
@@ -247,7 +397,7 @@ exports.getLoans = async (req, res) => {
       data: loans,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Get loans error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -255,29 +405,72 @@ exports.getLoans = async (req, res) => {
   }
 };
 
-// ==================== GET SINGLE LOAN ====================
+// ============================================================
+// @desc    Get single loan
+// @route   GET /api/loans/:id
+// @access  Private
+// ============================================================
 exports.getLoan = async (req, res) => {
+  console.log('📦 [LN] getLoan called');
+  console.log('🔍 [LN] Loan ID:', req.params.id);
+
   try {
-    const loan = await Loan.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this loan
-    })
-      .populate('lenderId', 'name email phone')
-      .populate('bankAccountId', 'accountName accountNumber');
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      },
+      include: {
+        lender: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            address: true
+          }
+        },
+        bankAccount: {
+          select: {
+            id: true,
+            accountName: true,
+            accountNumber: true,
+            bankName: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        payments: {
+          orderBy: { date: 'desc' }
+        }
+      }
+    });
 
     if (!loan) {
+      console.log('❌ [LN] Loan not found:', id);
       return res.status(404).json({
         success: false,
         message: 'Loan not found',
       });
     }
+
+    console.log(`✅ [LN] Loan found: ${loan.loanNumber}`);
 
     res.status(200).json({
       success: true,
       data: loan,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Get loan error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -285,69 +478,78 @@ exports.getLoan = async (req, res) => {
   }
 };
 
-// ==================== UPDATE LOAN ====================
+// ============================================================
+// @desc    Update loan
+// @route   PUT /api/loans/:id
+// @access  Private
+// ============================================================
 exports.updateLoan = async (req, res) => {
+  console.log('📦 [LN] updateLoan called');
+  console.log('🔍 [LN] Loan ID:', req.params.id);
+
   try {
-    const loan = await Loan.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    const { id } = req.params;
+    const userId = req.user.id;
+    const {
+      loanType,
+      lenderName,
+      lenderId,
+      interestRate,
+      purpose,
+      collateral,
+      accountNumber,
+      bankAccountId,
+      notes,
+    } = req.body;
+
+    // ─── Check if loan exists ──────────────────────────────
+    const existingLoan = await prisma.loan.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
 
-    if (!loan) {
+    if (!existingLoan) {
+      console.log('❌ [LN] Loan not found:', id);
       return res.status(404).json({
         success: false,
         message: 'Loan not found',
       });
     }
 
-    // Validate lender if updating
-    if (req.body.lenderId) {
-      const lender = await Vendor.findOne({
-        _id: req.body.lenderId,
-        createdBy: req.user.id
-      });
-      if (!lender) {
-        return res.status(404).json({
-          success: false,
-          message: 'Lender not found',
-        });
-      }
+    // ─── Validate Lender ──────────────────────────────────
+    if (lenderId) {
+      await validateLender(lenderId, userId);
     }
 
-    // Validate bank account if updating
-    if (req.body.bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: req.body.bankAccountId,
-        createdBy: req.user.id
-      });
-      if (!bankAccount) {
-        return res.status(404).json({
-          success: false,
-          message: 'Bank account not found',
-        });
-      }
+    // ─── Validate Bank Account ──────────────────────────
+    if (bankAccountId) {
+      await validateBankAccount(bankAccountId, userId);
     }
 
-    const allowedUpdates = [
-      'loanType', 'lenderName', 'lenderId', 'interestRate', 
-      'purpose', 'collateral', 'accountNumber', 'bankAccountId', 'notes'
-    ];
-    
-    allowedUpdates.forEach(field => {
-      if (req.body[field] !== undefined) {
-        loan[field] = req.body[field];
-      }
+    // ─── Update Loan ──────────────────────────────────────────
+    const updatedLoan = await LoanModel.update(id, {
+      loanType: loanType || existingLoan.loanType,
+      lenderName: lenderName || existingLoan.lenderName,
+      lenderId: lenderId || existingLoan.lenderId,
+      interestRate: interestRate ? parseFloat(interestRate) : existingLoan.interestRate,
+      purpose: purpose !== undefined ? purpose : existingLoan.purpose,
+      collateral: collateral !== undefined ? collateral : existingLoan.collateral,
+      accountNumber: accountNumber !== undefined ? accountNumber : existingLoan.accountNumber,
+      bankAccountId: bankAccountId || existingLoan.bankAccountId,
+      notes: notes !== undefined ? notes : existingLoan.notes
     });
 
-    await loan.save();
+    console.log(`✅ [LN] Loan updated: ${updatedLoan.loanNumber}`);
 
     res.status(200).json({
       success: true,
-      data: loan,
+      data: updatedLoan,
       message: 'Loan updated successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Update loan error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -355,18 +557,30 @@ exports.updateLoan = async (req, res) => {
   }
 };
 
-// ==================== RECORD LOAN PAYMENT ====================
+// ============================================================
+// @desc    Record loan payment
+// @route   POST /api/loans/payment
+// @access  Private
+// ============================================================
 exports.recordPayment = async (req, res) => {
+  console.log('📦 [LN] recordPayment called');
+  console.log('🔍 [LN] Request body:', JSON.stringify(req.body, null, 2));
+
   try {
     const { loanId, amount, paymentDate, reference, notes, type } = req.body;
+    const userId = req.user.id;
     const date = paymentDate ? new Date(paymentDate) : new Date();
 
-    const loan = await Loan.findOne({
-      _id: loanId,
-      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    // ─── Check if loan exists ──────────────────────────────
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: loanId,
+        createdBy: userId
+      }
     });
 
     if (!loan) {
+      console.log('❌ [LN] Loan not found:', loanId);
       return res.status(404).json({
         success: false,
         message: 'Loan not found',
@@ -380,89 +594,104 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
-    // Record payment
-    const result = await loan.recordPayment(amount, date, reference, notes, type || 'EMI');
+    // ─── Record Payment ──────────────────────────────────────
+    const result = await LoanModel.recordPayment(loanId, {
+      amount: parseFloat(amount),
+      paymentDate: date,
+      reference: reference || '',
+      notes: notes || '',
+      type: type || 'EMI'
+    });
 
-    // Create journal entry for payment
-    const loanAccount = await getOrCreateLoanAccount(req.user.id);
-    let cashChartAccount;
-    
+    // ─── Create Journal Entry ──────────────────────────────
+    const loanAccount = await getOrCreateLoanAccount(userId);
+    const interestAccount = await getOrCreateInterestExpenseAccount(userId);
+
+    let cashChartAccount = await getOrCreateCashAccount(userId);
     if (loan.bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: loan.bankAccountId,
-        createdBy: req.user.id
+      const bankAccount = await prisma.bankAccount.findFirst({
+        where: {
+          id: loan.bankAccountId,
+          createdBy: userId
+        }
       });
-      if (bankAccount) {
-        cashChartAccount = await ChartOfAccount.findOne({
-          _id: bankAccount.chartOfAccountId,
-          createdBy: req.user.id
+      if (bankAccount && bankAccount.chartOfAccountId) {
+        const bankChartAccount = await prisma.chartOfAccount.findFirst({
+          where: {
+            id: bankAccount.chartOfAccountId,
+            createdBy: userId
+          }
         });
+        if (bankChartAccount) {
+          cashChartAccount = bankChartAccount;
+        }
       }
     }
-    
-    if (!cashChartAccount) {
-      cashChartAccount = await getOrCreateCashAccount(req.user.id);
-    }
 
-    // Calculate interest portion (simplified)
-    const interestPortion = loan.interestRate / 100 / 12 * loan.outstandingBalance;
-    const principalPortion = amount - interestPortion;
-
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: date,
-      description: `Loan payment - ${loan.loanNumber}`,
-      reference: reference || loan.loanNumber,
-      lines: [
-        {
-          accountId: loanAccount._id,
-          accountName: loanAccount.name,
-          accountCode: loanAccount.code,
-          debit: principalPortion,
-          credit: 0,
-        },
-        {
-          accountId: (await getOrCreateInterestExpenseAccount(req.user.id))._id,
-          accountName: 'Interest Expense',
-          accountCode: '6200',
-          debit: interestPortion,
-          credit: 0,
-        },
-        {
-          accountId: cashChartAccount._id,
-          accountName: cashChartAccount.name,
-          accountCode: cashChartAccount.code,
-          debit: 0,
-          credit: amount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
-      postedBy: req.user.id,
-      postedAt: new Date(),
+    await prisma.journalEntry.create({
+      data: {
+        entryNumber: `JE-${Date.now()}`,
+        date: date,
+        description: `Loan payment - ${loan.loanNumber}`,
+        reference: reference || loan.loanNumber,
+        status: 'Posted',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        lines: {
+          create: [
+            {
+              accountId: loanAccount.id,
+              accountName: loanAccount.name,
+              accountCode: loanAccount.code,
+              debit: result.principal,
+              credit: 0,
+              isReconciled: false
+            },
+            {
+              accountId: interestAccount.id,
+              accountName: interestAccount.name,
+              accountCode: interestAccount.code,
+              debit: result.interest,
+              credit: 0,
+              isReconciled: false
+            },
+            {
+              accountId: cashChartAccount.id,
+              accountName: cashChartAccount.name,
+              accountCode: cashChartAccount.code,
+              debit: 0,
+              credit: parseFloat(amount),
+              isReconciled: false
+            }
+          ]
+        }
+      }
     });
+
+    console.log(`✅ [LN] Payment recorded: ${amount}`);
 
     res.status(200).json({
       success: true,
       data: {
         loan: {
-          id: loan._id,
-          loanNumber: loan.loanNumber,
-          totalPaid: loan.totalPaid,
-          outstandingBalance: loan.outstandingBalance,
-          status: loan.status,
+          id: result.loan.id,
+          loanNumber: result.loan.loanNumber,
+          totalPaid: result.loan.totalPaid,
+          outstandingBalance: result.loan.outstandingBalance,
+          status: result.loan.status,
         },
         payment: {
-          amount: amount,
-          principal: principalPortion,
-          interest: interestPortion,
+          amount: parseFloat(amount),
+          principal: result.principal,
+          interest: result.interest,
           date: date,
         },
       },
       message: 'Payment recorded successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Record payment error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -470,25 +699,25 @@ exports.recordPayment = async (req, res) => {
   }
 };
 
-// ==================== CALCULATE EMI ====================
+// ============================================================
+// @desc    Calculate EMI
+// @route   POST /api/loans/calculate-emi
+// @access  Private
+// ============================================================
 exports.calculateEMI = async (req, res) => {
+  console.log('📦 [LN] calculateEMI called');
+
   try {
     const { loanAmount, interestRate, tenureMonths } = req.body;
 
-    const P = loanAmount;
-    const r = (interestRate / 100) / 12;
-    const n = tenureMonths;
-    let emi = 0;
+    const emi = LoanModel.calculateEMI(
+      parseFloat(loanAmount),
+      parseFloat(interestRate),
+      parseInt(tenureMonths)
+    );
 
-    if (r === 0) {
-      emi = P / n;
-    } else {
-      emi = P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
-    }
-    emi = Math.round(emi * 100) / 100;
-
-    const totalPayment = emi * n;
-    const totalInterest = totalPayment - P;
+    const totalPayment = emi * tenureMonths;
+    const totalInterest = totalPayment - loanAmount;
 
     res.status(200).json({
       success: true,
@@ -499,7 +728,7 @@ exports.calculateEMI = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Calculate EMI error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -507,14 +736,23 @@ exports.calculateEMI = async (req, res) => {
   }
 };
 
-// ==================== PREPAYMENT CALCULATION ====================
+// ============================================================
+// @desc    Calculate prepayment
+// @route   POST /api/loans/calculate-prepayment
+// @access  Private
+// ============================================================
 exports.calculatePrepayment = async (req, res) => {
+  console.log('📦 [LN] calculatePrepayment called');
+
   try {
     const { loanId, prepaymentAmount } = req.body;
+    const userId = req.user.id;
 
-    const loan = await Loan.findOne({
-      _id: loanId,
-      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: loanId,
+        createdBy: userId
+      }
     });
 
     if (!loan) {
@@ -524,14 +762,14 @@ exports.calculatePrepayment = async (req, res) => {
       });
     }
 
-    const result = await loan.calculatePrepayment(prepaymentAmount);
+    const result = LoanModel.calculatePrepayment(loan, parseFloat(prepaymentAmount));
 
     res.status(200).json({
       success: true,
       data: result,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Calculate prepayment error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -539,15 +777,24 @@ exports.calculatePrepayment = async (req, res) => {
   }
 };
 
-// ==================== PREPAY LOAN ====================
+// ============================================================
+// @desc    Prepay loan
+// @route   POST /api/loans/prepay
+// @access  Private
+// ============================================================
 exports.prepayLoan = async (req, res) => {
+  console.log('📦 [LN] prepayLoan called');
+
   try {
     const { loanId, prepaymentAmount, paymentDate, reference } = req.body;
+    const userId = req.user.id;
     const date = paymentDate ? new Date(paymentDate) : new Date();
 
-    const loan = await Loan.findOne({
-      _id: loanId,
-      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: loanId,
+        createdBy: userId
+      }
     });
 
     if (!loan) {
@@ -564,65 +811,100 @@ exports.prepayLoan = async (req, res) => {
       });
     }
 
-    if (prepaymentAmount > loan.outstandingBalance) {
+    const amount = parseFloat(prepaymentAmount);
+    if (amount > loan.outstandingBalance) {
       return res.status(400).json({
         success: false,
         message: `Prepayment amount cannot exceed outstanding balance of ${loan.outstandingBalance}`,
       });
     }
 
-    const prepaymentResult = await loan.calculatePrepayment(prepaymentAmount);
-    
+    const prepaymentResult = LoanModel.calculatePrepayment(loan, amount);
+
     // Record prepayment as a special payment
-    const result = await loan.recordPayment(prepaymentAmount, date, reference, 'Prepayment', 'Prepayment');
-
-    // Create journal entry for prepayment
-    const loanAccount = await getOrCreateLoanAccount(req.user.id);
-    const cashAccount = await getOrCreateCashAccount(req.user.id);
-
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: date,
-      description: `Loan prepayment - ${loan.loanNumber}`,
-      reference: reference || loan.loanNumber,
-      lines: [
-        {
-          accountId: loanAccount._id,
-          accountName: loanAccount.name,
-          accountCode: loanAccount.code,
-          debit: prepaymentAmount,
-          credit: 0,
-        },
-        {
-          accountId: cashAccount._id,
-          accountName: cashAccount.name,
-          accountCode: cashAccount.code,
-          debit: 0,
-          credit: prepaymentAmount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
-      postedBy: req.user.id,
-      postedAt: new Date(),
+    const result = await LoanModel.recordPayment(loanId, {
+      amount: amount,
+      paymentDate: date,
+      reference: reference || '',
+      notes: 'Prepayment',
+      type: 'Prepayment'
     });
+
+    // ─── Create Journal Entry ──────────────────────────────
+    const loanAccount = await getOrCreateLoanAccount(userId);
+    let cashChartAccount = await getOrCreateCashAccount(userId);
+
+    if (loan.bankAccountId) {
+      const bankAccount = await prisma.bankAccount.findFirst({
+        where: {
+          id: loan.bankAccountId,
+          createdBy: userId
+        }
+      });
+      if (bankAccount && bankAccount.chartOfAccountId) {
+        const bankChartAccount = await prisma.chartOfAccount.findFirst({
+          where: {
+            id: bankAccount.chartOfAccountId,
+            createdBy: userId
+          }
+        });
+        if (bankChartAccount) {
+          cashChartAccount = bankChartAccount;
+        }
+      }
+    }
+
+    await prisma.journalEntry.create({
+      data: {
+        entryNumber: `JE-${Date.now()}`,
+        date: date,
+        description: `Loan prepayment - ${loan.loanNumber}`,
+        reference: reference || loan.loanNumber,
+        status: 'Posted',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        lines: {
+          create: [
+            {
+              accountId: loanAccount.id,
+              accountName: loanAccount.name,
+              accountCode: loanAccount.code,
+              debit: amount,
+              credit: 0,
+              isReconciled: false
+            },
+            {
+              accountId: cashChartAccount.id,
+              accountName: cashChartAccount.name,
+              accountCode: cashChartAccount.code,
+              debit: 0,
+              credit: amount,
+              isReconciled: false
+            }
+          ]
+        }
+      }
+    });
+
+    console.log(`✅ [LN] Prepayment recorded: ${amount}`);
 
     res.status(200).json({
       success: true,
       data: {
         loan: {
-          id: loan._id,
-          loanNumber: loan.loanNumber,
-          totalPaid: loan.totalPaid,
-          outstandingBalance: loan.outstandingBalance,
-          status: loan.status,
+          id: result.loan.id,
+          loanNumber: result.loan.loanNumber,
+          totalPaid: result.loan.totalPaid,
+          outstandingBalance: result.loan.outstandingBalance,
+          status: result.loan.status,
         },
         prepayment: prepaymentResult,
       },
-      message: `Prepayment of ${prepaymentAmount} recorded successfully`,
+      message: `Prepayment of ${amount} recorded successfully`,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Prepay loan error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -630,40 +912,27 @@ exports.prepayLoan = async (req, res) => {
   }
 };
 
-// ==================== GET LOAN SUMMARY ====================
+// ============================================================
+// @desc    Get loan summary
+// @route   GET /api/loans/summary
+// @access  Private
+// ============================================================
 exports.getSummary = async (req, res) => {
+  console.log('📦 [LN] getSummary called');
+
   try {
-    const loans = await Loan.find({
-      createdBy: req.user.id  // 👈 Only show loans created by this user
-    });
+    const userId = req.user.id;
 
-    const totalLoans = loans.length;
-    const totalPrincipal = loans.reduce((sum, l) => sum + l.loanAmount, 0);
-    const totalOutstanding = loans.reduce((sum, l) => sum + l.outstandingBalance, 0);
-    const totalPaid = loans.reduce((sum, l) => sum + l.totalPaid, 0);
-    const totalEMI = loans
-      .filter(l => l.status === 'Active')
-      .reduce((sum, l) => sum + l.emiAmount, 0);
+    const stats = await LoanModel.getStats(userId);
 
-    const activeCount = loans.filter(l => l.status === 'Active').length;
-    const fullyPaidCount = loans.filter(l => l.status === 'Fully Paid').length;
-    const overdueCount = loans.filter(l => l.status === 'Overdue').length;
+    console.log('✅ [LN] Summary generated');
 
     res.status(200).json({
       success: true,
-      data: {
-        totalLoans,
-        totalPrincipal,
-        totalOutstanding,
-        totalPaid,
-        totalEMI,
-        activeCount,
-        fullyPaidCount,
-        overdueCount,
-      },
+      data: stats,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Get summary error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -671,12 +940,24 @@ exports.getSummary = async (req, res) => {
   }
 };
 
-// ==================== GET PAYMENT SCHEDULE ====================
+// ============================================================
+// @desc    Get payment schedule
+// @route   GET /api/loans/:id/schedule
+// @access  Private
+// ============================================================
 exports.getPaymentSchedule = async (req, res) => {
+  console.log('📦 [LN] getPaymentSchedule called');
+  console.log('🔍 [LN] Loan ID:', req.params.id);
+
   try {
-    const loan = await Loan.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
 
     if (!loan) {
@@ -686,38 +967,14 @@ exports.getPaymentSchedule = async (req, res) => {
       });
     }
 
-    const schedule = [];
-    let remainingBalance = loan.loanAmount;
-    const monthlyRate = loan.interestRate / 100 / 12;
-    const date = new Date(loan.disbursementDate);
-
-    for (let i = 1; i <= loan.tenureMonths; i++) {
-      const interest = remainingBalance * monthlyRate;
-      const principal = loan.emiAmount - interest;
-      const endingBalance = remainingBalance - principal;
-
-      const paymentDate = new Date(date);
-      paymentDate.setMonth(date.getMonth() + i);
-
-      schedule.push({
-        installmentNo: i,
-        dueDate: paymentDate,
-        emiAmount: loan.emiAmount,
-        principal: principal,
-        interest: interest,
-        endingBalance: endingBalance > 0 ? endingBalance : 0,
-        status: paymentDate < new Date() ? 'Overdue' : 'Pending',
-      });
-
-      remainingBalance = endingBalance;
-    }
+    const schedule = LoanModel.getPaymentSchedule(loan);
 
     res.status(200).json({
       success: true,
       data: schedule,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Get payment schedule error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -725,21 +982,36 @@ exports.getPaymentSchedule = async (req, res) => {
   }
 };
 
-// ==================== DELETE LOAN ====================
+// ============================================================
+// @desc    Delete loan
+// @route   DELETE /api/loans/:id
+// @access  Private
+// ============================================================
 exports.deleteLoan = async (req, res) => {
+  console.log('📦 [LN] deleteLoan called');
+  console.log('🔍 [LN] Loan ID:', req.params.id);
+
   try {
-    const loan = await Loan.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this loan
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // ─── Check if loan exists ──────────────────────────────
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
 
     if (!loan) {
+      console.log('❌ [LN] Loan not found:', id);
       return res.status(404).json({
         success: false,
         message: 'Loan not found',
       });
     }
 
+    // ─── Check if payments exist ──────────────────────────
     if (loan.totalPaid > 0) {
       return res.status(400).json({
         success: false,
@@ -747,14 +1019,17 @@ exports.deleteLoan = async (req, res) => {
       });
     }
 
-    await loan.deleteOne();
+    // ─── Delete Loan ──────────────────────────────────────────
+    await LoanModel.delete(id);
+
+    console.log(`✅ [LN] Loan deleted: ${loan.loanNumber}`);
 
     res.status(200).json({
       success: true,
       message: 'Loan deleted successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [LN] Delete loan error:', error);
     res.status(500).json({
       success: false,
       message: error.message,

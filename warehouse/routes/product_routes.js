@@ -1,33 +1,44 @@
-// warehouse/routes/product_routes.js
-
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../../middleware/authMiddleware');  // ✅ Subscription wala
+const { protect } = require('../../middleware/authMiddleware');
 const { upload } = require('../../config/cloudinary');
 
 const {
-  checkBarcodeExists,
-  getProductByBarcode,
-  searchProducts,
   getProducts,
   getProductById,
   createProduct,
   updateProduct,
   deleteProduct,
-  getLowStockProducts
+  searchProducts,
+  getLowStockProducts,
+  getProductByBarcode,
+  checkBarcodeExists
 } = require('../controller/product_controller');
 
-// ✅ Sab routes ke liye authentication + subscription check
+// All routes protected (authentication + subscription)
 router.use(protect);
 
-// Routes
-router.get('/barcode/:barcode', getProductByBarcode);
-router.get('/check-barcode/:barcode', checkBarcodeExists);
-router.get('/search', searchProducts); 
-router.get('/', getProducts);
+// ─── GET Routes ──────────────────────────────────────────────
+// Search products
+router.get('/search', searchProducts);
+
+// Low stock products
 router.get('/low-stock', getLowStockProducts);
+
+// Barcode check
+router.get('/check-barcode/:barcode', checkBarcodeExists);
+
+// Get product by barcode
+router.get('/barcode/:barcode', getProductByBarcode);
+
+// Get all products with pagination, filters, sorting
+router.get('/', getProducts);
+
+// Get single product
 router.get('/:id', getProductById);
 
+// ─── POST Routes ──────────────────────────────────────────────
+// Create product (with image upload)
 router.post(
   '/',
   upload.fields([
@@ -37,12 +48,16 @@ router.post(
   createProduct
 );
 
+// ─── PUT Routes ──────────────────────────────────────────────
+// Update product (with image upload)
 router.put(
   '/:id',
   upload.array('images', 5),
   updateProduct
 );
 
+// ─── DELETE Routes ──────────────────────────────────────────────
+// Delete product
 router.delete('/:id', deleteProduct);
 
 module.exports = router;

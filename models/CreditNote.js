@@ -1,221 +1,543 @@
-const mongoose = require('mongoose');
+const prisma = require('../prisma/client');
 
-const CreditNoteItemSchema = new mongoose.Schema({
-  description: {
-    type: String,
-    required: true,
-  },
-  quantity: {
-    type: Number,
-    required: true,
-    min: 1,
-    default: 1,
-  },
-  unitPrice: {
-    type: Number,
-    required: true,
-    min: 0,
-  },
-  amount: {
-    type: Number,
-    required: true,
-    min: 0,
-  },
-});
+// ─── CONSTANTS ─────────────────────────────────────────────────────
+const VALID_REASON_TYPES = ['Return', 'Refund', 'Discount', 'Adjustment'];
+const VALID_STATUS = ['Issued', 'Applied', 'Expired', 'PartiallyApplied'];
 
-const CreditNoteSchema = new mongoose.Schema(
-  {
-    creditNoteNumber: {
-      type: String,
-      // 🔴 REMOVE sparse: true
-    },
-    date: {
-      type: Date,
-      required: true,
-      default: Date.now,
-    },
-    customerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Customer',
-      required: true,
-    },
-    customerName: {
-      type: String,
-      required: true,
-    },
-    originalInvoiceId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Invoice',
-      required: true,
-    },
-    originalInvoiceNumber: {
-      type: String,
-      required: true,
-    },
-    originalInvoiceAmount: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
-    amount: {
-      type: Number,
-      required: true,
-      min: 0.01,
-    },
-    reason: {
-      type: String,
-      required: true,
-    },
-    reasonType: {
-      type: String,
-      enum: ['Return', 'Refund', 'Discount', 'Adjustment'],
-      required: true,
-    },
-    items: [CreditNoteItemSchema],
-    status: {
-      type: String,
-      enum: ['Issued', 'Applied', 'Expired', 'PartiallyApplied'],
-      default: 'Issued',
-    },
-    appliedAmount: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    remainingAmount: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
-    expiryDate: {
-      type: Date,
-      required: true,
-    },
-    notes: {
-      type: String,
-      default: '',
-    },
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    appliedToInvoices: [
-      {
-        invoiceId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Invoice',
-        },
-        invoiceNumber: String,
-        amount: Number,
-        appliedAt: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
-  },
-  {
-    timestamps: true,
+class CreditNoteModel {
+  // ============================================================
+  // ✅ VALIDATE CREDIT NOTE DATA
+  // ============================================================
+  static validateCreditNoteData(data) {
+    const errors = [];
+
+    if (!data.customerId) errors.push('Customer ID is required');
+    if (!data.originalInvoiceId) errors.push('Original invoice ID is required');
+    if (!data.amount || data.amount <= 0) errors.push('Amount must be greater than 0');
+    if (!data.reason) errors.push('Reason is required');
+    if (!data.reasonType) errors.push('Reason type is required');
+
+    if (data.reasonType && !VALID_REASON_TYPES.includes(data.reasonType)) {
+      errors.push(`Invalid reason type. Must be one of: ${VALID_REASON_TYPES.join(', ')}`);
+    }
+
+    if (data.status && !VALID_STATUS.includes(data.status)) {
+      errors.push(`Invalid status. Must be one of: ${VALID_STATUS.join(', ')}`);
+    }
+
+    return errors;
   }
-);
 
-// ✅ FIXED: Generate credit note number before save (PER USER)
-CreditNoteSchema.pre('save', async function() {
-  try {
-    console.log('Pre-save hook triggered for credit note');
-    
-    if (this.isNew && !this.creditNoteNumber) {
-      console.log('Generating new credit note number...');
-      
-      // ✅ FIX: Sirf current user ke credit notes count karo
-      const CreditNoteModel = mongoose.model('CreditNote');
-      const count = await CreditNoteModel.countDocuments({ 
-        createdBy: this.createdBy  // 👈 Sirf is user ke documents count karo
+  // ============================================================
+  // ✅ GENERATE CREDIT NOTE NUMBER
+  // ============================================================
+  static async generateCreditNoteNumber(userId) {
+    const count = await prisma.creditNote.count({
+      where: { createdBy: userId }
+    });
+    const year = new Date().getFullYear();
+    return `CN-${year}-${String(count + 1).padStart(4, '0')}`;
+  }
+
+  // ============================================================
+  // ✅ CREATE CREDIT NOTE
+  // ============================================================
+  static async create(data) {
+    const errors = this.validateCreditNoteData(data);
+    if (errors.length > 0) {
+      throw new Error(errors.join('; '));
+    }
+
+    const creditNumber = await this.generateCreditNoteNumber(data.createdBy);
+    const expiryDate = data.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    try {
+      // ✅ Verify invoice exists
+      const invoiceExists = await prisma.warehouseInvoice.findUnique({
+        where: { id: data.originalInvoiceId }
       });
-      const year = new Date().getFullYear();
-      
-      // Format: CN-YYYY-0001, CN-YYYY-0002, etc.
-      this.creditNoteNumber = `CN-${year}-${String(count + 1).padStart(4, '0')}`;
-      console.log(`Generated credit note number: ${this.creditNoteNumber}`);
+
+      if (!invoiceExists) {
+        throw new Error(`Invoice with ID ${data.originalInvoiceId} does not exist`);
+      }
+
+      return await prisma.creditNote.create({
+        data: {
+          creditNumber,
+          date: data.date || new Date(),
+          customerId: data.customerId,
+          customerName: data.customerName || '',
+          originalInvoiceId: data.originalInvoiceId,
+          originalInvoiceNumber: data.originalInvoiceNumber || '',
+          originalInvoiceAmount: data.originalInvoiceAmount || 0,
+          amount: data.amount,
+          reason: data.reason,
+          reasonType: data.reasonType,
+          items: data.items || [],
+          status: 'Issued',
+          appliedAmount: 0,
+          remainingAmount: data.amount,
+          expiryDate: expiryDate,
+          notes: data.notes || '',
+          createdBy: data.createdBy
+        },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true
+            }
+          },
+          originalInvoice: {
+            select: {
+              id: true,
+              invoiceNumber: true,
+              grandTotal: true,        // ✅ totalAmount → grandTotal
+              paidAmount: true,
+              outstanding: true,
+              invoiceStatus: true,
+              paymentStatus: true
+            }
+          },
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error('❌ [CN] Create error:', error);
+      if (error.code === 'P2003') {
+        throw new Error('Invalid invoice ID. Please select a valid warehouse invoice.');
+      }
+      throw error;
     }
-    
-    // Set expiry date if not set (default 30 days)
-    if (!this.expiryDate) {
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 30);
-      this.expiryDate = expiryDate;
-      console.log(`Set expiry date to: ${this.expiryDate}`);
+  }
+
+  // ============================================================
+  // ✅ FIND ALL CREDIT NOTES WITH FILTERS
+  // ============================================================
+  static async findAll(filter = {}, options = {}) {
+    const { skip, take, orderBy = { date: 'desc' } } = options;
+
+    return await prisma.creditNote.findMany({
+      where: filter,
+      skip,
+      take,
+      orderBy,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+  }
+
+  // ============================================================
+  // ✅ COUNT CREDIT NOTES
+  // ============================================================
+  static async count(filter = {}) {
+    return await prisma.creditNote.count({ where: filter });
+  }
+
+  // ============================================================
+  // ✅ FIND CREDIT NOTE BY ID
+  // ============================================================
+  static async findById(id) {
+    return await prisma.creditNote.findUnique({
+      where: { id },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            address: true
+          }
+        },
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            invoiceDate: true,
+            dueDate: true,
+            items: true,
+            subtotal: true,
+            taxTotal: true,
+            discountTotal: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+  }
+
+  // ============================================================
+  // ✅ FIND BY CREDIT NUMBER
+  // ============================================================
+  static async findByCreditNumber(creditNumber, createdBy) {
+    return await prisma.creditNote.findFirst({
+      where: {
+        creditNumber,
+        createdBy
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        }
+      }
+    });
+  }
+
+  // ============================================================
+  // ✅ FIND BY CUSTOMER
+  // ============================================================
+  static async findByCustomer(customerId, createdBy) {
+    return await prisma.creditNote.findMany({
+      where: {
+        customerId,
+        createdBy
+      },
+      orderBy: { date: 'desc' },
+      include: {
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        }
+      }
+    });
+  }
+
+  // ============================================================
+  // ✅ UPDATE CREDIT NOTE
+  // ============================================================
+  static async update(id, data) {
+    const existing = await prisma.creditNote.findUnique({
+      where: { id }
+    });
+
+    if (!existing) return null;
+
+    const mergedData = { ...existing, ...data };
+    const errors = this.validateCreditNoteData(mergedData);
+    if (errors.length > 0) {
+      throw new Error(errors.join('; '));
     }
-    
-    // Set remaining amount if not set
-    if (this.remainingAmount === undefined || this.remainingAmount === null) {
-      this.remainingAmount = this.amount - (this.appliedAmount || 0);
-      console.log(`Set remaining amount to: ${this.remainingAmount}`);
+
+    return await prisma.creditNote.update({
+      where: { id },
+      data: {
+        date: data.date,
+        customerId: data.customerId,
+        customerName: data.customerName,
+        originalInvoiceId: data.originalInvoiceId,
+        originalInvoiceNumber: data.originalInvoiceNumber,
+        originalInvoiceAmount: data.originalInvoiceAmount,
+        amount: data.amount,
+        reason: data.reason,
+        reasonType: data.reasonType,
+        items: data.items,
+        status: data.status,
+        appliedAmount: data.appliedAmount,
+        remainingAmount: data.remainingAmount,
+        expiryDate: data.expiryDate,
+        notes: data.notes
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+  }
+
+  // ============================================================
+  // ✅ UPDATE STATUS
+  // ============================================================
+  static async updateStatus(id, status) {
+    if (!VALID_STATUS.includes(status)) {
+      throw new Error(`Invalid status. Must be one of: ${VALID_STATUS.join(', ')}`);
     }
-    
-  } catch (error) {
-    console.error('Error in pre-save hook:', error);
-  }
-});
 
-// ✅ ADD: Compound unique index for creditNoteNumber + createdBy
-CreditNoteSchema.index({ creditNoteNumber: 1, createdBy: 1 }, { unique: true });
+    return await prisma.creditNote.update({
+      where: { id },
+      data: { status },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        }
+      }
+    });
+  }
 
-// Method to check if credit note is expired
-CreditNoteSchema.methods.isExpired = function () {
-  return new Date() > this.expiryDate && this.status !== 'Applied';
-};
+  // ============================================================
+  // ✅ DELETE CREDIT NOTE
+  // ============================================================
+  static async delete(id) {
+    return await prisma.creditNote.delete({
+      where: { id }
+    });
+  }
 
-// Method to apply credit note to invoice
-CreditNoteSchema.methods.applyToInvoice = async function (invoiceId, amount) {
-  const Invoice = mongoose.model('Invoice');
-  const invoice = await Invoice.findById(invoiceId);
-  
-  if (!invoice) {
-    throw new Error('Invoice not found');
-  }
-  
-  if (amount > this.remainingAmount) {
-    throw new Error('Amount exceeds remaining credit note amount');
-  }
-  
-  if (amount > invoice.outstanding) {
-    throw new Error('Amount exceeds invoice outstanding balance');
-  }
-  
-  // Update credit note
-  this.appliedAmount += amount;
-  this.remainingAmount -= amount;
-  this.appliedToInvoices.push({
-    invoiceId: invoice._id,
-    invoiceNumber: invoice.invoiceNumber,
-    amount: amount,
-    appliedAt: new Date(),
-  });
-  
-  // Update status
-  if (this.remainingAmount === 0) {
-    this.status = 'Applied';
-  } else {
-    this.status = 'PartiallyApplied';
-  }
-  
-  // Update invoice
-  invoice.paidAmount += amount;
-  invoice.outstanding = invoice.totalAmount - invoice.paidAmount;
-  
-  if (invoice.outstanding === 0) {
-    invoice.status = 'Paid';
-  } else {
-    invoice.status = 'Partial';
-  }
-  
-  await invoice.save();
-  await this.save();
-  
-  return { creditNote: this, invoice };
-};
+  // ============================================================
+  // ✅ GET STATS
+  // ============================================================
+  static async getStats(createdBy) {
+    const filter = { createdBy };
 
-const CreditNote = mongoose.model('CreditNote', CreditNoteSchema);
-module.exports = CreditNote;
+    const [total, totalAmount, issued, applied, expired] = await Promise.all([
+      prisma.creditNote.count({ where: filter }),
+      prisma.creditNote.aggregate({
+        where: filter,
+        _sum: { amount: true }
+      }),
+      prisma.creditNote.count({
+        where: { ...filter, status: 'Issued' }
+      }),
+      prisma.creditNote.count({
+        where: { ...filter, status: 'Applied' }
+      }),
+      prisma.creditNote.count({
+        where: { ...filter, status: 'Expired' }
+      })
+    ]);
+
+    return {
+      total,
+      totalAmount: totalAmount._sum.amount || 0,
+      issued,
+      applied,
+      expired
+    };
+  }
+
+  // ============================================================
+  // ✅ SEARCH CREDIT NOTES
+  // ============================================================
+  static async search(query, createdBy, options = {}) {
+    const { skip, take } = options;
+
+    const filter = {
+      createdBy,
+      OR: [
+        { creditNumber: { contains: query, mode: 'insensitive' } },
+        { customerName: { contains: query, mode: 'insensitive' } },
+        { originalInvoiceNumber: { contains: query, mode: 'insensitive' } },
+        { reason: { contains: query, mode: 'insensitive' } }
+      ]
+    };
+
+    const creditNotes = await prisma.creditNote.findMany({
+      where: filter,
+      skip,
+      take,
+      orderBy: { date: 'desc' },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        }
+      }
+    });
+
+    const total = await prisma.creditNote.count({ where: filter });
+
+    return { creditNotes, total };
+  }
+
+  // ============================================================
+  // ✅ GET SUMMARY BY PERIOD
+  // ============================================================
+  static async getSummaryByPeriod(createdBy, startDate, endDate) {
+    const filter = {
+      createdBy,
+      date: {
+        gte: startDate,
+        lte: endDate
+      }
+    };
+
+    const [total, byStatus] = await Promise.all([
+      prisma.creditNote.aggregate({
+        where: filter,
+        _sum: { amount: true },
+        _count: true
+      }),
+      prisma.creditNote.groupBy({
+        by: ['status'],
+        where: filter,
+        _sum: { amount: true },
+        _count: true
+      })
+    ]);
+
+    return {
+      totalAmount: total._sum.amount || 0,
+      totalCount: total._count || 0,
+      byStatus
+    };
+  }
+
+  // ============================================================
+  // ✅ GET RECENT CREDIT NOTES
+  // ============================================================
+  static async getRecent(createdBy, limit = 10) {
+    return await prisma.creditNote.findMany({
+      where: { createdBy },
+      orderBy: { date: 'desc' },
+      take: limit,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        originalInvoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            grandTotal: true,        // ✅ totalAmount → grandTotal
+            paidAmount: true,
+            outstanding: true,
+            invoiceStatus: true,
+            paymentStatus: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+  }
+}
+
+module.exports = CreditNoteModel;

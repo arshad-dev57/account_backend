@@ -1,23 +1,29 @@
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
+
 const {
   getProfitLossStatement,
   getSummary,
   getTrendData,
+  getBalanceSheet,
+  getCashFlowStatement
 } = require('../controllers/plReportController');
-const { protect } = require('../middleware/authMiddleware');
 
-const router = express.Router();
-
-// Protect all routes
+// ─── Protected Routes ─────────────────────────────────────────────
 router.use(protect);
 
-// Main report route
-router.get('/', getProfitLossStatement);
+// ─── Profit & Loss ────────────────────────────────────────────────
+router.get('/profit-loss', getProfitLossStatement);
+router.get('/profit-loss/summary', getSummary);
 
-// Summary stats
-router.get('/summary', getSummary);
-
-// Trend data for charts
+// ─── Trend Data ──────────────────────────────────────────────────
 router.get('/trend', getTrendData);
+
+// ─── Balance Sheet ────────────────────────────────────────────────
+router.get('/balance-sheet', getBalanceSheet);
+
+// ─── Cash Flow ────────────────────────────────────────────────────
+router.get('/cash-flow', getCashFlowStatement);
 
 module.exports = router;

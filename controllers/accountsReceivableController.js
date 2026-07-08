@@ -1,90 +1,290 @@
-const Customer = require('../models/Customer');
-const Invoice = require('../models/Invoice');
-const JournalEntry = require('../models/JournalEntry');
-const ChartOfAccount = require('../models/ChartOfAccount');
-const BankAccount = require('../models/BankAccount');
+// controllers/accountsReceivableController.js - COMPLETE FIXED VERSION
 
-// Helper: Get or create Accounts Receivable account
+const prisma = require('../prisma/client');
+const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
+
+// ─── HELPER: Get or create Accounts Receivable account ──────────
 async function getOrCreateReceivableAccount(userId) {
-  let arAccount = await ChartOfAccount.findOne({ 
-    code: '1110',
-    createdBy: userId
-  });
-  
-  if (!arAccount) {
-    arAccount = await ChartOfAccount.create({
+  console.log('🔍 [AR] Getting/Creating Accounts Receivable account');
+  let arAccount = await prisma.chartOfAccount.findFirst({
+    where: {
       code: '1110',
-      name: 'Accounts Receivable',
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      description: 'Amount due from customers',
-      taxCode: 'N/A',
-      createdBy: userId,
+      createdBy: userId
+    }
+  });
+
+  if (!arAccount) {
+    console.log('📝 [AR] Creating new Accounts Receivable account');
+    arAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: '1110',
+        name: 'Accounts Receivable',
+        type: 'Asset',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Amount due from customers',
+        taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
+        createdBy: userId
+      }
     });
+    console.log('✅ [AR] Accounts Receivable account created');
+  } else {
+    console.log('✅ [AR] Accounts Receivable account found');
   }
   return arAccount;
 }
 
+// ─── HELPER: Get or create Cash account ──────────────────────────
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({
-    code: '1010',
-    createdBy: userId,
+  console.log('🔍 [AR] Getting/Creating Cash account');
+  let cashAccount = await prisma.chartOfAccount.findFirst({
+    where: {
+      code: '1010',
+      createdBy: userId
+    }
   });
 
   if (!cashAccount) {
-    cashAccount = await ChartOfAccount.create({
-      code: '1010',
-      name: 'Cash in Hand',
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      description: 'Physical cash in office',
-      taxCode: 'N/A',
-      createdBy: userId,
+    console.log('📝 [AR] Creating new Cash account');
+    cashAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: '1010',
+        name: 'Cash in Hand',
+        type: 'Asset',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Physical cash in office',
+        taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
+        createdBy: userId
+      }
     });
+    console.log('✅ [AR] Cash account created');
+  } else {
+    console.log('✅ [AR] Cash account found');
   }
   return cashAccount;
 }
 
-// Helper: Get or create Revenue account
+// ─── HELPER: Get or create Revenue account ──────────────────────
 async function getOrCreateRevenueAccount(userId) {
-  let revenueAccount = await ChartOfAccount.findOne({ 
-    code: '4010',
-    createdBy: userId
-  });
-  
-  if (!revenueAccount) {
-    revenueAccount = await ChartOfAccount.create({
+  console.log('🔍 [AR] Getting/Creating Revenue account');
+  let revenueAccount = await prisma.chartOfAccount.findFirst({
+    where: {
       code: '4010',
-      name: 'Sales Revenue',
-      type: 'Income',
-      parentAccount: 'Operating Income',
-      openingBalance: 0,
-      description: 'Revenue from sales',
-      taxCode: 'GST-13%',
-      createdBy: userId,
+      createdBy: userId
+    }
+  });
+
+  if (!revenueAccount) {
+    console.log('📝 [AR] Creating new Revenue account');
+    revenueAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: '4010',
+        name: 'Sales Revenue',
+        type: 'Revenue',
+        parentAccount: 'Operating Income',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Revenue from sales',
+        taxCode: 'GST-13%',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId
+      }
     });
+    console.log('✅ [AR] Revenue account created');
+  } else {
+    console.log('✅ [AR] Revenue account found');
   }
   return revenueAccount;
 }
 
-// ==================== CUSTOMER CRUD ====================
+// ─── ✅ NEW: Get or create Tax Liability account ──────────────────
+async function getOrCreateTaxLiabilityAccount(userId) {
+  console.log('🔍 [AR] Getting/Creating Tax Liability account');
+  let taxAccount = await prisma.chartOfAccount.findFirst({
+    where: {
+      code: '2220',
+      createdBy: userId
+    }
+  });
 
-// @desc    Create customer
-// @route   POST /api/accounts-receivable/customers
-// @access  Private
-exports.createCustomer = async (req, res) => {
+  if (!taxAccount) {
+    console.log('📝 [AR] Creating new Sales Tax Payable account');
+    taxAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: '2220',
+        name: 'Sales Tax Payable',
+        type: 'Liability',
+        parentAccount: 'Current Liabilities',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Sales tax collected from customers',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId
+      }
+    });
+    console.log('✅ [AR] Tax Liability account created');
+  } else {
+    console.log('✅ [AR] Tax Liability account found');
+  }
+  return taxAccount;
+}
+
+// ─── HELPER: Generate invoice number ────────────────────────────
+async function generateInvoiceNumber(userId) {
+  const count = await prisma.warehouseInvoice.count({
+    where: { createdBy: userId }
+  });
+  const year = new Date().getFullYear();
+  const invoiceNumber = `INV-${year}-${String(count + 1).padStart(4, '0')}`;
+  console.log(`📝 [AR] Generated invoice number: ${invoiceNumber}`);
+  return invoiceNumber;
+}
+
+// ─── HELPER: Validate Warehouse Customer ──────────────────────────
+async function validateWarehouseCustomer(customerId, userId) {
+  console.log(`🔍 [AR] Validating warehouse customer: ${customerId}`);
+  const customer = await prisma.customer.findFirst({
+    where: {
+      id: customerId,
+      createdBy: userId,
+      isActive: true
+    }
+  });
+  
+  if (!customer) {
+    console.log('❌ [AR] Customer not found in warehouse');
+    throw new Error('Customer not found. Please add customer from warehouse first.');
+  }
+  console.log(`✅ [AR] Customer validated: ${customer.name}`);
+  return customer;
+}
+
+// ─── HELPER: Validate Bank Account ──────────────────────────────
+async function validateBankAccount(bankAccountId, userId) {
+  console.log(`🔍 [AR] Validating bank account: ${bankAccountId}`);
+  if (!bankAccountId) return null;
+  
+  const bankAccount = await prisma.bankAccount.findFirst({
+    where: {
+      id: bankAccountId,
+      createdBy: userId,
+      status: 'Active'
+    },
+    include: {
+      chartOfAccount: true
+    }
+  });
+  
+  if (!bankAccount) {
+    console.log('❌ [AR] Bank account not found');
+    throw new Error('Bank account not found or does not belong to you');
+  }
+  console.log(`✅ [AR] Bank account validated: ${bankAccount.accountName}`);
+  return bankAccount;
+}
+
+// ─── HELPER: Validate Warehouse Invoice ──────────────────────────
+async function validateWarehouseInvoice(invoiceId, userId) {
+  console.log(`🔍 [AR] Validating warehouse invoice: ${invoiceId}`);
+  if (!invoiceId) return null;
+  
+  const invoice = await prisma.warehouseInvoice.findFirst({
+    where: {
+      id: invoiceId,
+      createdBy: userId,
+      invoiceStatus: { not: 'Paid' }
+    }
+  });
+  
+  if (!invoice) {
+    console.log('❌ [AR] Invoice not found or already paid');
+    throw new Error('Invoice not found or already paid');
+  }
+  console.log(`✅ [AR] Invoice validated: ${invoice.invoiceNumber}`);
+  return invoice;
+}
+
+// ============================================================
+// CUSTOMER CRUD (Using Warehouse Customer)
+// ============================================================
+
+const createCustomer = async (req, res) => {
+  console.log('📦 [AR] createCustomer called');
+  console.log('🔍 [AR] Request body:', JSON.stringify(req.body, null, 2));
+  
   try {
-    req.body.createdBy = req.user.id;
-    const customer = await Customer.create(req.body);
-    
+    const {
+      customerNumber,
+      name,
+      email,
+      phone,
+      company,
+      customerType,
+      taxId,
+      address,
+      shippingAddress,
+      billingAddress,
+      notes,
+    } = req.body;
+
+    const userId = req.user.id;
+    console.log('👤 [AR] User ID:', userId);
+
+    let finalCustomerNumber = customerNumber;
+    if (!finalCustomerNumber) {
+      const count = await prisma.customer.count({
+        where: { createdBy: userId }
+      });
+      finalCustomerNumber = `CUST-${String(count + 1).padStart(4, '0')}`;
+      console.log(`📝 [AR] Generated customer number: ${finalCustomerNumber}`);
+    }
+
+    const customer = await prisma.customer.create({
+      data: {
+        customerNumber: finalCustomerNumber,
+        name,
+        email,
+        phone,
+        company,
+        customerType: customerType || 'Individual',
+        taxId,
+        address: address || {},
+        shippingAddress: shippingAddress || {},
+        billingAddress: billingAddress || {},
+        notes,
+        status: 'Active',
+        isActive: true,
+        createdBy: userId
+      },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    console.log(`✅ [AR] Customer created: ${customer.name}`);
     res.status(201).json({
       success: true,
       data: customer,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Create customer error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -92,59 +292,75 @@ exports.createCustomer = async (req, res) => {
   }
 };
 
-// @desc    Get all customers
-// @route   GET /api/accounts-receivable/customers
-// @access  Private
-exports.getCustomers = async (req, res) => {
+const getCustomers = async (req, res) => {
+  console.log('📦 [AR] getCustomers called');
+  
   try {
     const { search, status } = req.query;
-    let query = {
-      createdBy: req.user.id  // 👈 Only show customers created by this user
-    };
-    
+    const userId = req.user.id;
+
+    const filter = { createdBy: userId };
+
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
+      filter.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } },
       ];
     }
 
-    if (status === 'active') query.isActive = true;
-    if (status === 'inactive') query.isActive = false;
-    
-    const customers = await Customer.find(query).sort({ name: 1 });
-    
-    // Calculate outstanding for each customer - only invoices created by this user
-    const invoices = await Invoice.find({ 
-      status: { $ne: 'Paid' },
-      createdBy: req.user.id  // 👈 Only show invoices created by this user
+    if (status === 'active') {
+      filter.isActive = true;
+    } else if (status === 'inactive') {
+      filter.isActive = false;
+    }
+
+    const customers = await prisma.customer.findMany({
+      where: filter,
+      orderBy: { name: 'asc' },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
     });
-    
+
+    const invoices = await prisma.warehouseInvoice.findMany({
+      where: {
+        createdBy: userId,
+        invoiceStatus: { not: 'Paid' }
+      }
+    });
+
     const customersWithOutstanding = customers.map(customer => {
       const customerInvoices = invoices.filter(
-        inv => inv.customerId.toString() === customer._id.toString()
+        inv => inv.customerId === customer.id
       );
-      const totalAmount = customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+      const totalAmount = customerInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
       const paidAmount = customerInvoices.reduce((sum, inv) => sum + inv.paidAmount, 0);
       const outstandingAmount = totalAmount - paidAmount;
-      
+
       return {
-        ...customer.toObject(),
+        ...customer,
         totalAmount,
         paidAmount,
         outstandingAmount,
         invoiceCount: customerInvoices.length,
       };
     });
-    
+
     res.status(200).json({
       success: true,
       count: customersWithOutstanding.length,
       data: customersWithOutstanding,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Get customers error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -152,36 +368,53 @@ exports.getCustomers = async (req, res) => {
   }
 };
 
-// @desc    Get single customer
-// @route   GET /api/accounts-receivable/customers/:id
-// @access  Private
-exports.getCustomer = async (req, res) => {
+const getCustomer = async (req, res) => {
+  console.log('📦 [AR] getCustomer called');
+  
   try {
-    const customer = await Customer.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this customer
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const customer = await prisma.customer.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
     });
-    
+
     if (!customer) {
       return res.status(404).json({
         success: false,
         message: 'Customer not found',
       });
     }
-    
-    const invoices = await Invoice.find({ 
-      customerId: customer._id,
-      createdBy: req.user.id  // 👈 Only show invoices created by this user
-    }).sort({ date: -1 });
-    
-    const totalAmount = invoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+
+    const invoices = await prisma.warehouseInvoice.findMany({
+      where: {
+        customerId: customer.id,
+        createdBy: userId
+      },
+      orderBy: { invoiceDate: 'desc' }
+    });
+
+    const totalAmount = invoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
     const paidAmount = invoices.reduce((sum, inv) => sum + inv.paidAmount, 0);
     const outstandingAmount = totalAmount - paidAmount;
-    
+
     res.status(200).json({
       success: true,
       data: {
-        ...customer.toObject(),
+        ...customer,
         invoices,
         totalAmount,
         paidAmount,
@@ -189,7 +422,7 @@ exports.getCustomer = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Get customer error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -197,33 +430,75 @@ exports.getCustomer = async (req, res) => {
   }
 };
 
-// @desc    Update customer
-// @route   PUT /api/accounts-receivable/customers/:id
-// @access  Private
-exports.updateCustomer = async (req, res) => {
+const updateCustomer = async (req, res) => {
   try {
-    const customer = await Customer.findOneAndUpdate(
-      { 
-        _id: req.params.id,
-        createdBy: req.user.id  // 👈 Only allow if user owns this customer
-      },
-      req.body,
-      { new: true, runValidators: true }
-    );
-    
-    if (!customer) {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const {
+      customerNumber,
+      name,
+      email,
+      phone,
+      company,
+      customerType,
+      taxId,
+      address,
+      shippingAddress,
+      billingAddress,
+      notes,
+      status,
+      isActive,
+    } = req.body;
+
+    const existing = await prisma.customer.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
+    });
+
+    if (!existing) {
       return res.status(404).json({
         success: false,
         message: 'Customer not found',
       });
     }
-    
+
+    const customer = await prisma.customer.update({
+      where: { id },
+      data: {
+        customerNumber: customerNumber || existing.customerNumber,
+        name: name || existing.name,
+        email: email !== undefined ? email : existing.email,
+        phone: phone !== undefined ? phone : existing.phone,
+        company: company !== undefined ? company : existing.company,
+        customerType: customerType || existing.customerType,
+        taxId: taxId !== undefined ? taxId : existing.taxId,
+        address: address !== undefined ? address : existing.address,
+        shippingAddress: shippingAddress !== undefined ? shippingAddress : existing.shippingAddress,
+        billingAddress: billingAddress !== undefined ? billingAddress : existing.billingAddress,
+        notes: notes !== undefined ? notes : existing.notes,
+        status: status || existing.status,
+        isActive: isActive !== undefined ? isActive : existing.isActive,
+      },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
     res.status(200).json({
       success: true,
       data: customer,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Update customer error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -231,41 +506,45 @@ exports.updateCustomer = async (req, res) => {
   }
 };
 
-// @desc    Delete customer
-// @route   DELETE /api/accounts-receivable/customers/:id
-// @access  Private
-exports.deleteCustomer = async (req, res) => {
+const deleteCustomer = async (req, res) => {
   try {
-    const hasInvoices = await Invoice.findOne({ 
-      customerId: req.params.id,
-      createdBy: req.user.id  // 👈 Only check invoices created by this user
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const hasInvoices = await prisma.warehouseInvoice.findFirst({
+      where: {
+        customerId: id,
+        createdBy: userId
+      }
     });
-    
+
     if (hasInvoices) {
       return res.status(400).json({
         success: false,
         message: 'Cannot delete customer with existing invoices',
       });
     }
-    
-    const customer = await Customer.findOneAndDelete({
-      _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this customer
+
+    const customer = await prisma.customer.deleteMany({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
-    
-    if (!customer) {
+
+    if (customer.count === 0) {
       return res.status(404).json({
         success: false,
         message: 'Customer not found',
       });
     }
-    
+
     res.status(200).json({
       success: true,
       message: 'Customer deleted successfully',
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Delete customer error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -273,97 +552,72 @@ exports.deleteCustomer = async (req, res) => {
   }
 };
 
-// ==================== INVOICE CRUD ====================
+// ============================================================
+// ✅ INVOICE CRUD - UPDATED with Tax Liability
+// ============================================================
 
-// @desc    Create invoice
-// @route   POST /api/accounts-receivable/invoices
-// @access  Private
-exports.createInvoice = async (req, res) => {
+const createInvoice = async (req, res) => {
+  console.log('📦 [AR] createInvoice called');
+  
   try {
-    const { customerId, date, dueDate, items, discount, notes } = req.body;
-    
-    const customer = await Customer.findOne({
-      _id: customerId,
-      createdBy: req.user.id  // 👈 Only allow if user owns this customer
-    });
-    
-    if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: 'Customer not found',
-      });
-    }
-    
+    const {
+      customerId,
+      date,
+      dueDate,
+      items,
+      discount,
+      notes,
+    } = req.body;
+
+    const userId = req.user.id;
+
+    // Validate warehouse customer
+    const customer = await validateWarehouseCustomer(customerId, userId);
+
     // Calculate totals
     let subtotal = 0;
     let taxTotal = 0;
-    
+
     const processedItems = items.map(item => {
       const amount = item.quantity * item.unitPrice;
       const taxAmount = amount * (item.taxRate / 100);
       subtotal += amount;
       taxTotal += taxAmount;
-      
+
       return {
         ...item,
         amount,
         taxAmount,
       };
     });
-    
+
     const totalAmount = subtotal + taxTotal - (discount || 0);
-    
-    const invoice = await Invoice.create({
-      customerId,
+
+    // Create invoice
+    const invoice = await WarehouseInvoiceModel.create({
+      customerId: customer.id,
       customerName: customer.name,
-      date: date || new Date(),
-      dueDate,
-      items: processedItems,
+      customerEmail: customer.email || '',
+      customerPhone: customer.phone || '',
+      billingAddress: customer.billingAddress || {},
+      invoiceDate: date ? new Date(date) : new Date(),
+      dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       subtotal,
       taxTotal,
-      discount: discount || 0,
-      totalAmount,
-      notes,
-      createdBy: req.user.id,
+      discountTotal: discount || 0,
+      grandTotal: totalAmount,
+      items: processedItems,
+      notes: notes || '',
+      createdBy: userId,
     });
-    
-    // Create journal entry
-    const arAccount = await getOrCreateReceivableAccount(req.user.id);
-    const revenueAccount = await getOrCreateRevenueAccount(req.user.id);
-    
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: new Date(),
-      description: `Invoice ${invoice.invoiceNumber} - ${customer.name}`,
-      reference: invoice.invoiceNumber,
-      lines: [
-        {
-          accountId: arAccount._id,
-          accountName: arAccount.name,
-          accountCode: arAccount.code,
-          debit: totalAmount,
-          credit: 0,
-        },
-        {
-          accountId: revenueAccount._id,
-          accountName: revenueAccount.name,
-          accountCode: revenueAccount.code,
-          debit: 0,
-          credit: totalAmount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
-      postedBy: req.user.id,
-      postedAt: new Date(),
-    });
-    
+
     res.status(201).json({
       success: true,
+      message: 'Invoice created successfully',
       data: invoice,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Create invoice error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -371,43 +625,68 @@ exports.createInvoice = async (req, res) => {
   }
 };
 
-// @desc    Get all invoices (with filters)
-// @route   GET /api/accounts-receivable/invoices
-// @access  Private
-exports.getInvoices = async (req, res) => {
+const getInvoices = async (req, res) => {
+  console.log('📦 [AR] getInvoices called');
+  
   try {
     const { customerId, status, startDate, endDate } = req.query;
-    let query = {
-      createdBy: req.user.id  // 👈 Only show invoices created by this user
-    };
-    
+    const userId = req.user.id;
+
+    const filter = { createdBy: userId };
+
     if (customerId) {
-      // Verify customer belongs to user
-      const customer = await Customer.findOne({
-        _id: customerId,
-        createdBy: req.user.id
+      const customer = await prisma.customer.findFirst({
+        where: {
+          id: customerId,
+          createdBy: userId
+        }
       });
       if (customer) {
-        query.customerId = customerId;
+        filter.customerId = customerId;
       }
     }
-    
-    if (status) query.status = status;
-    if (startDate && endDate) {
-      query.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
+
+    if (status) {
+      filter.invoiceStatus = status;
     }
     
-    const invoices = await Invoice.find(query)
-      .populate('customerId', 'name email phone')
-      .sort({ date: -1 });
-    
+    if (startDate && endDate) {
+      filter.invoiceDate = {
+        gte: new Date(startDate),
+        lte: new Date(endDate)
+      };
+    }
+
+    const invoices = await prisma.warehouseInvoice.findMany({
+      where: filter,
+      orderBy: { invoiceDate: 'desc' },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
     res.status(200).json({
       success: true,
       count: invoices.length,
       data: invoices,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Get invoices error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -415,29 +694,52 @@ exports.getInvoices = async (req, res) => {
   }
 };
 
-// @desc    Get single invoice
-// @route   GET /api/accounts-receivable/invoices/:id
-// @access  Private
-exports.getInvoice = async (req, res) => {
+const getInvoice = async (req, res) => {
+  console.log('📦 [AR] getInvoice called');
+  
   try {
-    const invoice = await Invoice.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id  // 👈 Only allow if user owns this invoice
-    }).populate('customerId', 'name email phone address');
-    
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const invoice = await prisma.warehouseInvoice.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            address: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
     if (!invoice) {
       return res.status(404).json({
         success: false,
         message: 'Invoice not found',
       });
     }
-    
+
     res.status(200).json({
       success: true,
       data: invoice,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Get invoice error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -445,118 +747,144 @@ exports.getInvoice = async (req, res) => {
   }
 };
 
-// ==================== PAYMENT RECORDING ====================
+// ============================================================
+// ✅ CANCEL INVOICE - NEW FUNCTION
+// ============================================================
 
-// @desc    Record payment against invoice
-// @route   POST /api/accounts-receivable/payments
-// @access  Private
-exports.recordPayment = async (req, res) => {
+const cancelInvoice = async (req, res) => {
+  console.log('📦 [AR] cancelInvoice called');
+  
   try {
-    const { invoiceId, amount, paymentDate, paymentMethod, reference, bankAccountId } = req.body;
-    
-    const invoice = await Invoice.findOne({
-      _id: invoiceId,
-      createdBy: req.user.id  // 👈 Only allow if user owns this invoice
-    }).populate('customerId');
-    
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const invoice = await prisma.warehouseInvoice.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
+    });
+
     if (!invoice) {
       return res.status(404).json({
         success: false,
-        message: 'Invoice not found',
+        message: 'Invoice not found'
       });
     }
-    
-    const outstanding = invoice.totalAmount - invoice.paidAmount;
-    if (amount > outstanding) {
+
+    if (invoice.invoiceStatus === 'Paid') {
       return res.status(400).json({
         success: false,
-        message: `Payment amount cannot exceed outstanding balance of ${outstanding}`,
+        message: 'Cannot cancel a paid invoice'
       });
     }
-    
-    // Update invoice paid amount
-    invoice.paidAmount += amount;
-    await invoice.save();
-    
-    // Get bank account and AR account
-    const arAccount = await getOrCreateReceivableAccount(req.user.id);
-    const cashAccount = await getOrCreateCashAccount(req.user.id);
 
-    let bankAccount = null;
-    let debitAccount = cashAccount;
-    if (bankAccountId) {
-      bankAccount = await BankAccount.findOne({
-        _id: bankAccountId,
-        createdBy: req.user.id,
+    if (invoice.invoiceStatus === 'Cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invoice already cancelled'
       });
-      if (bankAccount) {
-        const bankCoa = await ChartOfAccount.findOne({
-          _id: bankAccount.chartOfAccountId,
-          createdBy: req.user.id,
-        });
-        if (bankCoa) debitAccount = bankCoa;
-      }
     }
 
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: paymentDate || new Date(),
-      description: `Payment received for ${invoice.invoiceNumber} from ${invoice.customerId.name}`,
-      reference: reference || `PAY-${invoice.invoiceNumber}`,
-      lines: [
-        {
-          accountId: debitAccount._id,
-          accountName: debitAccount.name,
-          accountCode: debitAccount.code,
-          debit: amount,
-          credit: 0,
-        },
-        {
-          accountId: arAccount._id,
-          accountName: arAccount.name,
-          accountCode: arAccount.code,
-          debit: 0,
-          credit: amount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
-      postedBy: req.user.id,
-      postedAt: new Date(),
+    const cancelled = await WarehouseInvoiceModel.cancelInvoice(id, userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Invoice cancelled successfully',
+      data: cancelled
     });
+  } catch (error) {
+    console.error('❌ [AR] Cancel invoice error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 
-    if (bankAccount) {
-      bankAccount.currentBalance += amount;
-      await bankAccount.save();
-      await ChartOfAccount.findOneAndUpdate(
-        { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
-        { currentBalance: bankAccount.currentBalance }
-      );
-    } else {
-      cashAccount.currentBalance = (cashAccount.currentBalance || 0) + amount;
-      await cashAccount.save();
+// ============================================================
+// PAYMENT RECORDING
+// ============================================================
+
+const getUnpaidInvoices = async (req, res) => {
+  console.log('🔍 [AR] getUnpaidInvoices called');
+  console.log('🔍 [AR] customerId:', req.params.customerId);
+  console.log('🔍 [AR] userId:', req.user.id);
+  
+  try {
+    const { customerId } = req.params;
+    const userId = req.user.id;
+    
+    // ─── Step 1: Check customer ──────────────────────────────
+    const customer = await prisma.customer.findFirst({
+      where: {
+        id: customerId,
+        createdBy: userId
+      }
+    });
+    
+    if (!customer) {
+      console.log('❌ [AR] Customer not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found',
+      });
     }
+    
+    console.log(`✅ [AR] Customer found: ${customer.name}`);
+    
+    // ─── Step 2: ✅ CHECK ALL INVOICES FIRST (for debugging) ──
+    const allInvoices = await prisma.warehouseInvoice.findMany({
+      where: {
+        customerId: customerId,
+        createdBy: userId,
+      }
+    });
+    
+    console.log(`📊 [AR] Total invoices for customer: ${allInvoices.length}`);
+    console.log('📊 [AR] Invoice statuses:', allInvoices.map(i => ({
+      id: i.id,
+      invoiceNumber: i.invoiceNumber,
+      invoiceStatus: i.invoiceStatus,
+      isActive: i.isActive,
+      isDeleted: i.isDeleted,
+      grandTotal: i.grandTotal,
+      paidAmount: i.paidAmount
+    })));
+    
+    // ─── Step 3: Get UNPAID invoices ──────────────────────────
+    const unpaidInvoices = await prisma.warehouseInvoice.findMany({
+      where: {
+        customerId: customerId,
+        createdBy: userId,
+        // ✅ FIX: Include Active status (not just Unpaid)
+        invoiceStatus: { in: ['Active', 'Unpaid', 'Partial'] },
+        isActive: true,
+        isDeleted: false,
+      },
+      orderBy: { dueDate: 'asc' }
+    });
+    
+    console.log(`📊 [AR] Unpaid invoices found: ${unpaidInvoices.length}`);
+    
+    const result = unpaidInvoices.map(invoice => ({
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      date: invoice.invoiceDate,
+      dueDate: invoice.dueDate,
+      totalAmount: parseFloat(invoice.grandTotal),
+      paidAmount: parseFloat(invoice.paidAmount || 0),
+      outstanding: parseFloat(invoice.grandTotal - invoice.paidAmount),
+      status: invoice.invoiceStatus,
+    }));
     
     res.status(200).json({
       success: true,
-      data: {
-        invoice: {
-          id: invoice._id,
-          invoiceNumber: invoice.invoiceNumber,
-          paidAmount: invoice.paidAmount,
-          outstanding: invoice.totalAmount - invoice.paidAmount,
-          status: invoice.status,
-        },
-        payment: {
-          amount,
-          date: paymentDate,
-          method: paymentMethod,
-          reference,
-        },
-      },
+      count: result.length,
+      data: result,
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] getUnpaidInvoices error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -564,43 +892,298 @@ exports.recordPayment = async (req, res) => {
   }
 };
 
-// ==================== ACCOUNTS RECEIVABLE SUMMARY ====================
+// ─── HELPER: Generate next payment number ───────────────────────
+async function generatePaymentNumber(userId, tx) {
+  const year = new Date().getFullYear();
+  const prefix = `PMT-${year}-`;
 
-// @desc    Get AR summary
-// @route   GET /api/accounts-receivable/summary
-// @access  Private
-exports.getSummary = async (req, res) => {
+  const lastPayment = await tx.paymentReceived.findFirst({
+    where: { createdBy: userId, paymentNumber: { startsWith: prefix } },
+    orderBy: { paymentNumber: 'desc' }
+  });
+
+  if (!lastPayment) return `${prefix}0001`;
+
+  const parts = lastPayment.paymentNumber.split('-');
+  const lastNum = parseInt(parts[parts.length - 1]) || 0;
+  return `${prefix}${String(lastNum + 1).padStart(4, '0')}`;
+}
+
+const recordPayment = async (req, res) => {
+  console.log('📦 [AR] recordPayment called');
+
   try {
-    const invoices = await Invoice.find({ 
-      status: { $ne: 'Paid' },
-      createdBy: req.user.id  // 👈 Only show invoices created by this user
+    const {
+      invoiceId,
+      amount,
+      paymentDate,
+      paymentMethod,
+      reference,
+      bankAccountId,
+      notes,
+    } = req.body;
+
+    const userId = req.user.id;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment amount must be greater than zero'
+      });
+    }
+
+    const MAX_RETRIES = 5;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          // Validate warehouse invoice (inside tx for consistency)
+          const invoice = await tx.warehouseInvoice.findFirst({
+            where: { id: invoiceId, createdBy: userId, invoiceStatus: { not: 'Paid' } }
+          });
+          if (!invoice) {
+            const err = new Error('Invoice not found or already paid');
+            err.statusCode = 404;
+            throw err;
+          }
+          console.log(`✅ [AR] Invoice validated: ${invoice.invoiceNumber}`);
+
+          const outstanding = invoice.grandTotal - invoice.paidAmount;
+          if (amount > outstanding) {
+            const err = new Error(`Payment amount cannot exceed outstanding balance of ${outstanding}`);
+            err.statusCode = 400;
+            throw err;
+          }
+
+          // Update invoice paid amount
+          const newPaidAmount = invoice.paidAmount + amount;
+          const newOutstanding = invoice.grandTotal - newPaidAmount;
+          const newStatus = newOutstanding <= 0 ? 'Paid' : 'Partial';
+
+          const updatedInvoice = await tx.warehouseInvoice.update({
+            where: { id: invoiceId },
+            data: {
+              paidAmount: newPaidAmount,
+              invoiceStatus: newStatus,
+              paymentStatus: newOutstanding <= 0 ? 'Paid' : 'Partial'
+            }
+          });
+
+          // Get/create accounts
+          let arAccount = await tx.chartOfAccount.findFirst({ where: { code: '1110', createdBy: userId } });
+          if (!arAccount) {
+            arAccount = await tx.chartOfAccount.create({
+              data: {
+                code: '1110', name: 'Accounts Receivable', type: 'Asset',
+                parentAccount: 'Current Assets', openingBalance: 0, currentBalance: 0,
+                description: 'Amount due from customers', taxCode: 'N/A',
+                balanceType: 'Debit', isActive: true, createdBy: userId
+              }
+            });
+          }
+
+          let cashAccount = await tx.chartOfAccount.findFirst({ where: { code: '1010', createdBy: userId } });
+          if (!cashAccount) {
+            cashAccount = await tx.chartOfAccount.create({
+              data: {
+                code: '1010', name: 'Cash in Hand', type: 'Asset',
+                parentAccount: 'Current Assets', openingBalance: 0, currentBalance: 0,
+                description: 'Physical cash in office', taxCode: 'N/A',
+                balanceType: 'Debit', isActive: true, createdBy: userId
+              }
+            });
+          }
+
+          let bankAccount = null;
+          let debitAccount = cashAccount;
+
+          if (bankAccountId) {
+            bankAccount = await tx.bankAccount.findFirst({
+              where: { id: bankAccountId, createdBy: userId, status: 'Active' },
+              include: { chartOfAccount: true }
+            });
+            if (!bankAccount) {
+              const err = new Error('Bank account not found or does not belong to you');
+              err.statusCode = 404;
+              throw err;
+            }
+            if (bankAccount.chartOfAccount) debitAccount = bankAccount.chartOfAccount;
+          }
+
+          // ✅ THE MISSING PIECE: create the PaymentReceived record
+          const paymentNumber = await generatePaymentNumber(userId, tx);
+
+          const payment = await tx.paymentReceived.create({
+            data: {
+              paymentNumber,
+              paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+              customerId: invoice.customerId,
+              customerName: invoice.customerName || '',
+              invoiceId: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              invoiceAmount: invoice.grandTotal,
+              amount,
+              paymentMethod: paymentMethod || 'Cash',
+              reference: reference || '',
+              bankAccountId: bankAccountId || null,
+              bankAccountName: bankAccount ? bankAccount.accountName : (paymentMethod === 'Cash' ? 'Cash in Hand' : ''),
+              notes: notes || '',
+              status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
+              clearedDate: paymentMethod === 'Cheque' ? null : new Date(),
+              createdBy: userId,
+            }
+          });
+          console.log('✅ [AR] Payment record created:', payment.paymentNumber);
+
+          // Create journal entry
+          await tx.journalEntry.create({
+            data: {
+              entryNumber: `JE-${Date.now()}`,
+              date: paymentDate ? new Date(paymentDate) : new Date(),
+              description: `Payment received for ${invoice.invoiceNumber}`,
+              reference: reference || payment.paymentNumber,
+              status: 'Posted',
+              createdBy: userId,
+              postedBy: userId,
+              postedAt: new Date(),
+              lines: {
+                create: [
+                  {
+                    accountId: debitAccount.id,
+                    accountName: debitAccount.name,
+                    accountCode: debitAccount.code,
+                    debit: amount,
+                    credit: 0,
+                    isReconciled: false
+                  },
+                  {
+                    accountId: arAccount.id,
+                    accountName: arAccount.name,
+                    accountCode: arAccount.code,
+                    debit: 0,
+                    credit: amount,
+                    isReconciled: false
+                  }
+                ]
+              }
+            }
+          });
+
+          // Update AR account balance (decrease)
+          await tx.chartOfAccount.update({
+            where: { id: arAccount.id },
+            data: { currentBalance: { decrement: amount } }
+          });
+
+          // Update bank/cash balance
+          if (bankAccount) {
+            const newBankBalance = bankAccount.currentBalance + amount;
+            await tx.bankAccount.update({
+              where: { id: bankAccountId },
+              data: { currentBalance: newBankBalance }
+            });
+            if (bankAccount.chartOfAccountId) {
+              await tx.chartOfAccount.update({
+                where: { id: bankAccount.chartOfAccountId },
+                data: { currentBalance: newBankBalance }
+              });
+            }
+          } else {
+            await tx.chartOfAccount.update({
+              where: { id: cashAccount.id },
+              data: { currentBalance: { increment: amount } }
+            });
+          }
+
+          return { payment, updatedInvoice };
+        });
+
+        return res.status(200).json({
+          success: true,
+          data: {
+            invoice: {
+              id: result.updatedInvoice.id,
+              invoiceNumber: result.updatedInvoice.invoiceNumber,
+              paidAmount: result.updatedInvoice.paidAmount,
+              outstanding: result.updatedInvoice.grandTotal - result.updatedInvoice.paidAmount,
+              status: result.updatedInvoice.invoiceStatus,
+            },
+            payment: result.payment,
+          },
+        });
+
+      } catch (error) {
+        lastError = error;
+        if (error.code === 'P2002' && attempt < MAX_RETRIES) {
+          console.warn(`⚠️ [AR] paymentNumber collision, retrying (attempt ${attempt}/${MAX_RETRIES})`);
+          continue;
+        }
+        break;
+      }
+    }
+
+    const statusCode = lastError && lastError.statusCode ? lastError.statusCode : 500;
+    return res.status(statusCode).json({
+      success: false,
+      message: lastError ? lastError.message : 'Failed to record payment'
     });
-    
-    const totalOutstanding = invoices.reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
-    
+
+  } catch (error) {
+    console.error('❌ [AR] Record payment error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ============================================================
+// ACCOUNTS RECEIVABLE SUMMARY
+// ============================================================
+
+const getSummary = async (req, res) => {
+  console.log('📦 [AR] getSummary called');
+  
+  try {
+    const userId = req.user.id;
+
+    const invoices = await prisma.warehouseInvoice.findMany({
+      where: {
+        createdBy: userId,
+        invoiceStatus: { not: 'Paid' }
+      }
+    });
+
+    const totalOutstanding = invoices.reduce(
+      (sum, inv) => sum + (inv.grandTotal - inv.paidAmount),
+      0
+    );
+
     const now = new Date();
     const endOfWeek = new Date(now);
     endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
-    
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
+
     const overdue = invoices
-      .filter(inv => inv.dueDate < now && inv.status !== 'Paid')
-      .reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
-    
+      .filter(inv => inv.dueDate < now && inv.invoiceStatus !== 'Paid')
+      .reduce((sum, inv) => sum + (inv.grandTotal - inv.paidAmount), 0);
+
     const dueThisWeek = invoices
-      .filter(inv => inv.dueDate >= now && inv.dueDate <= endOfWeek && inv.status !== 'Paid')
-      .reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
-    
+      .filter(inv => inv.dueDate >= now && inv.dueDate <= endOfWeek && inv.invoiceStatus !== 'Paid')
+      .reduce((sum, inv) => sum + (inv.grandTotal - inv.paidAmount), 0);
+
     const dueThisMonth = invoices
-      .filter(inv => inv.dueDate >= now && inv.dueDate <= endOfMonth && inv.status !== 'Paid')
-      .reduce((sum, inv) => sum + (inv.totalAmount - inv.paidAmount), 0);
-    
-    const activeCustomers = await Customer.countDocuments({ 
-      isActive: true,
-      createdBy: req.user.id
+      .filter(inv => inv.dueDate >= now && inv.dueDate <= endOfMonth && inv.invoiceStatus !== 'Paid')
+      .reduce((sum, inv) => sum + (inv.grandTotal - inv.paidAmount), 0);
+
+    const activeCustomers = await prisma.customer.count({
+      where: {
+        createdBy: userId,
+        isActive: true
+      }
     });
-    
+
     res.status(200).json({
       success: true,
       data: {
@@ -612,7 +1195,7 @@ exports.getSummary = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Get AR summary error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -620,15 +1203,28 @@ exports.getSummary = async (req, res) => {
   }
 };
 
-// @desc    Get aged receivables report
-// @route   GET /api/accounts-receivable/aged
-// @access  Private
-exports.getAgedReceivables = async (req, res) => {
+const getAgedReceivables = async (req, res) => {
+  console.log('📦 [AR] getAgedReceivables called');
+  
   try {
-    const invoices = await Invoice.find({
-      createdBy: req.user.id,
-      status: { $ne: 'Paid' },
-    }).populate('customerId', 'name email phone');
+    const userId = req.user.id;
+
+    const invoices = await prisma.warehouseInvoice.findMany({
+      where: {
+        createdBy: userId,
+        invoiceStatus: { not: 'Paid' }
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        }
+      }
+    });
 
     const now = new Date();
     now.setHours(0, 0, 0, 0);
@@ -636,18 +1232,18 @@ exports.getAgedReceivables = async (req, res) => {
     const customerMap = new Map();
 
     for (const invoice of invoices) {
-      const outstanding = invoice.totalAmount - (invoice.paidAmount || 0);
+      const outstanding = invoice.grandTotal - (invoice.paidAmount || 0);
       if (outstanding <= 0) continue;
 
-      const customerId = invoice.customerId?._id?.toString() || 'unknown';
-      const customerName = invoice.customerId?.name || 'Unknown Customer';
+      const customerId = invoice.customerId || 'unknown';
+      const customerName = invoice.customer?.name || 'Unknown Customer';
 
       if (!customerMap.has(customerId)) {
         customerMap.set(customerId, {
           id: customerId,
           name: customerName,
-          email: invoice.customerId?.email || '',
-          phone: invoice.customerId?.phone || '',
+          email: invoice.customer?.email || '',
+          phone: invoice.customer?.phone || '',
           invoices: [],
           current: 0,
           days1to30: 0,
@@ -663,34 +1259,28 @@ exports.getAgedReceivables = async (req, res) => {
       dueDate.setHours(0, 0, 0, 0);
       const daysPastDue = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
 
-      let bucket = 'current';
       if (daysPastDue <= 0) {
         customer.current += outstanding;
       } else if (daysPastDue <= 30) {
         customer.days1to30 += outstanding;
-        bucket = '1-30';
       } else if (daysPastDue <= 60) {
         customer.days31to60 += outstanding;
-        bucket = '31-60';
       } else if (daysPastDue <= 90) {
         customer.days61to90 += outstanding;
-        bucket = '61-90';
       } else {
         customer.days90plus += outstanding;
-        bucket = '90+';
       }
 
       customer.totalOutstanding += outstanding;
       customer.invoices.push({
-        id: invoice._id,
+        id: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
-        invoiceDate: invoice.invoiceDate,
+        date: invoice.invoiceDate,
         dueDate: invoice.dueDate,
-        amount: invoice.totalAmount,
+        amount: invoice.grandTotal,
         paidAmount: invoice.paidAmount || 0,
         outstanding,
         daysPastDue: Math.max(0, daysPastDue),
-        bucket,
       });
     }
 
@@ -715,10 +1305,27 @@ exports.getAgedReceivables = async (req, res) => {
       data: { customers, summary },
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ [AR] Get aged receivables error:', error);
     res.status(500).json({
       success: false,
       message: error.message,
     });
   }
+};
+
+// ─── ✅ EXPORTS ──────────────────────────────────────────────────────
+module.exports = {
+  createCustomer,
+  getCustomers,
+  getCustomer,
+  updateCustomer,
+  deleteCustomer,
+  createInvoice,
+  getInvoices,
+  getInvoice,
+  cancelInvoice, // ✅ NEW
+  recordPayment,
+  getSummary,
+  getAgedReceivables,
+  getUnpaidInvoices,
 };

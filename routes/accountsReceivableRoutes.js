@@ -1,32 +1,32 @@
+// routes/accountsReceivableRoutes.js
+
 const express = require('express');
 const {
-  // Customer CRUD
   createCustomer,
   getCustomers,
   getCustomer,
   updateCustomer,
   deleteCustomer,
-  // Invoice CRUD
   createInvoice,
   getInvoices,
   getInvoice,
-  // Payment
   recordPayment,
-  // Summary
   getSummary,
   getAgedReceivables,
+  getUnpaidInvoices,
 } = require('../controllers/accountsReceivableController');
 const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+// ─── All routes require authentication ──────────────────────────
 router.use(protect);
 
-// Summary
+// ─── Summary Routes ──────────────────────────────────────────────
 router.get('/summary', getSummary);
 router.get('/aged', getAgedReceivables);
 
-// Customer routes
+// ─── Customer Routes ─────────────────────────────────────────────
 router.route('/customers')
   .get(getCustomers)
   .post(createCustomer);
@@ -36,7 +36,10 @@ router.route('/customers/:id')
   .put(updateCustomer)
   .delete(deleteCustomer);
 
-// Invoice routes
+// ✅ Get unpaid invoices for a customer
+router.get('/customers/:customerId/invoices/unpaid', getUnpaidInvoices);
+
+// ─── Invoice Routes ──────────────────────────────────────────────
 router.route('/invoices')
   .get(getInvoices)
   .post(createInvoice);
@@ -44,7 +47,7 @@ router.route('/invoices')
 router.route('/invoices/:id')
   .get(getInvoice);
 
-// Payment
+// ─── Payment Routes ──────────────────────────────────────────────
 router.post('/payments', recordPayment);
 
 module.exports = router;

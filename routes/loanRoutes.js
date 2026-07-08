@@ -1,46 +1,36 @@
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
 const {
   createLoan,
   getLoans,
   getLoan,
   updateLoan,
-  deleteLoan,
   recordPayment,
   calculateEMI,
   calculatePrepayment,
   prepayLoan,
   getSummary,
   getPaymentSchedule,
+  deleteLoan
 } = require('../controllers/loanController');
-const { protect } = require('../middleware/authMiddleware');
 
-const router = express.Router();
-
-// Protect all routes
+// ─── Protected Routes ─────────────────────────────────────────────
 router.use(protect);
 
-// Summary route
+// ─── CRUD Operations ──────────────────────────────────────────────
+router.post('/', createLoan);
+router.get('/', getLoans);
 router.get('/summary', getSummary);
+router.get('/:id', getLoan);
+router.put('/:id', updateLoan);
+router.delete('/:id', deleteLoan);
 
-// EMI calculator
-router.post('/calculate-emi', calculateEMI);
-
-// Payment routes
+// ─── Payment Operations ───────────────────────────────────────────
 router.post('/payment', recordPayment);
-router.post('/prepayment/calculate', calculatePrepayment);
-router.post('/prepayment', prepayLoan);
-
-// Payment schedule
+router.post('/calculate-emi', calculateEMI);
+router.post('/calculate-prepayment', calculatePrepayment);
+router.post('/prepay', prepayLoan);
 router.get('/:id/schedule', getPaymentSchedule);
-
-// Main CRUD routes
-router.route('/')
-  .get(getLoans)
-  .post(createLoan);
-
-router.route('/:id')
-  .get(getLoan)
-  .put(updateLoan)
-  .delete(deleteLoan);
 
 module.exports = router;

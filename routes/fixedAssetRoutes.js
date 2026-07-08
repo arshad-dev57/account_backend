@@ -1,40 +1,32 @@
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/AuthMiddleware');
 const {
   createFixedAsset,
   getFixedAssets,
   getFixedAsset,
   updateFixedAsset,
-  deleteFixedAsset,
   runDepreciation,
   runMonthlyDepreciation,
   disposeFixedAsset,
   getSummary,
+  deleteFixedAsset
 } = require('../controllers/fixedAssetController');
-const { protect } = require('../middleware/authMiddleware');
 
-const router = express.Router();
-
-// Protect all routes
+// ─── Protected Routes ─────────────────────────────────────────────
 router.use(protect);
 
-// Summary route
+// ─── CRUD Operations ──────────────────────────────────────────────
+router.post('/', createFixedAsset);
+router.get('/', getFixedAssets);
 router.get('/summary', getSummary);
+router.get('/:id', getFixedAsset);
+router.put('/:id', updateFixedAsset);
+router.delete('/:id', deleteFixedAsset);
 
-// Depreciation routes
+// ─── Special Operations ───────────────────────────────────────────
 router.post('/depreciate', runDepreciation);
 router.post('/depreciate-all', runMonthlyDepreciation);
-
-// Disposal route
 router.post('/dispose', disposeFixedAsset);
-
-// Main CRUD routes
-router.route('/')
-  .get(getFixedAssets)
-  .post(createFixedAsset);
-
-router.route('/:id')
-  .get(getFixedAsset)
-  .put(updateFixedAsset)
-  .delete(deleteFixedAsset);
 
 module.exports = router;

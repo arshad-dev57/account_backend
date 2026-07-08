@@ -1,11 +1,10 @@
 const express = require('express');
 const {
-  createJournalEntry,
+ createJournalEntry,
   getJournalEntries,
   getJournalEntry,
-  updateJournalEntry,
-  postJournalEntry,
   deleteJournalEntry,
+  getJournalEntryStats
 } = require('../controllers/journalEntryController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -22,11 +21,9 @@ router.route('/')
 // Single entry routes
 router.route('/:id')
   .get(getJournalEntry)
-  .put(updateJournalEntry)
   .delete(deleteJournalEntry);
 
 // Post journal entry (Draft to Posted)
 router.route('/:id/post')
-  .post(postJournalEntry);
 
 module.exports = router;

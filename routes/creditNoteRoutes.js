@@ -1,4 +1,8 @@
+// routes/creditNoteRoutes.js
+
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
 const {
   createCreditNote,
   getCreditNotes,
@@ -8,33 +12,25 @@ const {
   applyCreditNote,
   expireCreditNotes,
   deleteCreditNote,
+  voidCreditNote,
+  getCreditNoteByNumber
 } = require('../controllers/creditNoteController');
-const { protect } = require('../middleware/authMiddleware');
 
-const router = express.Router();
-
-// Protect all routes
+// ─── Protected Routes ─────────────────────────────────────────────
 router.use(protect);
 
-// Summary route
+// ─── CRUD Operations ──────────────────────────────────────────────
+router.post('/', createCreditNote);
+router.get('/', getCreditNotes);
 router.get('/summary', getSummary);
+router.get('/:id', getCreditNote);
+router.delete('/:id', deleteCreditNote);
 
-// Unpaid invoices for credit note creation
+// ─── Special Operations ───────────────────────────────────────────
 router.get('/unpaid-invoices/:customerId', getUnpaidInvoices);
-
-// Apply credit note to invoice
 router.post('/apply', applyCreditNote);
-
-// Expire credit notes (admin only)
-router.post('/expire', protect, expireCreditNotes);
-
-// Main CRUD routes
-router.route('/')
-  .get(getCreditNotes)
-  .post(createCreditNote);
-
-router.route('/:id')
-  .get(getCreditNote)
-  .delete(deleteCreditNote);
+router.post('/expire', expireCreditNotes);
+router.post('/:id/void', voidCreditNote);
+router.get('/number/:creditNumber', getCreditNoteByNumber);
 
 module.exports = router;

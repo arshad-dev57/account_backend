@@ -1,9 +1,8 @@
-// backend/middleware/authMiddleware.js
-
+// middleware/authMiddleware.js - Prisma Version
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const prisma = require('../prisma/client');
 
-// ✅ Clean token helper
 const cleanToken = (token) => {
   if (!token) return null;
   return token.trim().replace(/^"|"$/g, '').replace(/\s/g, '');
@@ -11,8 +10,15 @@ const cleanToken = (token) => {
 
 // ✅ Shared helper - fresh DB fetch karta hai
 const checkAndExpireIfNeeded = async (userId) => {
-  const user = await User.findById(userId);
-  if (!user || user.subscription.status !== 'active') return user;
+  const userData = await prisma.user.findUnique({
+    where: { id: userId }
+  });
+  
+  if (!userData) return null;
+  
+  const user = new User(userData);
+  
+  if (user.subscription.status !== 'active') return user;
 
   const now = new Date();
 
@@ -26,7 +32,10 @@ const checkAndExpireIfNeeded = async (userId) => {
 
   if (isTrialExpired || isPaidExpired) {
     await user.expireSubscription();
-    return await User.findById(userId);
+    const updatedUserData = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+    return new User(updatedUserData);
   }
 
   return user;
@@ -58,16 +67,20 @@ exports.protectOnly = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id);
+    
+    const userData = await prisma.user.findUnique({
+      where: { id: decoded.id }
+    });
 
-    if (!user) {
+    if (!userData) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    if (!user.isActive) {
+    if (!userData.isActive) {
       return res.status(401).json({ success: false, message: 'Your account has been deactivated' });
     }
 
+    const user = new User(userData);
     req.user = user;
     next();
 

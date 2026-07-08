@@ -1,120 +1,153 @@
-const Income = require('../models/Income');
-const Customer = require('../models/Customer');
-const BankAccount = require('../models/BankAccount');
-const JournalEntry = require('../models/JournalEntry');
-const ChartOfAccount = require('../models/ChartOfAccount');
+// controllers/incomeController.js - COMPLETE FIXED VERSION WITH INCOME ACCOUNT
 
-// ==================== HELPER FUNCTIONS ====================
+const IncomeModel = require('../models/Income');
+const prisma = require('../prisma/client');
 
-// Helper: Get or create Income account in Chart of Accounts (WITHOUT duplicate error)
-async function getOrCreateIncomeAccount(userId, incomeType) {
-  let accountCode = '4000';
-  let accountName = 'Income';
-  
-  const categoryMap = {
-    'Sales': { code: '4100', name: 'Sales Revenue' },
-    'Services': { code: '4200', name: 'Service Revenue' },
-    'Interest Income': { code: '4300', name: 'Interest Income' },
-    'Rental Income': { code: '4400', name: 'Rental Income' },
-    'Dividend Income': { code: '4500', name: 'Dividend Income' },
-  };
-  
-  if (categoryMap[incomeType]) {
-    accountCode = categoryMap[incomeType].code;
-    accountName = categoryMap[incomeType].name;
-  } else {
-    accountCode = '4900';
-    accountName = 'Other Income';
-  }
-  
-  // First try to find account created by THIS user
-  let incomeAccount = await ChartOfAccount.findOne({ 
-    code: accountCode,
-    createdBy: userId
-  });
-  
-  if (!incomeAccount) {
-    // Check if this code exists for ANY user
-    const existingCode = await ChartOfAccount.findOne({ code: accountCode });
-    
-    let newCode = accountCode;
-    if (existingCode) {
-      // Generate a unique code for this user
-      let counter = 1;
-      let codeExists = true;
-      while (codeExists) {
-        const baseCode = accountCode.substring(0, 2);
-        const suffix = parseInt(accountCode.substring(2)) + counter;
-        newCode = `${baseCode}${suffix}`;
-        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
-        if (!existing) {
-          codeExists = false;
-        }
-        counter++;
-      }
-    }
-    
-    incomeAccount = await ChartOfAccount.create({
-      code: newCode,
-      name: accountName,
-      type: 'Income',
-      parentAccount: 'Operating Income',
-      openingBalance: 0,
-      currentBalance: 0,
-      description: `${incomeType} account`,
-      taxCode: 'N/A',
+// ─── HELPER: Get all income accounts for dropdown ──────────────
+async function getIncomeAccountsForDropdown(userId) {
+  return await prisma.chartOfAccount.findMany({
+    where: {
       createdBy: userId,
-    });
-  }
-  return incomeAccount;
+      type: 'Revenue',
+      isActive: true
+    },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      type: true
+    },
+    orderBy: {
+      code: 'asc'
+    }
+  });
 }
 
-// Helper: Get or create Cash account (WITHOUT duplicate error)
+// ─── HELPER: Get or create Cash account ──────────────────────────
 async function getOrCreateCashAccount(userId) {
-  let cashAccount = await ChartOfAccount.findOne({ 
-    code: '1010',
-    createdBy: userId
+  let cashAccount = await prisma.chartOfAccount.findFirst({
+    where: {
+      code: '1010',
+      createdBy: userId
+    }
   });
-  
+
   if (!cashAccount) {
-    // Check if code 1010 exists for ANY user
-    const existingCode = await ChartOfAccount.findOne({ code: '1010' });
-    
+    const existingCode = await prisma.chartOfAccount.findFirst({
+      where: { code: '1010' }
+    });
+
     let newCode = '1010';
     if (existingCode) {
       let counter = 1;
       let codeExists = true;
       while (codeExists) {
         newCode = `101${counter}`;
-        const existing = await ChartOfAccount.findOne({ code: newCode, createdBy: userId });
+        const existing = await prisma.chartOfAccount.findFirst({
+          where: {
+            code: newCode,
+            createdBy: userId
+          }
+        });
         if (!existing) {
           codeExists = false;
         }
         counter++;
       }
     }
-    
-    cashAccount = await ChartOfAccount.create({
-      code: newCode,
-      name: 'Cash in Hand',
-      type: 'Assets',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      currentBalance: 0,
-      description: 'Physical cash',
-      taxCode: 'N/A',
-      createdBy: userId,
+
+    cashAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: newCode,
+        name: 'Cash in Hand',
+        type: 'Asset',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Physical cash',
+        taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
+        createdBy: userId
+      }
     });
   }
+
   return cashAccount;
 }
 
-// ==================== CREATE INCOME ====================
+// ─── HELPER: Create journal entry for income ─────────────────────
+async function createIncomeJournalEntry(userId, income, cashOrBankAccount, incomeAccount) {
+  const entryNumber = `JE-${Date.now()}`;
+
+  return await prisma.journalEntry.create({
+    data: {
+      entryNumber,
+      date: income.date || new Date(),
+      description: income.description || `${income.incomeType} - ${income.incomeNumber}`,
+      reference: income.reference || income.incomeNumber,
+      status: 'Posted',
+      createdBy: userId,
+      postedBy: userId,
+      postedAt: new Date(),
+      lines: {
+        create: [
+          {
+            accountId: cashOrBankAccount.id,
+            accountName: cashOrBankAccount.name,
+            accountCode: cashOrBankAccount.code,
+            debit: income.totalAmount,
+            credit: 0,
+            isReconciled: false
+          },
+          {
+            accountId: incomeAccount.id,
+            accountName: incomeAccount.name,
+            accountCode: incomeAccount.code,
+            debit: 0,
+            credit: income.totalAmount,
+            isReconciled: false
+          }
+        ]
+      }
+    }
+  });
+}
+
+// ============================================================
+// @desc    Get income accounts for dropdown
+// @route   GET /api/income/accounts
+// @access  Private
+// ============================================================
+exports.getIncomeAccounts = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const accounts = await getIncomeAccountsForDropdown(userId);
+
+    res.status(200).json({
+      success: true,
+      data: accounts
+    });
+  } catch (error) {
+    console.error('❌ Get income accounts error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ============================================================
+// @desc    Create Income - WITH INCOME ACCOUNT SELECTION
+// @route   POST /api/income
+// @access  Private
+// ============================================================
 exports.createIncome = async (req, res) => {
   try {
     const {
       date,
       incomeType,
+      incomeAccountId,  // ✅ NEW
       customerId,
       items,
       amount,
@@ -125,29 +158,119 @@ exports.createIncome = async (req, res) => {
       bankAccountId,
     } = req.body;
 
+    const userId = req.user.id;
+
     console.log("📦 Received income data:", JSON.stringify(req.body, null, 2));
 
-    // Get customer name if provided and customer belongs to user
+    // ─── ✅ VALIDATE: Check if income account exists ─────────────
+    if (!incomeAccountId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select an income account',
+        suggestion: 'Select an income account from the dropdown'
+      });
+    }
+
+    const incomeAccount = await prisma.chartOfAccount.findFirst({
+      where: {
+        id: incomeAccountId,
+        createdBy: userId,
+        type: 'Revenue',
+        isActive: true
+      }
+    });
+
+    if (!incomeAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected income account not found or is not active',
+        suggestion: 'Please select a valid income account'
+      });
+    }
+
+    console.log(`✅ Using income account: ${incomeAccount.name} (${incomeAccount.code})`);
+
+    // ─── Clean bankAccountId ──────────────────────────────────────
+    let cleanBankAccountId = null;
+    const rawValue = bankAccountId !== null && bankAccountId !== undefined 
+      ? String(bankAccountId).trim() 
+      : '';
+
+    if (rawValue && 
+        rawValue !== 'null' && 
+        rawValue !== 'NULL' && 
+        rawValue !== 'undefined' &&
+        rawValue !== '') {
+      cleanBankAccountId = rawValue;
+    }
+
+    console.log(`🔍 Final cleanBankAccountId: "${cleanBankAccountId}"`);
+
+    // ─── Validate Bank Transfer ──────────────────────────────────
+    let finalPaymentMethod = paymentMethod || 'Cash';
+    let finalBankAccountId = null;
+    let bankAccountData = null;
+
+    if (paymentMethod === 'Bank Transfer' || paymentMethod === 'Bank') {
+      if (!cleanBankAccountId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account is required for Bank Transfer. Please select a bank account.',
+          suggestion: 'Please select a bank account from the dropdown before submitting.'
+        });
+      }
+
+      finalBankAccountId = cleanBankAccountId;
+      
+      bankAccountData = await prisma.bankAccount.findFirst({
+        where: {
+          id: finalBankAccountId,
+          createdBy: userId
+        },
+        include: {
+          chartOfAccount: true
+        }
+      });
+
+      if (!bankAccountData) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account not found or does not belong to you'
+        });
+      }
+      
+      console.log(`🏦 Bank account found: ${bankAccountData.accountName} (${bankAccountData.accountNumber})`);
+      console.log(`   Current balance: ${bankAccountData.currentBalance}`);
+      finalPaymentMethod = paymentMethod;
+    } else {
+      console.log('💵 Payment method is Cash, ignoring bankAccountId');
+      finalPaymentMethod = 'Cash';
+      finalBankAccountId = null;
+    }
+
+    // ─── Get customer name ──────────────────────────────────────
     let customerName = '';
     if (customerId) {
-      const customer = await Customer.findOne({
-        _id: customerId,
-        createdBy: req.user.id
+      const customer = await prisma.customer.findFirst({
+        where: {
+          id: customerId,
+          createdBy: userId
+        }
       });
       if (customer) {
         customerName = customer.name;
       }
     }
 
+    // ─── Process items ──────────────────────────────────────────
     let finalItems = [];
     let finalAmount = 0;
     let subtotal = 0;
     let taxAmount = 0;
     let totalAmount = 0;
 
-    // Check if this is detailed income (with items) or simple income
-    const hasItems = items != null && items.length > 0;
-    
+    const hasItems = items && items.length > 0;
+
     if (hasItems) {
       console.log("📊 Processing DETAILED income with items");
       finalItems = items.map(item => ({
@@ -160,9 +283,6 @@ exports.createIncome = async (req, res) => {
       taxAmount = subtotal * (taxRate || 0) / 100;
       totalAmount = subtotal + taxAmount;
       finalAmount = 0;
-      console.log("   Subtotal:", subtotal);
-      console.log("   Tax:", taxAmount);
-      console.log("   Total:", totalAmount);
     } else {
       console.log("📊 Processing SIMPLE income with amount:", amount);
       finalAmount = amount || 0;
@@ -170,599 +290,695 @@ exports.createIncome = async (req, res) => {
       totalAmount = finalAmount;
       taxAmount = 0;
       finalItems = [];
-      console.log("   Total Amount set to:", totalAmount);
     }
 
-    // Verify bank account belongs to user if provided
-    if (bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: bankAccountId,
-        createdBy: req.user.id
-      });
-      
-      if (!bankAccount) {
-        return res.status(400).json({
-          success: false,
-          message: 'Bank account not found or does not belong to you',
-        });
-      }
+    console.log(`💰 Total Amount: ${totalAmount}`);
+
+    // ─── Format date ──────────────────────────────────────────────
+    let formattedDate = date ? new Date(date) : new Date();
+    if (isNaN(formattedDate.getTime())) {
+      formattedDate = new Date();
     }
 
-    // Create income record
-    const income = await Income.create({
-      date: date || new Date(),
+    // ─── Create income record ──────────────────────────────────
+    const income = await IncomeModel.create({
+      date: formattedDate,
       incomeType,
+      incomeAccountId: incomeAccount.id,  // ✅ NEW
       customerId: customerId || null,
       customerName,
       items: finalItems,
       amount: finalAmount,
-      hasItems: hasItems,
-      subtotal: subtotal,
       taxRate: taxRate || 0,
-      taxAmount: taxAmount,
-      totalAmount: totalAmount,
       description: description || '',
       reference: reference || '',
-      paymentMethod: paymentMethod || 'Cash',
-      bankAccountId: bankAccountId || null,
+      paymentMethod: finalPaymentMethod,
+      bankAccountId: finalBankAccountId,
       status: 'Posted',
-      postedBy: req.user.id,
+      postedBy: userId,
       postedAt: new Date(),
-      createdBy: req.user.id,
+      createdBy: userId
     });
 
     console.log("✅ Income created successfully!");
-    console.log("   ID:", income._id);
+    console.log("   ID:", income.id);
     console.log("   Number:", income.incomeNumber);
     console.log("   Total Amount:", income.totalAmount);
 
-    // Create journal entry
-    const incomeAccount = await getOrCreateIncomeAccount(req.user.id, incomeType);
+    // ─── Create journal entry using SELECTED income account ──
     let cashOrBankAccount;
-    
-    if (paymentMethod === 'Cash') {
-      cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
-    } else if (bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: bankAccountId,
-        createdBy: req.user.id
+
+    if (finalPaymentMethod === 'Cash' || !finalBankAccountId) {
+      cashOrBankAccount = await getOrCreateCashAccount(userId);
+      console.log('💵 Using Cash account');
+    } else if (finalBankAccountId && bankAccountData) {
+      cashOrBankAccount = bankAccountData.chartOfAccount;
+      console.log(`🏦 Using Bank account: ${bankAccountData.accountName}`);
+    } else {
+      cashOrBankAccount = await getOrCreateCashAccount(userId);
+      console.log('💵 Fallback: Using Cash account');
+    }
+
+    if (!cashOrBankAccount) {
+      cashOrBankAccount = await getOrCreateCashAccount(userId);
+    }
+
+    console.log(`📒 Journal Entry - Debit: ${cashOrBankAccount.name}, Credit: ${incomeAccount.name}`);
+
+    // ─── Create journal entry ──────────────────────────────────
+    await createIncomeJournalEntry(userId, income, cashOrBankAccount, incomeAccount);
+
+    // ─── Update bank/cash account balance ──────────────────────
+    if (finalBankAccountId && bankAccountData) {
+      const oldBalance = bankAccountData.currentBalance;
+      const newBalance = oldBalance + totalAmount;
+      
+      console.log(`💰 Updating bank account balance: ${oldBalance} → ${newBalance}`);
+      
+      await prisma.bankAccount.update({
+        where: { id: finalBankAccountId },
+        data: { currentBalance: newBalance }
       });
-      if (bankAccount) {
-        cashOrBankAccount = await ChartOfAccount.findOne({
-          _id: bankAccount.chartOfAccountId,
-          createdBy: req.user.id
+
+      if (bankAccountData.chartOfAccountId) {
+        await prisma.chartOfAccount.update({
+          where: { id: bankAccountData.chartOfAccountId },
+          data: { currentBalance: newBalance }
         });
       }
-    }
-    
-    if (!cashOrBankAccount) {
-      cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
-    }
-
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: date || new Date(),
-      description: description || `${incomeType} - ${income.incomeNumber}`,
-      reference: reference || income.incomeNumber,
-      lines: [
-        {
-          accountId: cashOrBankAccount._id,
-          accountName: cashOrBankAccount.name,
-          accountCode: cashOrBankAccount.code,
-          debit: totalAmount,
-          credit: 0,
-        },
-        {
-          accountId: incomeAccount._id,
-          accountName: incomeAccount.name,
-          accountCode: incomeAccount.code,
-          debit: 0,
-          credit: totalAmount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
-      postedBy: req.user.id,
-      postedAt: new Date(),
-    });
-
-    if (bankAccountId && paymentMethod !== 'Cash') {
-      const bankAccount = await BankAccount.findOne({
-        _id: bankAccountId,
-        createdBy: req.user.id,
-      });
-      if (bankAccount) {
-        bankAccount.currentBalance += totalAmount;
-        await bankAccount.save();
-        await ChartOfAccount.findOneAndUpdate(
-          { _id: bankAccount.chartOfAccountId, createdBy: req.user.id },
-          { currentBalance: bankAccount.currentBalance }
-        );
-      }
+      
+      console.log(`✅ Bank account balance updated successfully!`);
     } else if (cashOrBankAccount) {
-      cashOrBankAccount.currentBalance = (cashOrBankAccount.currentBalance || 0) + totalAmount;
-      await cashOrBankAccount.save();
+      const oldBalance = cashOrBankAccount.currentBalance || 0;
+      const newBalance = oldBalance + totalAmount;
+      
+      console.log(`💰 Updating cash account balance: ${oldBalance} → ${newBalance}`);
+      
+      await prisma.chartOfAccount.update({
+        where: { id: cashOrBankAccount.id },
+        data: { currentBalance: newBalance }
+      });
+      
+      console.log(`✅ Cash account balance updated successfully!`);
     }
+
+    // ─── ✅ Update income account balance (INCREASE) ────────────
+    const oldIncomeBalance = incomeAccount.currentBalance || 0;
+    const newIncomeBalance = oldIncomeBalance + totalAmount;
+    
+    await prisma.chartOfAccount.update({
+      where: { id: incomeAccount.id },
+      data: { currentBalance: newIncomeBalance }
+    });
+    
+    console.log(`💰 Updated income account balance: ${oldIncomeBalance} → ${newIncomeBalance}`);
 
     res.status(201).json({
       success: true,
       data: income,
-      message: 'Income recorded and posted to ledger',
+      incomeAccount: {
+        id: incomeAccount.id,
+        code: incomeAccount.code,
+        name: incomeAccount.name
+      },
+      message: finalBankAccountId ? 'Income recorded and posted to ledger (Bank Transfer)' : 'Income recorded and posted to ledger (Cash)'
     });
   } catch (error) {
     console.error("🔥 ERROR in createIncome:", error);
-    
-    // Handle duplicate key error
-    if (error.code === 11000) {
+
+    if (error.code === 'P2002') {
       return res.status(400).json({
         success: false,
-        message: 'Duplicate entry. Please try again.',
+        message: 'Duplicate entry. Please try again.'
       });
     }
-    
+
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
 
-// ==================== GET ALL INCOME RECORDS ====================
+// ============================================================
+// @desc    Get all incomes
+// @route   GET /api/income/list
+// @access  Private
+// ============================================================
 exports.getIncomes = async (req, res) => {
   try {
-    const { incomeType, status, startDate, endDate, search } = req.query;
-    let query = {
-      createdBy: req.user.id
-    };
+    const { incomeType, status, startDate, endDate, search, page = 1, limit = 10 } = req.query;
+    const userId = req.user.id;
 
-    if (incomeType && incomeType !== 'All') query.incomeType = incomeType;
-    if (status && status !== 'All') query.status = status;
-    
+    const filter = { createdBy: userId };
+
+    if (incomeType && incomeType !== 'All') {
+      filter.incomeType = incomeType;
+    }
+
+    if (status && status !== 'All') {
+      filter.status = status;
+    }
+
     if (startDate && endDate) {
-      query.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
+      filter.date = {
+        gte: new Date(startDate),
+        lte: new Date(endDate)
       };
     }
 
     if (search) {
-      query.$or = [
-        { incomeNumber: { $regex: search, $options: 'i' } },
-        { customerName: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
+      filter.OR = [
+        { incomeNumber: { contains: search, mode: 'insensitive' } },
+        { customerName: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
       ];
     }
 
-    const incomes = await Income.find(query)
-      .populate('customerId', 'name email phone')
-      .populate('bankAccountId', 'accountName accountNumber')
-      .sort({ date: -1, createdAt: -1 });
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    const [incomes, totalCount] = await Promise.all([
+      IncomeModel.findAll(filter, { skip, take: limitNum, orderBy: { date: 'desc' } }),
+      IncomeModel.count(filter)
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limitNum);
 
     res.status(200).json({
       success: true,
       count: incomes.length,
-      data: incomes,
+      total: totalCount,
+      page: pageNum,
+      pages: totalPages,
+      data: incomes
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Get incomes error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
 
-// ==================== GET SINGLE INCOME ====================
+// ============================================================
+// @desc    Get single income
+// @route   GET /api/income/:id
+// @access  Private
+// ============================================================
 exports.getIncome = async (req, res) => {
   try {
-    const income = await Income.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id
-    })
-      .populate('customerId', 'name email phone')
-      .populate('bankAccountId', 'accountName accountNumber');
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const income = await prisma.income.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        bankAccount: {
+          select: {
+            id: true,
+            accountName: true,
+            accountNumber: true,
+            bankName: true
+          }
+        },
+        incomeAccount: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            type: true
+          }
+        },
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        poster: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
 
     if (!income) {
       return res.status(404).json({
         success: false,
-        message: 'Income record not found',
+        message: 'Income record not found'
       });
     }
 
     res.status(200).json({
       success: true,
-      data: income,
+      data: income
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Get income error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
 
-// ==================== UPDATE INCOME ====================
+// ============================================================
+// @desc    Update income
+// @route   PUT /api/income/:id
+// @access  Private
+// ============================================================
 exports.updateIncome = async (req, res) => {
   try {
-    const income = await Income.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const {
+      date,
+      incomeType,
+      incomeAccountId,  // ✅ NEW
+      customerId,
+      items,
+      amount,
+      taxRate,
+      description,
+      reference,
+      paymentMethod,
+      bankAccountId
+    } = req.body;
+
+    const existing = await prisma.income.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
 
-    if (!income) {
+    if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Income record not found',
+        message: 'Income record not found'
       });
     }
 
-    if (income.status === 'Posted') {
+    if (existing.status === 'Posted') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot update posted income record',
+        message: 'Cannot update posted income record'
       });
     }
 
-    const allowedUpdates = [
-      'date', 'incomeType', 'customerId', 'items', 'amount', 'taxRate',
-      'description', 'reference', 'paymentMethod', 'bankAccountId'
-    ];
-    
-    allowedUpdates.forEach(field => {
-      if (req.body[field] !== undefined) {
-        income[field] = req.body[field];
-      }
-    });
-
-    // Update customer name if customer changed and belongs to user
-    if (req.body.customerId) {
-      const customer = await Customer.findOne({
-        _id: req.body.customerId,
-        createdBy: req.user.id
+    let customerName = existing.customerName;
+    if (customerId) {
+      const customer = await prisma.customer.findFirst({
+        where: {
+          id: customerId,
+          createdBy: userId
+        }
       });
       if (customer) {
-        income.customerName = customer.name;
+        customerName = customer.name;
       }
     }
 
-    // Verify bank account belongs to user if updating
-    if (req.body.bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: req.body.bankAccountId,
-        createdBy: req.user.id
+    let validBankAccountId = null;
+    if (bankAccountId && bankAccountId !== 'null' && bankAccountId !== 'NULL' && bankAccountId !== 'undefined') {
+      const bankAccount = await prisma.bankAccount.findFirst({
+        where: {
+          id: bankAccountId,
+          createdBy: userId
+        }
       });
-      
       if (!bankAccount) {
         return res.status(400).json({
           success: false,
-          message: 'Bank account not found or does not belong to you',
+          message: 'Bank account not found or does not belong to you'
+        });
+      }
+      validBankAccountId = bankAccountId;
+    }
+
+    // ─── ✅ Validate income account ──────────────────────────────
+    if (incomeAccountId) {
+      const incomeAccount = await prisma.chartOfAccount.findFirst({
+        where: {
+          id: incomeAccountId,
+          createdBy: userId,
+          type: 'Revenue'
+        }
+      });
+      if (!incomeAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Selected income account not found'
         });
       }
     }
 
-    // Recalculate totals
-    if (income.items && income.items.length > 0) {
-      income.subtotal = income.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      income.taxAmount = income.subtotal * (income.taxRate || 0) / 100;
-      income.totalAmount = income.subtotal + income.taxAmount;
-      income.amount = 0;
-      income.hasItems = true;
-    } else if (income.amount > 0) {
-      income.subtotal = income.amount;
-      income.taxAmount = 0;
-      income.totalAmount = income.amount;
-      income.hasItems = false;
+    const updateData = {
+      date: date || existing.date,
+      incomeType: incomeType || existing.incomeType,
+      incomeAccountId: incomeAccountId || existing.incomeAccountId,  // ✅ NEW
+      customerId: customerId || existing.customerId,
+      customerName: customerName || existing.customerName,
+      description: description !== undefined ? description : existing.description,
+      reference: reference !== undefined ? reference : existing.reference,
+      paymentMethod: paymentMethod || existing.paymentMethod,
+      bankAccountId: validBankAccountId,
+      taxRate: taxRate !== undefined ? taxRate : existing.taxRate
+    };
+
+    let finalItems = [];
+    let finalAmount = 0;
+    let subtotal = 0;
+    let taxAmount = 0;
+    let totalAmount = 0;
+
+    const hasItems = items && items.length > 0;
+
+    if (hasItems) {
+      finalItems = items.map(item => ({
+        description: item.description,
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice || 0,
+        amount: (item.quantity || 1) * (item.unitPrice || 0),
+      }));
+      subtotal = finalItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      taxAmount = subtotal * (updateData.taxRate || 0) / 100;
+      totalAmount = subtotal + taxAmount;
+      finalAmount = 0;
+      updateData.hasItems = true;
+      updateData.items = finalItems;
+      updateData.amount = finalAmount;
+      updateData.subtotal = subtotal;
+      updateData.taxAmount = taxAmount;
+      updateData.totalAmount = totalAmount;
+    } else if (amount !== undefined && amount > 0) {
+      finalAmount = amount;
+      subtotal = finalAmount;
+      totalAmount = finalAmount;
+      taxAmount = 0;
+      finalItems = [];
+      updateData.hasItems = false;
+      updateData.items = finalItems;
+      updateData.amount = finalAmount;
+      updateData.subtotal = subtotal;
+      updateData.taxAmount = taxAmount;
+      updateData.totalAmount = totalAmount;
     }
 
-    await income.save();
+    const updated = await IncomeModel.update(id, updateData);
 
     res.status(200).json({
       success: true,
-      data: income,
-      message: 'Income record updated successfully',
+      data: updated,
+      message: 'Income record updated successfully'
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Update income error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
 
-// ==================== DELETE INCOME ====================
+// ============================================================
+// @desc    Delete income
+// @route   DELETE /api/income/:id
+// @access  Private
+// ============================================================
 exports.deleteIncome = async (req, res) => {
   try {
-    const income = await Income.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const existing = await prisma.income.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
 
-    if (!income) {
+    if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Income record not found',
+        message: 'Income record not found'
       });
     }
 
-    if (income.status === 'Posted') {
+    if (existing.status === 'Posted') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete posted income record',
+        message: 'Cannot delete posted income record'
       });
     }
 
-    await income.deleteOne();
+    await IncomeModel.delete(id);
 
     res.status(200).json({
       success: true,
-      message: 'Income record deleted successfully',
+      message: 'Income record deleted successfully'
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Delete income error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
-// ==================== GET SUMMARY ====================
+
+// ============================================================
+// @desc    Get income summary
+// @route   GET /api/income/summary
+// @access  Private
+// ============================================================
 exports.getSummary = async (req, res) => {
   try {
-    const { 
-      startDate, 
-      endDate,
-      page = 1,
-      limit = 10
-    } = req.query;
-    
-    let dateFilter = {};
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+    const userId = req.user.id;
+
+    const filter = {
+      createdBy: userId,
+      status: 'Posted'
+    };
 
     if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate),
-        },
+      filter.date = {
+        gte: new Date(startDate),
+        lte: new Date(endDate)
       };
     }
 
-    // Base query
-    const baseQuery = {
-      ...dateFilter,
-      status: 'Posted',
-      createdBy: req.user.id
-    };
-
-    // Get total count for pagination
-    const totalCount = await Income.countDocuments(baseQuery);
-
-    // Get all incomes for summary calculation (no pagination for summary data)
-    const allIncomes = await Income.find(baseQuery);
-    
-    const totalIncome = allIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
-    const totalTax = allIncomes.reduce((sum, inc) => sum + inc.taxAmount, 0);
-    
-    // Summary by type
-    const byType = {};
-    allIncomes.forEach(inc => {
-      if (!byType[inc.incomeType]) {
-        byType[inc.incomeType] = 0;
-      }
-      byType[inc.incomeType] += inc.totalAmount;
+    const allIncomes = await prisma.income.findMany({
+      where: filter
     });
 
-    // This month summary
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const thisMonth = await Income.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfMonth },
-          status: 'Posted',
-          createdBy: req.user.id,
-          ...dateFilter,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$totalAmount' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    const summary = await IncomeModel.getSummary(allIncomes);
 
-    // This week summary
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
-    const thisWeek = await Income.aggregate([
-      {
-        $match: {
-          date: { $gte: startOfWeek },
-          status: 'Posted',
-          createdBy: req.user.id,
-          ...dateFilter,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$totalAmount' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    // ==================== PAGINATION FOR INCOME LIST ====================
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
     const skip = (pageNum - 1) * limitNum;
 
-    // Check if user wants all records
-    if (req.query.page === 'all' || req.query.limit === 'all') {
-      const allPaginatedIncomes = await Income.find(baseQuery)
-        .sort({ date: -1 });
-      
-      return res.status(200).json({
-        success: true,
-        data: {
-          summary: {
-            totalIncome,
-            totalTax,
-            totalCount: allIncomes.length,
-            byType,
-            thisMonth: thisMonth[0]?.total || 0,
-            thisWeek: thisWeek[0]?.total || 0,
+    const [incomes, totalCount] = await Promise.all([
+      prisma.income.findMany({
+        where: filter,
+        skip,
+        take: limitNum,
+        orderBy: { date: 'desc' },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true
+            }
           },
-          incomes: allPaginatedIncomes,
-          pagination: {
-            total: allPaginatedIncomes.length,
-            page: 1,
-            pages: 1,
-            hasNext: false,
-            hasPrev: false,
-            isAllRecords: true
+          bankAccount: {
+            select: {
+              id: true,
+              accountName: true,
+              accountNumber: true,
+              bankName: true
+            }
+          },
+          incomeAccount: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              type: true
+            }
           }
-        },
-      });
-    }
+        }
+      }),
+      prisma.income.count({ where: filter })
+    ]);
 
-    // Get paginated incomes
-    const paginatedIncomes = await Income.find(baseQuery)
-      .sort({ date: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    // Calculate pagination metadata
     const totalPages = Math.ceil(totalCount / limitNum);
-    const hasNext = pageNum < totalPages;
-    const hasPrev = pageNum > 1;
 
     res.status(200).json({
       success: true,
       data: {
-        summary: {
-          totalIncome,
-          totalTax,
-          totalCount: allIncomes.length,
-          byType,
-          thisMonth: thisMonth[0]?.total || 0,
-          thisWeek: thisWeek[0]?.total || 0,
-        },
-        incomes: paginatedIncomes,
+        summary,
+        incomes,
         pagination: {
           total: totalCount,
           page: pageNum,
           limit: limitNum,
           pages: totalPages,
-          hasNext: hasNext,
-          hasPrev: hasPrev,
-          nextPage: hasNext ? pageNum + 1 : null,
-          prevPage: hasPrev ? pageNum - 1 : null,
-          startIndex: skip + 1,
-          endIndex: Math.min(skip + limitNum, totalCount),
-          isAllRecords: false
+          hasNext: pageNum < totalPages,
+          hasPrev: pageNum > 1
         }
-      },
+      }
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Get income summary error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
-// ==================== POST INCOME (for draft to posted) ====================
+
+// ============================================================
+// @desc    Post income (Draft → Posted)
+// @route   POST /api/income/:id/post
+// @access  Private
+// ============================================================
 exports.postIncome = async (req, res) => {
   try {
-    const income = await Income.findOne({
-      _id: req.params.id,
-      createdBy: req.user.id
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const income = await prisma.income.findFirst({
+      where: {
+        id,
+        createdBy: userId
+      }
     });
 
     if (!income) {
       return res.status(404).json({
         success: false,
-        message: 'Income record not found',
+        message: 'Income record not found'
       });
     }
 
     if (income.status === 'Posted') {
       return res.status(400).json({
         success: false,
-        message: 'Income already posted',
+        message: 'Income already posted'
       });
     }
 
-    income.status = 'Posted';
-    income.postedBy = req.user.id;
-    income.postedAt = new Date();
+    // ─── ✅ Get income account from record ──────────────────────
+    const incomeAccount = await prisma.chartOfAccount.findFirst({
+      where: {
+        id: income.incomeAccountId,
+        createdBy: userId,
+        type: 'Revenue'
+      }
+    });
 
-    await income.save();
-
-    // Create journal entry for posting
-    const incomeAccount = await getOrCreateIncomeAccount(req.user.id, income.incomeType);
-    let cashOrBankAccount;
-    
-    if (income.paymentMethod === 'Cash') {
-      cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
-    } else if (income.bankAccountId) {
-      const bankAccount = await BankAccount.findOne({
-        _id: income.bankAccountId,
-        createdBy: req.user.id
+    if (!incomeAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Income account not found. Please recreate the income record.'
       });
-      if (bankAccount) {
-        cashOrBankAccount = await ChartOfAccount.findOne({
-          _id: bankAccount.chartOfAccountId,
-          createdBy: req.user.id
-        });
+    }
+
+    const posted = await IncomeModel.postIncome(id, userId);
+
+    let cashOrBankAccount;
+
+    if (income.paymentMethod === 'Cash') {
+      cashOrBankAccount = await getOrCreateCashAccount(userId);
+    } else if (income.bankAccountId) {
+      const bankAccount = await prisma.bankAccount.findFirst({
+        where: {
+          id: income.bankAccountId,
+          createdBy: userId
+        },
+        include: {
+          chartOfAccount: true
+        }
+      });
+      if (bankAccount && bankAccount.chartOfAccount) {
+        cashOrBankAccount = bankAccount.chartOfAccount;
       }
     }
-    
+
     if (!cashOrBankAccount) {
-      cashOrBankAccount = await getOrCreateCashAccount(req.user.id);
+      cashOrBankAccount = await getOrCreateCashAccount(userId);
     }
 
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: income.date,
-      description: income.description || `${income.incomeType} - ${income.incomeNumber}`,
-      reference: income.reference || income.incomeNumber,
-      lines: [
-        {
-          accountId: cashOrBankAccount._id,
-          accountName: cashOrBankAccount.name,
-          accountCode: cashOrBankAccount.code,
-          debit: income.totalAmount,
-          credit: 0,
-        },
-        {
-          accountId: incomeAccount._id,
-          accountName: incomeAccount.name,
-          accountCode: incomeAccount.code,
-          debit: 0,
-          credit: income.totalAmount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
-      postedBy: req.user.id,
-      postedAt: new Date(),
+    await createIncomeJournalEntry(userId, income, cashOrBankAccount, incomeAccount);
+
+    // ─── Update bank/cash balance (INCREASE) ──────────────────
+    if (income.bankAccountId) {
+      const bankAccount = await prisma.bankAccount.findFirst({
+        where: {
+          id: income.bankAccountId,
+          createdBy: userId
+        }
+      });
+      if (bankAccount) {
+        const newBalance = bankAccount.currentBalance + income.totalAmount;
+        await prisma.bankAccount.update({
+          where: { id: income.bankAccountId },
+          data: { currentBalance: newBalance }
+        });
+        await prisma.chartOfAccount.update({
+          where: { id: bankAccount.chartOfAccountId },
+          data: { currentBalance: newBalance }
+        });
+      }
+    } else if (cashOrBankAccount) {
+      const newBalance = (cashOrBankAccount.currentBalance || 0) + income.totalAmount;
+      await prisma.chartOfAccount.update({
+        where: { id: cashOrBankAccount.id },
+        data: { currentBalance: newBalance }
+      });
+    }
+
+    // ─── Update income account balance (INCREASE) ────────────
+    await prisma.chartOfAccount.update({
+      where: { id: incomeAccount.id },
+      data: { currentBalance: { increment: income.totalAmount } }
     });
 
     res.status(200).json({
       success: true,
-      data: income,
-      message: 'Income posted successfully',
+      data: posted,
+      message: 'Income posted successfully'
     });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Post income error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };

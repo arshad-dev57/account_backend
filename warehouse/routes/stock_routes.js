@@ -1,5 +1,3 @@
-// routes/stockRoutes.js
-
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../../middleware/authMiddleware');
@@ -8,19 +6,25 @@ const {
   removeStock,
   getStockHistory,
   getAllStockHistory,
-  getTodayMovements
+  getTodayMovements,
+  updateStockMovement,
+  deleteStockMovement
 } = require('../controller/stock_controller');
 
-// All routes are protected
+// All routes protected
 router.use(protect);
 
-// Stock routes
+// ─── POST Routes ──────────────────────────────────────────────
 router.post('/in', addStock);
 router.post('/out', removeStock);
 
-// 🔥 IMPORTANT: Specific routes FIRST, then parameterized routes
-router.get('/history/all', getAllStockHistory);        // 👈 Add this
-router.get('/movements/today', getTodayMovements);     // 👈 Add this (optional)
-router.get('/history/:productId', getStockHistory);    // 👈 This comes AFTER
+// ─── GET Routes ───────────────────────────────────────────────
+router.get('/movements', getAllStockHistory);
+router.get('/movements/today', getTodayMovements);
+router.get('/history/:productId', getStockHistory);
+
+// ─── PUT / DELETE Routes ──────────────────────────────────────
+router.put('/:id', updateStockMovement);
+router.delete('/:id', deleteStockMovement);
 
 module.exports = router;

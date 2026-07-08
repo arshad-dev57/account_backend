@@ -1,11 +1,11 @@
-// backend/controllers/authController.js
+// controllers/userController.js - Prisma Version WITH BUSINESS DETAILS
 
 const User = require('../models/User');
-const Subscription = require('../models/Subscription');
+const prisma = require('../prisma/client');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
 
-// ✅ Clean token helper
 const cleanToken = (token) => {
   if (!token) return null;
   return token.trim().replace(/^"|"$/g, '').replace(/\s/g, '');
@@ -13,80 +13,159 @@ const cleanToken = (token) => {
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '7d', // Increased from 1h to 7d
+    expiresIn: '7d',
   });
 };
 
 const generateRefreshToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d', // Increased from 7d to 30d
+    expiresIn: '30d',
   });
 };
 
 const checkAndExpireSubscription = async (userId) => {
-  const user = await User.findById(userId);
-  if (!user || user.subscription.status !== 'active') return;
+  const userData = await User.findById(userId);
+  if (!userData) return;
+  
+  const user = new User(userData);
+  if (user.subscription.status !== 'active') return;
+  
   const now = new Date();
-  if (
-    user.subscription.plan === 'trial' &&
-    user.subscription.trialEndDate &&
-    now > new Date(user.subscription.trialEndDate)
-  ) {
+  
+  if (user.subscription.plan === 'trial' &&
+      user.subscription.trialEndDate &&
+      now > new Date(user.subscription.trialEndDate)) {
     await user.expireSubscription();
     return;
   }
-  if (
-    (user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
-    user.subscription.endDate &&
-    now > new Date(user.subscription.endDate)
-  ) {
+  
+  if ((user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
+      user.subscription.status === 'active' &&
+      user.subscription.endDate &&
+      now > new Date(user.subscription.endDate)) {
     await user.expireSubscription();
     return;
   }
 };
 
-// ==================== REGISTER ====================
+// ─── HELPER: Check and Update Trial Days ──────────────────
+const checkTrialDays = async (userId) => {
+  const userData = await User.findById(userId);
+  if (!userData) return 0;
+  
+  const user = new User(userData);
+  const trialDaysRemaining = user.getTrialDaysRemaining();
+  
+  // If trial expired, update subscription status
+  if (trialDaysRemaining === 0 && user.subscription.status === 'active' && user.subscription.plan === 'trial') {
+    await user.expireSubscription();
+  }
+  
+  return trialDaysRemaining;
+};
+
+// ==================== REGISTER WITH BUSINESS DETAILS ====================
 exports.register = async (req, res) => {
   try {
     const {
       firstName, lastName, email, password,
-      country, phone, address, organizationName
+      country, phone, address,
+      organizationName,
+      // 👇 NEW BUSINESS DETAILS FIELDS (Optional)
+      logo,                    // Business logo (URL or base64)
+      fiscalYear,              // e.g., "July - June"
+      taxRegistrationNumber,   // Tax/Registration number
+      signature,               // Signature (URL or base64)
+      industry,                // e.g., "Retail", "Manufacturing", "Services"
+      businessType,            // e.g., "Sole Proprietorship", "LLC", "Corporation"
+      websiteLink,             // Business website
+      contactNo,               // Business contact number
     } = req.body;
 
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ success: false, message: 'User already exists with this email' });
-    }
-
+    // ✅ Required fields validation
     if (!firstName || !lastName || !email || !password || !country) {
-      return res.status(400).json({ success: false, message: 'Please provide all required fields' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide all required fields: firstName, lastName, email, password, country' 
+      });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password must be at least 6 characters' 
+      });
     }
 
-    const user = await User.create({
-      firstName, lastName, email, password, country,
-      phone: phone || '',
-      address: address || '',
-      organizationName: organizationName || '',
+    // ✅ Check if user exists
+    const userExists = await prisma.user.findUnique({
+      where: { email }
+    });
+    
+    if (userExists) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User already exists with this email' 
+      });
+    }
+
+    // ✅ Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const now = new Date();
+    const trialEnd = new Date(now);
+    trialEnd.setDate(trialEnd.getDate() + 30);
+
+    // ✅ Create user with business details
+    const userData = await prisma.user.create({
+      data: {
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        country,
+        phone: phone || '',
+        address: address || '',
+        organizationName: organizationName || '',
+        // 👇 NEW BUSINESS FIELDS
+        websiteLink: websiteLink || '',
+        contactNo: contactNo || '',
+        // Business details will be stored in a separate field or JSON
+        businessDetails: {
+          logo: logo || '',
+          fiscalYear: fiscalYear || '',
+          taxRegistrationNumber: taxRegistrationNumber || '',
+          signature: signature || '',
+          industry: industry || '',
+          businessType: businessType || '',
+        },
+        // Subscription fields
+        subscriptionPlan: 'trial',
+        subscriptionStatus: 'active',
+        subscriptionStartDate: now,
+        trialStartDate: now,
+        trialEndDate: trialEnd,
+      }
     });
 
-    await user.startTrial();
-    const updatedUser = await User.findById(user._id);
+    // ✅ Create User instance for methods
+    const user = new User(userData);
 
-    await Subscription.create({
-      userId: updatedUser._id,
-      plan: 'trial',
-      startDate: updatedUser.subscription.trialStartDate || new Date(),
-      endDate: updatedUser.subscription.trialEndDate,
-      amount: 0,
-      paymentMethod: 'free_trial',
+    // ✅ Create subscription record
+    await prisma.subscription.create({
+      data: {
+        userId: user._id,
+        plan: 'trial',
+        startDate: now,
+        endDate: trialEnd,
+        amount: 0,
+        paymentMethod: 'free_trial',
+      }
     });
 
-    const token = generateToken(updatedUser._id);
-    const refreshToken = generateRefreshToken(updatedUser._id);
+    const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
 
     res.status(201).json({
       success: true,
@@ -94,26 +173,33 @@ exports.register = async (req, res) => {
       token,
       refreshToken,
       user: {
-        id: updatedUser._id,
-        firstName: updatedUser.firstName,
-        lastName: updatedUser.lastName,
-        email: updatedUser.email,
-        country: updatedUser.country,
-        phone: updatedUser.phone,
-        address: updatedUser.address,
-        organizationName: updatedUser.organizationName,
-        role: updatedUser.role,
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        country: user.country,
+        phone: user.phone,
+        address: user.address,
+        organizationName: user.organizationName,
+        websiteLink: user.websiteLink,
+        contactNo: user.contactNo,
+        businessDetails: user.businessDetails || {},
+        role: user.role,
         subscription: {
-          plan: updatedUser.subscription.plan,
-          status: updatedUser.subscription.status,
-          trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
-          trialEndDate: updatedUser.subscription.trialEndDate,
+          plan: user.subscription.plan,
+          status: user.subscription.status,
+          trialDaysRemaining: user.getTrialDaysRemaining(),
+          trialEndDate: user.subscription.trialEndDate,
         },
       },
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
@@ -123,23 +209,35 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Please provide email and password' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide email and password' 
+      });
     }
 
-    const user = await User.findOne({ email }).select(
-      '+password +failedLoginAttempts +lockUntil +requiresLoginOtp +loginOtp +loginOtpExpiry'
-    );
+    // ✅ Find user
+    const userData = await prisma.user.findUnique({
+      where: { email }
+    });
 
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!userData) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
     }
+
+    const user = new User(userData);
 
     if (!user.isActive) {
-      return res.status(401).json({ success: false, message: 'Your account has been deactivated. Please contact support.' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Your account has been deactivated. Please contact support.' 
+      });
     }
 
     if (user.isLocked()) {
-      const remainingMinutes = Math.ceil((user.lockUntil - Date.now()) / (1000 * 60));
+      const remainingMinutes = Math.ceil((new Date(user.lockUntil) - Date.now()) / (1000 * 60));
       return res.status(403).json({
         success: false,
         message: `Account temporarily locked. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`,
@@ -168,15 +266,18 @@ exports.login = async (req, res) => {
       });
     }
 
+    // ✅ Reset failed attempts
     user.failedLoginAttempts = 0;
     user.lockUntil = null;
 
+    // ✅ Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.loginOtp = otp;
     user.loginOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
     user.requiresLoginOtp = true;
     await user.save();
-    console.log(otp);
+    
+    console.log('OTP:', otp);
     await sendOTPEmail(email, otp, user.firstName);
 
     return res.status(200).json({
@@ -188,7 +289,11 @@ exports.login = async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
@@ -198,30 +303,48 @@ exports.verifyLoginOTP = async (req, res) => {
     const { email, otp } = req.body;
 
     if (!email || !otp) {
-      return res.status(400).json({ success: false, message: 'Please provide email and OTP' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide email and OTP' 
+      });
     }
 
-    const user = await User.findOne({ email }).select('+loginOtp +loginOtpExpiry +requiresLoginOtp');
+    const userData = await prisma.user.findUnique({
+      where: { email }
+    });
 
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'No account found with this email' });
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No account found with this email' 
+      });
     }
+
+    const user = new User(userData);
 
     if (!user.loginOtp || user.loginOtp !== otp) {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid OTP' 
+      });
     }
 
-    if (new Date() > user.loginOtpExpiry) {
-      return res.status(400).json({ success: false, message: 'OTP has expired. Please login again.' });
+    if (new Date() > new Date(user.loginOtpExpiry)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP has expired. Please login again.' 
+      });
     }
 
+    // ✅ Clear OTP fields
     user.requiresLoginOtp = false;
     user.loginOtp = null;
     user.loginOtpExpiry = null;
     await user.save();
 
     await checkAndExpireSubscription(user._id);
-    const updatedUser = await User.findById(user._id);
+    const updatedUserData = await User.findById(user._id);
+    const updatedUser = new User(updatedUserData);
 
     const token = generateToken(updatedUser._id);
     const refreshToken = generateRefreshToken(updatedUser._id);
@@ -240,6 +363,9 @@ exports.verifyLoginOTP = async (req, res) => {
         phone: updatedUser.phone,
         address: updatedUser.address,
         organizationName: updatedUser.organizationName,
+        websiteLink: updatedUser.websiteLink,
+        contactNo: updatedUser.contactNo,
+        businessDetails: updatedUser.businessDetails || {},
         role: updatedUser.role,
         subscription: {
           plan: updatedUser.subscription.plan,
@@ -253,23 +379,156 @@ exports.verifyLoginOTP = async (req, res) => {
     });
   } catch (error) {
     console.error('Verify Login OTP error:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
-// ==================== REFRESH TOKEN (FIXED) ====================
+// ==================== UPDATE BUSINESS DETAILS ====================
+exports.updateBusinessDetails = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const {
+      organizationName,
+      logo,
+      fiscalYear,
+      taxRegistrationNumber,
+      signature,
+      industry,
+      businessType,
+      websiteLink,
+      contactNo,
+      address,
+      phone,
+      country,
+    } = req.body;
+
+    // ✅ Check if user exists
+    const userData = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // ✅ Update user with business details
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        organizationName: organizationName || userData.organizationName,
+        websiteLink: websiteLink || userData.websiteLink,
+        contactNo: contactNo || userData.contactNo,
+        address: address || userData.address,
+        phone: phone || userData.phone,
+        country: country || userData.country,
+        businessDetails: {
+          logo: logo || userData.businessDetails?.logo || '',
+          fiscalYear: fiscalYear || userData.businessDetails?.fiscalYear || '',
+          taxRegistrationNumber: taxRegistrationNumber || userData.businessDetails?.taxRegistrationNumber || '',
+          signature: signature || userData.businessDetails?.signature || '',
+          industry: industry || userData.businessDetails?.industry || '',
+          businessType: businessType || userData.businessDetails?.businessType || '',
+        }
+      }
+    });
+
+    const user = new User(updatedUser);
+
+    res.status(200).json({
+      success: true,
+      message: 'Business details updated successfully',
+      data: {
+        organizationName: user.organizationName,
+        websiteLink: user.websiteLink,
+        contactNo: user.contactNo,
+        address: user.address,
+        phone: user.phone,
+        country: user.country,
+        businessDetails: user.businessDetails || {},
+      }
+    });
+  } catch (error) {
+    console.error('Update business details error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+};
+
+// ==================== GET BUSINESS DETAILS ====================
+exports.getBusinessDetails = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const userData = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        organizationName: true,
+        websiteLink: true,
+        contactNo: true,
+        address: true,
+        phone: true,
+        country: true,
+        businessDetails: true,
+      }
+    });
+
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        organizationName: userData.organizationName || '',
+        websiteLink: userData.websiteLink || '',
+        contactNo: userData.contactNo || '',
+        address: userData.address || '',
+        phone: userData.phone || '',
+        country: userData.country || '',
+        businessDetails: userData.businessDetails || {},
+      }
+    });
+  } catch (error) {
+    console.error('Get business details error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+};
+
+// ==================== REFRESH TOKEN ====================
 exports.refreshToken = async (req, res) => {
   try {
     let { refreshToken } = req.body;
     
     if (!refreshToken) {
-      return res.status(401).json({ success: false, message: 'No refresh token provided' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'No refresh token provided' 
+      });
     }
 
-    // ✅ Clean token
     refreshToken = cleanToken(refreshToken);
     if (!refreshToken) {
-      return res.status(401).json({ success: false, message: 'Invalid refresh token format' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid refresh token format' 
+      });
     }
 
     let decoded;
@@ -278,23 +537,40 @@ exports.refreshToken = async (req, res) => {
     } catch (error) {
       console.error('JWT Verify Error:', error.message);
       if (error.name === 'TokenExpiredError') {
-        return res.status(403).json({ success: false, message: 'Refresh token expired. Please login again.' });
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Refresh token expired. Please login again.' 
+        });
       }
-      return res.status(403).json({ success: false, message: 'Invalid refresh token. Please login again.' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Invalid refresh token. Please login again.' 
+      });
     }
 
-    const user = await User.findById(decoded.id);
-    if (!user || !user.isActive) {
-      return res.status(403).json({ success: false, message: 'User invalid or inactive' });
+    const userData = await User.findById(decoded.id);
+    if (!userData || !userData.isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'User invalid or inactive' 
+      });
     }
 
-    const token = generateToken(user._id);
-    const newRefreshToken = generateRefreshToken(user._id);
+    const token = generateToken(userData._id);
+    const newRefreshToken = generateRefreshToken(userData._id);
 
-    res.status(200).json({ success: true, token, refreshToken: newRefreshToken });
+    res.status(200).json({ 
+      success: true, 
+      token, 
+      refreshToken: newRefreshToken 
+    });
   } catch (error) {
     console.error('Refresh token error:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
@@ -302,10 +578,14 @@ exports.refreshToken = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     await checkAndExpireSubscription(req.user.id);
-    const updatedUser = await User.findById(req.user.id);
+    const updatedUserData = await User.findById(req.user.id);
+    const updatedUser = new User(updatedUserData);
 
     if (!updatedUser) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
     res.status(200).json({
@@ -317,6 +597,11 @@ exports.getMe = async (req, res) => {
         email: updatedUser.email,
         country: updatedUser.country,
         phone: updatedUser.phone,
+        address: updatedUser.address,
+        organizationName: updatedUser.organizationName,
+        websiteLink: updatedUser.websiteLink,
+        contactNo: updatedUser.contactNo,
+        businessDetails: updatedUser.businessDetails || {},
         role: updatedUser.role,
         subscription: {
           plan: updatedUser.subscription.plan,
@@ -332,7 +617,10 @@ exports.getMe = async (req, res) => {
     });
   } catch (error) {
     console.error('Get profile error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error' 
+    });
   }
 };
 
@@ -343,32 +631,64 @@ exports.changePassword = async (req, res) => {
     const userId = req.user.id;
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ success: false, message: 'Please provide current password and new password' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide current password and new password' 
+      });
     }
     if (newPassword.length < 6) {
-      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'New password must be at least 6 characters' 
+      });
     }
 
-    const user = await User.findById(userId).select('+password');
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    const userData = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
+    const user = new User(userData);
     const isPasswordMatch = await user.matchPassword(currentPassword);
+    
     if (!isPasswordMatch) {
-      return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Current password is incorrect' 
+      });
     }
     if (currentPassword === newPassword) {
-      return res.status(400).json({ success: false, message: 'New password cannot be the same as current password' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'New password cannot be the same as current password' 
+      });
     }
 
-    user.password = newPassword;
-    await user.save();
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    res.status(200).json({ success: true, message: 'Password changed successfully' });
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword }
+    });
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Password changed successfully' 
+    });
   } catch (error) {
     console.error('Error changing password:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
@@ -377,25 +697,40 @@ exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) {
-      return res.status(400).json({ success: false, message: 'Please provide email address' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide email address' 
+      });
     }
 
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'No account found with this email' });
+    const userData = await User.findOne({ email });
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No account found with this email' 
+      });
     }
 
+    const user = new User(userData);
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
     user.resetOtp = otp;
     user.resetOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
 
     await sendOTPEmail(email, otp, user.firstName);
 
-    res.status(200).json({ success: true, message: 'OTP sent to your email' });
+    res.status(200).json({ 
+      success: true, 
+      message: 'OTP sent to your email' 
+    });
   } catch (error) {
     console.error('Error sending OTP:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
@@ -405,18 +740,33 @@ exports.passwordverifyOTP = async (req, res) => {
     const { email, otp } = req.body;
 
     if (!email || !otp) {
-      return res.status(400).json({ success: false, message: 'Please provide email and OTP' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide email and OTP' 
+      });
     }
 
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'No account found with this email' });
+    const userData = await User.findOne({ email });
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No account found with this email' 
+      });
     }
+
+    const user = new User(userData);
+
     if (!user.resetOtp || user.resetOtp !== otp) {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid OTP' 
+      });
     }
-    if (user.resetOtpExpiry < new Date()) {
-      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+    if (new Date(user.resetOtpExpiry) < new Date()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP has expired. Please request a new one.' 
+      });
     }
 
     const resetToken = jwt.sign(
@@ -425,10 +775,18 @@ exports.passwordverifyOTP = async (req, res) => {
       { expiresIn: '15m' }
     );
 
-    res.status(200).json({ success: true, message: 'OTP verified successfully', resetToken });
+    res.status(200).json({ 
+      success: true, 
+      message: 'OTP verified successfully', 
+      resetToken 
+    });
   } catch (error) {
     console.error('Error verifying OTP:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
@@ -439,52 +797,86 @@ exports.resetPassword = async (req, res) => {
     const resetToken = req.headers.authorization?.split(' ')[1];
 
     if (!resetToken) {
-      return res.status(401).json({ success: false, message: 'No reset token provided' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'No reset token provided' 
+      });
     }
     if (!newPassword || !confirmPassword) {
-      return res.status(400).json({ success: false, message: 'Please provide new password and confirm password' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide new password and confirm password' 
+      });
     }
     if (newPassword.length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password must be at least 6 characters' 
+      });
     }
     if (newPassword !== confirmPassword) {
-      return res.status(400).json({ success: false, message: 'Passwords do not match' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Passwords do not match' 
+      });
     }
 
     let decoded;
     try {
       decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
     } catch (error) {
-      return res.status(401).json({ success: false, message: 'Invalid or expired reset token' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid or expired reset token' 
+      });
     }
 
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    const userData = await User.findById(decoded.id);
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
-    user.password = newPassword;
+    const user = new User(userData);
+    
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
+    user.password = hashedPassword;
     user.resetOtp = null;
     user.resetOtpExpiry = null;
     await user.save();
 
-    res.status(200).json({ success: true, message: 'Password reset successfully' });
+    res.status(200).json({ 
+      success: true, 
+      message: 'Password reset successfully' 
+    });
   } catch (error) {
     console.error('Error resetting password:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
-// ==================== HELPER: SEND OTP EMAIL ====================
+// ==================== SEND OTP EMAIL ====================
 async function sendOTPEmail(email, otp, firstName = '') {
   const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
   });
-  console.log(otp);
+
+  await transporter.verify();
+  console.log('✅ SMTP connection verified');
 
   const otpDigits = String(otp).split('');
   const digitBoxes = otpDigits
@@ -519,8 +911,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" border="0"
         style="max-width:560px;width:100%;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.12);">
-
-        <!-- HEADER -->
         <tr>
           <td style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 55%,#0f2744 100%);padding:48px 40px 56px;text-align:center;">
             <table width="100%" cellpadding="0" cellspacing="0">
@@ -549,8 +939,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
             </table>
           </td>
         </tr>
-
-        <!-- BODY -->
         <tr>
           <td style="background:#ffffff;padding:36px 40px 28px;">
             <p style="font-size:15px;color:#374151;line-height:1.8;margin:0 0 28px 0;">
@@ -558,8 +946,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
               Use the code below to complete your <strong style="color:#111827;">LedgerPro</strong> login.
               This code expires in <strong style="color:#ef4444;">10 minutes</strong>.
             </p>
-
-            <!-- OTP BOX -->
             <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#f8faff,#eef2ff);border:1.5px solid #e0e7ff;border-radius:16px;margin-bottom:28px;overflow:hidden;">
               <tr><td style="height:3px;background:linear-gradient(90deg,#1AB4F5,#6366f1,#a855f7,#1AB4F5);"></td></tr>
               <tr><td style="padding:30px 24px 28px;text-align:center;">
@@ -568,8 +954,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
                 <div style="display:inline-block;background:#f3f4f6;border-radius:20px;padding:7px 18px;font-size:12px;color:#6b7280;">⏱&nbsp; Expires in 10 minutes</div>
               </td></tr>
             </table>
-
-            <!-- Warning -->
             <table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:10px;margin-bottom:28px;">
               <tr><td style="padding:14px 16px;">
                 <table cellpadding="0" cellspacing="0"><tr>
@@ -581,7 +965,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
                 </tr></table>
               </td></tr>
             </table>
-
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">
               <tr><td style="height:1px;background:linear-gradient(90deg,transparent,#e5e7eb,transparent);"></td></tr>
             </table>
@@ -591,8 +974,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
             </p>
           </td>
         </tr>
-
-        <!-- FOOTER -->
         <tr>
           <td style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:22px 40px;">
             <p style="font-size:12px;color:#9ca3af;line-height:1.7;margin:0 0 12px 0;">
@@ -600,7 +981,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
             </p>
           </td>
         </tr>
-
       </table>
     </td></tr>
   </table>
@@ -608,5 +988,6 @@ async function sendOTPEmail(email, otp, firstName = '') {
 </html>`,
   };
 
-  await transporter.sendMail(mailOptions);
+  const info = await transporter.sendMail(mailOptions);
+  console.log('✅ Email sent:', info.messageId, '→', email);
 }
