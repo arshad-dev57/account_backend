@@ -1,0 +1,4 @@
+{
+  "buildCommand": "npx prisma generate",
+  "installCommand": "npm install"
+}
