@@ -114,31 +114,31 @@ app.use('/api/income', incomeRoutes);
 app.use('/api/equity', equityRoutes);
 app.use('/api/loans', loanRoutes);
 
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/reports/cash-flow', cashFlowRoutes);
-app.use('/api/balance-sheet', balanceSheetRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/warehouse/reports', plReportRoutes);
+// app.use('/api/dashboard', dashboardRoutes);
+// app.use('/api/transactions', transactionRoutes);
+// app.use('/api/reports/cash-flow', cashFlowRoutes);
+// app.use('/api/balance-sheet', balanceSheetRoutes);
+// app.use('/api/reports', reportRoutes);
+// app.use('/api/warehouse/reports', plReportRoutes);
 
-app.use('/api/warehouse/inventory', inventoryRoutes);
-app.use('/api/warehouse/invoices', warehouseinvoiceRoutes);
-app.use('/api/warehouse/invoices', warehouseInvoiceRoutes);
-app.use('/api/warehouse/purchases', warehousePurchaseRoutes);
-app.use('/api/warehouse/sales', warehouseSalesRoutes);
-app.use('/api/warehouse/customers', customerRoutes);
-app.use('/api/warehouse/returns', SalesreturnsRoutes);
-app.use('/api/sales/refunds', refundRoutes);
-app.use('/api/settings', settingRoutes);
-app.use('/api/warehouse/dashboard', DashboardRoutes);
-app.use('/api/warehouse/stock', StockRoutes);
+// app.use('/api/warehouse/inventory', inventoryRoutes);
+// app.use('/api/warehouse/invoices', warehouseinvoiceRoutes);
+// app.use('/api/warehouse/invoices', warehouseInvoiceRoutes);
+// app.use('/api/warehouse/purchases', warehousePurchaseRoutes);
+// app.use('/api/warehouse/sales', warehouseSalesRoutes);
+// app.use('/api/warehouse/customers', customerRoutes);
+// app.use('/api/warehouse/returns', SalesreturnsRoutes);
+// app.use('/api/sales/refunds', refundRoutes);
+// app.use('/api/settings', settingRoutes);
+// app.use('/api/warehouse/dashboard', DashboardRoutes);
+// app.use('/api/warehouse/stock', StockRoutes);
 
-app.use('/api/orders', OrderRoutes);
+// app.use('/api/orders', OrderRoutes);
 
-  app.use('/api/warehouse/supplier', supplierRoutes);
-app.use('/api/warehouse/categories', WarehouseCategory);
-app.use('/api/warehouse/products', productRoutes);
+//   app.use('/api/warehouse/supplier', supplierRoutes);
+// app.use('/api/warehouse/categories', WarehouseCategory);
+// app.use('/api/warehouse/products', productRoutes);
 
-app.use('/api/warehouse/order', OrderRoutes);
+// app.use('/api/warehouse/order', OrderRoutes);
 
 module.exports = app;
