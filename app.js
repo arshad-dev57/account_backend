@@ -76,7 +76,15 @@ const salesInvoiceRoutes = require('./warehouse/routes/salesInvoiceRoutes');
 const salesPaymentRoutes = require('./warehouse/routes/salesPaymentRoutes');
 const purchaseOrderRoutes = require('./warehouse/routes/purchaseOrderRoutes');
 const goodsReceivingRoutes = require('./warehouse/routes/goodsReceivingRoutes');
+const purchaseInvoiceRoutes = require('./warehouse/routes/purchaseInvoiceRoutes');
+const purchasePaymentRoutes = require('./warehouse/routes/purchasePaymentRoutes');
+const purchaseReturnRoutes = require('./warehouse/routes/purchaseReturnRoutes');
+const purchaseDashboardRoutes = require('./warehouse/routes/purchase_dashboard_routes');
 
+app.use('/api/purchase/dashboard', purchaseDashboardRoutes);
+app.use('/api/purchase/returns', purchaseReturnRoutes);
+app.use('/api/purchase/payments', purchasePaymentRoutes);
+app.use('/api/purchase/invoices', purchaseInvoiceRoutes);
 app.use('/api/purchase/goods-receiving', goodsReceivingRoutes);
 app.use('/api/purchase/orders', purchaseOrderRoutes);
 app.use('/api/sales/payments', salesPaymentRoutes);
@@ -127,7 +135,7 @@ app.use('/api/warehouse/stock', StockRoutes);
 
 app.use('/api/orders', OrderRoutes);
 
-app.use('/api/warehouse/supplier', supplierRoutes);
+  app.use('/api/warehouse/supplier', supplierRoutes);
 app.use('/api/warehouse/categories', WarehouseCategory);
 app.use('/api/warehouse/products', productRoutes);
 

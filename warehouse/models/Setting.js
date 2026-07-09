@@ -1,12 +1,16 @@
-// warehouse/models/Setting.js - Prisma Version
+// warehouse/models/Setting.js - Prisma Version (COMPLETE FIXED)
+
 const prisma = require('../../prisma/client');
 
 class SettingModel {
   // ============================================================
   // GET SETTINGS BY CATEGORY
   // ============================================================
-  static async findByCategory(category, activeOnly = true) {
-    const filter = { category };
+  static async findByCategory(category, userId, activeOnly = true) {
+    const filter = { 
+      category: category,
+      userId: userId
+    };
     if (activeOnly) {
       filter.isActive = true;
     }
@@ -54,15 +58,14 @@ class SettingModel {
   }
 
   // ============================================================
-  // GET SETTING BY CATEGORY AND NAME
+  // GET SETTING BY CATEGORY AND NAME - FIXED
   // ============================================================
-  static async findByCategoryAndName(category, name) {
-    return await prisma.setting.findUnique({
+  static async findByCategoryAndName(category, name, userId) {
+    return await prisma.setting.findFirst({
       where: {
-        category_name: {
-          category,
-          name
-        }
+        category: category,
+        name: name,
+        userId: userId
       }
     });
   }
@@ -70,10 +73,11 @@ class SettingModel {
   // ============================================================
   // GET DEFAULT SETTING FOR CATEGORY
   // ============================================================
-  static async findDefaultByCategory(category) {
+  static async findDefaultByCategory(category, userId) {
     return await prisma.setting.findFirst({
       where: {
-        category,
+        category: category,
+        userId: userId,
         isDefault: true,
         isActive: true
       }
@@ -89,6 +93,7 @@ class SettingModel {
       await prisma.setting.updateMany({
         where: {
           category: data.category,
+          userId: data.userId,
           isDefault: true
         },
         data: {
@@ -105,7 +110,8 @@ class SettingModel {
         isDefault: data.isDefault || false,
         displayOrder: data.displayOrder || 0,
         isActive: data.isActive !== undefined ? data.isActive : true,
-        createdBy: data.createdBy
+        createdBy: data.createdBy,
+        userId: data.userId || data.createdBy
       },
       include: {
         creator: {
@@ -130,6 +136,7 @@ class SettingModel {
       await prisma.setting.updateMany({
         where: {
           category: existing.category,
+          userId: existing.userId,
           isDefault: true,
           id: { not: id }
         },
@@ -165,7 +172,7 @@ class SettingModel {
       where: { id },
       data: {
         isActive: false,
-        updatedBy
+        updatedBy: updatedBy
       }
     });
   }
@@ -182,8 +189,11 @@ class SettingModel {
   // ============================================================
   // GET CATEGORIES LIST
   // ============================================================
-  static async getCategories() {
+  static async getCategories(userId) {
     const categories = await prisma.setting.findMany({
+      where: {
+        userId: userId
+      },
       select: {
         category: true
       },
@@ -205,7 +215,8 @@ class SettingModel {
       try {
         const created = await this.create({
           ...setting,
-          createdBy: userId
+          createdBy: userId,
+          userId: userId
         });
         results.push(created);
       } catch (error) {

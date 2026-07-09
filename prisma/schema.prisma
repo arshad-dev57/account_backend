@@ -1,4 +1,4 @@
-// prisma/schema.prisma - COMPLETE SCHEMA WITH PURCHASE INVOICE
+// prisma/schema.prisma - COMPLETE FINAL VERSION
 
 generator client {
   provider = "prisma-client-js"
@@ -140,6 +140,19 @@ model User {
   purchaseInvoiceUpdaters  PurchaseInvoice[]      @relation("PurchaseInvoiceUpdater")
   userPurchaseInvoices     PurchaseInvoice[]      @relation("UserPurchaseInvoices")
 
+  purchasePaymentMakeCreators PurchasePaymentMake[] @relation("PurchasePaymentMakeCreator")
+  purchasePaymentMakeUpdaters PurchasePaymentMake[] @relation("PurchasePaymentMakeUpdater")
+  userPurchasePayments        PurchasePaymentMake[] @relation("UserPurchasePayments")
+
+  purchaseReturnCreators   PurchaseReturn[] @relation("PurchaseReturnCreator")
+  purchaseReturnUpdaters   PurchaseReturn[] @relation("PurchaseReturnUpdater")
+  purchaseReturnProcessors PurchaseReturn[] @relation("PurchaseReturnProcessor")
+  purchaseReturnCancellers PurchaseReturn[] @relation("PurchaseReturnCanceller")
+  userPurchaseReturns      PurchaseReturn[] @relation("UserPurchaseReturns")
+
+  transactionCreators Transaction[] @relation("TransactionCreator")
+  transactionPosters  Transaction[] @relation("TransactionPoster")
+
   @@index([email])
   @@map("users")
 }
@@ -222,6 +235,7 @@ model Customer {
   salesInvoices      SalesInvoice[]
   accountsReceivable AccountsReceivable[]
   salesPayments      SalesPaymentReceived[]
+  transactions       Transaction[]          @relation("CustomerTransactions")
 
   @@index([customerNumber])
   @@index([email])
@@ -293,6 +307,10 @@ model Product {
   safetyStock      Int    @default(0) @map("safety_stock")
   stockUnitName    String @default("Pcs") @map("stock_unit_name")
   conversionFactor Float  @default(1) @map("conversion_factor")
+
+  isBoxBased  Boolean @default(false) @map("is_box_based")
+  boxQuantity Int     @default(0) @map("box_quantity")
+  boxUnitName String  @default("Box") @map("box_unit_name")
 
   rackLocationId       String? @map("rack_location_id")
   rackLocationName     String  @default("A-1-B1") @map("rack_location_name")
@@ -385,24 +403,25 @@ model Product {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  category            Category?               @relation(fields: [categoryId], references: [id])
-  supplier            Supplier?               @relation(fields: [supplierId], references: [id])
-  creator             User?                   @relation("ProductCreator", fields: [createdBy], references: [id])
-  updater             User?                   @relation("ProductUpdater", fields: [updatedBy], references: [id])
-  parentProduct       Product?                @relation("ProductVariants", fields: [parentProductId], references: [id])
-  variants            Product[]               @relation("ProductVariants")
-  stockMovements      StockMovement[]
-  orderItems          OrderItem[]
-  returnItems         ReturnItem[]
-  purchaseItems       WarehousePurchaseItem[]
-  invoiceItems        WarehouseInvoiceItem[]
-  user                User?                   @relation("UserProducts", fields: [userId], references: [id])
-  deliveryItems       DeliveryItem[]
-  quotationItems      QuotationItem[]
-  salesInvoiceItems   SalesInvoiceItem[]
-  purchaseOrderItems  PurchaseOrderItem[]
-  goodsReceivingItems GoodsReceivingItem[]
+  category             Category?               @relation(fields: [categoryId], references: [id])
+  supplier             Supplier?               @relation(fields: [supplierId], references: [id])
+  creator              User?                   @relation("ProductCreator", fields: [createdBy], references: [id])
+  updater              User?                   @relation("ProductUpdater", fields: [updatedBy], references: [id])
+  parentProduct        Product?                @relation("ProductVariants", fields: [parentProductId], references: [id])
+  variants             Product[]               @relation("ProductVariants")
+  stockMovements       StockMovement[]
+  orderItems           OrderItem[]
+  returnItems          ReturnItem[]
+  purchaseItems        WarehousePurchaseItem[]
+  invoiceItems         WarehouseInvoiceItem[]
+  user                 User?                   @relation("UserProducts", fields: [userId], references: [id])
+  deliveryItems        DeliveryItem[]
+  quotationItems       QuotationItem[]
+  salesInvoiceItems    SalesInvoiceItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  goodsReceivingItems  GoodsReceivingItem[]
   purchaseInvoiceItems PurchaseInvoiceItem[]
+  purchaseReturnItems  PurchaseReturnItem[]
 
   @@unique([sku, userId])
   @@index([sku])
@@ -499,22 +518,25 @@ model Supplier {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  creator            User?               @relation("SupplierCreator", fields: [createdBy], references: [id])
-  user               User?               @relation("UserSuppliers", fields: [userId], references: [id])
-  products           Product[]
-  stockMovements     StockMovement[]
-  purchases          WarehousePurchase[]
-  bills              Bill[]
-  Expense            Expense[]
-  paymentsMade       PaymentMade[]
-  fixedAssets        FixedAsset[]
-  Loan               Loan[]
-  refunds            Refund[]            @relation("SupplierRefunds")
-  returns            Return[]            @relation("SupplierReturns")
-  purchaseOrders     PurchaseOrder[]
-  goodsReceivings    GoodsReceiving[]
-  purchaseInvoices   PurchaseInvoice[]
-  accountsPayable    AccountsPayable[]
+  creator          User?                 @relation("SupplierCreator", fields: [createdBy], references: [id])
+  user             User?                 @relation("UserSuppliers", fields: [userId], references: [id])
+  products         Product[]
+  stockMovements   StockMovement[]
+  purchases        WarehousePurchase[]
+  bills            Bill[]
+  Expense          Expense[]
+  paymentsMade     PaymentMade[]
+  fixedAssets      FixedAsset[]
+  Loan             Loan[]
+  refunds          Refund[]              @relation("SupplierRefunds")
+  returns          Return[]              @relation("SupplierReturns")
+  purchaseOrders   PurchaseOrder[]
+  goodsReceivings  GoodsReceiving[]
+  purchaseInvoices PurchaseInvoice[]
+  accountsPayable  AccountsPayable[]
+  purchasePayments PurchasePaymentMake[]
+  purchaseReturns  PurchaseReturn[]
+  transactions     Transaction[]         @relation("SupplierTransactions")
 
   @@unique([code, userId])
   @@unique([email, userId])
@@ -1165,6 +1187,7 @@ model ChartOfAccount {
   arInvoices           SalesInvoice[]       @relation("ARAccount")
   inventoryAccounts    PurchaseInvoice[]    @relation("InventoryAccount")
   accountsPayable      AccountsPayable[]    @relation("APAccount")
+  purchaseInvoices     PurchaseInvoice[]    @relation("APAccount")
 
   @@unique([code, userId])
   @@index([code])
@@ -1239,10 +1262,12 @@ model AccountsPayable {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  invoice       PurchaseInvoice       @relation(fields: [invoiceId], references: [id])
-  supplier      Supplier              @relation(fields: [supplierId], references: [id])
-  account       ChartOfAccount?       @relation("APAccount", fields: [accountId], references: [id])
-  payments      PaymentMade[]
+  invoice          PurchaseInvoice       @relation(fields: [invoiceId], references: [id])
+  supplier         Supplier              @relation(fields: [supplierId], references: [id])
+  account          ChartOfAccount?       @relation("APAccount", fields: [accountId], references: [id])
+  payments         PaymentMade[]
+  purchasePayments PurchasePaymentMake[] @relation("PaymentMakeAPRecords")
+  PurchaseReturn   PurchaseReturn[]
 
   @@index([supplierId])
   @@index([status])
@@ -1325,7 +1350,7 @@ model SalesInvoicePayment {
 }
 
 // ============================================================
-// PAYMENT RECEIVED MODEL (Existing - Keep as is)
+// PAYMENT RECEIVED MODEL
 // ============================================================
 
 model PaymentReceived {
@@ -1397,8 +1422,7 @@ model BankAccount {
   lastReconciled   DateTime @default(now()) @map("last_reconciled")
   chartOfAccountId String   @map("chart_of_account_id")
   createdBy        String   @map("created_by")
-
-  userId String? @map("user_id")
+  userId           String?  @map("user_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1413,6 +1437,8 @@ model BankAccount {
   Loan                  Loan[]
   paymentsReceived      PaymentReceived[]
   salesPaymentsReceived SalesPaymentReceived[]
+  purchasePayments      PurchasePaymentMake[]
+  transactions          Transaction[]          @relation("BankAccountTransactions")
 
   @@unique([accountNumber, userId])
   @@index([accountNumber])
@@ -1462,15 +1488,20 @@ model JournalEntry {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  // Relations
-  lines                JournalLine[]
-  creator              User?                 @relation("JournalEntryCreator", fields: [createdBy], references: [id])
-  poster               User?                 @relation("JournalEntryPoster", fields: [postedBy], references: [id])
-  user                 User?                 @relation("UserJournalEntries", fields: [userId], references: [id])
-  salesPayment         SalesPaymentReceived?
-  salesInvoice         SalesInvoice?
-  purchaseInvoice      PurchaseInvoice?      @relation(fields: [purchaseInvoiceId], references: [id])
-  purchaseInvoiceId    String?               @map("purchase_invoice_id")
+  // Relations - FIXED
+  lines             JournalLine[]
+  creator           User?                 @relation("JournalEntryCreator", fields: [createdBy], references: [id])
+  poster            User?                 @relation("JournalEntryPoster", fields: [postedBy], references: [id])
+  user              User?                 @relation("UserJournalEntries", fields: [userId], references: [id])
+  salesPayment      SalesPaymentReceived?
+  salesInvoice      SalesInvoice?
+  PurchaseInvoice   PurchaseInvoice?
+  purchasePayment   PurchasePaymentMake?  @relation("PaymentJournalEntry")
+  purchasePaymentId String?               @unique @map("purchase_payment_id")
+  purchaseReturn    PurchaseReturn?       @relation("PurchaseReturnJournalEntry")
+  purchaseReturnId  String?               @unique @map("purchase_return_id")
+  transaction       Transaction?          @relation("TransactionJournalEntry")
+  transactionId     String?               @unique @map("transaction_id")
 
   @@index([entryNumber])
   @@index([date])
@@ -1723,11 +1754,11 @@ model PaymentMade {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  supplier    Supplier     @relation(fields: [supplierId], references: [id])
-  bill        Bill         @relation(fields: [billId], references: [id])
-  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
-  creator     User?        @relation("PaymentMadeCreator", fields: [createdBy], references: [id])
-  user        User?        @relation("UserPaymentsMade", fields: [userId], references: [id])
+  supplier    Supplier         @relation(fields: [supplierId], references: [id])
+  bill        Bill             @relation(fields: [billId], references: [id])
+  bankAccount BankAccount?     @relation(fields: [bankAccountId], references: [id])
+  creator     User?            @relation("PaymentMadeCreator", fields: [createdBy], references: [id])
+  user        User?            @relation("UserPaymentsMade", fields: [userId], references: [id])
   apRecord    AccountsPayable? @relation(fields: [apRecordId], references: [id])
   apRecordId  String?          @map("ap_record_id")
 
@@ -1740,6 +1771,183 @@ model PaymentMade {
   @@index([paymentMethod])
   @@index([userId])
   @@map("payments_made")
+}
+
+// ============================================================
+// PURCHASE PAYMENT MAKE MODELS
+// ============================================================
+
+model PurchasePaymentInvoice {
+  id            String @id @default(uuid())
+  paymentId     String @map("payment_id")
+  invoiceId     String @map("invoice_id")
+  invoiceNumber String @map("invoice_number")
+  amountPaid    Float  @map("amount_paid")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  payment PurchasePaymentMake @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice PurchaseInvoice     @relation(fields: [invoiceId], references: [id])
+
+  @@index([paymentId])
+  @@index([invoiceId])
+  @@map("purchase_payment_invoices")
+}
+
+model PurchasePaymentMake {
+  id            String   @id @default(uuid())
+  paymentNumber String   @unique @map("payment_number")
+  paymentDate   DateTime @default(now()) @map("payment_date")
+
+  supplierId   String @map("supplier_id")
+  supplierName String @map("supplier_name")
+
+  amount        Float
+  paymentMethod String @map("payment_method")
+  reference     String @default("") @map("reference_no")
+  notes         String @default("")
+
+  bankAccountId   String? @map("bank_account_id")
+  bankAccountName String  @default("") @map("bank_account_name")
+
+  status String @default("Completed")
+
+  journalEntryId String? @unique @map("journal_entry_id")
+
+  createdBy String  @map("created_by")
+  updatedBy String? @map("updated_by")
+  isActive  Boolean @default(true) @map("is_active")
+  isDeleted Boolean @default(false) @map("is_deleted")
+
+  userId String? @map("user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  supplier        Supplier                 @relation(fields: [supplierId], references: [id])
+  bankAccount     BankAccount?             @relation(fields: [bankAccountId], references: [id])
+  creator         User?                    @relation("PurchasePaymentMakeCreator", fields: [createdBy], references: [id])
+  updater         User?                    @relation("PurchasePaymentMakeUpdater", fields: [updatedBy], references: [id])
+  user            User?                    @relation("UserPurchasePayments", fields: [userId], references: [id])
+  invoicePayments PurchasePaymentInvoice[]
+  journalEntry    JournalEntry?            @relation("PaymentJournalEntry", fields: [journalEntryId], references: [id])
+
+  accountsPayable AccountsPayable[] @relation("PaymentMakeAPRecords")
+
+  @@index([paymentNumber])
+  @@index([supplierId])
+  @@index([paymentDate])
+  @@index([status])
+  @@index([createdBy])
+  @@index([paymentMethod])
+  @@index([userId])
+  @@map("purchase_payments_make")
+}
+
+// ============================================================
+// PURCHASE RETURN MODELS
+// ============================================================
+
+model PurchaseReturnItem {
+  id          String @id @default(uuid())
+  returnId    String @map("return_id")
+  productId   String @map("product_id")
+  productName String @map("product_name")
+  sku         String
+
+  purchaseInvoiceId     String  @map("purchase_invoice_id")
+  purchaseInvoiceItemId String? @map("purchase_invoice_item_id")
+
+  purchasedQuantity  Int @map("purchased_quantity")
+  previouslyReturned Int @default(0) @map("previously_returned")
+  availableQuantity  Int @map("available_quantity")
+  returnQuantity     Int @map("return_quantity")
+
+  isBoxBased     Boolean @default(false) @map("is_box_based")
+  boxes          Int?    @map("boxes")
+  quantityPerBox Int?    @default(0) @map("quantity_per_box")
+
+  unitPrice Float @map("unit_price")
+  lineTotal Float @map("line_total")
+
+  returnReason String  @map("return_reason")
+  condition    String  @default("Good")
+  notes        String? @map("notes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  return              PurchaseReturn       @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  product             Product?             @relation(fields: [productId], references: [id])
+  purchaseInvoice     PurchaseInvoice      @relation(fields: [purchaseInvoiceId], references: [id])
+  PurchaseInvoiceItem PurchaseInvoiceItem? @relation(fields: [purchaseInvoiceItemId], references: [id])
+
+  @@index([returnId])
+  @@index([productId])
+  @@index([purchaseInvoiceId])
+  @@map("purchase_return_items")
+}
+
+model PurchaseReturn {
+  id           String   @id @default(uuid())
+  returnNumber String   @unique @map("return_number")
+  returnDate   DateTime @default(now()) @map("return_date")
+
+  supplierId   String @map("supplier_id")
+  supplierName String @map("supplier_name")
+
+  purchaseInvoiceId     String @map("purchase_invoice_id")
+  purchaseInvoiceNumber String @map("purchase_invoice_number")
+
+  returnReason String  @map("return_reason")
+  status       String  @default("Draft")
+  notes        String? @map("notes")
+
+  totalReturnQty Int   @default(0) @map("total_return_qty")
+  returnAmount   Float @default(0) @map("return_amount")
+  grandTotal     Float @default(0) @map("grand_total")
+
+  journalEntryId String? @unique @map("journal_entry_id")
+  apRecordId     String? @map("ap_record_id")
+
+  createdBy   String    @map("created_by")
+  updatedBy   String?   @map("updated_by")
+  processedBy String?   @map("processed_by")
+  processedAt DateTime? @map("processed_at")
+  cancelledBy String?   @map("cancelled_by")
+  cancelledAt DateTime? @map("cancelled_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+
+  userId String? @map("user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  items           PurchaseReturnItem[]
+  supplier        Supplier             @relation(fields: [supplierId], references: [id])
+  purchaseInvoice PurchaseInvoice      @relation(fields: [purchaseInvoiceId], references: [id])
+  creator         User?                @relation("PurchaseReturnCreator", fields: [createdBy], references: [id])
+  updater         User?                @relation("PurchaseReturnUpdater", fields: [updatedBy], references: [id])
+  processor       User?                @relation("PurchaseReturnProcessor", fields: [processedBy], references: [id])
+  canceller       User?                @relation("PurchaseReturnCanceller", fields: [cancelledBy], references: [id])
+  user            User?                @relation("UserPurchaseReturns", fields: [userId], references: [id])
+  journalEntry    JournalEntry?        @relation("PurchaseReturnJournalEntry", fields: [journalEntryId], references: [id])
+  apRecord        AccountsPayable?     @relation(fields: [apRecordId], references: [id])
+
+  @@index([returnNumber])
+  @@index([supplierId])
+  @@index([purchaseInvoiceId])
+  @@index([status])
+  @@index([returnDate])
+  @@index([isActive])
+  @@index([userId])
+  @@map("purchase_returns")
 }
 
 // ============================================================
@@ -2043,7 +2251,7 @@ model Quotation {
   validUntil    DateTime @map("valid_until")
   salesPerson   String?  @map("sales_person")
 
-  status String @default("Draft") // Draft, Sent, Accepted, Rejected, Expired, Converted
+  status String @default("Draft")
 
   subtotal      Float @default(0)
   totalDiscount Float @default(0) @map("total_discount")
@@ -2110,9 +2318,9 @@ model PurchaseOrderItem {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  purchaseOrder      PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product            Product?              @relation(fields: [productId], references: [id])
-  goodsReceivingItems GoodsReceivingItem[]
+  purchaseOrder        PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product              Product?              @relation(fields: [productId], references: [id])
+  goodsReceivingItems  GoodsReceivingItem[]
   purchaseInvoiceItems PurchaseInvoiceItem[]
 
   @@index([purchaseOrderId])
@@ -2132,7 +2340,7 @@ model PurchaseOrder {
   orderDate            DateTime  @default(now()) @map("order_date")
   expectedDeliveryDate DateTime? @map("expected_delivery_date")
 
-  status String @default("Draft") // Draft, Sent, Approved, Cancelled
+  status String @default("Draft")
 
   subtotal      Float @default(0)
   totalDiscount Float @default(0) @map("total_discount")
@@ -2157,12 +2365,12 @@ model PurchaseOrder {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  items           PurchaseOrderItem[]
-  supplier        Supplier?           @relation(fields: [supplierId], references: [id])
-  creator         User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
-  updater         User?               @relation("PurchaseOrderUpdater", fields: [updatedBy], references: [id])
-  user            User?               @relation("UserPurchaseOrders", fields: [userId], references: [id])
-  goodsReceivings GoodsReceiving[]
+  items            PurchaseOrderItem[]
+  supplier         Supplier?           @relation(fields: [supplierId], references: [id])
+  creator          User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
+  updater          User?               @relation("PurchaseOrderUpdater", fields: [updatedBy], references: [id])
+  user             User?               @relation("UserPurchaseOrders", fields: [userId], references: [id])
+  goodsReceivings  GoodsReceiving[]
   purchaseInvoices PurchaseInvoice[]
 
   @@index([orderNumber])
@@ -2196,9 +2404,9 @@ model GoodsReceivingItem {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  goodsReceiving    GoodsReceiving      @relation(fields: [goodsReceivingId], references: [id], onDelete: Cascade)
-  purchaseOrderItem PurchaseOrderItem   @relation(fields: [purchaseOrderItemId], references: [id])
-  product           Product?            @relation(fields: [productId], references: [id])
+  goodsReceiving    GoodsReceiving    @relation(fields: [goodsReceivingId], references: [id], onDelete: Cascade)
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+  product           Product?          @relation(fields: [productId], references: [id])
 
   @@index([goodsReceivingId])
   @@index([purchaseOrderItemId])
@@ -2207,14 +2415,14 @@ model GoodsReceivingItem {
 }
 
 model GoodsReceiving {
-  id                  String  @id @default(uuid())
-  grnNumber           String  @unique @map("grn_number")
-  purchaseOrderId     String  @map("purchase_order_id")
-  purchaseOrderNumber String  @map("purchase_order_number")
-  supplierId          String  @map("supplier_id")
-  supplierName        String  @map("supplier_name")
+  id                  String   @id @default(uuid())
+  grnNumber           String   @unique @map("grn_number")
+  purchaseOrderId     String   @map("purchase_order_id")
+  purchaseOrderNumber String   @map("purchase_order_number")
+  supplierId          String   @map("supplier_id")
+  supplierName        String   @map("supplier_name")
   receivingDate       DateTime @default(now()) @map("receiving_date")
-  status              String  @default("Draft") // Draft, Partially Received, Fully Received
+  status              String   @default("Draft")
 
   receivedBy String? @map("received_by")
   notes      String?
@@ -2233,13 +2441,13 @@ model GoodsReceiving {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  items         GoodsReceivingItem[]
-  purchaseOrder PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id])
-  supplier      Supplier?           @relation(fields: [supplierId], references: [id])
-  creator       User?               @relation("GoodsReceivingCreator", fields: [createdBy], references: [id])
-  updater       User?               @relation("GoodsReceivingUpdater", fields: [updatedBy], references: [id])
-  confirmer     User?               @relation("GoodsReceivingConfirmer", fields: [confirmedBy], references: [id])
-  user          User?               @relation("UserGoodsReceivings", fields: [userId], references: [id])
+  items            GoodsReceivingItem[]
+  purchaseOrder    PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
+  supplier         Supplier?            @relation(fields: [supplierId], references: [id])
+  creator          User?                @relation("GoodsReceivingCreator", fields: [createdBy], references: [id])
+  updater          User?                @relation("GoodsReceivingUpdater", fields: [updatedBy], references: [id])
+  confirmer        User?                @relation("GoodsReceivingConfirmer", fields: [confirmedBy], references: [id])
+  user             User?                @relation("UserGoodsReceivings", fields: [userId], references: [id])
   purchaseInvoices PurchaseInvoice[]
 
   @@index([grnNumber])
@@ -2257,25 +2465,28 @@ model GoodsReceiving {
 // ============================================================
 
 model PurchaseInvoiceItem {
-  id              String  @id @default(uuid())
-  invoiceId       String  @map("invoice_id")
-  productId       String  @map("product_id")
-  productName     String  @map("product_name")
-  sku             String
-  quantity        Int
-  unitPrice       Float   @map("unit_price")
-  discount        Float   @default(0)
-  taxRate         Float   @default(0) @map("tax_rate")
-  taxAmount       Float   @default(0) @map("tax_amount")
-  lineTotal       Float   @map("line_total")
-  notes           String?
+  id          String  @id @default(uuid())
+  invoiceId   String  @map("invoice_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  sku         String
+  quantity    Int
+  unitPrice   Float   @map("unit_price")
+  discount    Float   @default(0)
+  taxRate     Float   @default(0) @map("tax_rate")
+  taxAmount   Float   @default(0) @map("tax_amount")
+  lineTotal   Float   @map("line_total")
+  notes       String?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  invoice PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product Product?        @relation(fields: [productId], references: [id])
+  invoice             PurchaseInvoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product             Product?             @relation(fields: [productId], references: [id])
+  PurchaseOrderItem   PurchaseOrderItem?   @relation(fields: [purchaseOrderItemId], references: [id])
+  purchaseOrderItemId String?
+  purchaseReturnItems PurchaseReturnItem[]
 
   @@index([invoiceId])
   @@index([productId])
@@ -2283,13 +2494,13 @@ model PurchaseInvoiceItem {
 }
 
 model PurchaseInvoice {
-  id                  String  @id @default(uuid())
-  invoiceNumber       String  @unique @map("invoice_number")
-  supplierId          String  @map("supplier_id")
-  supplierName        String  @map("supplier_name")
-  supplierEmail       String? @map("supplier_email")
-  supplierPhone       String? @map("supplier_phone")
-  supplierInvoiceNo   String? @map("supplier_invoice_no")
+  id                String  @id @default(uuid())
+  invoiceNumber     String  @unique @map("invoice_number")
+  supplierId        String  @map("supplier_id")
+  supplierName      String  @map("supplier_name")
+  supplierEmail     String? @map("supplier_email")
+  supplierPhone     String? @map("supplier_phone")
+  supplierInvoiceNo String? @map("supplier_invoice_no")
 
   purchaseOrderId     String? @map("purchase_order_id")
   purchaseOrderNumber String? @map("purchase_order_number")
@@ -2307,8 +2518,8 @@ model PurchaseInvoice {
   paidAmount    Float @default(0) @map("paid_amount")
   outstanding   Float @default(0)
 
-  invoiceStatus String @default("Draft") @map("invoice_status") // Draft, Posted, Partially Paid, Paid, Cancelled
-  paymentStatus String @default("Unpaid") @map("payment_status") // Unpaid, Partial, Paid
+  invoiceStatus String @default("Draft") @map("invoice_status")
+  paymentStatus String @default("Unpaid") @map("payment_status")
 
   notes String? @map("notes")
 
@@ -2332,17 +2543,20 @@ model PurchaseInvoice {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  items            PurchaseInvoiceItem[]
-  supplier         Supplier?             @relation(fields: [supplierId], references: [id])
-  purchaseOrder    PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
-  goodsReceiving   GoodsReceiving?       @relation(fields: [goodsReceivingId], references: [id])
-  creator          User?                 @relation("PurchaseInvoiceCreator", fields: [createdBy], references: [id])
-  updater          User?                 @relation("PurchaseInvoiceUpdater", fields: [updatedBy], references: [id])
-  user             User?                 @relation("UserPurchaseInvoices", fields: [userId], references: [id])
-  journalEntry     JournalEntry?         @relation(fields: [journalEntryId], references: [id])
-  accountsPayable  AccountsPayable[]
-  inventoryAccount ChartOfAccount?       @relation("InventoryAccount", fields: [inventoryAccountId], references: [id])
-  apAccount        ChartOfAccount?       @relation("APAccount", fields: [apAccountId], references: [id])
+  items              PurchaseInvoiceItem[]
+  supplier           Supplier?                @relation(fields: [supplierId], references: [id])
+  purchaseOrder      PurchaseOrder?           @relation(fields: [purchaseOrderId], references: [id])
+  goodsReceiving     GoodsReceiving?          @relation(fields: [goodsReceivingId], references: [id])
+  creator            User?                    @relation("PurchaseInvoiceCreator", fields: [createdBy], references: [id])
+  updater            User?                    @relation("PurchaseInvoiceUpdater", fields: [updatedBy], references: [id])
+  user               User?                    @relation("UserPurchaseInvoices", fields: [userId], references: [id])
+  journalEntry       JournalEntry?            @relation(fields: [journalEntryId], references: [id])
+  accountsPayable    AccountsPayable[]
+  inventoryAccount   ChartOfAccount?          @relation("InventoryAccount", fields: [inventoryAccountId], references: [id])
+  apAccount          ChartOfAccount?          @relation("APAccount", fields: [apAccountId], references: [id])
+  purchasePayments   PurchasePaymentInvoice[]
+  purchaseReturns    PurchaseReturn[]
+  PurchaseReturnItem PurchaseReturnItem[]
 
   @@index([invoiceNumber])
   @@index([supplierId])
@@ -2358,7 +2572,7 @@ model PurchaseInvoice {
 }
 
 // ============================================================
-// SALES INVOICE MODELS (With Accounting)
+// SALES INVOICE MODELS
 // ============================================================
 
 model SalesInvoiceItem {
@@ -2412,8 +2626,8 @@ model SalesInvoice {
   paidAmount    Float @default(0) @map("paid_amount")
   outstanding   Float @default(0)
 
-  invoiceStatus String @default("Draft") @map("invoice_status") // Draft, Posted, Partially Paid, Paid, Cancelled
-  paymentStatus String @default("Unpaid") @map("payment_status") // Unpaid, Partial, Paid
+  invoiceStatus String @default("Draft") @map("invoice_status")
+  paymentStatus String @default("Unpaid") @map("payment_status")
 
   notes           String? @map("notes")
   termsConditions String? @map("terms_conditions")
@@ -2461,4 +2675,60 @@ model SalesInvoice {
   @@index([isActive])
   @@index([userId])
   @@map("sales_invoices")
+}
+
+// ============================================================
+// TRANSACTION MODEL
+// ============================================================
+
+model Transaction {
+  id                String   @id @default(uuid())
+  transactionNumber String   @unique @map("transaction_number")
+  date              DateTime @default(now())
+  type              String
+  title             String
+  description       String   @default("")
+  amount            Float
+  category          String
+  paymentMethod     String   @default("Cash")
+  reference         String   @default("")
+
+  customerId    String? @map("customer_id")
+  customerName  String  @default("")
+  vendorId      String? @map("vendor_id")
+  vendorName    String  @default("")
+  bankAccountId String? @map("bank_account_id")
+
+  status String @default("Posted")
+
+  createdBy String    @map("created_by")
+  postedBy  String?   @map("posted_by")
+  postedAt  DateTime? @map("posted_at")
+
+  isActive  Boolean @default(true) @map("is_active")
+  isDeleted Boolean @default(false) @map("is_deleted")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  customer       Customer?     @relation("CustomerTransactions", fields: [customerId], references: [id])
+  vendor         Supplier?     @relation("SupplierTransactions", fields: [vendorId], references: [id])
+  bankAccount    BankAccount?  @relation("BankAccountTransactions", fields: [bankAccountId], references: [id])
+  creator        User?         @relation("TransactionCreator", fields: [createdBy], references: [id])
+  poster         User?         @relation("TransactionPoster", fields: [postedBy], references: [id])
+  journalEntry   JournalEntry? @relation("TransactionJournalEntry", fields: [journalEntryId], references: [id])
+  journalEntryId String?       @unique @map("journal_entry_id")
+
+  @@index([transactionNumber])
+  @@index([type])
+  @@index([category])
+  @@index([date])
+  @@index([status])
+  @@index([customerId])
+  @@index([vendorId])
+  @@index([bankAccountId])
+  @@index([createdBy])
+  @@index([isActive])
+  @@map("transactions")
 }

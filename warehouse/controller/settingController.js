@@ -1,4 +1,5 @@
-// warehouse/controller/settingController.js - Prisma Version
+// warehouse/controller/settingController.js - Prisma Version (COMPLETE FIXED)
+
 const Setting = require('../models/Setting');
 const prisma = require('../../prisma/client');
 
@@ -11,6 +12,12 @@ const formatMetadata = (category, body) => {
     metadata.zone = body.zone;
   }
   
+  // Currency settings
+  if (category === 'currency') {
+    if (body.symbol) metadata.symbol = body.symbol;
+    if (body.code) metadata.code = body.code;
+  }
+  
   // Add more category-specific metadata handling here
   
   return metadata;
@@ -20,9 +27,12 @@ const formatResponse = (setting) => {
   const result = {
     id: setting.id,
     name: setting.name,
+    category: setting.category,
     isDefault: setting.isDefault,
     displayOrder: setting.displayOrder,
-    isActive: setting.isActive
+    isActive: setting.isActive,
+    createdAt: setting.createdAt,
+    updatedAt: setting.updatedAt
   };
   
   // Merge metadata if exists
@@ -36,6 +46,7 @@ const formatResponse = (setting) => {
 // ─── GET SETTINGS ────────────────────────────────────
 const getSettings = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { category } = req.query;
     
     if (!category) {
@@ -45,16 +56,21 @@ const getSettings = async (req, res) => {
       });
     }
 
-    const settings = await Setting.findByCategory(category, true);
+    console.log('🔵 [getSettings] Category:', category);
+    console.log('🔵 [getSettings] User ID:', userId);
+
+    const settings = await Setting.findByCategory(category, userId, true);
     
     const formatted = settings.map(item => formatResponse(item));
+
+    console.log(`✅ [getSettings] Found ${formatted.length} settings`);
 
     res.status(200).json({
       success: true,
       data: formatted
     });
   } catch (error) {
-    console.error('Get settings error:', error);
+    console.error('❌ [getSettings] Error:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Server error',
@@ -66,9 +82,10 @@ const getSettings = async (req, res) => {
 // ─── GET ALL SETTINGS (Admin) ──────────────────────
 const getAllSettings = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { category, isActive, page = 1, limit = 50 } = req.query;
     
-    const filter = {};
+    const filter = { userId: userId };
     if (category) filter.category = category;
     if (isActive !== undefined) filter.isActive = isActive === 'true';
     
@@ -96,7 +113,7 @@ const getAllSettings = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get all settings error:', error);
+    console.error('❌ [getAllSettings] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -123,7 +140,7 @@ const getSettingById = async (req, res) => {
       data: setting
     });
   } catch (error) {
-    console.error('Get setting error:', error);
+    console.error('❌ [getSettingById] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -135,7 +152,14 @@ const getSettingById = async (req, res) => {
 // ─── CREATE SETTING ──────────────────────────────────
 const createSetting = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { category, name, isDefault, displayOrder, ...rest } = req.body;
+
+    console.log('🔵 [createSetting] Called');
+    console.log('🔵 [createSetting] Category:', category);
+    console.log('🔵 [createSetting] Name:', name);
+    console.log('🔵 [createSetting] User ID:', userId);
+    console.log('🔵 [createSetting] Rest:', rest);
 
     if (!category || !name) {
       return res.status(400).json({
@@ -145,8 +169,9 @@ const createSetting = async (req, res) => {
     }
 
     // Check if setting already exists
-    const existing = await Setting.findByCategoryAndName(category, name);
+    const existing = await Setting.findByCategoryAndName(category, name, userId);
     if (existing) {
+      console.log('❌ [createSetting] Setting already exists');
       return res.status(400).json({
         success: false,
         message: 'A setting with this name already exists in this category'
@@ -154,6 +179,7 @@ const createSetting = async (req, res) => {
     }
 
     const metadata = formatMetadata(category, rest);
+    console.log('🔵 [createSetting] Metadata:', metadata);
 
     const setting = await Setting.create({
       category,
@@ -161,16 +187,19 @@ const createSetting = async (req, res) => {
       metadata,
       isDefault: isDefault || false,
       displayOrder: displayOrder || 0,
-      createdBy: req.user.id
+      createdBy: userId,
+      userId: userId
     });
+
+    console.log('✅ [createSetting] Setting created successfully:', setting.id);
 
     res.status(201).json({
       success: true,
       message: 'Setting created successfully',
-      data: setting
+      data: formatResponse(setting)
     });
   } catch (error) {
-    console.error('Create setting error:', error);
+    console.error('❌ [createSetting] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -182,11 +211,18 @@ const createSetting = async (req, res) => {
 // ─── UPDATE SETTING ──────────────────────────────────
 const updateSetting = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { id } = req.params;
     const { name, isDefault, displayOrder, isActive, ...rest } = req.body;
 
+    console.log('🔵 [updateSetting] Called');
+    console.log('🔵 [updateSetting] ID:', id);
+    console.log('🔵 [updateSetting] Name:', name);
+    console.log('🔵 [updateSetting] User ID:', userId);
+
     const existing = await Setting.findById(id);
     if (!existing) {
+      console.log('❌ [updateSetting] Setting not found');
       return res.status(404).json({
         success: false,
         message: 'Setting not found'
@@ -195,8 +231,9 @@ const updateSetting = async (req, res) => {
 
     // Check duplicate name
     if (name && name !== existing.name) {
-      const duplicate = await Setting.findByCategoryAndName(existing.category, name);
-      if (duplicate) {
+      const duplicate = await Setting.findByCategoryAndName(existing.category, name, userId);
+      if (duplicate && duplicate.id !== id) {
+        console.log('❌ [updateSetting] Duplicate name found');
         return res.status(400).json({
           success: false,
           message: 'A setting with this name already exists in this category'
@@ -218,18 +255,22 @@ const updateSetting = async (req, res) => {
       isDefault: isDefault !== undefined ? isDefault : existing.isDefault,
       displayOrder: displayOrder !== undefined ? displayOrder : existing.displayOrder,
       isActive: isActive !== undefined ? isActive : existing.isActive,
-      updatedBy: req.user.id
+      updatedBy: userId
     };
 
+    console.log('🔵 [updateSetting] Update Data:', updateData);
+
     const setting = await Setting.update(id, updateData);
+
+    console.log('✅ [updateSetting] Setting updated successfully');
 
     res.status(200).json({
       success: true,
       message: 'Setting updated successfully',
-      data: setting
+      data: formatResponse(setting)
     });
   } catch (error) {
-    console.error('Update setting error:', error);
+    console.error('❌ [updateSetting] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -238,13 +279,19 @@ const updateSetting = async (req, res) => {
   }
 };
 
-// ─── DELETE SETTING ──────────────────────────────────
+// ─── DELETE SETTING (Soft Delete) ──────────────────
 const deleteSetting = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { id } = req.params;
     
+    console.log('🔵 [deleteSetting] Called');
+    console.log('🔵 [deleteSetting] ID:', id);
+    console.log('🔵 [deleteSetting] User ID:', userId);
+
     const setting = await Setting.findById(id);
     if (!setting) {
+      console.log('❌ [deleteSetting] Setting not found');
       return res.status(404).json({
         success: false,
         message: 'Setting not found'
@@ -252,6 +299,7 @@ const deleteSetting = async (req, res) => {
     }
 
     if (setting.isDefault) {
+      console.log('❌ [deleteSetting] Cannot delete default');
       return res.status(400).json({
         success: false,
         message: 'Cannot delete default item. Set another item as default first.'
@@ -259,14 +307,16 @@ const deleteSetting = async (req, res) => {
     }
 
     // Soft delete
-    await Setting.deactivate(id, req.user.id);
+    await Setting.deactivate(id, userId);
+
+    console.log('✅ [deleteSetting] Setting deactivated successfully');
 
     res.status(200).json({
       success: true,
       message: 'Setting deleted successfully'
     });
   } catch (error) {
-    console.error('Delete setting error:', error);
+    console.error('❌ [deleteSetting] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -280,8 +330,12 @@ const hardDeleteSetting = async (req, res) => {
   try {
     const { id } = req.params;
     
+    console.log('🔵 [hardDeleteSetting] Called');
+    console.log('🔵 [hardDeleteSetting] ID:', id);
+
     const setting = await Setting.findById(id);
     if (!setting) {
+      console.log('❌ [hardDeleteSetting] Setting not found');
       return res.status(404).json({
         success: false,
         message: 'Setting not found'
@@ -289,6 +343,7 @@ const hardDeleteSetting = async (req, res) => {
     }
 
     if (setting.isDefault) {
+      console.log('❌ [hardDeleteSetting] Cannot delete default');
       return res.status(400).json({
         success: false,
         message: 'Cannot delete default item'
@@ -297,12 +352,14 @@ const hardDeleteSetting = async (req, res) => {
 
     await Setting.delete(id);
 
+    console.log('✅ [hardDeleteSetting] Setting permanently deleted');
+
     res.status(200).json({
       success: true,
       message: 'Setting permanently deleted'
     });
   } catch (error) {
-    console.error('Hard delete setting error:', error);
+    console.error('❌ [hardDeleteSetting] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -314,13 +371,15 @@ const hardDeleteSetting = async (req, res) => {
 // ─── GET CATEGORIES ──────────────────────────────────
 const getCategories = async (req, res) => {
   try {
-    const categories = await Setting.getCategories();
+    const userId = req.user.id;
+    const categories = await Setting.getCategories(userId);
+    
     res.status(200).json({
       success: true,
       data: categories
     });
   } catch (error) {
-    console.error('Get categories error:', error);
+    console.error('❌ [getCategories] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -332,6 +391,8 @@ const getCategories = async (req, res) => {
 // ─── SEED DEFAULT SETTINGS ──────────────────────────
 const seedDefaultSettings = async (req, res) => {
   try {
+    const userId = req.user.id;
+    
     const defaultSettings = [
       // Product Settings
       { category: 'productType', name: 'Physical', isDefault: true },
@@ -341,6 +402,7 @@ const seedDefaultSettings = async (req, res) => {
       
       { category: 'rackLocation', name: 'A-1-B1', metadata: { zone: 'Zone A' } },
       { category: 'rackLocation', name: 'B-2-C3', metadata: { zone: 'Zone B' } },
+      { category: 'rackLocation', name: 'C-3-D5', metadata: { zone: 'Zone C' } },
       
       { category: 'weightUnit', name: 'KG', isDefault: true },
       { category: 'weightUnit', name: 'G' },
@@ -385,7 +447,11 @@ const seedDefaultSettings = async (req, res) => {
       { category: 'customerType', name: 'Manufacturer' },
     ];
 
-    const results = await Setting.bulkCreate(defaultSettings, req.user.id);
+    console.log(`🔵 [seedDefaultSettings] Seeding ${defaultSettings.length} settings`);
+
+    const results = await Setting.bulkCreate(defaultSettings, userId);
+
+    console.log(`✅ [seedDefaultSettings] ${results.length} settings seeded successfully`);
 
     res.status(201).json({
       success: true,
@@ -393,7 +459,7 @@ const seedDefaultSettings = async (req, res) => {
       data: results
     });
   } catch (error) {
-    console.error('Seed settings error:', error);
+    console.error('❌ [seedDefaultSettings] Error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',

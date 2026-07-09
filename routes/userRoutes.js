@@ -7,9 +7,10 @@
     changePassword,
     forgotPassword,
     passwordverifyOTP,
-  refreshToken,
-  verifyLoginOTP,
+    refreshToken,
+    verifyLoginOTP,
     resetPassword,
+    updateCurrency,
   } = require('../controllers/userController');
 
   // Public routes mein add karo:
@@ -30,5 +31,6 @@
 
   // ========== PROTECTED ROUTES (Authentication + Subscription check) ==========
   router.get('/me', protect, getMe);
+  router.put('/currency', protect, updateCurrency);
 
   module.exports = router;

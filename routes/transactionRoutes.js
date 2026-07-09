@@ -1,32 +1,34 @@
+// warehouse/routes/transactionRoutes.js
+
 const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
 const {
   createTransaction,
   getTransactions,
-  getTransaction,
+  getTransactionById,
+  getTransactionByNumber,
   updateTransaction,
   deleteTransaction,
-  getSummary,
-  getCategories,
-} = require('../controllers/transactionController');
-const { protect } = require('../middleware/authMiddleware');
+  getTransactionSummary,
+  getTransactionCategories,
+  getTransactionStats
+} = require('../controllers/transactionController'); // ✅ Correct path
 
-const router = express.Router();
-
-// Protect all routes
+// ─── All routes protected ──────────────────────────────────────
 router.use(protect);
 
-// Summary and categories
-router.get('/summary', getSummary);
-router.get('/categories', getCategories);
+// ─── Stats & Categories Routes ──────────────────────────────
+router.get('/stats', getTransactionStats);
+router.get('/summary', getTransactionSummary);
+router.get('/categories', getTransactionCategories);
 
-// Main CRUD routes with pagination
-router.route('/')
-  .get(getTransactions)
-  .post(createTransaction);
-
-router.route('/:id')
-  .get(getTransaction)
-  .put(updateTransaction)
-  .delete(deleteTransaction);
+// ─── CRUD Routes ──────────────────────────────────────────────
+router.get('/', getTransactions);
+router.get('/number/:transactionNumber', getTransactionByNumber);
+router.post('/', createTransaction);
+router.get('/:id', getTransactionById);
+router.put('/:id', updateTransaction);
+router.delete('/:id', deleteTransaction);
 
 module.exports = router;

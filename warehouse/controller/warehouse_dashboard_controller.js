@@ -1,9 +1,8 @@
-// controllers/dashboardController.js - COMPLETE PRISMA VERSION (MULTI-TENANT)
-
+// controllers/warehouse_dashboard_controller.js
 const prisma = require('../../prisma/client');
 
 // ============================================================
-// HELPER: Get Date Range
+// HELPER: Get Date Range from period query param
 // ============================================================
 const getDateRange = (days) => {
   const start = new Date();
@@ -18,6 +17,52 @@ const getTodayRange = () => {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   return { today, tomorrow };
+};
+
+/**
+ * Parse period filter from query params.
+ * Returns { startDate, endDate, periodLabel, periodPoints }
+ * periodPoints: number of data points for the movement chart
+ */
+const parsePeriodFilter = (query) => {
+  const { period = 'week', startDate, endDate } = query;
+  const now = new Date();
+  let start, end, label, points, groupBy;
+
+  switch (period) {
+    case 'today': {
+      start = new Date(now); start.setHours(0, 0, 0, 0);
+      end   = new Date(now); end.setHours(23, 59, 59, 999);
+      label = 'Today'; points = 'hours'; groupBy = 'hour';
+      break;
+    }
+    case 'month': {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      label = 'This Month'; points = 'weeks'; groupBy = 'week';
+      break;
+    }
+    case 'year': {
+      start = new Date(now.getFullYear(), 0, 1);
+      end   = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      label = 'This Year'; points = 'months'; groupBy = 'month';
+      break;
+    }
+    case 'custom': {
+      start = startDate ? new Date(startDate) : getDateRange(30);
+      end   = endDate   ? new Date(endDate)   : now;
+      end.setHours(23, 59, 59, 999);
+      label = 'Custom'; points = 'days'; groupBy = 'day';
+      break;
+    }
+    default: { // 'week'
+      start = getDateRange(6); // last 7 days
+      end   = now;
+      label = 'This Week'; points = 'days'; groupBy = 'day';
+    }
+  }
+
+  return { start, end, label, groupBy };
 };
 
 // ============================================================
@@ -35,181 +80,60 @@ const getColorForIndex = (index) => {
 // ============================================================
 const getDashboardMetrics = async (req, res) => {
   try {
-    console.log("\n========== DASHBOARD METRICS API ==========");
-    console.log("Method:", req.method);
-    console.log("URL:", req.originalUrl);
-    console.log("User:", req.user?.id, req.user?.email);
-    console.log("Timestamp:", new Date().toISOString());
-
     const userId = req.user.id;
+    const { start, end } = parsePeriodFilter(req.query);
 
-    // ─── GET METRICS ──────────────────────────────────────────
     const [
       totalProducts,
       products,
-      lowStockCount,
       outOfStockCount,
       expiringCount,
       todayStockIn,
       todayStockOut,
-      pendingOrders,
-      todayOrders,
-      totalCustomers,
-      totalSuppliers
+      periodStockIn,
+      periodStockOut,
     ] = await Promise.all([
-      // Total products
-      prisma.product.count({
-        where: { userId: userId, isActive: true }
-      }),
-      // Products for stock value calculation
+      prisma.product.count({ where: { userId, isActive: true } }),
       prisma.product.findMany({
-        where: { userId: userId, isActive: true },
-        select: {
-          sellingPrice: true,
-          currentStock: true,
-          name: true,
-          maximumStock: true
-        }
+        where: { userId, isActive: true },
+        select: { sellingPrice: true, currentStock: true, minimumStock: true, maximumStock: true }
       }),
-      // Low stock count
+      prisma.product.count({ where: { userId, isActive: true, currentStock: 0 } }),
       prisma.product.count({
-        where: {
-          userId: userId,
-          isActive: true,
-          currentStock: { lte: prisma.product.fields.minimumStock }
-        }
+        where: { userId, isActive: true, expiryDate: { gte: new Date(), lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } }
       }),
-      // Out of stock count
-      prisma.product.count({
-        where: {
-          userId: userId,
-          isActive: true,
-          currentStock: 0
-        }
-      }),
-      // Expiring soon (within 30 days)
-      prisma.product.count({
-        where: {
-          userId: userId,
-          isActive: true,
-          expiryDate: {
-            gte: new Date(),
-            lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-          }
-        }
-      }),
-      // Today stock in
-      prisma.stockMovement.count({
-        where: {
-          userId: userId,
-          type: 'stock_in',
-          createdAt: {
-            gte: getTodayRange().today,
-            lt: getTodayRange().tomorrow
-          }
-        }
-      }),
-      // Today stock out
-      prisma.stockMovement.count({
-        where: {
-          userId: userId,
-          type: 'stock_out',
-          createdAt: {
-            gte: getTodayRange().today,
-            lt: getTodayRange().tomorrow
-          }
-        }
-      }),
-      // Pending orders
-      prisma.order.count({
-        where: {
-          userId: userId,
-          isActive: true,
-          isDeleted: false,
-          orderStatus: 'Pending'
-        }
-      }),
-      // Today's orders for revenue
-      prisma.order.findMany({
-        where: {
-          userId: userId,
-          isActive: true,
-          isDeleted: false,
-          orderStatus: 'Delivered',
-          orderDate: {
-            gte: getTodayRange().today,
-            lt: getTodayRange().tomorrow
-          }
-        },
-        select: { grandTotal: true }
-      }),
-      // Total customers
-      prisma.customer.count({
-        where: { userId: userId, isActive: true, isDeleted: false }
-      }),
-      // Total suppliers
-      prisma.supplier.count({
-        where: { userId: userId, status: 'active' }
-      })
+      // Always today's counts (not period-filtered — header stats)
+      prisma.stockMovement.count({ where: { userId, type: 'stock_in',  createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
+      prisma.stockMovement.count({ where: { userId, type: 'stock_out', createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
+      // Period-filtered movement counts
+      prisma.stockMovement.count({ where: { userId, type: 'stock_in',  createdAt: { gte: start, lte: end } } }),
+      prisma.stockMovement.count({ where: { userId, type: 'stock_out', createdAt: { gte: start, lte: end } } }),
     ]);
 
-    // Calculate total stock value
-    const totalStockValue = products.reduce((sum, product) => {
-      return sum + (product.sellingPrice * product.currentStock);
-    }, 0);
-
-    // Calculate overstock count
-    const overstockCount = products.filter(p => 
-      p.maximumStock > 0 && p.currentStock >= p.maximumStock * 1.2
-    ).length;
-
-    // Calculate today's revenue
-    const todayRevenue = todayOrders.reduce((sum, order) => sum + order.grandTotal, 0);
-
-    console.log("📊 Total Products:", totalProducts);
-    console.log("💰 Total Stock Value:", totalStockValue);
-    console.log("⚠️ Low Stock Count:", lowStockCount);
-    console.log("❌ Out of Stock Count:", outOfStockCount);
-    console.log("📦 Overstock Count:", overstockCount);
-    console.log("📅 Expiring Soon Count:", expiringCount);
-    console.log("📥 Today Stock In:", todayStockIn);
-    console.log("📤 Today Stock Out:", todayStockOut);
-    console.log("⏳ Pending Orders:", pendingOrders);
-    console.log("💰 Today Revenue:", todayRevenue);
-    console.log("👥 Total Customers:", totalCustomers);
-    console.log("🏢 Total Suppliers:", totalSuppliers);
-
-    const responseData = {
-      totalProducts,
-      totalStockValue,
-      lowStockCount,
-      expiringCount,
-      todayStockIn,
-      todayStockOut,
-      pendingOrders,
-      outOfStockCount,
-      overstockCount,
-      todayRevenue,
-      totalCustomers,
-      totalSuppliers
-    };
-
-    console.log("✅ Response Data:", JSON.stringify(responseData, null, 2));
-    console.log("========== END METRICS ==========\n");
+    const totalStockValue = products.reduce((s, p) => s + (p.sellingPrice * p.currentStock), 0);
+    const lowStockCount   = products.filter(p => p.minimumStock > 0 && p.currentStock > 0 && p.currentStock <= p.minimumStock).length;
+    const overstockCount  = products.filter(p => p.maximumStock > 0 && p.currentStock >= p.maximumStock * 1.2).length;
 
     res.status(200).json({
       success: true,
-      data: responseData
+      data: {
+        totalProducts,
+        totalStockValue,
+        lowStockCount,
+        outOfStockCount,
+        overstockCount,
+        expiringCount,
+        todayStockIn,
+        todayStockOut,
+        periodStockIn,
+        periodStockOut,
+        pendingOrders: 0,
+        todayRevenue: 0,
+      }
     });
-
   } catch (error) {
     console.error('❌ Dashboard metrics error:', error);
-    console.error('Stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
@@ -220,74 +144,36 @@ const getDashboardMetrics = async (req, res) => {
 // ============================================================
 const getRecentActivities = async (req, res) => {
   try {
-    console.log("\n========== RECENT ACTIVITIES API ==========");
-    console.log("Method:", req.method);
-    console.log("URL:", req.originalUrl);
-    console.log("User:", req.user?.id, req.user?.email);
-    console.log("Timestamp:", new Date().toISOString());
-
     const userId = req.user.id;
     const { limit = 10 } = req.query;
 
-    // Get recent stock movements as activities
     const movements = await prisma.stockMovement.findMany({
-      where: {
-        userId: userId
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
       take: parseInt(limit),
-      include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            sku: true
-          }
-        }
-      }
     });
 
-    // Format activities
     const activities = movements.map(m => ({
       id: m.id,
-      type: m.type === 'stock_in' ? 'Stock Added' : 'Stock Removed',
-      description: `${m.type === 'stock_in' ? 'Added' : 'Removed'} ${m.quantity} units of ${m.productName}`,
+      action: m.type === 'stock_in' ? 'Stock In' : 'Stock Out',
+      details: `${m.type === 'stock_in' ? 'Added' : 'Removed'} ${m.quantity} units of ${m.productName}`,
       quantity: m.quantity,
       productName: m.productName,
       createdAt: m.createdAt,
       status: m.status || 'Completed',
-      reference: m.reference || '',
-      notes: m.notes || '',
       user: {
         id: req.user.id,
-        name: req.user.firstName + ' ' + req.user.lastName,
-        email: req.user.email
+        name: (req.user.firstName || '') + ' ' + (req.user.lastName || ''),
       }
     }));
 
-    console.log("📋 Activities found:", activities.length);
-    console.log("✅ Activities Data:", JSON.stringify(activities, null, 2));
-    console.log("========== END ACTIVITIES ==========\n");
-
-    res.status(200).json({
-      success: true,
-      data: {
-        activities
-      }
-    });
-
+    res.status(200).json({ success: true, data: { activities } });
   } catch (error) {
     console.error('❌ Recent activities error:', error);
-    console.error('Stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
+
 
 // ============================================================
 // @desc    Get active alerts (User-specific)
@@ -362,68 +248,78 @@ const getAlerts = async (req, res) => {
 // ============================================================
 const getStockMovementChart = async (req, res) => {
   try {
-    console.log("\n========== STOCK MOVEMENT CHART API ==========");
-    console.log("Method:", req.method);
-    console.log("URL:", req.originalUrl);
-    console.log("User:", req.user?.id, req.user?.email);
-    console.log("Timestamp:", new Date().toISOString());
-
     const userId = req.user.id;
+    const { start, end, groupBy } = parsePeriodFilter(req.query);
+
+    const movements = await prisma.stockMovement.findMany({
+      where: { userId, createdAt: { gte: start, lte: end } },
+      select: { type: true, quantity: true, createdAt: true }
+    });
+
     const chartData = [];
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      date.setHours(0, 0, 0, 0);
-
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      const dayName = days[date.getDay()];
-
-      // Get stock movements for this day (user-specific)
-      const movements = await prisma.stockMovement.findMany({
-        where: {
-          userId: userId,
-          createdAt: { gte: date, lt: nextDate }
-        }
-      });
-
-      const stockIn = movements
-        .filter(m => m.type === 'stock_in')
-        .reduce((sum, m) => sum + m.quantity, 0);
-
-      const stockOut = movements
-        .filter(m => m.type === 'stock_out')
-        .reduce((sum, m) => sum + m.quantity, 0);
-
-      chartData.push({
-        label: dayName,
-        stockIn,
-        stockOut,
-        date: date.toISOString()
-      });
-
-      console.log(`📅 ${dayName}: Stock In=${stockIn}, Stock Out=${stockOut}`);
+    if (groupBy === 'month') {
+      // Year view: group by month (Jan-Dec)
+      for (let m = 0; m <= 11; m++) {
+        const label = months[m];
+        const inMonth  = movements.filter(mv => new Date(mv.createdAt).getMonth() === m);
+        chartData.push({
+          label,
+          stockIn:  inMonth.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
+          stockOut: inMonth.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
+        });
+      }
+    } else if (groupBy === 'week') {
+      // Month view: group by week
+      const daysInMonth = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+      const numWeeks = Math.ceil(daysInMonth / 7);
+      for (let w = 0; w < numWeeks; w++) {
+        const wStart = new Date(start); wStart.setDate(wStart.getDate() + w * 7);
+        const wEnd   = new Date(wStart); wEnd.setDate(wEnd.getDate() + 7);
+        const inWeek = movements.filter(mv => new Date(mv.createdAt) >= wStart && new Date(mv.createdAt) < wEnd);
+        chartData.push({
+          label: `W${w+1}`,
+          stockIn:  inWeek.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
+          stockOut: inWeek.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
+        });
+      }
+    } else if (groupBy === 'hour') {
+      // Today view: group by hour
+      for (let h = 0; h < 24; h += 3) {
+        const inHour = movements.filter(mv => new Date(mv.createdAt).getHours() >= h && new Date(mv.createdAt).getHours() < h + 3);
+        chartData.push({
+          label: `${h}:00`,
+          stockIn:  inHour.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
+          stockOut: inHour.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
+        });
+      }
+    } else {
+      // Week/Custom view: group by day
+      const diffDays = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
+      for (let i = 0; i < Math.min(diffDays + 1, 31); i++) {
+        const date = new Date(start);
+        date.setDate(date.getDate() + i);
+        if (date > end) break;
+        const nextDate = new Date(date); nextDate.setDate(nextDate.getDate() + 1);
+        const inDay = movements.filter(mv => new Date(mv.createdAt) >= date && new Date(mv.createdAt) < nextDate);
+        const label = groupBy === 'day' && diffDays <= 7
+          ? days[date.getDay()]
+          : `${date.getDate()}/${date.getMonth()+1}`;
+        chartData.push({
+          label,
+          stockIn:  inDay.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
+          stockOut: inDay.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
+          date: date.toISOString(),
+        });
+      }
     }
 
-    console.log("✅ Chart Data:", JSON.stringify(chartData, null, 2));
-    console.log("========== END CHART ==========\n");
-
-    res.status(200).json({
-      success: true,
-      data: chartData
-    });
-
+    res.status(200).json({ success: true, data: chartData });
   } catch (error) {
     console.error('❌ Stock movement chart error:', error);
-    console.error('Stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 

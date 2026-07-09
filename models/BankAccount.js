@@ -1,4 +1,4 @@
-// models/BankAccount.js - PostgreSQL Version (Prisma)
+// models/BankAccount.js - PostgreSQL Version (Prisma) - COMPLETE FIXED
 
 const prisma = require('../prisma/client');
 
@@ -24,8 +24,6 @@ class BankAccountModel {
       errors.push(`Invalid account type. Must be one of: ${VALID_ACCOUNT_TYPES.join(', ')}`);
     }
 
-   
-
     // ─── Check valid status ────────────────────────────────────
     if (data.status && !VALID_STATUS.includes(data.status)) {
       errors.push(`Invalid status. Must be one of: ${VALID_STATUS.join(', ')}`);
@@ -46,7 +44,10 @@ class BankAccountModel {
     // Find all bank accounts for this user
     const bankAccounts = await prisma.bankAccount.findMany({
       where: {
-        createdBy: userId
+        OR: [
+          { createdBy: userId },
+          { userId: userId }
+        ]
       },
       orderBy: {
         accountCode: 'asc'
@@ -73,7 +74,12 @@ class BankAccountModel {
   // ============================================================
   static async generateAccountNumber(userId) {
     const count = await prisma.bankAccount.count({
-      where: { createdBy: userId }
+      where: {
+        OR: [
+          { createdBy: userId },
+          { userId: userId }
+        ]
+      }
     });
     
     const year = new Date().getFullYear();
@@ -82,7 +88,7 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ CREATE BANK ACCOUNT
+  // ✅ CREATE BANK ACCOUNT - FIXED
   // ============================================================
   static async create(data) {
     // ─── Validate data ──────────────────────────────────────────
@@ -98,6 +104,7 @@ class BankAccountModel {
     }
 
     // ─── Create bank account ────────────────────────────────────
+    // ✅ FIXED: Set BOTH userId AND createdBy
     return await prisma.bankAccount.create({
       data: {
         accountName: data.accountName,
@@ -112,7 +119,8 @@ class BankAccountModel {
         status: data.status || 'Active',
         lastReconciled: data.lastReconciled || new Date(),
         chartOfAccountId: data.chartOfAccountId,
-        createdBy: data.createdBy
+        createdBy: data.createdBy,
+        userId: data.userId || data.createdBy // ✅ FIXED: Set userId as well
       },
       include: {
         chartOfAccount: {
@@ -137,10 +145,20 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ GET ALL BANK ACCOUNTS WITH FILTERS
+  // ✅ GET ALL BANK ACCOUNTS WITH FILTERS - FIXED
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { createdAt: 'desc' } } = options;
+
+    // ✅ FIXED: If filter has createdBy, also include userId
+    if (filter.createdBy) {
+      const userId = filter.createdBy;
+      delete filter.createdBy;
+      filter.OR = [
+        { createdBy: userId },
+        { userId: userId }
+      ];
+    }
 
     return await prisma.bankAccount.findMany({
       where: filter,
@@ -170,14 +188,23 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ COUNT BANK ACCOUNTS
+  // ✅ COUNT BANK ACCOUNTS - FIXED
   // ============================================================
   static async count(filter = {}) {
+    // ✅ FIXED: If filter has createdBy, also include userId
+    if (filter.createdBy) {
+      const userId = filter.createdBy;
+      delete filter.createdBy;
+      filter.OR = [
+        { createdBy: userId },
+        { userId: userId }
+      ];
+    }
     return await prisma.bankAccount.count({ where: filter });
   }
 
   // ============================================================
-  // ✅ FIND BANK ACCOUNT BY ID
+  // ✅ FIND BANK ACCOUNT BY ID - FIXED
   // ============================================================
   static async findById(id) {
     return await prisma.bankAccount.findUnique({
@@ -205,13 +232,16 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ FIND BANK ACCOUNT BY ACCOUNT NUMBER
+  // ✅ FIND BANK ACCOUNT BY ACCOUNT NUMBER - FIXED
   // ============================================================
-  static async findByAccountNumber(accountNumber, createdBy) {
+  static async findByAccountNumber(accountNumber, userId) {
     return await prisma.bankAccount.findFirst({
       where: {
         accountNumber,
-        createdBy
+        OR: [
+          { createdBy: userId },
+          { userId: userId }
+        ]
       },
       include: {
         chartOfAccount: {
@@ -412,14 +442,17 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ GET BANK ACCOUNTS BY TYPE
+  // ✅ GET BANK ACCOUNTS BY TYPE - FIXED
   // ============================================================
-  static async findByType(accountType, createdBy) {
+  static async findByType(accountType, userId) {
     return await prisma.bankAccount.findMany({
       where: {
         accountType,
-        createdBy,
-        status: 'Active'
+        status: 'Active',
+        OR: [
+          { createdBy: userId },
+          { userId: userId }
+        ]
       },
       orderBy: { accountName: 'asc' },
       include: {
@@ -437,13 +470,16 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ GET BANK ACCOUNTS BY STATUS
+  // ✅ GET BANK ACCOUNTS BY STATUS - FIXED
   // ============================================================
-  static async findByStatus(status, createdBy) {
+  static async findByStatus(status, userId) {
     return await prisma.bankAccount.findMany({
       where: {
         status,
-        createdBy
+        OR: [
+          { createdBy: userId },
+          { userId: userId }
+        ]
       },
       orderBy: { accountName: 'asc' },
       include: {
@@ -461,19 +497,24 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ SEARCH BANK ACCOUNTS
+  // ✅ SEARCH BANK ACCOUNTS - FIXED
   // ============================================================
-  static async search(query, createdBy, options = {}) {
+  static async search(query, userId, options = {}) {
     const { skip, take } = options;
 
     const filter = {
-      createdBy,
       OR: [
-        { accountName: { contains: query, mode: 'insensitive' } },
-        { accountNumber: { contains: query, mode: 'insensitive' } },
-        { bankName: { contains: query, mode: 'insensitive' } },
-        { accountCode: { contains: query, mode: 'insensitive' } }
-      ]
+        { createdBy: userId },
+        { userId: userId }
+      ],
+      AND: {
+        OR: [
+          { accountName: { contains: query, mode: 'insensitive' } },
+          { accountNumber: { contains: query, mode: 'insensitive' } },
+          { bankName: { contains: query, mode: 'insensitive' } },
+          { accountCode: { contains: query, mode: 'insensitive' } }
+        ]
+      }
     };
 
     const accounts = await prisma.bankAccount.findMany({
@@ -563,7 +604,7 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ BULK IMPORT BANK ACCOUNTS
+  // ✅ BULK IMPORT BANK ACCOUNTS - FIXED
   // ============================================================
   static async bulkImport(accountsData, userId) {
     const results = {
@@ -585,7 +626,10 @@ class BankAccountModel {
         const existing = await prisma.bankAccount.findFirst({
           where: {
             accountNumber: data.accountNumber,
-            createdBy: userId
+            OR: [
+              { createdBy: userId },
+              { userId: userId }
+            ]
           }
         });
 
@@ -600,7 +644,8 @@ class BankAccountModel {
         // Create account
         const account = await this.create({
           ...data,
-          createdBy: userId
+          createdBy: userId,
+          userId: userId // ✅ FIXED: Explicitly set userId
         });
 
         results.success.push(account);
@@ -613,13 +658,16 @@ class BankAccountModel {
   }
 
   // ============================================================
-  // ✅ GET TOTAL BALANCE BY CURRENCY
+  // ✅ GET TOTAL BALANCE BY CURRENCY - FIXED
   // ============================================================
-  static async getBalanceByCurrency(createdBy) {
+  static async getBalanceByCurrency(userId) {
     const accounts = await prisma.bankAccount.findMany({
       where: {
-        createdBy,
-        status: 'Active'
+        status: 'Active',
+        OR: [
+          { createdBy: userId },
+          { userId: userId }
+        ]
       }
     });
 

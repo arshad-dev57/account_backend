@@ -1,11 +1,6 @@
 const prisma = require('../prisma/client');
 const LoanModel = require('../models/Loan');
 
-// ============================================================
-// HELPER FUNCTIONS
-// ============================================================
-
-// Helper: Get or create Loan Liability account
 async function getOrCreateLoanAccount(userId) {
   console.log('🔍 [LN] Getting/Creating Loan Liability account');
   let loanAccount = await prisma.chartOfAccount.findFirst({

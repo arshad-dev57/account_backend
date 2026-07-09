@@ -2,7 +2,6 @@
 
 const prisma = require('../../prisma/client');
 
-// ─── Generate Return Number Function ──────────────────────
 function generateReturnNumber(returnType) {
   const date = new Date();
   const year = date.getFullYear();
@@ -18,9 +17,6 @@ function generateReturnNumber(returnType) {
 }
 
 class ReturnModel {
-  // ============================================================
-  // CREATE RETURN (Sales or Purchase)
-  // ============================================================
   static async create(data) {
     const returnNumber = generateReturnNumber(data.returnType || 'Sales Return');
     
@@ -36,11 +32,11 @@ class ReturnModel {
           customerName: data.customerName,
           customerEmail: data.customerEmail,
           customerPhone: data.customerPhone,
-          subtotal: data.subtotal ?? 0,           // ✅ Fixed: was missing/undefined
-          refundAmount: data.refundAmount ?? 0,   // ✅ Fixed: was undefined
+          subtotal: data.subtotal ?? 0,           
+          refundAmount: data.refundAmount ?? 0,  
           restockingFee: data.restockingFee ?? 0,
           shippingCost: data.shippingCost ?? 0,
-          totalRefund: data.totalRefund ?? 0,     // ✅ Fixed: was undefined
+          totalRefund: data.totalRefund ?? 0,    
           returnType: data.returnType || 'Sales Return',
           reason: data.reason,
           notes: data.notes || '',

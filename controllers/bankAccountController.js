@@ -1,4 +1,4 @@
-// controllers/bankAccountController.js - COMPLETE FIXED VERSION
+// controllers/bankAccountController.js - FIXED VERSION
 
 const BankAccountModel = require('../models/BankAccount');
 const prisma = require('../prisma/client');
@@ -164,6 +164,7 @@ exports.createBankAccount = async (req, res) => {
       }
     });
 
+    // FIXED: Set BOTH userId AND createdBy to the current user
     const bankAccount = await BankAccountModel.create({
       accountName,
       accountNumber,
@@ -174,7 +175,8 @@ exports.createBankAccount = async (req, res) => {
       openingBalance: openingBalance || 0,
       status: status || 'Active',
       chartOfAccountId: chartAccount.id,
-      createdBy: userId
+      createdBy: userId,
+      userId: userId  // FIXED: Set userId as well
     });
 
     if (openingBalance && openingBalance > 0) {
@@ -278,7 +280,7 @@ exports.createBankAccount = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Get all bank accounts
+// @desc    Get all bank accounts - FIXED to use BOTH userId and createdBy
 // @route   GET /api/bank-accounts
 // @access  Private
 // ============================================================
@@ -287,17 +289,33 @@ exports.getBankAccounts = async (req, res) => {
     const { status, search, page = 1, limit = 10 } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    // FIXED: Search using BOTH userId AND createdBy
+    const filter = {
+      OR: [
+        { userId: userId },
+        { createdBy: userId }
+      ]
+    };
 
     if (status && status !== 'All') {
       filter.status = status;
     }
 
     if (search) {
-      filter.OR = [
-        { accountName: { contains: search, mode: 'insensitive' } },
-        { accountNumber: { contains: search, mode: 'insensitive' } },
-        { bankName: { contains: search, mode: 'insensitive' } }
+      filter.AND = [
+        {
+          OR: [
+            { userId: userId },
+            { createdBy: userId }
+          ]
+        },
+        {
+          OR: [
+            { accountName: { contains: search, mode: 'insensitive' } },
+            { accountNumber: { contains: search, mode: 'insensitive' } },
+            { bankName: { contains: search, mode: 'insensitive' } }
+          ]
+        }
       ];
     }
 
@@ -359,7 +377,7 @@ exports.getBankAccounts = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Get single bank account
+// @desc    Get single bank account - FIXED to use BOTH userId and createdBy
 // @route   GET /api/bank-accounts/:id
 // @access  Private
 // ============================================================
@@ -371,7 +389,10 @@ exports.getBankAccount = async (req, res) => {
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
         id,
-        createdBy: userId
+        OR: [
+          { userId: userId },
+          { createdBy: userId }
+        ]
       },
       include: {
         chartOfAccount: {
@@ -437,7 +458,10 @@ exports.updateBankAccount = async (req, res) => {
     const existing = await prisma.bankAccount.findFirst({
       where: {
         id,
-        createdBy: userId
+        OR: [
+          { userId: userId },
+          { createdBy: userId }
+        ]
       }
     });
 
@@ -452,7 +476,10 @@ exports.updateBankAccount = async (req, res) => {
       const duplicate = await prisma.bankAccount.findFirst({
         where: {
           accountNumber,
-          createdBy: userId,
+          OR: [
+            { userId: userId },
+            { createdBy: userId }
+          ],
           NOT: { id }
         }
       });
@@ -513,7 +540,10 @@ exports.deleteBankAccount = async (req, res) => {
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
         id,
-        createdBy: userId
+        OR: [
+          { userId: userId },
+          { createdBy: userId }
+        ]
       },
       include: {
         chartOfAccount: true
@@ -584,7 +614,10 @@ exports.updateBalance = async (req, res) => {
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
         id,
-        createdBy: userId
+        OR: [
+          { userId: userId },
+          { createdBy: userId }
+        ]
       }
     });
 
@@ -637,7 +670,10 @@ exports.reconcileBankAccount = async (req, res) => {
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
         id,
-        createdBy: userId
+        OR: [
+          { userId: userId },
+          { createdBy: userId }
+        ]
       }
     });
 
@@ -694,7 +730,10 @@ exports.getBankAccountTransactions = async (req, res) => {
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
         id,
-        createdBy: userId
+        OR: [
+          { userId: userId },
+          { createdBy: userId }
+        ]
       }
     });
 
@@ -754,8 +793,11 @@ exports.getBankAccountSummary = async (req, res) => {
 
     const bankAccounts = await prisma.bankAccount.findMany({
       where: {
-        createdBy: userId,
-        status: 'Active'
+        status: 'Active',
+        OR: [
+          { userId: userId },
+          { createdBy: userId }
+        ]
       }
     });
 

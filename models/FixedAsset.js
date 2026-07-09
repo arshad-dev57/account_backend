@@ -359,9 +359,6 @@ class FixedAssetModel {
     };
   }
 
-  // ============================================================
-  // ✅ DELETE FIXED ASSET
-  // ============================================================
   static async delete(id) {
     return await prisma.fixedAsset.delete({
       where: { id }

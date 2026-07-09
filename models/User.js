@@ -1,10 +1,11 @@
-// models/User.js - Prisma Version (Replaces Mongoose Model)
+// models/User.js - Prisma Version (COMPLETE FIXED)
+
 const prisma = require('../prisma/client');
 const bcrypt = require('bcryptjs');
 
 class User {
   // ========== STATIC METHODS (Class-level) ==========
-  
+
   // Find user by email or id
   static async findOne(query) {
     if (query.email) {
@@ -20,11 +21,49 @@ class User {
     return null;
   }
 
-  // Find user by id
+  // ✅ FIXED: Find user by id with businessDetails
   static async findById(id) {
-    return await prisma.user.findUnique({
-      where: { id }
+    console.log('🔍 [User.findById] Looking for user:', id);
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        password: true,
+        country: true,
+        phone: true,
+        address: true,
+        organizationName: true,
+        websiteLink: true,
+        contactNo: true,
+        businessDetails: true, // ✅ ADDED
+        role: true,
+        isActive: true,
+        failedLoginAttempts: true,
+        lockUntil: true,
+        requiresLoginOtp: true,
+        loginOtp: true,
+        loginOtpExpiry: true,
+        resetOtp: true,
+        resetOtpExpiry: true,
+        subscriptionPlan: true,
+        subscriptionStatus: true,
+        subscriptionStartDate: true,
+        subscriptionEndDate: true,
+        trialStartDate: true,
+        trialEndDate: true,
+        createdAt: true,
+        updatedAt: true,
+      }
     });
+
+    console.log('🔍 [User.findById] User found:', user ? 'Yes' : 'No');
+    console.log('📦 [User.findById] Business Details:', user?.businessDetails);
+
+    return user;
   }
 
   // Find user by id with select fields
@@ -39,9 +78,10 @@ class User {
         if (field === 'requiresLoginOtp') select.requiresLoginOtp = true;
         if (field === 'loginOtp') select.loginOtp = true;
         if (field === 'loginOtpExpiry') select.loginOtpExpiry = true;
+        if (field === 'businessDetails') select.businessDetails = true; // ✅ ADDED
       });
     }
-    
+
     return await prisma.user.findUnique({
       where: { id },
       select: Object.keys(select).length > 0 ? select : undefined
@@ -57,7 +97,7 @@ class User {
         select[field] = true;
       });
     }
-    
+
     return await prisma.user.findUnique({
       where: { email: query.email },
       select: Object.keys(select).length > 0 ? select : undefined
@@ -68,7 +108,7 @@ class User {
   static async create(data) {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
-    
+
     const userData = {
       firstName: data.firstName,
       lastName: data.lastName,
@@ -78,6 +118,7 @@ class User {
       phone: data.phone || '',
       address: data.address || '',
       organizationName: data.organizationName || '',
+      businessDetails: data.businessDetails || {}, // ✅ ADDED
       subscriptionPlan: 'none',
       subscriptionStatus: 'active',
     };
@@ -90,17 +131,17 @@ class User {
   // Find and update
   static async findByIdAndUpdate(id, updateData) {
     let data = {};
-    
+
     if (updateData.$set) {
       const setData = updateData.$set;
-      
+
       if (setData['subscription.plan']) data.subscriptionPlan = setData['subscription.plan'];
       if (setData['subscription.status']) data.subscriptionStatus = setData['subscription.status'];
       if (setData['subscription.startDate']) data.subscriptionStartDate = setData['subscription.startDate'];
       if (setData['subscription.endDate']) data.subscriptionEndDate = setData['subscription.endDate'];
       if (setData['subscription.trialStartDate']) data.trialStartDate = setData['subscription.trialStartDate'];
       if (setData['subscription.trialEndDate']) data.trialEndDate = setData['subscription.trialEndDate'];
-      
+
       if (setData.firstName) data.firstName = setData.firstName;
       if (setData.lastName) data.lastName = setData.lastName;
       if (setData.email) data.email = setData.email;
@@ -108,6 +149,7 @@ class User {
       if (setData.country) data.country = setData.country;
       if (setData.address) data.address = setData.address;
       if (setData.organizationName) data.organizationName = setData.organizationName;
+      if (setData.businessDetails) data.businessDetails = setData.businessDetails; // ✅ ADDED
       if (setData.isActive !== undefined) data.isActive = setData.isActive;
       if (setData.failedLoginAttempts !== undefined) data.failedLoginAttempts = setData.failedLoginAttempts;
       if (setData.lockUntil !== undefined) data.lockUntil = setData.lockUntil;
@@ -143,7 +185,8 @@ class User {
   }
 
   // ========== INSTANCE METHODS (Object-level) ==========
-  
+
+  // ✅ FIXED: Constructor with businessDetails
   constructor(userData) {
     this._id = userData.id;
     this.id = userData.id;
@@ -166,6 +209,7 @@ class User {
     this.address = userData.address || '';
     this.contactNo = userData.contactNo || '';
     this.websiteLink = userData.websiteLink || '';
+    this.businessDetails = userData.businessDetails || {}; // ✅ ADDED
     this.subscription = {
       plan: userData.subscriptionPlan || 'none',
       status: userData.subscriptionStatus || 'active',
@@ -198,15 +242,15 @@ class User {
   // Check if user has active subscription
   hasActiveSubscription() {
     if (this.subscription.plan === 'trial' &&
-        this.subscription.trialEndDate &&
-        new Date() <= new Date(this.subscription.trialEndDate)) {
+      this.subscription.trialEndDate &&
+      new Date() <= new Date(this.subscription.trialEndDate)) {
       return true;
     }
 
     if ((this.subscription.plan === 'monthly' || this.subscription.plan === 'yearly') &&
-        this.subscription.status === 'active' &&
-        this.subscription.endDate &&
-        new Date() <= new Date(this.subscription.endDate)) {
+      this.subscription.status === 'active' &&
+      this.subscription.endDate &&
+      new Date() <= new Date(this.subscription.endDate)) {
       return true;
     }
 
@@ -325,10 +369,10 @@ class User {
     }
   }
 
-  // Save method (for instance)
+  // ✅ FIXED: Save method with businessDetails
   async save() {
     const data = {};
-    
+
     if (this.firstName) data.firstName = this.firstName;
     if (this.lastName) data.lastName = this.lastName;
     if (this.email) data.email = this.email;
@@ -337,6 +381,10 @@ class User {
     if (this.country) data.country = this.country;
     if (this.address !== undefined) data.address = this.address;
     if (this.organizationName !== undefined) data.organizationName = this.organizationName;
+    if (this.websiteLink !== undefined) data.websiteLink = this.websiteLink;
+    if (this.contactNo !== undefined) data.contactNo = this.contactNo;
+    if (this.businessDetails !== undefined) data.businessDetails = this.businessDetails; // ✅ ADDED
+
     if (this.isActive !== undefined) data.isActive = this.isActive;
     if (this.failedLoginAttempts !== undefined) data.failedLoginAttempts = this.failedLoginAttempts;
     if (this.lockUntil !== undefined) data.lockUntil = this.lockUntil;
@@ -345,7 +393,7 @@ class User {
     if (this.loginOtpExpiry !== undefined) data.loginOtpExpiry = this.loginOtpExpiry;
     if (this.resetOtp !== undefined) data.resetOtp = this.resetOtp;
     if (this.resetOtpExpiry !== undefined) data.resetOtpExpiry = this.resetOtpExpiry;
-    
+
     if (this.subscription) {
       if (this.subscription.plan) data.subscriptionPlan = this.subscription.plan;
       if (this.subscription.status) data.subscriptionStatus = this.subscription.status;

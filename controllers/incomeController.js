@@ -5,10 +5,10 @@ const prisma = require('../prisma/client');
 
 // ─── HELPER: Get all income accounts for dropdown ──────────────
 async function getIncomeAccountsForDropdown(userId) {
-  return await prisma.chartOfAccount.findMany({
+  let accounts = await prisma.chartOfAccount.findMany({
     where: {
       createdBy: userId,
-      type: 'Revenue',
+      type: { in: ['Revenue', 'Income'] },
       isActive: true
     },
     select: {
@@ -21,6 +21,53 @@ async function getIncomeAccountsForDropdown(userId) {
       code: 'asc'
     }
   });
+
+  if (accounts.length === 0) {
+    // Create a default income account
+    const existingCode = await prisma.chartOfAccount.findFirst({
+      where: { code: '4000' }
+    });
+
+    let newCode = '4000';
+    if (existingCode) {
+      let counter = 1;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = `400${counter}`;
+        const existing = await prisma.chartOfAccount.findFirst({
+          where: { code: newCode }
+        });
+        if (!existing) codeExists = false;
+        counter++;
+      }
+    }
+
+    const newAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: newCode,
+        name: 'Sales Revenue',
+        type: 'Revenue',
+        parentAccount: 'Operating Revenue',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Default sales revenue account',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        type: true
+      }
+    });
+
+    accounts = [newAccount];
+  }
+
+  return accounts;
 }
 
 // ─── HELPER: Get or create Cash account ──────────────────────────
@@ -175,7 +222,7 @@ exports.createIncome = async (req, res) => {
       where: {
         id: incomeAccountId,
         createdBy: userId,
-        type: 'Revenue',
+        type: { in: ['Revenue', 'Income'] },
         isActive: true
       }
     });
@@ -643,7 +690,7 @@ exports.updateIncome = async (req, res) => {
         where: {
           id: incomeAccountId,
           createdBy: userId,
-          type: 'Revenue'
+          type: { in: ['Revenue', 'Income'] }
         }
       });
       if (!incomeAccount) {
