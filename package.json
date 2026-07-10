@@ -1,12 +1,11 @@
 {
   "name": "account_backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-  "build": "prisma generate",
-  "start": "node server.js",
-  "dev": "nodemon server.js"
-},
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
