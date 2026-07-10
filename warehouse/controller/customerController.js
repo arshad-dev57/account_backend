@@ -1,6 +1,6 @@
 // warehouse/controller/customerController.js - Prisma Version
-const Customer = require('../models/customer');
-const Order = require('../models/Order');
+const Customer = require('../../warehouse/models/customer');
+const Order = require('../../warehouse/models/Order');
 const prisma = require('../../prisma/client');
 
 const getCustomers = async (req, res) => {
