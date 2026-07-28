@@ -13,6 +13,7 @@ const prisma = require('../../prisma/client');
 const createQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       customerId,
       customerName,
@@ -54,7 +55,7 @@ const createQuotation = async (req, res) => {
       customer = await prisma.customer.findFirst({
         where: {
           id: customerId,
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false
         }
@@ -82,7 +83,7 @@ const createQuotation = async (req, res) => {
         product = await prisma.product.findFirst({
           where: {
             id: item.productId,
-            userId: userId,
+            companyId: companyId,
             isActive: true
           }
         });
@@ -90,7 +91,7 @@ const createQuotation = async (req, res) => {
         product = await prisma.product.findFirst({
           where: {
             sku: item.sku,
-            userId: userId,
+            companyId: companyId,
             isActive: true
           }
         });
@@ -156,6 +157,7 @@ const createQuotation = async (req, res) => {
 const getQuotations = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -247,12 +249,13 @@ const getQuotations = async (req, res) => {
 const getQuotationById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const quotation = await prisma.quotation.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -304,12 +307,13 @@ const getQuotationById = async (req, res) => {
 const getQuotationByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { quotationNumber } = req.params;
 
     const quotation = await prisma.quotation.findFirst({
       where: {
         quotationNumber: quotationNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -358,6 +362,7 @@ const getQuotationByNumber = async (req, res) => {
 const updateQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const {
       customerId,
@@ -378,7 +383,7 @@ const updateQuotation = async (req, res) => {
     const quotation = await prisma.quotation.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -425,7 +430,7 @@ const updateQuotation = async (req, res) => {
           product = await prisma.product.findFirst({
             where: {
               id: item.productId,
-              userId: userId,
+              companyId: companyId,
               isActive: true
             }
           });
@@ -433,7 +438,7 @@ const updateQuotation = async (req, res) => {
           product = await prisma.product.findFirst({
             where: {
               sku: item.sku,
-              userId: userId,
+              companyId: companyId,
               isActive: true
             }
           });
@@ -484,6 +489,7 @@ const updateQuotation = async (req, res) => {
 const updateQuotationStatus = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { status, notes } = req.body;
 
@@ -498,7 +504,7 @@ const updateQuotationStatus = async (req, res) => {
     const quotation = await prisma.quotation.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -551,13 +557,14 @@ const updateQuotationStatus = async (req, res) => {
 const convertQuotationToOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if quotation exists ──────────────────────
     const quotation = await prisma.quotation.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -614,13 +621,14 @@ const convertQuotationToOrder = async (req, res) => {
 const deleteQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if quotation exists ──────────────────────
     const quotation = await prisma.quotation.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -664,6 +672,7 @@ const getQuotationStats = async (req, res) => {
   try {
     const userId = req.user.id;
     
+    const companyId = req.user.companyId;
     // Check and update expired quotations
     await Quotation.updateExpiredQuotations(userId);
 
@@ -695,6 +704,7 @@ const getQuotationStats = async (req, res) => {
 const getCustomerQuotationSummary = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { startDate, endDate } = req.query;
 
     const summary = await Quotation.getCustomerSummary(userId, startDate, endDate);
@@ -719,6 +729,7 @@ const getCustomerQuotationSummary = async (req, res) => {
 const getProductQuotationSummary = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { startDate, endDate } = req.query;
 
     const summary = await Quotation.getProductSummary(userId, startDate, endDate);
@@ -743,6 +754,7 @@ const getProductQuotationSummary = async (req, res) => {
 const sendQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { email } = req.body;
 
@@ -750,7 +762,7 @@ const sendQuotation = async (req, res) => {
     const quotation = await prisma.quotation.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -798,12 +810,13 @@ const sendQuotation = async (req, res) => {
 const printQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const quotation = await prisma.quotation.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },

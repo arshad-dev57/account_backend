@@ -1,4 +1,4 @@
-// controllers/refundController.js - COMPLETE SALES & PURCHASE REFUND CONTROLLER
+// warehouse/controller/refundController.js - COMPLETE CORRECTED
 
 const Refund = require('../models/Refunds');
 const prisma = require('../../prisma/client');
@@ -13,11 +13,12 @@ const prisma = require('../../prisma/client');
 const createSalesRefund = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refundData = {
       ...req.body,
       refundType: 'Sales Refund',
       createdBy: userId,
-      userId: userId
+      companyId: companyId
     };
     
     const refund = await Refund.create(refundData);
@@ -47,6 +48,7 @@ const createSalesRefund = async (req, res) => {
 const getSalesRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -59,10 +61,12 @@ const getSalesRefunds = async (req, res) => {
       sortOrder = 'desc',
     } = req.query;
 
+    // ✅ FIXED: Use createdBy and companyId instead of userId
     const filter = {
       isActive: true,
       isDeleted: false,
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       refundType: 'Sales Refund'
     };
 
@@ -93,10 +97,11 @@ const getSalesRefunds = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const orderBy = { [sortBy]: sortOrder === 'desc' ? 'desc' : 'asc' };
 
+    // ✅ FIXED: Pass companyId instead of userId to getStats
     const [refunds, total, stats] = await Promise.all([
       Refund.findSalesRefunds(filter, { skip, take: limitNum, orderBy }),
       Refund.countSalesRefunds(filter),
-      Refund.getStats(userId, 'Sales Refund')
+      Refund.getStats(companyId, 'Sales Refund')  // ✅ Pass companyId
     ]);
 
     res.status(200).json({
@@ -128,11 +133,12 @@ const getSalesRefunds = async (req, res) => {
 const createPurchaseRefund = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refundData = {
       ...req.body,
       refundType: 'Purchase Refund',
       createdBy: userId,
-      userId: userId
+      companyId: companyId  // ✅ Use companyId
     };
     
     const refund = await Refund.create(refundData);
@@ -154,6 +160,7 @@ const createPurchaseRefund = async (req, res) => {
 const getPurchaseRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -166,10 +173,12 @@ const getPurchaseRefunds = async (req, res) => {
       sortOrder = 'desc',
     } = req.query;
 
+    // ✅ FIXED: Use createdBy and companyId instead of userId
     const filter = {
       isActive: true,
       isDeleted: false,
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       refundType: 'Purchase Refund'
     };
 
@@ -200,10 +209,11 @@ const getPurchaseRefunds = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const orderBy = { [sortBy]: sortOrder === 'desc' ? 'desc' : 'asc' };
 
+    // ✅ FIXED: Pass companyId instead of userId to getStats
     const [refunds, total, stats] = await Promise.all([
       Refund.findPurchaseRefunds(filter, { skip, take: limitNum, orderBy }),
       Refund.countPurchaseRefunds(filter),
-      Refund.getStats(userId, 'Purchase Refund')
+      Refund.getStats(companyId, 'Purchase Refund')  // ✅ Pass companyId
     ]);
 
     res.status(200).json({
@@ -235,10 +245,11 @@ const getPurchaseRefunds = async (req, res) => {
 const getRefundById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refund = await prisma.refund.findFirst({
       where: {
         id: req.params.id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -278,10 +289,13 @@ const getRefundById = async (req, res) => {
 const getRefundByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refund = await prisma.refund.findFirst({
       where: {
         refundNumber: req.params.refundNumber,
-        userId: userId
+        companyId: companyId,
+        isActive: true,
+        isDeleted: false
       },
       include: {
         creator: {
@@ -313,6 +327,7 @@ const getRefundByNumber = async (req, res) => {
 const getOrderRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refunds = await Refund.findByOrderId(req.params.orderId);
     res.status(200).json({ success: true, data: refunds });
   } catch (error) {
@@ -327,6 +342,7 @@ const getOrderRefunds = async (req, res) => {
 const getPurchaseRefundsByPurchase = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refunds = await Refund.findByPurchaseId(req.params.purchaseId);
     res.status(200).json({ success: true, data: refunds });
   } catch (error) {
@@ -341,6 +357,7 @@ const getPurchaseRefundsByPurchase = async (req, res) => {
 const updateRefund = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -371,6 +388,7 @@ const updateRefund = async (req, res) => {
 const processRefund = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -397,6 +415,7 @@ const processRefund = async (req, res) => {
 const completeRefund = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -423,6 +442,7 @@ const completeRefund = async (req, res) => {
 const cancelRefund = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -449,6 +469,7 @@ const cancelRefund = async (req, res) => {
 const deleteRefund = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -475,20 +496,22 @@ const deleteRefund = async (req, res) => {
 const getRefundStats = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { period = 'month', type } = req.query;
     
     let stats;
     let dailyTrend;
     
+    // ✅ FIXED: Pass companyId instead of userId
     if (type === 'sales') {
-      stats = await Refund.getStats(userId, 'Sales Refund', period);
-      dailyTrend = await Refund.getDailyTrend(userId, 'Sales Refund', period);
+      stats = await Refund.getStats(companyId, 'Sales Refund', period);
+      dailyTrend = await Refund.getDailyTrend(companyId, 'Sales Refund', period);
     } else if (type === 'purchase') {
-      stats = await Refund.getStats(userId, 'Purchase Refund', period);
-      dailyTrend = await Refund.getDailyTrend(userId, 'Purchase Refund', period);
+      stats = await Refund.getStats(companyId, 'Purchase Refund', period);
+      dailyTrend = await Refund.getDailyTrend(companyId, 'Purchase Refund', period);
     } else {
-      stats = await Refund.getStats(userId, null, period);
-      dailyTrend = await Refund.getDailyTrend(userId, null, period);
+      stats = await Refund.getStats(companyId, null, period);
+      dailyTrend = await Refund.getDailyTrend(companyId, null, period);
     }
     
     res.status(200).json({
@@ -507,13 +530,15 @@ const getRefundStats = async (req, res) => {
 const searchRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { q, limit = 10 } = req.query;
 
     if (!q || q.length < 2) {
       return res.status(200).json({ success: true, data: [], count: 0 });
     }
 
-    const refunds = await Refund.search(userId, q, parseInt(limit));
+    // ✅ FIXED: Pass companyId instead of userId
+    const refunds = await Refund.search(companyId, q, parseInt(limit));
     res.status(200).json({ success: true, data: refunds, count: refunds.length });
   } catch (error) {
     console.error('Search refunds error:', error);

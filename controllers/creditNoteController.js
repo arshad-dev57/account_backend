@@ -2,6 +2,9 @@
 
 const prisma = require('../prisma/client');
 const CreditNoteModel = require('../models/CreditNote');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 // ============================================================
 // ACCOUNTING CONSTANTS
@@ -53,13 +56,14 @@ const REASON_TYPE_MAPPING = {
 // HELPER FUNCTIONS
 // ============================================================
 
-async function getOrCreateContraRevenueAccount(userId, reasonType) {
+async function getOrCreateContraRevenueAccount(userId, companyId, reasonType) {
   const mapping = REASON_TYPE_MAPPING[reasonType] || REASON_TYPE_MAPPING['Return'];
   
   let account = await prisma.chartOfAccount.findFirst({
     where: {
       code: mapping.accountCode,
-      createdBy: userId
+      
+      companyId: companyId
     }
   });
 
@@ -75,7 +79,7 @@ async function getOrCreateContraRevenueAccount(userId, reasonType) {
       while (codeExists) {
         newCode = `${mapping.accountCode.substring(0, 2)}${counter}${mapping.accountCode.substring(2)}`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode,  companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -96,7 +100,8 @@ async function getOrCreateContraRevenueAccount(userId, reasonType) {
         taxCode: 'N/A',
         balanceType: mapping.balanceType,
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
   }
@@ -107,8 +112,7 @@ async function getOrCreateReceivableAccount(userId) {
   let arAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1110',
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!arAccount) {
@@ -123,7 +127,7 @@ async function getOrCreateReceivableAccount(userId) {
       while (codeExists) {
         newCode = `111${counter}`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId}
         });
         if (!existing) {
           codeExists = false;
@@ -155,8 +159,7 @@ async function getOrCreateTaxPayableAccount(userId) {
   let taxAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '2200',
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!taxAccount) {
@@ -171,7 +174,7 @@ async function getOrCreateTaxPayableAccount(userId) {
       while (codeExists) {
         newCode = `22${counter}0`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId}
         });
         if (!existing) {
           codeExists = false;
@@ -203,8 +206,7 @@ async function validateCustomer(customerId, userId) {
   const customer = await prisma.customer.findFirst({
     where: {
       id: customerId,
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!customer) {
@@ -217,8 +219,7 @@ async function validateWarehouseInvoice(invoiceId, userId) {
   const invoice = await prisma.warehouseInvoice.findFirst({
     where: {
       id: invoiceId,
-      createdBy: userId
-    },
+      companyId: companyId},
     select: {
       id: true,
       invoiceNumber: true,
@@ -296,6 +297,21 @@ exports.createCreditNote = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const postingDate = new Date();
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     const customer = await validateCustomer(customerId, userId);
     const invoice = await validateWarehouseInvoice(originalInvoiceId, userId);
@@ -311,8 +327,7 @@ exports.createCreditNote = async (req, res) => {
       where: {
         originalInvoiceId: invoice.id,
         status: { in: ['Issued', 'PartiallyApplied'] },
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (existingCN) {
@@ -369,18 +384,20 @@ exports.createCreditNote = async (req, res) => {
       createdBy: userId,
       taxRate: taxRate,
       taxAmount: taxAmount,
-      netAmount: netAmount
+      netAmount: netAmount,
+      fiscalYearId,
     });
 
     await prisma.journalEntry.create({
       data: {
         entryNumber: `JE-CN-${Date.now()}`,
-        date: new Date(),
+        date: postingDate,
         description: `Credit note ${creditNote.creditNumber} issued to ${customer.name} for ${reason || 'Adjustment'}`,
         reference: creditNote.creditNumber,
         status: 'Posted',
         createdBy: userId,
         postedBy: userId,
+        fiscalYearId,
         postedAt: new Date(),
         lines: {
           create: [
@@ -479,6 +496,18 @@ exports.createCreditNote = async (req, res) => {
       data: creditNote,
       message: 'Credit note created successfully with proper accounting entries',
     });
+
+    // Invalidate cache after successful credit note creation
+    try {
+      await delPattern(`cn:list:${userId}:*`);
+      await delPattern(`cn:detail:${userId}:*`);
+      await delPattern(`cn:summary:${userId}:*`);
+      await delPattern(`cn:unpaid-invoices:${userId}:*`);
+      await delPattern(`cn:by-number:${userId}:*`);
+      console.log('🗑️ [CN] Cache invalidated after credit note creation');
+    } catch (cacheError) {
+      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ [CN] Create credit note error:', error);
     res.status(500).json({
@@ -498,7 +527,21 @@ exports.getCreditNotes = async (req, res) => {
     const { customerId, status, startDate, endDate, search } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `cn:list:${userId}:${customerId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${search || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
+
+    const filter = { companyId: companyId };
 
     if (customerId) filter.customerId = customerId;
     if (status) filter.status = status;
@@ -526,7 +569,6 @@ exports.getCreditNotes = async (req, res) => {
             name: true,
             email: true,
             phone: true
-            // Removed: balance - field doesn't exist
           }
         },
         originalInvoice: {
@@ -543,10 +585,18 @@ exports.getCreditNotes = async (req, res) => {
       }
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       count: creditNotes.length,
       data: creditNotes,
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [CN] Get credit notes error:', error);
@@ -567,11 +617,24 @@ exports.getCreditNote = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `cn:detail:${userId}:${id}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         customer: {
           select: {
@@ -603,9 +666,13 @@ exports.getCreditNote = async (req, res) => {
       });
     }
 
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, creditNote, 600);
+
     res.status(200).json({
       success: true,
       data: creditNote,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [CN] Get credit note error:', error);
@@ -626,7 +693,21 @@ exports.getSummary = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `cn:summary:${userId}:${startDate || ''}:${endDate || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = { companyId: companyId };
 
     if (startDate && endDate) {
       filter.date = {
@@ -672,19 +753,25 @@ exports.getSummary = async (req, res) => {
       _count: true
     });
 
+    const summaryData = {
+      totalCount,
+      totalAmount,
+      appliedAmount,
+      remainingAmount,
+      expiredAmount,
+      thisMonth: thisMonth._sum.amount || 0,
+      thisMonthCount: thisMonth._count || 0,
+      thisWeek: thisWeek._sum.amount || 0,
+      thisWeekCount: thisWeek._count || 0,
+    };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summaryData, 120);
+
     res.status(200).json({
       success: true,
-      data: {
-        totalCount,
-        totalAmount,
-        appliedAmount,
-        remainingAmount,
-        expiredAmount,
-        thisMonth: thisMonth._sum.amount || 0,
-        thisMonthCount: thisMonth._count || 0,
-        thisWeek: thisWeek._sum.amount || 0,
-        thisWeekCount: thisWeek._count || 0,
-      },
+      data: summaryData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [CN] Get summary error:', error);
@@ -708,11 +795,24 @@ exports.getUnpaidInvoices = async (req, res) => {
     const { customerId } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `cn:unpaid-invoices:${userId}:${customerId}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
+
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!customer) {
@@ -725,7 +825,7 @@ exports.getUnpaidInvoices = async (req, res) => {
     const invoices = await prisma.warehouseInvoice.findMany({
       where: {
         customerId: customerId,
-        createdBy: userId,
+        companyId: companyId,
         paymentStatus: {
           not: 'Paid'
         },
@@ -761,7 +861,7 @@ exports.getUnpaidInvoices = async (req, res) => {
     const creditNotes = await prisma.creditNote.findMany({
       where: {
         originalInvoiceId: { in: invoiceIds },
-        createdBy: userId,
+        companyId: companyId,
         status: { in: ['Issued', 'PartiallyApplied'] }
       },
       select: {
@@ -794,10 +894,18 @@ exports.getUnpaidInvoices = async (req, res) => {
       inv => !inv.hasCreditNote
     );
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       count: filteredInvoices.length,
       data: filteredInvoices,
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
     });
 
   } catch (error) {
@@ -819,6 +927,7 @@ exports.applyCreditNote = async (req, res) => {
     const { creditNoteId, invoiceId, amount } = req.body;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -829,8 +938,7 @@ exports.applyCreditNote = async (req, res) => {
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id: creditNoteId,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!creditNote) {
@@ -864,8 +972,7 @@ exports.applyCreditNote = async (req, res) => {
     const invoice = await prisma.warehouseInvoice.findFirst({
       where: {
         id: invoiceId,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!invoice) {
@@ -988,6 +1095,17 @@ exports.applyCreditNote = async (req, res) => {
       success: true,
       message: 'Credit note applied successfully with proper accounting entries',
     });
+
+    // Invalidate cache after successful credit note application
+    try {
+      await delPattern(`cn:list:${userId}:*`);
+      await delPattern(`cn:detail:${userId}:${creditNoteId}`);
+      await delPattern(`cn:summary:${userId}:*`);
+      await delPattern(`cn:unpaid-invoices:${userId}:*`);
+      console.log('🗑️ [CN] Cache invalidated after credit note application');
+    } catch (cacheError) {
+      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ [CN] Apply credit note error:', error);
     res.status(500).json({
@@ -1008,9 +1126,10 @@ exports.expireCreditNotes = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const expiredNotes = await prisma.creditNote.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         expiryDate: { lt: new Date() },
         status: { in: ['Issued', 'PartiallyApplied'] },
         remainingAmount: { gt: 0 }
@@ -1033,6 +1152,15 @@ exports.expireCreditNotes = async (req, res) => {
       },
       message: `${expiredNotes.length} credit notes expired`,
     });
+
+    // Invalidate cache after successful credit note expiration
+    try {
+      await delPattern(`cn:list:${userId}:*`);
+      await delPattern(`cn:summary:${userId}:*`);
+      console.log('🗑️ [CN] Cache invalidated after credit note expiration');
+    } catch (cacheError) {
+      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ [CN] Expire credit notes error:', error);
     res.status(500).json({
@@ -1052,11 +1180,11 @@ exports.deleteCreditNote = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!creditNote) {
@@ -1081,6 +1209,18 @@ exports.deleteCreditNote = async (req, res) => {
       success: true,
       message: 'Credit note deleted successfully',
     });
+
+    // Invalidate cache after successful credit note deletion
+    try {
+      await delPattern(`cn:list:${userId}:*`);
+      await delPattern(`cn:detail:${userId}:${id}`);
+      await delPattern(`cn:summary:${userId}:*`);
+      await delPattern(`cn:unpaid-invoices:${userId}:*`);
+      await delPattern(`cn:by-number:${userId}:*`);
+      console.log('🗑️ [CN] Cache invalidated after credit note deletion');
+    } catch (cacheError) {
+      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ [CN] Delete credit note error:', error);
     res.status(500).json({
@@ -1101,11 +1241,11 @@ exports.voidCreditNote = async (req, res) => {
     const { reason } = req.body;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!creditNote) {
@@ -1141,6 +1281,18 @@ exports.voidCreditNote = async (req, res) => {
       success: true,
       message: 'Credit note voided successfully',
     });
+
+    // Invalidate cache after successful credit note void
+    try {
+      await delPattern(`cn:list:${userId}:*`);
+      await delPattern(`cn:detail:${userId}:${id}`);
+      await delPattern(`cn:summary:${userId}:*`);
+      await delPattern(`cn:unpaid-invoices:${userId}:*`);
+      await delPattern(`cn:by-number:${userId}:*`);
+      console.log('🗑️ [CN] Cache invalidated after credit note void');
+    } catch (cacheError) {
+      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ [CN] Void credit note error:', error);
     res.status(500).json({
@@ -1160,11 +1312,24 @@ exports.getCreditNoteByNumber = async (req, res) => {
     const { creditNumber } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `cn:by-number:${userId}:${creditNumber}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         creditNumber: creditNumber,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         customer: {
           select: {
@@ -1192,9 +1357,13 @@ exports.getCreditNoteByNumber = async (req, res) => {
       });
     }
 
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, creditNote, 600);
+
     res.status(200).json({
       success: true,
       data: creditNote,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [CN] Get credit note by number error:', error);

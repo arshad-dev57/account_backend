@@ -35,7 +35,7 @@ const autoCreateRefund = async (returnData, userId) => {
         notes: '',
         createdBy: userId,
         updatedBy: userId,
-        userId: userId
+        companyId: companyId
       },
     });
 
@@ -57,11 +57,12 @@ const autoCreateRefund = async (returnData, userId) => {
 const createSalesReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const returnData = {
       ...req.body,
       returnType: 'Sales Return',
       createdBy: userId,
-      userId: userId
+      companyId: companyId
     };
     
     const salesReturn = await Return.create(returnData);
@@ -83,6 +84,7 @@ const createSalesReturn = async (req, res) => {
 const getSalesReturns = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -95,12 +97,13 @@ const getSalesReturns = async (req, res) => {
       sortOrder = 'desc',
     } = req.query;
 
-    const filter = {
-      isActive: true,
-      isDeleted: false,
-      userId: userId,
-      returnType: 'Sales Return'
-    };
+   const filter = {
+  isActive: true,
+  isDeleted: false,
+  createdBy: userId,      // ✅ Use createdBy instead of userId
+  companyId: companyId,   // ✅ Use companyId
+  returnType: 'Sales Return'
+};
 
     if (search) {
       filter.OR = [
@@ -115,7 +118,7 @@ const getSalesReturns = async (req, res) => {
 
     if (customerId) {
       const customer = await prisma.customer.findFirst({
-        where: { id: customerId, userId: userId }
+        where: { id: customerId, companyId: companyId}
       });
       if (!customer) {
         return res.status(404).json({
@@ -144,7 +147,7 @@ const getSalesReturns = async (req, res) => {
     const [returns, total, stats] = await Promise.all([
       Return.findSalesReturns(filter, { skip, take: limitNum, orderBy }),
       Return.countSalesReturns(filter),
-      Return.getStats(userId, 'Sales Return')
+      Return.getStats(companyId, 'Sales Return')
     ]);
 
     res.status(200).json({
@@ -176,6 +179,7 @@ const getSalesReturns = async (req, res) => {
 const createPurchaseReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const returnData = {
       ...req.body,
       returnType: 'Purchase Return',
@@ -202,6 +206,7 @@ const createPurchaseReturn = async (req, res) => {
 const getPurchaseReturns = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -214,14 +219,15 @@ const getPurchaseReturns = async (req, res) => {
       sortOrder = 'desc',
     } = req.query;
 
-    const filter = {
-      isActive: true,
-      isDeleted: false,
-      userId: userId,
-      returnType: 'Purchase Return'
-    };
+   const filter = {
+  isActive: true,
+  isDeleted: false,
+  createdBy: userId,      // ✅ Use createdBy instead of userId
+  companyId: companyId,   // ✅ Use companyId
+  returnType: 'Purchase Return'
+};
 
-    if (search) {
+    if (search) { 
       filter.OR = [
         { returnNumber: { contains: search, mode: 'insensitive' } },
         { orderNumber: { contains: search, mode: 'insensitive' } },
@@ -234,7 +240,7 @@ const getPurchaseReturns = async (req, res) => {
 
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
-        where: { id: supplierId, userId: userId }
+        where: { id: supplierId, companyId: companyId}
       });
       if (!supplier) {
         return res.status(404).json({
@@ -263,7 +269,7 @@ const getPurchaseReturns = async (req, res) => {
     const [returns, total, stats] = await Promise.all([
       Return.findPurchaseReturns(filter, { skip, take: limitNum, orderBy }),
       Return.countPurchaseReturns(filter),
-      Return.getStats(userId, 'Purchase Return')
+      Return.getStats(companyId, 'Purchase Return')
     ]);
 
     res.status(200).json({
@@ -295,10 +301,11 @@ const getPurchaseReturns = async (req, res) => {
 const getReturnById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const returnData = await prisma.return.findFirst({
       where: {
         id: req.params.id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -342,6 +349,7 @@ const getReturnById = async (req, res) => {
 const approveReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { notes } = req.body;
 
@@ -371,6 +379,7 @@ const approveReturn = async (req, res) => {
 const rejectReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { rejectionReason } = req.body;
 
@@ -404,6 +413,7 @@ const rejectReturn = async (req, res) => {
 const completeReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { receivedDate } = req.body;
 
@@ -449,6 +459,7 @@ const completeReturn = async (req, res) => {
 const cancelReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -478,6 +489,7 @@ const cancelReturn = async (req, res) => {
 const deleteReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const returnData = await Return.findById(id);
@@ -499,20 +511,21 @@ const deleteReturn = async (req, res) => {
 const getReturnStats = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { period = 'month', type } = req.query;
     
     let stats;
     let dailyTrend;
     
     if (type === 'sales') {
-      stats = await Return.getStats(userId, 'Sales Return', period);
-      dailyTrend = await Return.getDailyTrend(userId, 'Sales Return', period);
+      stats = await Return.getStats(companyId, 'Sales Return', period);
+      dailyTrend = await Return.getDailyTrend(companyId, 'Sales Return', period);
     } else if (type === 'purchase') {
-      stats = await Return.getStats(userId, 'Purchase Return', period);
-      dailyTrend = await Return.getDailyTrend(userId, 'Purchase Return', period);
+      stats = await Return.getStats(companyId, 'Purchase Return', period);
+      dailyTrend = await Return.getDailyTrend(companyId, 'Purchase Return', period);
     } else {
-      stats = await Return.getStats(userId, null, period);
-      dailyTrend = await Return.getDailyTrend(userId, null, period);
+      stats = await Return.getStats(companyId, null, period);
+      dailyTrend = await Return.getDailyTrend(companyId, null, period);
     }
     
     res.status(200).json({
@@ -531,10 +544,11 @@ const getReturnStats = async (req, res) => {
 const getReturnsByOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { orderId } = req.params;
 
     const order = await prisma.order.findFirst({
-      where: { id: orderId, userId: userId },
+      where: { id: orderId, companyId: companyId},
       select: { id: true }
     });
 
@@ -545,7 +559,7 @@ const getReturnsByOrder = async (req, res) => {
     const returns = await prisma.return.findMany({
       where: {
         orderId: orderId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },

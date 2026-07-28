@@ -1,20 +1,88 @@
-// models/Bill.js - PostgreSQL Prisma Version
-
 const prisma = require('../prisma/client');
 
 // ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_BILL_STATUS = ['Unpaid', 'Partial', 'Paid', 'Overdue'];
 
 class BillModel {
+
   // ============================================================
-  // ✅ GENERATE BILL NUMBER
+  // ✅ GENERATE UNIQUE BILL NUMBER - FIXED
   // ============================================================
-  static async generateBillNumber(userId) {
-    const count = await prisma.bill.count({
-      where: { createdBy: userId }
+  static async generateBillNumber(companyId) {
+    const prefix = 'BILL-';
+    
+    // Find the highest existing bill number for this company
+    const highestBill = await prisma.bill.findFirst({
+      where: {
+        companyId: companyId,
+        billNumber: {
+          startsWith: prefix
+        }
+      },
+      orderBy: {
+        billNumber: 'desc'
+      },
+      select: {
+        billNumber: true
+      }
     });
-    const year = new Date().getFullYear();
-    return `BILL-${year}-${String(count + 1).padStart(4, '0')}`;
+
+    let nextNumber = 1;
+    if (highestBill && highestBill.billNumber) {
+      const parts = highestBill.billNumber.split('-');
+      if (parts.length === 2) {
+        const num = parseInt(parts[1]);
+        if (!isNaN(num)) {
+          nextNumber = num + 1;
+        }
+      }
+    }
+
+    // Check if the generated number already exists (safety check)
+    let candidate = `${prefix}${String(nextNumber).padStart(4, '0')}`;
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    while (attempts < maxAttempts) {
+      const existing = await prisma.bill.findFirst({
+        where: {
+          billNumber: candidate,
+          companyId: companyId
+        },
+        select: { id: true }
+      });
+
+      if (!existing) {
+        break;
+      }
+
+      // Try next number
+      nextNumber++;
+      candidate = `${prefix}${String(nextNumber).padStart(4, '0')}`;
+      attempts++;
+    }
+
+    // If we couldn't find a unique number, use timestamp-based fallback
+    if (attempts >= maxAttempts) {
+      const timestamp = Date.now().toString(36).toUpperCase();
+      const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+      candidate = `${prefix}${timestamp}${random}`.substring(0, 15);
+      
+      // Verify fallback is unique
+      const existing = await prisma.bill.findFirst({
+        where: {
+          billNumber: candidate,
+          companyId: companyId
+        },
+        select: { id: true }
+      });
+
+      if (existing) {
+        candidate = `${prefix}${timestamp}${random}${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+      }
+    }
+
+    return candidate;
   }
 
   // ============================================================
@@ -60,7 +128,8 @@ class BillModel {
       throw new Error(errors.join('; '));
     }
 
-    const billNumber = await this.generateBillNumber(data.createdBy);
+    // Generate unique bill number using companyId
+    const billNumber = await this.generateBillNumber(data.companyId);
     
     // Calculate totals
     let subtotal = 0;
@@ -102,7 +171,9 @@ class BillModel {
         notes: data.notes || '',
         posted: data.posted !== undefined ? data.posted : true,
         postedAt: data.posted !== false ? new Date() : null,
-        createdBy: data.createdBy
+        createdBy: data.createdBy,
+        companyId: data.companyId,
+        fiscalYearId: data.fiscalYearId || null
       },
       include: {
         vendor: {
@@ -116,7 +187,7 @@ class BillModel {
   }
 
   // ============================================================
-  // ✅ FIND ALL BILLS
+  // ✅ FIND ALL BILLS WITH FILTERS
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { date: 'desc' } } = options;
@@ -182,11 +253,11 @@ class BillModel {
   // ============================================================
   // ✅ FIND BILL BY NUMBER
   // ============================================================
-  static async findByBillNumber(billNumber, userId) {
+  static async findByBillNumber(billNumber, companyId) {
     return await prisma.bill.findFirst({
       where: {
         billNumber,
-        createdBy: userId
+        companyId: companyId
       },
       include: {
         vendor: {
@@ -208,11 +279,11 @@ class BillModel {
   // ============================================================
   // ✅ FIND BILLS BY VENDOR
   // ============================================================
-  static async findByVendor(vendorId, userId) {
+  static async findByVendor(vendorId, companyId) {
     return await prisma.bill.findMany({
       where: {
         vendorId,
-        createdBy: userId
+        companyId: companyId
       },
       orderBy: { date: 'desc' },
       include: {
@@ -232,11 +303,11 @@ class BillModel {
   // ============================================================
   // ✅ GET UNPAID BILLS FOR VENDOR
   // ============================================================
-  static async getUnpaidBills(vendorId, userId) {
+  static async getUnpaidBills(vendorId, companyId) {
     return await prisma.bill.findMany({
       where: {
         vendorId,
-        createdBy: userId,
+        companyId: companyId,
         status: { in: ['Unpaid', 'Partial'] }
       },
       orderBy: { dueDate: 'asc' },
@@ -313,10 +384,13 @@ class BillModel {
   // ============================================================
   // ✅ UPDATE BILL PAYMENT
   // ============================================================
-  static async updatePayment(id, amount, userId) {
+  static async updatePayment(id, amount, companyId) {
     return await prisma.$transaction(async (tx) => {
-      const bill = await tx.bill.findUnique({
-        where: { id }
+      const bill = await tx.bill.findFirst({
+        where: { 
+          id,
+          companyId: companyId
+        }
       });
 
       if (!bill) return null;
@@ -354,8 +428,8 @@ class BillModel {
   // ============================================================
   // ✅ GET BILL STATS
   // ============================================================
-  static async getStats(userId) {
-    const filter = { createdBy: userId };
+  static async getStats(companyId) {
+    const filter = { companyId: companyId };
     
     const [total, unpaid, partial, paid, overdue, financial] = await Promise.all([
       prisma.bill.count({ where: filter }),
@@ -384,11 +458,11 @@ class BillModel {
   // ============================================================
   // ✅ SEARCH BILLS
   // ============================================================
-  static async search(query, userId, options = {}) {
+  static async search(query, companyId, options = {}) {
     const { skip, take } = options;
 
     const filter = {
-      createdBy: userId,
+      companyId: companyId,
       OR: [
         { billNumber: { contains: query, mode: 'insensitive' } },
         { vendorName: { contains: query, mode: 'insensitive' } },
@@ -419,10 +493,10 @@ class BillModel {
   // ============================================================
   // ✅ GET BILLS BY DATE RANGE
   // ============================================================
-  static async getByDateRange(startDate, endDate, userId) {
+  static async getByDateRange(startDate, endDate, companyId) {
     return await prisma.bill.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: {
           gte: new Date(startDate),
           lte: new Date(endDate)
@@ -443,10 +517,10 @@ class BillModel {
   // ============================================================
   // ✅ GET OVERDUE BILLS
   // ============================================================
-  static async getOverdueBills(userId) {
+  static async getOverdueBills(companyId) {
     return await prisma.bill.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         dueDate: { lt: new Date() },
         status: { in: ['Unpaid', 'Partial'] }
       },

@@ -86,71 +86,86 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('\n========== PROFIT & LOSS STATEMENT DEBUG ==========');
     console.log('🔍 User ID from token:', req.user.id);
 
-    const { startDate, endDate, period } = req.query;
-    console.log('📅 Request params:', { startDate, endDate, period });
+    const { startDate, endDate, period, fiscalYearId } = req.query;
+    console.log('📅 Request params:', { startDate, endDate, period, fiscalYearId });
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
+    // ─── Build fiscal year filter ────────────────────────────────
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
+
     // ─── GET INCOMES ──────────────────────────────────────────────
     const incomes = await prisma.income.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: {
           gte: start,
           lte: end
         },
-        status: 'Posted'
+        status: 'Posted',
+        ...fiscalYearFilter
       }
     });
 
     // ─── GET EXPENSES ──────────────────────────────────────────────
     const expenses = await prisma.expense.findMany({
       where: {
-        createdBy: userId,
+        
+        companyId: companyId,
         date: {
           gte: start,
           lte: end
         },
-        status: 'Posted'
+        status: 'Posted',
+        ...fiscalYearFilter
       }
     });
 
     // ─── GET INVOICES ──────────────────────────────────────────────
     const invoices = await prisma.invoice.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: {
           gte: start,
           lte: end
         },
         status: {
           not: 'Draft'
-        }
+        },
+        ...fiscalYearFilter
       }
     });
 
     // ─── GET CREDIT NOTES ──────────────────────────────────────────
     const creditNotes = await prisma.creditNote.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: {
           gte: start,
           lte: end
-        }
+        },
+        ...fiscalYearFilter
       }
     });
 
     // ─── GET BILLS ──────────────────────────────────────────────────
     const bills = await prisma.bill.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: {
           gte: start,
           lte: end
-        }
+        },
+        ...fiscalYearFilter
       }
     });
 
@@ -358,6 +373,7 @@ exports.getSummary = async (req, res) => {
     const now = new Date();
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now);
     endOfMonth.setHours(23, 59, 59, 999);
@@ -369,7 +385,7 @@ exports.getSummary = async (req, res) => {
     // ─── MONTH INCOMES ──────────────────────────────────────────
     const monthIncomes = await prisma.income.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfMonth, lte: endOfMonth },
         status: 'Posted'
       },
@@ -378,7 +394,7 @@ exports.getSummary = async (req, res) => {
 
     const monthInvoices = await prisma.invoice.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfMonth, lte: endOfMonth },
         status: { not: 'Draft' }
       },
@@ -387,7 +403,7 @@ exports.getSummary = async (req, res) => {
 
     const monthCreditNotes = await prisma.creditNote.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfMonth, lte: endOfMonth }
       },
       _sum: { amount: true }
@@ -395,7 +411,7 @@ exports.getSummary = async (req, res) => {
 
     const monthExpenses = await prisma.expense.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfMonth, lte: endOfMonth },
         status: 'Posted'
       },
@@ -404,7 +420,7 @@ exports.getSummary = async (req, res) => {
 
     const monthBills = await prisma.bill.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfMonth, lte: endOfMonth }
       },
       _sum: { totalAmount: true }
@@ -413,7 +429,7 @@ exports.getSummary = async (req, res) => {
     // ─── YEAR INCOMES ────────────────────────────────────────────
     const yearIncomes = await prisma.income.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfYear, lte: endOfYear },
         status: 'Posted'
       },
@@ -422,7 +438,7 @@ exports.getSummary = async (req, res) => {
 
     const yearInvoices = await prisma.invoice.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfYear, lte: endOfYear },
         status: { not: 'Draft' }
       },
@@ -431,7 +447,7 @@ exports.getSummary = async (req, res) => {
 
     const yearCreditNotes = await prisma.creditNote.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfYear, lte: endOfYear }
       },
       _sum: { amount: true }
@@ -439,7 +455,7 @@ exports.getSummary = async (req, res) => {
 
     const yearExpenses = await prisma.expense.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfYear, lte: endOfYear },
         status: 'Posted'
       },
@@ -448,7 +464,7 @@ exports.getSummary = async (req, res) => {
 
     const yearBills = await prisma.bill.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfYear, lte: endOfYear }
       },
       _sum: { totalAmount: true }
@@ -504,6 +520,7 @@ exports.getTrendData = async (req, res) => {
 
     const { months = 12 } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(endDate.getMonth() - parseInt(months));
@@ -519,7 +536,7 @@ exports.getTrendData = async (req, res) => {
 
       const monthIncomes = await prisma.income.aggregate({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           date: { gte: monthStart, lte: monthEnd },
           status: 'Posted'
         },
@@ -528,7 +545,7 @@ exports.getTrendData = async (req, res) => {
 
       const monthInvoices = await prisma.invoice.aggregate({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           date: { gte: monthStart, lte: monthEnd },
           status: { not: 'Draft' }
         },
@@ -537,7 +554,7 @@ exports.getTrendData = async (req, res) => {
 
       const monthCreditNotes = await prisma.creditNote.aggregate({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           date: { gte: monthStart, lte: monthEnd }
         },
         _sum: { amount: true }
@@ -545,7 +562,7 @@ exports.getTrendData = async (req, res) => {
 
       const monthExpenses = await prisma.expense.aggregate({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           date: { gte: monthStart, lte: monthEnd },
           status: 'Posted'
         },
@@ -554,7 +571,7 @@ exports.getTrendData = async (req, res) => {
 
       const monthBills = await prisma.bill.aggregate({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           date: { gte: monthStart, lte: monthEnd }
         },
         _sum: { totalAmount: true }
@@ -604,9 +621,10 @@ exports.getBalanceSheet = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // ─── GET CHART OF ACCOUNTS ──────────────────────────────────
     const accounts = await prisma.chartOfAccount.findMany({
-      where: { createdBy: userId }
+      where: { companyId: companyId}
     });
 
     console.log('📊 Chart of Accounts found:', accounts.length);
@@ -639,7 +657,7 @@ exports.getBalanceSheet = async (req, res) => {
     
     const incomes = await prisma.income.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfPeriod, lte: date },
         status: 'Posted'
       },
@@ -648,7 +666,7 @@ exports.getBalanceSheet = async (req, res) => {
 
     const expenses = await prisma.expense.aggregate({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: startOfPeriod, lte: date },
         status: 'Posted'
       },
@@ -721,10 +739,11 @@ exports.getCashFlowStatement = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // ─── GET INCOMES ──────────────────────────────────────────────
     const incomes = await prisma.income.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: start, lte: end },
         status: 'Posted'
       }
@@ -733,7 +752,7 @@ exports.getCashFlowStatement = async (req, res) => {
     // ─── GET EXPENSES ──────────────────────────────────────────────
     const expenses = await prisma.expense.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: start, lte: end },
         status: 'Posted'
       }
@@ -742,7 +761,7 @@ exports.getCashFlowStatement = async (req, res) => {
     // ─── GET INVOICES ──────────────────────────────────────────────
     const invoices = await prisma.invoice.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: start, lte: end },
         status: { not: 'Draft' }
       }
@@ -751,7 +770,7 @@ exports.getCashFlowStatement = async (req, res) => {
     // ─── GET BILLS ──────────────────────────────────────────────────
     const bills = await prisma.bill.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         date: { gte: start, lte: end }
       }
     });

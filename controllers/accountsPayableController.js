@@ -1,16 +1,15 @@
-// controllers/accountsPayableController.js - COMPLETE FIXED VERSION
-
 const prisma = require('../prisma/client');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 // ─── HELPER: Get or create Accounts Payable account ──────────────
-async function getOrCreatePayableAccount(userId, tx) {
+async function getOrCreatePayableAccount(userId, companyId, tx) {
   const db = tx || prisma;
-  console.log('🔍 [AP] Getting/Creating Accounts Payable account for user:', userId);
+  console.log('🔍 [AP] Getting/Creating Accounts Payable account');
 
   let apAccount = await db.chartOfAccount.findFirst({
     where: {
       code: '2010',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
@@ -28,7 +27,8 @@ async function getOrCreatePayableAccount(userId, tx) {
         taxCode: 'N/A',
         balanceType: 'Credit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [AP] Accounts Payable account created:', apAccount.id);
@@ -40,14 +40,14 @@ async function getOrCreatePayableAccount(userId, tx) {
 }
 
 // ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId, tx) {
+async function getOrCreateCashAccount(userId, companyId, tx) {
   const db = tx || prisma;
-  console.log('🔍 [AP] Getting/Creating Cash account for user:', userId);
+  console.log('🔍 [AP] Getting/Creating Cash account');
 
   let cashAccount = await db.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
@@ -65,7 +65,8 @@ async function getOrCreateCashAccount(userId, tx) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [AP] Cash account created:', cashAccount.id);
@@ -77,14 +78,14 @@ async function getOrCreateCashAccount(userId, tx) {
 }
 
 // ─── HELPER: Get or create Expense account ────────────────────────
-async function getOrCreateExpenseAccount(userId, tx) {
+async function getOrCreateExpenseAccount(userId, companyId, tx) {
   const db = tx || prisma;
-  console.log('🔍 [AP] Getting/Creating Expense account for user:', userId);
+  console.log('🔍 [AP] Getting/Creating Expense account');
 
   let expenseAccount = await db.chartOfAccount.findFirst({
     where: {
       code: '5000',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
@@ -102,7 +103,8 @@ async function getOrCreateExpenseAccount(userId, tx) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [AP] Expense account created:', expenseAccount.id);
@@ -113,53 +115,82 @@ async function getOrCreateExpenseAccount(userId, tx) {
   return expenseAccount;
 }
 
-// ─── HELPER: Generate bill number ─────────────────────────────────
-// FIX: Uses prisma directly (not tx) and orderBy createdAt instead
-// of billNumber string to avoid lexicographic sort bugs.
-async function generateBillNumber(userId) {
-  const year = new Date().getFullYear();
-  const prefix = `BILL-${year}-`;
-
-  const lastBill = await prisma.bill.findFirst({
+// ─── HELPER: Generate bill number - FIXED ─────────────────────────────────
+async function generateBillNumber(companyId) {
+  const prefix = 'BILL-';
+  
+  // Get all existing bill numbers for this company
+  const existingBills = await prisma.bill.findMany({
     where: {
-      createdBy: userId,
-      billNumber: { startsWith: prefix }
+      companyId: companyId,
+      billNumber: {
+        startsWith: prefix
+      }
     },
-    orderBy: { createdAt: 'desc' } // ← date sort, not string sort
+    select: {
+      billNumber: true
+    },
+    orderBy: {
+      billNumber: 'desc'
+    }
   });
 
-  let nextNum = 1;
-  if (lastBill) {
-    const parts = lastBill.billNumber.split('-');
-    const lastNum = parseInt(parts[parts.length - 1]) || 0;
-    nextNum = lastNum + 1;
+  console.log(`🔍 [AP] Found ${existingBills.length} existing bills`);
+
+  if (existingBills.length === 0) {
+    return `${prefix}0001`;
   }
 
-  // Verify uniqueness
-  let candidate = `${prefix}${String(nextNum).padStart(4, '0')}`;
-  let guard = 0;
-  while (guard < 200) {
-    const existing = await prisma.bill.findFirst({
-      where: { createdBy: userId, billNumber: candidate }
-    });
-    if (!existing) break;
-    nextNum++;
-    candidate = `${prefix}${String(nextNum).padStart(4, '0')}`;
-    guard++;
+  // Extract numbers from existing codes and find max
+  let maxNumber = 0;
+  for (const bill of existingBills) {
+    const parts = bill.billNumber.split('-');
+    if (parts.length === 2) {
+      const num = parseInt(parts[1]);
+      if (!isNaN(num) && num > maxNumber) {
+        maxNumber = num;
+      }
+    }
   }
 
-  return candidate;
+  // Start from max + 1
+  const nextNumber = maxNumber + 1;
+  const paddedNumber = String(nextNumber).padStart(4, '0');
+  const billNumber = `${prefix}${paddedNumber}`;
+  
+  console.log(`🔍 [AP] Generated bill number: ${billNumber} (max: ${maxNumber}, next: ${nextNumber})`);
+  return billNumber;
+}
+
+// ─── HELPER: Generate fallback bill number ─────────────────────────────────
+async function generateFallbackBillNumber(companyId) {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const fallbackNumber = `BILL-${timestamp}${random}`.substring(0, 15);
+  
+  const existing = await prisma.bill.findFirst({
+    where: {
+      billNumber: fallbackNumber,
+      companyId: companyId
+    }
+  });
+
+  if (existing) {
+    return `BILL-${timestamp}${random}${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+  }
+
+  return fallbackNumber;
 }
 
 // ─── HELPER: Validate bank account ────────────────────────────────
-async function validateBankAccount(bankAccountId, userId, tx) {
+async function validateBankAccount(bankAccountId, companyId, tx) {
   const db = tx || prisma;
   if (!bankAccountId) return null;
 
   const bankAccount = await db.bankAccount.findFirst({
     where: {
       id: bankAccountId,
-      createdBy: userId,
+      companyId: companyId,
       status: 'Active'
     },
     include: {
@@ -168,7 +199,7 @@ async function validateBankAccount(bankAccountId, userId, tx) {
   });
 
   if (!bankAccount) {
-    throw new Error('Bank account not found or does not belong to you');
+    throw new Error('Bank account not found');
   }
   return bankAccount;
 }
@@ -183,6 +214,34 @@ function determineBillStatus(totalAmount, paidAmount, dueDate) {
 }
 
 // ============================================================
+// ✅ BILL NUMBER GENERATION
+// ============================================================
+
+// @desc    Get next bill number
+// @route   GET /api/accounts-payable/next-bill-number
+// @access  Private
+exports.getNextBillNumber = async (req, res) => {
+  console.log('📦 [AP] getNextBillNumber called');
+
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const billNumber = await generateBillNumber(companyId);
+
+    res.status(200).json({
+      success: true,
+      data: { billNumber },
+    });
+  } catch (error) {
+    console.error('❌ [AP] Get next bill number error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ============================================================
 // ✅ SUPPLIER FUNCTIONS
 // ============================================================
 
@@ -195,8 +254,21 @@ exports.getSuppliers = async (req, res) => {
   try {
     const { search, status } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    const filter = { createdBy: userId };
+    const cacheKey = `ap:suppliers:${userId}:${search || ''}:${status || ''}`;
+    
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        count: cached.length,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = { companyId: companyId };
 
     if (search) {
       filter.OR = [
@@ -230,7 +302,7 @@ exports.getSuppliers = async (req, res) => {
 
     const bills = await prisma.bill.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         status: { not: 'Paid' }
       }
     });
@@ -250,10 +322,13 @@ exports.getSuppliers = async (req, res) => {
       };
     });
 
+    await set(cacheKey, suppliersWithOutstanding, 600);
+
     res.status(200).json({
       success: true,
       count: suppliersWithOutstanding.length,
       data: suppliersWithOutstanding,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AP] Get suppliers error:', error);
@@ -273,11 +348,23 @@ exports.getSupplier = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+
+    const cacheKey = `ap:supplier:${userId}:${id}`;
+    
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
 
     const supplier = await prisma.supplier.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       },
       include: {
         creator: {
@@ -301,7 +388,7 @@ exports.getSupplier = async (req, res) => {
     const bills = await prisma.bill.findMany({
       where: {
         vendorId: supplier.id,
-        createdBy: userId
+        companyId: companyId
       },
       orderBy: { date: 'desc' }
     });
@@ -310,15 +397,20 @@ exports.getSupplier = async (req, res) => {
     const paidAmount = bills.reduce((sum, bill) => sum + bill.paidAmount, 0);
     const outstandingAmount = totalAmount - paidAmount;
 
+    const supplierData = {
+      ...supplier,
+      bills,
+      totalAmount,
+      paidAmount,
+      outstandingAmount,
+    };
+
+    await set(cacheKey, supplierData, 600);
+
     res.status(200).json({
       success: true,
-      data: {
-        ...supplier,
-        bills,
-        totalAmount,
-        paidAmount,
-        outstandingAmount,
-      },
+      data: supplierData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AP] Get supplier error:', error);
@@ -340,23 +432,13 @@ exports.createBill = async (req, res) => {
   console.log('📦 [AP] createBill called');
 
   try {
-    const {
-      supplierId,
-      date,
-      dueDate,
-      items,
-      discount,
-      notes,
-    } = req.body;
-
+    const { supplierId, date, dueDate, items, discount, notes } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // ─── Validate supplier ──────────────────────────────────────
+    // Validate supplier
     const supplier = await prisma.supplier.findFirst({
-      where: {
-        id: supplierId,
-        createdBy: userId
-      }
+      where: { id: supplierId, companyId: companyId }
     });
 
     if (!supplier) {
@@ -366,23 +448,21 @@ exports.createBill = async (req, res) => {
       });
     }
 
-    // ─── Calculate totals ───────────────────────────────────────
+    // Calculate totals
     let subtotal = 0;
     let taxTotal = 0;
-
     const processedItems = items.map(item => {
       const amount = item.quantity * item.unitPrice;
       const taxAmount = amount * ((item.taxRate || 0) / 100);
       subtotal += amount;
       taxTotal += taxAmount;
-
       return {
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
-        amount: amount,
+        amount,
         taxRate: item.taxRate || 0,
-        taxAmount: taxAmount,
+        taxAmount,
       };
     });
 
@@ -390,17 +470,17 @@ exports.createBill = async (req, res) => {
     const finalDueDate = dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const status = determineBillStatus(totalAmount, 0, finalDueDate);
 
-    // FIX: Generate bill number OUTSIDE transaction, fresh on every retry
-    const MAX_RETRIES = 5;
-    let lastError = null;
+    // ─── Retry loop handles race condition ───────────────────────
+    const MAX_ATTEMPTS = 5;
+    let result = null;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      // Generate number FRESH each attempt (outside tx so we can read committed data)
+      const billNumber = await generateBillNumber(companyId);
+      console.log(`🔍 [AP] Attempt ${attempt}: trying bill number ${billNumber}`);
+
       try {
-        // ← Fresh number generated before each transaction attempt
-        const billNumber = await generateBillNumber(userId);
-
-        const result = await prisma.$transaction(async (tx) => {
-          // ─── Create bill ──────────────────────────────────────
+        result = await prisma.$transaction(async (tx) => {
           const bill = await tx.bill.create({
             data: {
               billNumber,
@@ -415,37 +495,23 @@ exports.createBill = async (req, res) => {
               totalAmount,
               paidAmount: 0,
               outstanding: totalAmount,
-              status: status,
+              status,
               notes: notes || '',
               posted: true,
               postedAt: new Date(),
-              createdBy: userId
+              createdBy: userId,
+              companyId: companyId
             },
             include: {
-              vendor: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                  phone: true
-                }
-              },
-              creator: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  email: true
-                }
-              }
+              vendor: { select: { id: true, name: true, email: true, phone: true } },
+              creator: { select: { id: true, firstName: true, lastName: true, email: true } }
             }
           });
 
           console.log(`✅ [AP] Bill created: ${bill.billNumber}`);
 
-          // ─── Create journal entry ──────────────────────────────
-          const apAccount = await getOrCreatePayableAccount(userId, tx);
-          const expenseAccount = await getOrCreateExpenseAccount(userId, tx);
+          const apAccount = await getOrCreatePayableAccount(userId, companyId, tx);
+          const expenseAccount = await getOrCreateExpenseAccount(userId, companyId, tx);
 
           await tx.journalEntry.create({
             data: {
@@ -457,6 +523,7 @@ exports.createBill = async (req, res) => {
               createdBy: userId,
               postedBy: userId,
               postedAt: new Date(),
+              companyId: companyId,
               lines: {
                 create: [
                   {
@@ -480,50 +547,54 @@ exports.createBill = async (req, res) => {
             }
           });
 
-          // ─── Update AP account balance ────────────────────────
           await tx.chartOfAccount.update({
             where: { id: apAccount.id },
-            data: {
-              currentBalance: {
-                increment: totalAmount
-              }
-            }
+            data: { currentBalance: { increment: totalAmount } }
           });
 
           return bill;
         });
 
-        return res.status(201).json({
-          success: true,
-          data: result,
-          message: 'Bill created successfully. AP balance updated.',
-        });
+        // Transaction succeeded — break out of retry loop
+        break;
 
-      } catch (error) {
-        lastError = error;
-        if (error.code === 'P2002' && attempt < MAX_RETRIES) {
-          console.warn(`⚠️ [AP] billNumber collision, retrying (attempt ${attempt}/${MAX_RETRIES})`);
+      } catch (txError) {
+        // P2002 = unique constraint violation on bill_number
+        if (txError.code === 'P2002' && attempt < MAX_ATTEMPTS) {
+          console.log(`⚠️ [AP] Bill number ${billNumber} collision, retrying (${attempt}/${MAX_ATTEMPTS})`);
           continue;
         }
-        break;
+        // Last attempt or different error — rethrow
+        throw txError;
       }
     }
 
-    console.error('❌ [AP] Create bill error:', lastError);
-    return res.status(500).json({
-      success: false,
-      message: lastError ? lastError.message : 'Failed to create bill',
+    if (!result) {
+      throw new Error('Failed to generate a unique bill number after multiple attempts');
+    }
+
+    // Invalidate cache
+    try {
+      await delPattern(`ap:bills:${userId}:*`);
+      await delPattern(`ap:summary:${userId}:*`);
+      await delPattern(`ap:aged:${userId}:*`);
+      await delPattern(`ap:suppliers:${userId}:*`);
+      await delPattern(`ap:supplier:${userId}:${supplierId}`);
+    } catch (cacheError) {
+      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
+    }
+
+    res.status(201).json({
+      success: true,
+      data: result,
+      message: 'Bill created successfully. AP balance updated.',
     });
 
   } catch (error) {
     console.error('❌ [AP] Create bill error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
-
 // @desc    Get all bills
 // @route   GET /api/accounts-payable/bills
 // @access  Private
@@ -531,16 +602,29 @@ exports.getBills = async (req, res) => {
   console.log('📦 [AP] getBills called');
 
   try {
-    const { supplierId, status, startDate, endDate } = req.query;
+    const { supplierId, status, startDate, endDate, fiscalYearId } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    const filter = { createdBy: userId };
+    const cacheKey = `ap:bills:${userId}:${supplierId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+    
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        count: cached.length,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = { companyId: companyId };
 
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
         where: {
           id: supplierId,
-          createdBy: userId
+          companyId: companyId
         }
       });
       if (supplier) {
@@ -557,6 +641,10 @@ exports.getBills = async (req, res) => {
         gte: new Date(startDate),
         lte: new Date(endDate)
       };
+    }
+
+    if (fiscalYearId) {
+      filter.fiscalYearId = fiscalYearId;
     }
 
     const bills = await prisma.bill.findMany({
@@ -591,10 +679,13 @@ exports.getBills = async (req, res) => {
       }
     });
 
+    await set(cacheKey, bills, 300);
+
     res.status(200).json({
       success: true,
       count: bills.length,
       data: bills,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AP] Get bills error:', error);
@@ -614,11 +705,23 @@ exports.getBill = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+
+    const cacheKey = `ap:bill:${userId}:${id}`;
+    
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
 
     const bill = await prisma.bill.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       },
       include: {
         vendor: {
@@ -657,9 +760,12 @@ exports.getBill = async (req, res) => {
       });
     }
 
+    await set(cacheKey, bill, 600);
+
     res.status(200).json({
       success: true,
       data: bill,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AP] Get bill error:', error);
@@ -679,11 +785,12 @@ exports.updateBill = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const existing = await prisma.bill.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -775,6 +882,15 @@ exports.updateBill = async (req, res) => {
       }
     });
 
+    // Invalidate cache
+    try {
+      await delPattern(`ap:bills:${userId}:*`);
+      await delPattern(`ap:bill:${userId}:${id}`);
+      console.log('🗑️ [AP] Cache invalidated after bill update');
+    } catch (cacheError) {
+      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
+    }
+
     res.status(200).json({
       success: true,
       data: updated,
@@ -798,11 +914,12 @@ exports.deleteBill = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const bill = await prisma.bill.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -823,7 +940,7 @@ exports.deleteBill = async (req, res) => {
     const payments = await prisma.paymentMade.findMany({
       where: {
         billId: id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -837,6 +954,15 @@ exports.deleteBill = async (req, res) => {
     await prisma.bill.delete({
       where: { id }
     });
+
+    // Invalidate cache
+    try {
+      await delPattern(`ap:bills:${userId}:*`);
+      await delPattern(`ap:bill:${userId}:${id}`);
+      console.log('🗑️ [AP] Cache invalidated after bill deletion');
+    } catch (cacheError) {
+      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
+    }
 
     res.status(200).json({
       success: true,
@@ -872,6 +998,7 @@ exports.recordPayment = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -880,184 +1007,165 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
-    const MAX_RETRIES = 5;
-    let lastError = null;
+    const result = await prisma.$transaction(async (tx) => {
+      const bill = await tx.bill.findFirst({
+        where: { id: billId, companyId: companyId },
+        include: { vendor: true }
+      });
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const result = await prisma.$transaction(async (tx) => {
-          // ─── Get bill ──────────────────────────────────────────
-          const bill = await tx.bill.findFirst({
-            where: { id: billId, createdBy: userId },
-            include: { vendor: true }
-          });
-
-          if (!bill) {
-            const err = new Error('Bill not found');
-            err.statusCode = 404;
-            throw err;
-          }
-
-          // ─── Validate amount ──────────────────────────────────
-          const outstanding = bill.totalAmount - bill.paidAmount;
-          if (amount > outstanding) {
-            const err = new Error(`Payment amount cannot exceed outstanding balance of ${outstanding}`);
-            err.statusCode = 400;
-            throw err;
-          }
-
-          // ─── Update bill ──────────────────────────────────────
-          const newPaidAmount = bill.paidAmount + amount;
-          const newOutstanding = bill.totalAmount - newPaidAmount;
-          const newStatus = determineBillStatus(bill.totalAmount, newPaidAmount, bill.dueDate);
-
-          const updatedBill = await tx.bill.update({
-            where: { id: billId },
-            data: {
-              paidAmount: newPaidAmount,
-              outstanding: newOutstanding,
-              status: newStatus
-            }
-          });
-
-          // ─── Get accounts ─────────────────────────────────────
-          const apAccount = await getOrCreatePayableAccount(userId, tx);
-          let debitAccount;
-          let bankAccountData = null;
-
-          if (bankAccountId && bankAccountId !== 'null' && bankAccountId !== 'NULL' && bankAccountId !== '') {
-            bankAccountData = await validateBankAccount(bankAccountId, userId, tx);
-            if (bankAccountData && bankAccountData.chartOfAccount) {
-              debitAccount = bankAccountData.chartOfAccount;
-            }
-          }
-
-          if (!debitAccount) {
-            debitAccount = await getOrCreateCashAccount(userId, tx);
-          }
-
-          // ─── Create journal entry for payment ─────────────────
-          await tx.journalEntry.create({
-            data: {
-              entryNumber: `JE-${Date.now()}`,
-              date: paymentDate ? new Date(paymentDate) : new Date(),
-              description: `Payment made for ${bill.billNumber} to ${bill.vendor.name}`,
-              reference: reference || `PAY-${bill.billNumber}`,
-              status: 'Posted',
-              createdBy: userId,
-              postedBy: userId,
-              postedAt: new Date(),
-              lines: {
-                create: [
-                  {
-                    accountId: apAccount.id,
-                    accountName: apAccount.name,
-                    accountCode: apAccount.code,
-                    debit: amount,
-                    credit: 0,
-                    isReconciled: false
-                  },
-                  {
-                    accountId: debitAccount.id,
-                    accountName: debitAccount.name,
-                    accountCode: debitAccount.code,
-                    debit: 0,
-                    credit: amount,
-                    isReconciled: false
-                  }
-                ]
-              }
-            }
-          });
-
-          // ─── Update AP account balance (decrease) ─────────────
-          await tx.chartOfAccount.update({
-            where: { id: apAccount.id },
-            data: { currentBalance: { decrement: amount } }
-          });
-
-          // ─── Update bank/cash balance (decrease) ──────────────
-          if (bankAccountData) {
-            const newBankBalance = bankAccountData.currentBalance - amount;
-            await tx.bankAccount.update({
-              where: { id: bankAccountData.id },
-              data: { currentBalance: newBankBalance }
-            });
-            if (bankAccountData.chartOfAccountId) {
-              await tx.chartOfAccount.update({
-                where: { id: bankAccountData.chartOfAccountId },
-                data: { currentBalance: newBankBalance }
-              });
-            }
-          } else if (debitAccount) {
-            await tx.chartOfAccount.update({
-              where: { id: debitAccount.id },
-              data: { currentBalance: { decrement: amount } }
-            });
-          }
-
-          // ─── Create payment record ─────────────────────────────
-          const paymentNumber = `PMT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-          const paymentRecord = await tx.paymentMade.create({
-            data: {
-              paymentNumber,
-              paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
-              supplierId: bill.vendorId,
-              supplierName: bill.vendor.name,
-              billId: bill.id,
-              billNumber: bill.billNumber,
-              billAmount: bill.totalAmount,
-              amount: amount,
-              paymentMethod: paymentMethod || 'Bank Transfer',
-              reference: reference || '',
-              bankAccountId: bankAccountData?.id || null,
-              bankAccountName: bankAccountData?.accountName || '',
-              notes: '',
-              status: 'Cleared',
-              createdBy: userId
-            }
-          });
-
-          return { updatedBill, paymentRecord };
-        });
-
-        return res.status(200).json({
-          success: true,
-          data: {
-            bill: {
-              id: result.updatedBill.id,
-              billNumber: result.updatedBill.billNumber,
-              paidAmount: result.updatedBill.paidAmount,
-              outstanding: result.updatedBill.outstanding,
-              status: result.updatedBill.status,
-            },
-            payment: {
-              id: result.paymentRecord.id,
-              paymentNumber: result.paymentRecord.paymentNumber,
-              amount: result.paymentRecord.amount,
-              date: result.paymentRecord.paymentDate,
-              method: result.paymentRecord.paymentMethod,
-              reference: result.paymentRecord.reference,
-            },
-          },
-          message: 'Payment recorded successfully. AP balance updated.',
-        });
-
-      } catch (error) {
-        lastError = error;
-        if (error.code === 'P2002' && attempt < MAX_RETRIES) {
-          console.warn(`⚠️ [AP] paymentNumber collision, retrying (attempt ${attempt}/${MAX_RETRIES})`);
-          continue;
-        }
-        break;
+      if (!bill) {
+        throw new Error('Bill not found');
       }
+
+      const outstanding = bill.totalAmount - bill.paidAmount;
+      if (amount > outstanding) {
+        throw new Error(`Payment amount cannot exceed outstanding balance of ${outstanding}`);
+      }
+
+      const newPaidAmount = bill.paidAmount + amount;
+      const newOutstanding = bill.totalAmount - newPaidAmount;
+      const newStatus = determineBillStatus(bill.totalAmount, newPaidAmount, bill.dueDate);
+
+      const updatedBill = await tx.bill.update({
+        where: { id: billId },
+        data: {
+          paidAmount: newPaidAmount,
+          outstanding: newOutstanding,
+          status: newStatus
+        }
+      });
+
+      const apAccount = await getOrCreatePayableAccount(userId, companyId, tx);
+      let debitAccount;
+      let bankAccountData = null;
+
+      if (bankAccountId) {
+        bankAccountData = await validateBankAccount(bankAccountId, companyId, tx);
+        if (bankAccountData && bankAccountData.chartOfAccount) {
+          debitAccount = bankAccountData.chartOfAccount;
+        }
+      }
+
+      if (!debitAccount) {
+        debitAccount = await getOrCreateCashAccount(userId, companyId, tx);
+      }
+
+      await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-${Date.now()}`,
+          date: paymentDate ? new Date(paymentDate) : new Date(),
+          description: `Payment made for ${bill.billNumber} to ${bill.vendor.name}`,
+          reference: reference || `PAY-${bill.billNumber}`,
+          status: 'Posted',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
+          companyId: companyId,
+          lines: {
+            create: [
+              {
+                accountId: apAccount.id,
+                accountName: apAccount.name,
+                accountCode: apAccount.code,
+                debit: amount,
+                credit: 0,
+                isReconciled: false
+              },
+              {
+                accountId: debitAccount.id,
+                accountName: debitAccount.name,
+                accountCode: debitAccount.code,
+                debit: 0,
+                credit: amount,
+                isReconciled: false
+              }
+            ]
+          }
+        }
+      });
+
+      await tx.chartOfAccount.update({
+        where: { id: apAccount.id },
+        data: { currentBalance: { decrement: amount } }
+      });
+
+      if (bankAccountData) {
+        const newBankBalance = bankAccountData.currentBalance - amount;
+        await tx.bankAccount.update({
+          where: { id: bankAccountData.id },
+          data: { currentBalance: newBankBalance }
+        });
+        if (bankAccountData.chartOfAccountId) {
+          await tx.chartOfAccount.update({
+            where: { id: bankAccountData.chartOfAccountId },
+            data: { currentBalance: newBankBalance }
+          });
+        }
+      } else if (debitAccount) {
+        await tx.chartOfAccount.update({
+          where: { id: debitAccount.id },
+          data: { currentBalance: { decrement: amount } }
+        });
+      }
+
+      const paymentNumber = `PMT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      const paymentRecord = await tx.paymentMade.create({
+        data: {
+          paymentNumber,
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          supplierId: bill.vendorId,
+          supplierName: bill.vendor.name,
+          billId: bill.id,
+          billNumber: bill.billNumber,
+          billAmount: bill.totalAmount,
+          amount: amount,
+          paymentMethod: paymentMethod || 'Bank Transfer',
+          reference: reference || '',
+          bankAccountId: bankAccountData?.id || null,
+          bankAccountName: bankAccountData?.accountName || '',
+          notes: '',
+          status: 'Cleared',
+          createdBy: userId,
+          companyId: companyId
+        }
+      });
+
+      return { updatedBill, paymentRecord };
+    });
+
+    // Invalidate cache
+    try {
+      await delPattern(`ap:bills:${userId}:*`);
+      await delPattern(`ap:bill:${userId}:${billId}`);
+      await delPattern(`ap:summary:${userId}:*`);
+      await delPattern(`ap:aged:${userId}:*`);
+      await delPattern(`ap:suppliers:${userId}:*`);
+      console.log('🗑️ [AP] Cache invalidated after payment recording');
+    } catch (cacheError) {
+      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
     }
 
-    const statusCode = lastError && lastError.statusCode ? lastError.statusCode : 500;
-    return res.status(statusCode).json({
-      success: false,
-      message: lastError ? lastError.message : 'Failed to record payment'
+    res.status(200).json({
+      success: true,
+      data: {
+        bill: {
+          id: result.updatedBill.id,
+          billNumber: result.updatedBill.billNumber,
+          paidAmount: result.updatedBill.paidAmount,
+          outstanding: result.updatedBill.outstanding,
+          status: result.updatedBill.status,
+        },
+        payment: {
+          id: result.paymentRecord.id,
+          paymentNumber: result.paymentRecord.paymentNumber,
+          amount: result.paymentRecord.amount,
+          date: result.paymentRecord.paymentDate,
+          method: result.paymentRecord.paymentMethod,
+          reference: result.paymentRecord.reference,
+        },
+      },
+      message: 'Payment recorded successfully. AP balance updated.',
     });
 
   } catch (error) {
@@ -1081,12 +1189,31 @@ exports.getSummary = async (req, res) => {
 
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { fiscalYearId } = req.query;
+
+    const cacheKey = `ap:summary:${userId}:${fiscalYearId || ''}`;
+    
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = {
+      companyId: companyId,
+      status: { not: 'Paid' }
+    };
+
+    if (fiscalYearId) {
+      filter.fiscalYearId = fiscalYearId;
+    }
 
     const bills = await prisma.bill.findMany({
-      where: {
-        createdBy: userId,
-        status: { not: 'Paid' }
-      }
+      where: filter
     });
 
     const totalOutstanding = bills.reduce(
@@ -1113,20 +1240,25 @@ exports.getSummary = async (req, res) => {
 
     const activeSuppliers = await prisma.supplier.count({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         status: 'active'
       }
     });
 
+    const summaryData = {
+      totalOutstanding,
+      overdue,
+      dueThisWeek,
+      dueThisMonth,
+      activeSuppliers,
+    };
+
+    await set(cacheKey, summaryData, 120);
+
     res.status(200).json({
       success: true,
-      data: {
-        totalOutstanding,
-        overdue,
-        dueThisWeek,
-        dueThisMonth,
-        activeSuppliers,
-      },
+      data: summaryData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AP] Get AP summary error:', error);
@@ -1145,12 +1277,31 @@ exports.getAgedPayables = async (req, res) => {
 
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { fiscalYearId } = req.query;
+
+    const cacheKey = `ap:aged:${userId}:${fiscalYearId || ''}`;
+    
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = {
+      companyId: companyId,
+      status: { not: 'Paid' }
+    };
+
+    if (fiscalYearId) {
+      filter.fiscalYearId = fiscalYearId;
+    }
 
     const bills = await prisma.bill.findMany({
-      where: {
-        createdBy: userId,
-        status: { not: 'Paid' }
-      },
+      where: filter,
       include: {
         vendor: {
           select: {
@@ -1237,9 +1388,14 @@ exports.getAgedPayables = async (req, res) => {
       { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0, totalOutstanding: 0 }
     );
 
+    const agedData = { suppliers, summary };
+
+    await set(cacheKey, agedData, 120);
+
     res.status(200).json({
       success: true,
-      data: { suppliers, summary },
+      data: agedData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AP] Get aged payables error:', error);
@@ -1259,11 +1415,12 @@ exports.getUnpaidBills = async (req, res) => {
   try {
     const { supplierId } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -1277,7 +1434,7 @@ exports.getUnpaidBills = async (req, res) => {
     const bills = await prisma.bill.findMany({
       where: {
         vendorId: supplierId,
-        createdBy: userId,
+        companyId: companyId,
         status: { not: 'Paid' }
       },
       orderBy: { dueDate: 'asc' },
@@ -1327,10 +1484,11 @@ exports.markOverdueBills = async (req, res) => {
 
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const result = await prisma.bill.updateMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         dueDate: { lt: new Date() },
         status: { in: ['Unpaid', 'Partial'] }
       },

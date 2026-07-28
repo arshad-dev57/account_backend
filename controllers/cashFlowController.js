@@ -1,16 +1,25 @@
-const Income = require('../models/Income');
-const Expense = require('../models/Expense');
-const BankAccount = require('../models/BankAccount');
-const Loan = require('../models/Loan');
-const FixedAsset = require('../models/FixedAsset');
-const Invoice = require('../models/Invoice');
-const PaymentMade = require('../models/PaymentMade');
-const EquityAccount = require('../models/EquityAccount');
+const prisma = require('../prisma/client');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 // ==================== GET CASH FLOW STATEMENT ====================
 exports.getCashFlowStatement = async (req, res) => {
   try {
-    const { period, startDate, endDate } = req.query;
+    const { period, startDate, endDate, fiscalYearId } = req.query;
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+
+    // Build cache key with parameters
+    const cacheKey = `cf:statement:${userId}:${period || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
     
     let start, end;
     const now = new Date();
@@ -54,25 +63,44 @@ exports.getCashFlowStatement = async (req, res) => {
       }
     }
     
-    const dateFilter = {
-      date: { $gte: start, $lte: end },
-      status: 'Posted',
-      createdBy: req.user.id  // 👈 Only show entries created by this user
-    };
+    // Build fiscal year filter
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
     
     // ==================== OPERATING ACTIVITIES ====================
     // Cash inflows from customers (Income records) - only for this user
-    const incomes = await Income.find(dateFilter);
-    const cashReceiptsFromCustomers = incomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    const incomes = await prisma.income.findMany({
+      where: {
+        date: { gte: start, lte: end },
+        status: 'Posted',
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
+    });
+    const cashReceiptsFromCustomers = incomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
     
     // Cash outflows to suppliers (Expense records + Bill Payments) - only for this user
-    const expenses = await Expense.find(dateFilter);
-    const expenseTotal = expenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const expenses = await prisma.expense.findMany({
+      where: {
+        date: { gte: start, lte: end },
+        status: 'Posted',
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
+    });
+    const expenseTotal = expenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
     
-    const billPayments = await PaymentMade.find({
-      paymentDate: { $gte: start, $lte: end },
-      billId: { $exists: true },
-      createdBy: req.user.id
+    const billPayments = await prisma.paymentMade.findMany({
+      where: {
+        paymentDate: { gte: start, lte: end },
+        billId: { not: null },
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
     });
     const cashPaidForBills = billPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
     
@@ -80,44 +108,50 @@ exports.getCashFlowStatement = async (req, res) => {
     
     // Cash paid for salaries (filter salary expenses)
     const salaryExpenses = expenses.filter(exp => exp.expenseType === 'Salaries');
-    const cashPaidForSalaries = salaryExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const cashPaidForSalaries = salaryExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
     
     // Cash paid for rent
     const rentExpenses = expenses.filter(exp => exp.expenseType === 'Rent');
-    const cashPaidForRent = rentExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const cashPaidForRent = rentExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
     
     // Cash paid for utilities
     const utilityExpenses = expenses.filter(exp => exp.expenseType === 'Utilities');
-    const cashPaidForUtilities = utilityExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const cashPaidForUtilities = utilityExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
     
     // Interest received (from other income)
     const interestIncome = incomes.filter(inc => inc.incomeType === 'Interest Income');
-    const interestReceived = interestIncome.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    const interestReceived = interestIncome.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
     
     // Interest paid (from expenses)
     const interestExpenses = expenses.filter(exp => exp.expenseType === 'Interest Expense');
-    const interestPaid = interestExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const interestPaid = interestExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
     
     // Taxes paid
     const taxExpenses = expenses.filter(exp => exp.expenseType === 'Taxes');
-    const taxesPaid = taxExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const taxesPaid = taxExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
     
     // Calculate operating activities
     const cashFlowFromOperations = cashReceiptsFromCustomers - cashPaidToSuppliers;
     
     // ==================== INVESTING ACTIVITIES ====================
     // Purchase of fixed assets - only for this user
-    const fixedAssets = await FixedAsset.find({
-      purchaseDate: { $gte: start, $lte: end },
-      createdBy: req.user.id  // 👈 Only show assets created by this user
+    const fixedAssets = await prisma.fixedAsset.findMany({
+      where: {
+        purchaseDate: { gte: start, lte: end },
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
     });
     const purchaseOfEquipment = fixedAssets.reduce((sum, asset) => sum + asset.purchaseCost, 0);
     
     // Sale of fixed assets (from disposed assets) - only for this user
-    const disposedAssets = await FixedAsset.find({
-      disposedDate: { $gte: start, $lte: end },
-      status: 'Disposed',
-      createdBy: req.user.id  // 👈 Only show assets created by this user
+    const disposedAssets = await prisma.fixedAsset.findMany({
+      where: {
+        disposedDate: { gte: start, lte: end },
+        status: 'Disposed',
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
     });
     const saleOfFixedAssets = disposedAssets.reduce((sum, asset) => sum + (asset.disposalAmount || 0), 0);
     
@@ -126,25 +160,35 @@ exports.getCashFlowStatement = async (req, res) => {
     
     // ==================== FINANCING ACTIVITIES ====================
     // Loan proceeds (new loans) - only for this user
-    const newLoans = await Loan.find({
-      disbursementDate: { $gte: start, $lte: end },
-      createdBy: req.user.id  // 👈 Only show loans created by this user
+    const newLoans = await prisma.loan.findMany({
+      where: {
+        disbursementDate: { gte: start, lte: end },
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
     });
     const loanProceeds = newLoans.reduce((sum, loan) => sum + loan.loanAmount, 0);
     
     // Loan repayments (from payments array inside Loan model) - only for this user
-    const userLoans = await Loan.find({ createdBy: req.user.id });
+    const userLoans = await prisma.loan.findMany({ 
+      where: { companyId: companyId} 
+    });
     let loanRepayments = 0;
     userLoans.forEach(loan => {
-      loan.payments.forEach(payment => {
-        if (payment.date >= start && payment.date <= end && payment.status === 'Paid') {
-          loanRepayments += payment.amount;
-        }
-      });
+      if (loan.payments) {
+        loan.payments.forEach(payment => {
+          const paymentDate = new Date(payment.date);
+          if (paymentDate >= start && paymentDate <= end && payment.status === 'Paid') {
+            loanRepayments += payment.amount;
+          }
+        });
+      }
     });
     
     // Capital investment and Owner drawings (from EquityAccount transactions)
-    const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
+    const userEquityAccounts = await prisma.equityAccount.findMany({ 
+      where: { companyId: companyId} 
+    });
     let capitalInvestments = 0;
     let ownerDrawings = 0;
     
@@ -171,9 +215,10 @@ exports.getCashFlowStatement = async (req, res) => {
     const openingDate = new Date(start);
     openingDate.setDate(openingDate.getDate() - 1);
     
-    const bankAccounts = await BankAccount.find({ 
-      status: 'Active',
-      createdBy: req.user.id  // 👈 Only show bank accounts created by this user
+    const bankAccounts = await prisma.bankAccount.findMany({ 
+      where: {
+        status: 'Active',
+        companyId: companyId}
     });
     let openingCashBalance = 0;
     let closingCashBalance = 0;
@@ -211,31 +256,37 @@ exports.getCashFlowStatement = async (req, res) => {
       { name: 'Owner Drawings', amount: -ownerDrawings, type: 'Outflow' }
     ].filter(item => item.amount !== 0);
     
+    const responseData = {
+      period: {
+        start: start,
+        end: end,
+        displayText: _getPeriodDisplayText(period, start, end)
+      },
+      operatingActivities: {
+        items: operatingItems,
+        total: cashFlowFromOperations
+      },
+      investingActivities: {
+        items: investingItems,
+        total: cashFlowFromInvesting
+      },
+      financingActivities: {
+        items: financingItems,
+        total: cashFlowFromFinancing
+      },
+      netCashFlow: netCashFlow,
+      openingCashBalance: openingCashBalance,
+      closingCashBalance: closingCashBalance,
+      netCashFlowPercentage: openingCashBalance !== 0 ? (netCashFlow / openingCashBalance) * 100 : 0
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
     res.status(200).json({
       success: true,
-      data: {
-        period: {
-          start: start,
-          end: end,
-          displayText: _getPeriodDisplayText(period, start, end)
-        },
-        operatingActivities: {
-          items: operatingItems,
-          total: cashFlowFromOperations
-        },
-        investingActivities: {
-          items: investingItems,
-          total: cashFlowFromInvesting
-        },
-        financingActivities: {
-          items: financingItems,
-          total: cashFlowFromFinancing
-        },
-        netCashFlow: netCashFlow,
-        openingCashBalance: openingCashBalance,
-        closingCashBalance: closingCashBalance,
-        netCashFlowPercentage: openingCashBalance !== 0 ? (netCashFlow / openingCashBalance) * 100 : 0
-      }
+      data: responseData,
+      cached: false,
     });
     
   } catch (error) {
@@ -250,84 +301,135 @@ exports.getCashFlowStatement = async (req, res) => {
 // ==================== GET CASH FLOW SUMMARY ====================
 exports.getSummary = async (req, res) => {
   try {
+    const { fiscalYearId } = req.query;
+    const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `cf:summary:${userId}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now);
     endOfMonth.setHours(23, 59, 59, 999);
     
+    // Build fiscal year filter
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
+    
     // Get current month incomes and expenses - only for this user
-    const monthIncomes = await Income.find({
-      date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted',
-      createdBy: req.user.id  // 👈 Only show incomes created by this user
+    const monthIncomes = await prisma.income.findMany({
+      where: {
+        date: { gte: startOfMonth, lte: endOfMonth },
+        status: 'Posted',
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
     });
     
-    const monthExpenses = await Expense.find({
-      date: { $gte: startOfMonth, $lte: endOfMonth },
-      status: 'Posted',
-      createdBy: req.user.id  // 👈 Only show expenses created by this user
+    const monthExpenses = await prisma.expense.findMany({
+      where: {
+        date: { gte: startOfMonth, lte: endOfMonth },
+        status: 'Posted',
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
     });
     
     // Add bill payments
-    const monthBillPayments = await PaymentMade.find({
-      paymentDate: { $gte: startOfMonth, $lte: endOfMonth },
-      billId: { $exists: true },
-      createdBy: req.user.id
+    const monthBillPayments = await prisma.paymentMade.findMany({
+      where: {
+        paymentDate: { gte: startOfMonth, lte: endOfMonth },
+        billId: { not: null },
+        companyId: companyId,
+        ...fiscalYearFilter
+      }
     });
     
     // Add loan payments
-    const userLoans = await Loan.find({ createdBy: req.user.id });
+    const userLoans = await prisma.loan.findMany({ 
+      where: { companyId: companyId} 
+    });
     let monthLoanPayments = 0;
     userLoans.forEach(loan => {
-      loan.payments.forEach(payment => {
-        if (payment.date >= startOfMonth && payment.date <= endOfMonth && payment.status === 'Paid') {
-          monthLoanPayments += payment.amount;
-        }
-      });
+      if (loan.payments) {
+        loan.payments.forEach(payment => {
+          const paymentDate = new Date(payment.date);
+          if (paymentDate >= startOfMonth && paymentDate <= endOfMonth && payment.status === 'Paid') {
+            monthLoanPayments += payment.amount;
+          }
+        });
+      }
     });
     
     // Add equity transactions
-    const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
+    const userEquityAccounts = await prisma.equityAccount.findMany({ 
+      where: { companyId: companyId} 
+    });
     let monthCapitalInvestments = 0;
     let monthOwnerDrawings = 0;
     
     userEquityAccounts.forEach(account => {
-      account.transactions.forEach(tx => {
-        if (tx.date >= startOfMonth && tx.date <= endOfMonth && tx.status === 'Posted') {
-          if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
-            monthCapitalInvestments += tx.amount;
-          } else if (tx.type === 'Drawings') {
-            monthOwnerDrawings += tx.amount;
+      if (account.transactions) {
+        account.transactions.forEach(tx => {
+          const txDate = new Date(tx.date);
+          if (txDate >= startOfMonth && txDate <= endOfMonth && tx.status === 'Posted') {
+            if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
+              monthCapitalInvestments += tx.amount;
+            } else if (tx.type === 'Drawings') {
+              monthOwnerDrawings += tx.amount;
+            }
           }
-        }
-      });
+        });
+      }
     });
     
-    const monthIncomeTotal = monthIncomes.reduce((sum, inc) => sum + inc.totalAmount, 0);
+    const monthIncomeTotal = monthIncomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
     const monthCashInflow = monthIncomeTotal + monthCapitalInvestments;
     
-    const monthExpenseTotal = monthExpenses.reduce((sum, exp) => sum + exp.totalAmount, 0);
+    const monthExpenseTotal = monthExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
     const monthBillTotal = monthBillPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
     const monthCashOutflow = monthExpenseTotal + monthBillTotal + monthLoanPayments + monthOwnerDrawings;
     
     const monthNetCashFlow = monthCashInflow - monthCashOutflow;
     
     // Get bank balances - only for this user
-    const bankAccounts = await BankAccount.find({ 
-      status: 'Active',
-      createdBy: req.user.id  // 👈 Only show bank accounts created by this user
+    const bankAccounts = await prisma.bankAccount.findMany({ 
+      where: {
+        status: 'Active',
+        companyId: companyId}
     });
     const currentCashBalance = bankAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
     
+    const summaryData = {
+      currentCashBalance,
+      monthCashInflow,
+      monthCashOutflow,
+      monthNetCashFlow,
+      monthNetCashFlowPercentage: currentCashBalance !== 0 ? (monthNetCashFlow / currentCashBalance) * 100 : 0
+    };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summaryData, 120);
+
     res.status(200).json({
       success: true,
-      data: {
-        currentCashBalance,
-        monthCashInflow,
-        monthCashOutflow,
-        monthNetCashFlow,
-        monthNetCashFlowPercentage: currentCashBalance !== 0 ? (monthNetCashFlow / currentCashBalance) * 100 : 0
-      }
+      data: summaryData,
+      cached: false,
     });
     
   } catch (error) {
@@ -342,10 +444,34 @@ exports.getSummary = async (req, res) => {
 // ==================== GET CASH FLOW TREND ====================
 exports.getTrend = async (req, res) => {
   try {
-    const { months = 12 } = req.query;
+    const { months = 12, fiscalYearId } = req.query;
+    const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `cf:trend:${userId}:${months}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(endDate.getMonth() - parseInt(months));
+    
+    // Build fiscal year filter
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
     
     const monthlyData = [];
     
@@ -357,66 +483,76 @@ exports.getTrend = async (req, res) => {
       monthEnd.setHours(23, 59, 59, 999);
       
       // Get incomes for this month - only for this user
-      const monthIncomes = await Income.aggregate([
-        { $match: { 
-          date: { $gte: monthStart, $lte: monthEnd }, 
+      const monthIncomes = await prisma.income.findMany({
+        where: {
+          date: { gte: monthStart, lte: monthEnd },
           status: 'Posted',
-          createdBy: req.user.id  // 👈 Only show incomes created by this user
-        } },
-        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-      ]);
-      
-      // Get expenses for this month - only for this user
-      const monthExpenses = await Expense.aggregate([
-        { $match: { 
-          date: { $gte: monthStart, $lte: monthEnd }, 
-          status: 'Posted',
-          createdBy: req.user.id  // 👈 Only show expenses created by this user
-        } },
-        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-      ]);
-      
-      // Get bill payments for this month
-      const monthBillPayments = await PaymentMade.aggregate([
-        { $match: { 
-          paymentDate: { $gte: monthStart, $lte: monthEnd }, 
-          billId: { $exists: true },
-          createdBy: req.user.id
-        } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-      
-      // Get loan payments and equity transactions
-      const userLoans = await Loan.find({ createdBy: req.user.id });
-      let monthLoanPayments = 0;
-      userLoans.forEach(loan => {
-        loan.payments.forEach(payment => {
-          if (payment.date >= monthStart && payment.date <= monthEnd && payment.status === 'Paid') {
-            monthLoanPayments += payment.amount;
-          }
-        });
+          companyId: companyId,
+          ...fiscalYearFilter
+        }
       });
       
-      const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
+      // Get expenses for this month - only for this user
+      const monthExpenses = await prisma.expense.findMany({
+        where: {
+          date: { gte: monthStart, lte: monthEnd },
+          status: 'Posted',
+          companyId: companyId,
+          ...fiscalYearFilter
+        }
+      });
+      
+      // Get bill payments for this month
+      const monthBillPayments = await prisma.paymentMade.findMany({
+        where: {
+          paymentDate: { gte: monthStart, lte: monthEnd },
+          billId: { not: null },
+          companyId: companyId,
+          ...fiscalYearFilter
+        }
+      });
+      
+      // Get loan payments and equity transactions
+      const userLoans = await prisma.loan.findMany({ 
+        where: { companyId: companyId} 
+      });
+      let monthLoanPayments = 0;
+      userLoans.forEach(loan => {
+        if (loan.payments) {
+          loan.payments.forEach(payment => {
+            const paymentDate = new Date(payment.date);
+            if (paymentDate >= monthStart && paymentDate <= monthEnd && payment.status === 'Paid') {
+              monthLoanPayments += payment.amount;
+            }
+          });
+        }
+      });
+      
+      const userEquityAccounts = await prisma.equityAccount.findMany({ 
+        where: { companyId: companyId} 
+      });
       let monthCapitalInvestments = 0;
       let monthOwnerDrawings = 0;
       userEquityAccounts.forEach(account => {
-        account.transactions.forEach(tx => {
-          if (tx.date >= monthStart && tx.date <= monthEnd && tx.status === 'Posted') {
-            if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
-              monthCapitalInvestments += tx.amount;
-            } else if (tx.type === 'Drawings') {
-              monthOwnerDrawings += tx.amount;
+        if (account.transactions) {
+          account.transactions.forEach(tx => {
+            const txDate = new Date(tx.date);
+            if (txDate >= monthStart && txDate <= monthEnd && tx.status === 'Posted') {
+              if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
+                monthCapitalInvestments += tx.amount;
+              } else if (tx.type === 'Drawings') {
+                monthOwnerDrawings += tx.amount;
+              }
             }
-          }
-        });
+          });
+        }
       });
       
-      const incomeTotal = monthIncomes[0]?.total || 0;
+      const incomeTotal = monthIncomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
       const inflow = incomeTotal + monthCapitalInvestments;
       
-      const expenseTotal = monthExpenses[0]?.total || 0;
-      const billTotal = monthBillPayments[0]?.total || 0;
+      const expenseTotal = monthExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
+      const billTotal = monthBillPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
       const outflow = expenseTotal + billTotal + monthLoanPayments + monthOwnerDrawings;
       
       monthlyData.push({
@@ -427,9 +563,13 @@ exports.getTrend = async (req, res) => {
       });
     }
     
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, monthlyData, 300);
+
     res.status(200).json({
       success: true,
-      data: monthlyData
+      data: monthlyData,
+      cached: false,
     });
     
   } catch (error) {
@@ -445,6 +585,22 @@ exports.getTrend = async (req, res) => {
 exports.getDetailedCashFlow = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `cf:detailed:${userId}:${startDate || ''}:${endDate || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     let start, end;
     
     if (startDate && endDate) {
@@ -557,21 +713,27 @@ exports.getDetailedCashFlow = async (req, res) => {
     const totalInflow = incomeDetails.reduce((sum, inc) => sum + inc.amount, 0);
     const totalOutflow = expenseDetails.reduce((sum, exp) => sum + exp.amount, 0);
     
+    const responseData = {
+      period: {
+        start: start,
+        end: end
+      },
+      summary: {
+        totalInflow: totalInflow,
+        totalOutflow: totalOutflow,
+        netCashFlow: totalInflow - totalOutflow
+      },
+      inflows: incomeDetails,
+      outflows: expenseDetails
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
     res.status(200).json({
       success: true,
-      data: {
-        period: {
-          start: start,
-          end: end
-        },
-        summary: {
-          totalInflow: totalInflow,
-          totalOutflow: totalOutflow,
-          netCashFlow: totalInflow - totalOutflow
-        },
-        inflows: incomeDetails,
-        outflows: expenseDetails
-      }
+      data: responseData,
+      cached: false,
     });
     
   } catch (error) {

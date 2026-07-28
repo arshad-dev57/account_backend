@@ -2,12 +2,14 @@
 
 const PaymentReceived = require('../models/PaymentReceived');
 const prisma = require('../prisma/client');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 
 // ─── HELPER: Get or create Accounts Receivable account ──────────
-async function getOrCreateReceivableAccount(userId, tx) {
+async function getOrCreateReceivableAccount(userId, companyId, tx) {
   const db = tx || prisma;
   let arAccount = await db.chartOfAccount.findFirst({
-    where: { code: '1110', createdBy: userId }
+    where: { code: '1110',  companyId: companyId }
   });
 
   if (!arAccount) {
@@ -31,10 +33,10 @@ async function getOrCreateReceivableAccount(userId, tx) {
 }
 
 // ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId, tx) {
+async function getOrCreateCashAccount(userId, companyId, tx) {
   const db = tx || prisma;
   let cashAccount = await db.chartOfAccount.findFirst({
-    where: { code: '1010', createdBy: userId }
+    where: { code: '1010',  companyId: companyId }
   });
 
   if (!cashAccount) {
@@ -50,7 +52,8 @@ async function getOrCreateCashAccount(userId, tx) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
   }
@@ -63,7 +66,7 @@ async function validateCustomer(customerId, userId, tx) {
   if (!customerId) throw new Error('Customer ID is required');
 
   const customer = await db.customer.findFirst({
-    where: { id: customerId, createdBy: userId, isActive: true }
+    where: { id: customerId, companyId: companyId, isActive: true }
   });
 
   if (!customer) throw new Error('Customer not found or does not belong to you');
@@ -76,7 +79,7 @@ async function validateBankAccount(bankAccountId, userId, tx) {
   if (!bankAccountId) return null;
 
   const bankAccount = await db.bankAccount.findFirst({
-    where: { id: bankAccountId, createdBy: userId, status: 'Active' },
+    where: { id: bankAccountId, companyId: companyId, status: 'Active' },
     include: { chartOfAccount: true }
   });
 
@@ -90,7 +93,7 @@ async function validateInvoice(invoiceId, userId, tx) {
   if (!invoiceId) throw new Error('Invoice ID is required');
 
   const invoice = await db.warehouseInvoice.findFirst({
-    where: { id: invoiceId, createdBy: userId, invoiceStatus: { not: 'Paid' } }
+    where: { id: invoiceId, companyId: companyId, invoiceStatus: { not: 'Paid' } }
   });
 
   if (!invoice) throw new Error('Invoice not found or already paid');
@@ -103,7 +106,7 @@ async function generatePaymentNumber(userId, tx) {
   const prefix = `PMT-${year}-`;
 
   const lastPayment = await tx.paymentReceived.findFirst({
-    where: { createdBy: userId, paymentNumber: { startsWith: prefix } },
+    where: { companyId: companyId, paymentNumber: { startsWith: prefix } },
     orderBy: { paymentNumber: 'desc' }
   });
 
@@ -135,11 +138,23 @@ const recordPayment = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
         message: 'Payment amount must be greater than zero'
       });
+    }
+
+    // ─── Fiscal year guard ─────────────────────────────────────────
+    const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
     }
 
     // ─── Everything below runs in ONE atomic transaction ───────────
@@ -201,6 +216,9 @@ const recordPayment = async (req, res) => {
           //    (re-read on every retry attempt to avoid collisions)
           const paymentNumber = await generatePaymentNumber(userId, tx);
 
+          // 8a. Resolve fiscal year id for this posting date
+          const fyId = await resolveFiscalYearId(userId, postingDate);
+
           const paymentData = {
             paymentNumber,
             paymentDate: paymentDate || new Date(),
@@ -220,6 +238,7 @@ const recordPayment = async (req, res) => {
             status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
             clearedDate: paymentMethod === 'Cheque' ? null : new Date(),
             createdBy: userId,
+            fiscalYearId: fyId,
           };
 
           // 9. Create payment record — this is the step that was
@@ -357,15 +376,16 @@ const getPayments = async (req, res) => {
     const { customerId, invoiceId, status, startDate, endDate, search, page = 1, limit = 20 } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    const filter = { companyId: companyId };
 
     if (customerId) {
-      const customer = await prisma.customer.findFirst({ where: { id: customerId, createdBy: userId } });
+      const customer = await prisma.customer.findFirst({ where: { id: customerId, companyId: companyId} });
       if (customer) filter.customerId = customerId;
     }
 
     if (invoiceId) {
-      const invoice = await prisma.warehouseInvoice.findFirst({ where: { id: invoiceId, createdBy: userId } });
+      const invoice = await prisma.warehouseInvoice.findFirst({ where: { id: invoiceId, companyId: companyId} });
       if (invoice) filter.invoiceId = invoiceId;
     }
 
@@ -428,8 +448,9 @@ const getPayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const payment = await prisma.paymentReceived.findFirst({
-      where: { id, createdBy: userId },
+      where: { id, companyId: companyId},
       include: {
         customer: { select: { id: true, name: true, email: true, phone: true, address: true } },
         creator: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -458,13 +479,14 @@ const getUnpaidInvoices = async (req, res) => {
     const { customerId } = req.params;
     const userId = req.user.id;
 
-    const customer = await prisma.customer.findFirst({ where: { id: customerId, createdBy: userId } });
+    const companyId = req.user.companyId;
+    const customer = await prisma.customer.findFirst({ where: { id: customerId, companyId: companyId} });
     if (!customer) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
     const invoices = await prisma.warehouseInvoice.findMany({
-      where: { customerId, invoiceStatus: { not: 'Paid' }, createdBy: userId },
+      where: { customerId, invoiceStatus: { not: 'Paid' }, companyId: companyId},
       orderBy: { dueDate: 'asc' }
     });
 
@@ -501,7 +523,8 @@ const getSummary = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    const filter = { companyId: companyId };
 
     if (startDate && endDate) {
       filter.paymentDate = { gte: new Date(startDate), lte: new Date(endDate) };
@@ -606,13 +629,24 @@ const deletePayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const payment = await prisma.paymentReceived.findFirst({
-      where: { id, createdBy: userId },
+      where: { id, companyId: companyId},
       include: { customer: true }
     });
 
     if (!payment) {
       return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    // ─── Fiscal year guard ─────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, payment.paymentDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
     }
 
     await prisma.$transaction(async (tx) => {
@@ -648,7 +682,8 @@ const clearChequePayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const payment = await prisma.paymentReceived.findFirst({ where: { id, createdBy: userId } });
+    const companyId = req.user.companyId;
+    const payment = await prisma.paymentReceived.findFirst({ where: { id, companyId: companyId} });
 
     if (!payment) {
       return res.status(404).json({ success: false, message: 'Payment not found' });

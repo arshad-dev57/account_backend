@@ -607,6 +607,20 @@ class DeliveryModel {
         },
         confirmer: {
           select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        salesInvoices: {
+          where: {
+            isActive: true,
+            isDeleted: false
+          },
+          select: {
+            id: true,
+            invoiceNumber: true,
+            paymentStatus: true,
+            paidAmount: true,
+            outstanding: true,
+            grandTotal: true
+          }
         }
       }
     });

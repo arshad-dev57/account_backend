@@ -1,4 +1,3 @@
-// middleware/authMiddleware.js - Prisma Version
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const prisma = require('../prisma/client');
@@ -8,16 +7,52 @@ const cleanToken = (token) => {
   return token.trim().replace(/^"|"$/g, '').replace(/\s/g, '');
 };
 
-// ✅ Shared helper - fresh DB fetch karta hai
 const checkAndExpireIfNeeded = async (userId) => {
   const userData = await prisma.user.findUnique({
-    where: { id: userId }
+    where: { id: userId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      password: true,
+      phone: true,
+      country: true,
+      role: true,
+      roleId: true,
+      managerId: true,
+      createdBy: true,
+      companyId: true,
+      isActive: true,
+      resetOtp: true,
+      resetOtpExpiry: true,
+      failedLoginAttempts: true,
+      lockUntil: true,
+      requiresLoginOtp: true,
+      loginOtp: true,
+      loginOtpExpiry: true,
+      organizationName: true,
+      address: true,
+      contactNo: true,
+      websiteLink: true,
+      businessDetails: true,
+      subscriptionPlan: true,
+      subscriptionStatus: true,
+      subscriptionStartDate: true,
+      subscriptionEndDate: true,
+      trialStartDate: true,
+      trialEndDate: true,
+      createdAt: true,
+      updatedAt: true,
+      company: true
+    }
   });
-  
+
   if (!userData) return null;
-  
+
   const user = new User(userData);
-  
+  user.companyId = userData.companyId;
+
   if (user.subscription.status !== 'active') return user;
 
   const now = new Date();
@@ -33,15 +68,19 @@ const checkAndExpireIfNeeded = async (userId) => {
   if (isTrialExpired || isPaidExpired) {
     await user.expireSubscription();
     const updatedUserData = await prisma.user.findUnique({
-      where: { id: userId }
+      where: { id: userId },
+      select: {
+        companyId: true,
+        company: true
+      }
     });
-    return new User(updatedUserData);
+    user.companyId = updatedUserData?.companyId;
+    return user;
   }
 
   return user;
 };
 
-// ========== MIDDLEWARE 1: Authentication ONLY ==========
 exports.protectOnly = async (req, res, next) => {
   let token;
 
@@ -67,9 +106,12 @@ exports.protectOnly = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
+
     const userData = await prisma.user.findUnique({
-      where: { id: decoded.id }
+      where: { id: decoded.id },
+      include: {
+        company: true
+      }
     });
 
     if (!userData) {
@@ -81,6 +123,7 @@ exports.protectOnly = async (req, res, next) => {
     }
 
     const user = new User(userData);
+    user.companyId = userData.companyId;
     req.user = user;
     next();
 
@@ -97,7 +140,6 @@ exports.protectOnly = async (req, res, next) => {
   }
 };
 
-// ========== MIDDLEWARE 2: Authentication + Subscription Check ==========
 exports.protect = async (req, res, next) => {
   let token;
 
@@ -113,7 +155,6 @@ exports.protect = async (req, res, next) => {
   }
 
   try {
-    // ✅ Clean token before verification
     token = cleanToken(token);
     if (!token) {
       return res.status(401).json({
@@ -124,7 +165,6 @@ exports.protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // ✅ Fresh fetch + sahi expire check
     const user = await checkAndExpireIfNeeded(decoded.id);
 
     if (!user) {

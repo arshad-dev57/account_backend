@@ -1,4 +1,4 @@
-// models/Refund.js - COMPLETE WITH SALES & PURCHASE REFUND SUPPORT
+// warehouse/models/Refunds.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 
@@ -22,12 +22,16 @@ class RefundModel {
   // CREATE REFUND (Sales or Purchase)
   // ============================================================
   static async create(data) {
+    // ✅ FIXED: Generate refund number before creating
     const refundNumber = generateRefundNumber(data.refundType || 'Sales Refund');
     
     return await prisma.refund.create({
       data: {
-        refundNumber,
+        refundNumber,  // ✅ Added missing refundNumber
         refundDate: new Date(),
+        refundType: data.refundType || 'Sales Refund',
+        refundStatus: data.refundStatus || 'Pending',
+        refundMethod: data.refundMethod || 'Original Payment',
         // Order fields (for Sales Refund)
         orderId: data.orderId || null,
         orderNumber: data.orderNumber || '',
@@ -49,19 +53,17 @@ class RefundModel {
         returnNumber: data.returnNumber || '',
         // Financial
         amount: data.amount,
-        refundStatus: data.refundStatus || 'Pending',
-        refundMethod: data.refundMethod || 'Original Payment',
-        refundType: data.refundType || 'Sales Refund', // ✅ Sales Refund or Purchase Refund
-        reason: data.reason,
+        reason: data.reason || '',
         notes: data.notes || '',
         referenceNumber: data.referenceNumber || '',
         bankName: data.bankName || '',
         accountNumber: data.accountNumber || '',
         accountHolderName: data.accountHolderName || '',
         attachments: data.attachments || [],
-        createdBy: data.createdBy,
-        updatedBy: data.createdBy,
-        userId: data.userId // 👈 Multi-tenant support
+        createdBy: data.createdBy,      // ✅ Use createdBy (not userId)
+        companyId: data.companyId,      // ✅ Use companyId
+        isActive: true,
+        isDeleted: false
       },
       include: {
         creator: {
@@ -142,9 +144,16 @@ class RefundModel {
   // COUNT SALES REFUNDS
   // ============================================================
   static async countSalesRefunds(filter = {}) {
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.refund.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         refundType: 'Sales Refund'
       }
     });
@@ -154,9 +163,16 @@ class RefundModel {
   // COUNT PURCHASE REFUNDS
   // ============================================================
   static async countPurchaseRefunds(filter = {}) {
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.refund.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         refundType: 'Purchase Refund'
       }
     });
@@ -363,9 +379,10 @@ class RefundModel {
   }
 
   // ============================================================
-  // GET REFUND STATS (by type)
+  // GET REFUND STATS (by type) - ✅ FIXED
   // ============================================================
-  static async getStats(userId, refundType = null, period = 'month') {
+  static async getStats(companyId, refundType = null, period = 'month') {
+    // ✅ FIXED: Use companyId instead of userId
     const now = new Date();
     let dateFilter = {};
 
@@ -386,7 +403,7 @@ class RefundModel {
     const filter = {
       isActive: true,
       isDeleted: false,
-      userId: userId,
+      companyId: companyId,  // ✅ Use companyId
       ...dateFilter
     };
 
@@ -424,9 +441,10 @@ class RefundModel {
   }
 
   // ============================================================
-  // GET DAILY TREND
+  // GET DAILY TREND - ✅ FIXED
   // ============================================================
-  static async getDailyTrend(userId, refundType = null, period = 'month') {
+  static async getDailyTrend(companyId, refundType = null, period = 'month') {
+    // ✅ FIXED: Use companyId instead of userId
     const now = new Date();
     let startDate = new Date(now);
 
@@ -439,7 +457,7 @@ class RefundModel {
     }
 
     const filter = {
-      userId: userId,
+      companyId: companyId,  // ✅ Use companyId
       isActive: true,
       isDeleted: false,
       refundDate: { gte: startDate }
@@ -469,16 +487,17 @@ class RefundModel {
   }
 
   // ============================================================
-  // SEARCH REFUNDS
+  // SEARCH REFUNDS - ✅ FIXED
   // ============================================================
-  static async search(userId, query, limit = 10) {
+  static async search(companyId, query, limit = 10) {
+    // ✅ FIXED: Use companyId instead of userId
     if (!query || query.length < 2) {
       return [];
     }
 
     return await prisma.refund.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,  // ✅ Use companyId
         isActive: true,
         isDeleted: false,
         OR: [

@@ -60,27 +60,34 @@ class ProductModel {
   // ============================================================
   // FIND PRODUCT BY SKU
   // ============================================================
-  static async findBySku(sku) {
-    return await prisma.product.findUnique({
-      where: { sku }
+  static async findBySku(sku, companyId) {
+    return await prisma.product.findFirst({
+      where: { 
+        sku: sku.toUpperCase(),
+        companyId: companyId
+      }
     });
   }
 
   // ============================================================
   // FIND PRODUCT BY BARCODE
   // ============================================================
-  static async findByBarcode(barcodeNumber) {
-    return await prisma.product.findUnique({
-      where: { barcodeNumber }
+  static async findByBarcode(barcodeNumber, companyId) {
+    return await prisma.product.findFirst({
+      where: { 
+        barcodeNumber: barcodeNumber,
+        companyId: companyId
+      }
     });
   }
 
   // ============================================================
   // FIND LOW STOCK PRODUCTS
   // ============================================================
-  static async findLowStock() {
+  static async findLowStock(companyId) {
     return await prisma.product.findMany({
       where: {
+        companyId: companyId,
         isActive: true,
         currentStock: {
           lte: prisma.product.fields.minimumStock
@@ -122,7 +129,7 @@ class ProductModel {
       data.volume = data.length * data.width * data.height;
     }
 
-    // Handle tags, colors, sizes as arrays
+    // Handle arrays
     if (data.tags && typeof data.tags === 'string') {
       data.tags = data.tags.split(',').map(t => t.trim());
     }
@@ -133,8 +140,20 @@ class ProductModel {
       data.sizes = data.sizes.split(',').map(s => s.trim());
     }
 
+    // ✅ FIXED: Handle relations
+    const { categoryId, supplierId, ...restData } = data;
+    
+    const createData = { ...restData };
+    
+    if (categoryId) {
+      createData.category = { connect: { id: categoryId } };
+    }
+    if (supplierId) {
+      createData.supplier = { connect: { id: supplierId } };
+    }
+
     return await prisma.product.create({
-      data,
+      data: createData,
       include: {
         category: true,
         supplier: true
@@ -185,9 +204,21 @@ class ProductModel {
       data.sizes = data.sizes.split(',').map(s => s.trim());
     }
 
+    // ✅ FIXED: Handle relations
+    const { categoryId, supplierId, ...restData } = data;
+    
+    const updateData = { ...restData };
+    
+    if (categoryId) {
+      updateData.category = { connect: { id: categoryId } };
+    }
+    if (supplierId) {
+      updateData.supplier = { connect: { id: supplierId } };
+    }
+
     return await prisma.product.update({
       where: { id },
-      data,
+      data: updateData,
       include: {
         category: true,
         supplier: true
@@ -260,10 +291,11 @@ class ProductModel {
   // ============================================================
   // SEARCH PRODUCTS
   // ============================================================
-  static async search(query, options = {}) {
+  static async search(query, companyId, options = {}) {
     const { skip, take } = options;
     
     const filter = {
+      companyId: companyId,
       isActive: true,
       OR: [
         { name: { contains: query, mode: 'insensitive' } },
@@ -292,10 +324,11 @@ class ProductModel {
   // ============================================================
   // GET BY CATEGORY
   // ============================================================
-  static async findByCategory(categoryId) {
+  static async findByCategory(categoryId, companyId) {
     return await prisma.product.findMany({
       where: {
-        categoryId,
+        categoryId: categoryId,
+        companyId: companyId,
         isActive: true
       },
       include: {
@@ -309,10 +342,11 @@ class ProductModel {
   // ============================================================
   // GET BY SUPPLIER
   // ============================================================
-  static async findBySupplier(supplierId) {
+  static async findBySupplier(supplierId, companyId) {
     return await prisma.product.findMany({
       where: {
-        supplierId,
+        supplierId: supplierId,
+        companyId: companyId,
         isActive: true
       }
     });
@@ -321,12 +355,13 @@ class ProductModel {
   // ============================================================
   // GET PRODUCT STATS
   // ============================================================
-  static async getStats() {
+  static async getStats(companyId) {
     const [total, active, lowStock, outOfStock] = await Promise.all([
-      prisma.product.count(),
-      prisma.product.count({ where: { isActive: true } }),
+      prisma.product.count({ where: { companyId: companyId } }),
+      prisma.product.count({ where: { companyId: companyId, isActive: true } }),
       prisma.product.count({
         where: {
+          companyId: companyId,
           isActive: true,
           currentStock: {
             lte: prisma.product.fields.minimumStock
@@ -335,6 +370,7 @@ class ProductModel {
       }),
       prisma.product.count({
         where: {
+          companyId: companyId,
           isActive: true,
           currentStock: 0
         }

@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../../middleware/authMiddleware');
+const { protectOnly } = require('../../middleware/authMiddleware');
 const {
   createQuotation,
   getQuotations,
@@ -20,7 +20,7 @@ const {
 } = require('../controller/quotationController');
 
 // ─── All routes protected ──────────────────────────────────────
-router.use(protect);
+router.use(protectOnly);
 
 // ============================================================
 // ─── QUOTATION ROUTES ──────────────────────────────────────────

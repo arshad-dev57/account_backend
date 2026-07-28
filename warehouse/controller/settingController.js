@@ -1,4 +1,4 @@
-// warehouse/controller/settingController.js - Prisma Version (COMPLETE FIXED)
+// warehouse/controller/settingController.js - COMPLETE CORRECTED
 
 const Setting = require('../models/Setting');
 const prisma = require('../../prisma/client');
@@ -18,8 +18,6 @@ const formatMetadata = (category, body) => {
     if (body.code) metadata.code = body.code;
   }
   
-  // Add more category-specific metadata handling here
-  
   return metadata;
 };
 
@@ -35,7 +33,6 @@ const formatResponse = (setting) => {
     updatedAt: setting.updatedAt
   };
   
-  // Merge metadata if exists
   if (setting.metadata && typeof setting.metadata === 'object') {
     Object.assign(result, setting.metadata);
   }
@@ -43,10 +40,11 @@ const formatResponse = (setting) => {
   return result;
 };
 
-// ─── GET SETTINGS ────────────────────────────────────
+// ─── GET SETTINGS - ✅ FIXED
 const getSettings = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;  // ✅ Get companyId from user
     const { category } = req.query;
     
     if (!category) {
@@ -57,9 +55,10 @@ const getSettings = async (req, res) => {
     }
 
     console.log('🔵 [getSettings] Category:', category);
-    console.log('🔵 [getSettings] User ID:', userId);
+    console.log('🔵 [getSettings] Company ID:', companyId);
 
-    const settings = await Setting.findByCategory(category, userId, true);
+    // ✅ FIXED: Pass companyId instead of userId
+    const settings = await Setting.findByCategory(category, companyId, true);
     
     const formatted = settings.map(item => formatResponse(item));
 
@@ -79,13 +78,15 @@ const getSettings = async (req, res) => {
   }
 };
 
-// ─── GET ALL SETTINGS (Admin) ──────────────────────
+// ─── GET ALL SETTINGS (Admin) - ✅ FIXED
 const getAllSettings = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;  // ✅ Get companyId
     const { category, isActive, page = 1, limit = 50 } = req.query;
     
-    const filter = { userId: userId };
+    // ✅ FIXED: Use companyId instead of userId
+    const filter = { companyId: companyId };
     if (category) filter.category = category;
     if (isActive !== undefined) filter.isActive = isActive === 'true';
     
@@ -149,17 +150,17 @@ const getSettingById = async (req, res) => {
   }
 };
 
-// ─── CREATE SETTING ──────────────────────────────────
+// ─── CREATE SETTING - ✅ FIXED
 const createSetting = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;  // ✅ Get companyId
     const { category, name, isDefault, displayOrder, ...rest } = req.body;
 
     console.log('🔵 [createSetting] Called');
     console.log('🔵 [createSetting] Category:', category);
     console.log('🔵 [createSetting] Name:', name);
-    console.log('🔵 [createSetting] User ID:', userId);
-    console.log('🔵 [createSetting] Rest:', rest);
+    console.log('🔵 [createSetting] Company ID:', companyId);
 
     if (!category || !name) {
       return res.status(400).json({
@@ -168,8 +169,8 @@ const createSetting = async (req, res) => {
       });
     }
 
-    // Check if setting already exists
-    const existing = await Setting.findByCategoryAndName(category, name, userId);
+    // ✅ FIXED: Pass companyId instead of userId
+    const existing = await Setting.findByCategoryAndName(category, name, companyId);
     if (existing) {
       console.log('❌ [createSetting] Setting already exists');
       return res.status(400).json({
@@ -181,6 +182,7 @@ const createSetting = async (req, res) => {
     const metadata = formatMetadata(category, rest);
     console.log('🔵 [createSetting] Metadata:', metadata);
 
+    // ✅ FIXED: Pass companyId instead of userId
     const setting = await Setting.create({
       category,
       name,
@@ -188,7 +190,7 @@ const createSetting = async (req, res) => {
       isDefault: isDefault || false,
       displayOrder: displayOrder || 0,
       createdBy: userId,
-      userId: userId
+      companyId: companyId
     });
 
     console.log('✅ [createSetting] Setting created successfully:', setting.id);
@@ -217,8 +219,6 @@ const updateSetting = async (req, res) => {
 
     console.log('🔵 [updateSetting] Called');
     console.log('🔵 [updateSetting] ID:', id);
-    console.log('🔵 [updateSetting] Name:', name);
-    console.log('🔵 [updateSetting] User ID:', userId);
 
     const existing = await Setting.findById(id);
     if (!existing) {
@@ -231,7 +231,11 @@ const updateSetting = async (req, res) => {
 
     // Check duplicate name
     if (name && name !== existing.name) {
-      const duplicate = await Setting.findByCategoryAndName(existing.category, name, userId);
+      const duplicate = await Setting.findByCategoryAndName(
+        existing.category, 
+        name, 
+        existing.companyId  // ✅ Use companyId from existing
+      );
       if (duplicate && duplicate.id !== id) {
         console.log('❌ [updateSetting] Duplicate name found');
         return res.status(400).json({
@@ -243,7 +247,6 @@ const updateSetting = async (req, res) => {
 
     const metadata = formatMetadata(existing.category, rest);
     
-    // Merge with existing metadata
     const mergedMetadata = {
       ...(existing.metadata || {}),
       ...metadata
@@ -287,7 +290,6 @@ const deleteSetting = async (req, res) => {
     
     console.log('🔵 [deleteSetting] Called');
     console.log('🔵 [deleteSetting] ID:', id);
-    console.log('🔵 [deleteSetting] User ID:', userId);
 
     const setting = await Setting.findById(id);
     if (!setting) {
@@ -306,7 +308,6 @@ const deleteSetting = async (req, res) => {
       });
     }
 
-    // Soft delete
     await Setting.deactivate(id, userId);
 
     console.log('✅ [deleteSetting] Setting deactivated successfully');
@@ -368,11 +369,14 @@ const hardDeleteSetting = async (req, res) => {
   }
 };
 
-// ─── GET CATEGORIES ──────────────────────────────────
+// ─── GET CATEGORIES - ✅ FIXED
 const getCategories = async (req, res) => {
   try {
     const userId = req.user.id;
-    const categories = await Setting.getCategories(userId);
+    const companyId = req.user.companyId;  // ✅ Get companyId
+    
+    // ✅ FIXED: Pass companyId instead of userId
+    const categories = await Setting.getCategories(companyId);
     
     res.status(200).json({
       success: true,
@@ -388,10 +392,11 @@ const getCategories = async (req, res) => {
   }
 };
 
-// ─── SEED DEFAULT SETTINGS ──────────────────────────
+// ─── SEED DEFAULT SETTINGS - ✅ FIXED
 const seedDefaultSettings = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;  // ✅ Get companyId
     
     const defaultSettings = [
       // Product Settings
@@ -419,7 +424,6 @@ const seedDefaultSettings = async (req, res) => {
       { category: 'taxType', name: 'Exclusive', isDefault: true },
       { category: 'taxType', name: 'Inclusive' },
       
-      // Order Settings
       { category: 'orderType', name: 'Standard', isDefault: true },
       { category: 'orderType', name: 'Bulk' },
       { category: 'orderType', name: 'Wholesale' },
@@ -438,7 +442,6 @@ const seedDefaultSettings = async (req, res) => {
       { category: 'shippingMethod', name: 'Express' },
       { category: 'shippingMethod', name: 'Pickup' },
       
-      // Customer Settings
       { category: 'customerType', name: 'Individual', isDefault: true },
       { category: 'customerType', name: 'Business' },
       { category: 'customerType', name: 'Wholesale' },
@@ -449,7 +452,8 @@ const seedDefaultSettings = async (req, res) => {
 
     console.log(`🔵 [seedDefaultSettings] Seeding ${defaultSettings.length} settings`);
 
-    const results = await Setting.bulkCreate(defaultSettings, userId);
+    // ✅ FIXED: Pass companyId instead of userId
+    const results = await Setting.bulkCreate(defaultSettings, companyId, userId);
 
     console.log(`✅ [seedDefaultSettings] ${results.length} settings seeded successfully`);
 

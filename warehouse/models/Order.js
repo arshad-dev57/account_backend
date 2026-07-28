@@ -1,4 +1,4 @@
-// warehouse/models/Order.js - COMPLETE SALES & PURCHASE ORDER MODEL
+// warehouse/models/Order.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 
@@ -58,8 +58,13 @@ class OrderModel {
           customerNotes: data.customerNotes || '',
           internalNotes: data.internalNotes || '',
           tags: data.tags || [],
-          createdBy: data.createdBy,
-          userId: data.userId
+          createdBy: data.createdBy || data.userId,  // ✅ Use createdBy
+          companyId: data.companyId,                 // ✅ Use companyId
+          orderStatus: data.orderStatus || 'Draft',
+          fulfillmentStatus: data.fulfillmentStatus || 'Not Started',
+          approvalStatus: data.approvalStatus || 'Pending',
+          isActive: true,
+          isDeleted: false
         },
         include: {
           creator: {
@@ -144,6 +149,9 @@ class OrderModel {
         },
         shipper: {
           select: { id: true, firstName: true, lastName: true }
+        },
+        updater: {
+          select: { id: true, firstName: true, lastName: true, email: true }
         }
       }
     });
@@ -177,24 +185,38 @@ class OrderModel {
   }
 
   // ============================================================
-  // COUNT SALES ORDERS
+  // COUNT SALES ORDERS - ✅ FIXED
   // ============================================================
   static async countSalesOrders(filter = {}) {
+    // Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.order.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         orderType: 'Sales Order'
       }
     });
   }
 
   // ============================================================
-  // COUNT PURCHASE ORDERS
+  // COUNT PURCHASE ORDERS - ✅ FIXED
   // ============================================================
   static async countPurchaseOrders(filter = {}) {
+    // Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.order.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         orderType: 'Purchase Order'
       }
     });
@@ -277,7 +299,6 @@ class OrderModel {
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order) return null;
 
-    // Get current order notes
     let orderNotes = order.orderNotes || [];
     orderNotes.push({
       text: `Status changed to ${status}${notes ? `: ${notes}` : ''}`,
@@ -291,7 +312,6 @@ class OrderModel {
       orderNotes: orderNotes
     };
 
-    // Update timestamps based on status
     if (status === 'Shipped') {
       updateData.shippingDate = new Date();
     }
@@ -351,7 +371,6 @@ class OrderModel {
 
       if (!order) return null;
 
-      // Return stock only for Sales Orders
       if (order.orderType !== 'Purchase Order') {
         for (const item of order.items) {
           await tx.product.update({
@@ -368,7 +387,6 @@ class OrderModel {
         }
       }
 
-      // Get current order notes
       let orderNotes = order.orderNotes || [];
       orderNotes.push({
         text: `Order cancelled${reason ? `: ${reason}` : ''}`,
@@ -376,7 +394,6 @@ class OrderModel {
         createdAt: new Date()
       });
 
-      // Update order status
       return await tx.order.update({
         where: { id },
         data: {
@@ -409,7 +426,7 @@ class OrderModel {
   }
 
   // ============================================================
-  // GET ORDER STATS / KPI (by type)
+  // GET ORDER STATS / KPI (by type) - ✅ FIXED
   // ============================================================
   static async getStats(userId, orderType = null) {
     const today = new Date();
@@ -421,70 +438,62 @@ class OrderModel {
     startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
+    // ✅ FIXED: Use createdBy instead of userId
     const activeFilter = {
       isActive: true,
-      userId: userId
+      createdBy: userId
     };
 
     if (orderType) {
       activeFilter.orderType = orderType;
     }
 
-    // Today's stats
-    const todayOrders = await prisma.order.count({
-      where: {
-        ...activeFilter,
-        orderDate: {
-          gte: today,
-          lt: tomorrow
+    const [todayOrders, todayRevenue, weekOrders, monthOrders, monthRevenue] = await Promise.all([
+      prisma.order.count({
+        where: {
+          ...activeFilter,
+          orderDate: {
+            gte: today,
+            lt: tomorrow
+          }
         }
-      }
-    });
-
-    const todayRevenue = await prisma.order.aggregate({
-      where: {
-        ...activeFilter,
-        orderDate: {
-          gte: today,
-          lt: tomorrow
+      }),
+      prisma.order.aggregate({
+        where: {
+          ...activeFilter,
+          orderDate: {
+            gte: today,
+            lt: tomorrow
+          }
+        },
+        _sum: { grandTotal: true }
+      }),
+      prisma.order.count({
+        where: {
+          ...activeFilter,
+          orderDate: {
+            gte: startOfWeek
+          }
         }
-      },
-      _sum: {
-        grandTotal: true
-      }
-    });
-
-    // Weekly stats
-    const weekOrders = await prisma.order.count({
-      where: {
-        ...activeFilter,
-        orderDate: {
-          gte: startOfWeek
+      }),
+      prisma.order.count({
+        where: {
+          ...activeFilter,
+          orderDate: {
+            gte: startOfMonth
+          }
         }
-      }
-    });
-
-    // Monthly stats
-    const monthOrders = await prisma.order.count({
-      where: {
-        ...activeFilter,
-        orderDate: {
-          gte: startOfMonth
-        }
-      }
-    });
-
-    const monthRevenue = await prisma.order.aggregate({
-      where: {
-        ...activeFilter,
-        orderDate: {
-          gte: startOfMonth
-        }
-      },
-      _sum: {
-        grandTotal: true
-      }
-    });
+      }),
+      prisma.order.aggregate({
+        where: {
+          ...activeFilter,
+          orderDate: {
+            gte: startOfMonth
+          }
+        },
+        _sum: { grandTotal: true }
+      })
+    ]);
 
     return {
       today: {
@@ -502,12 +511,13 @@ class OrderModel {
   }
 
   // ============================================================
-  // GET STATUS COUNTS (KPI) - by type
+  // GET STATUS COUNTS (KPI) - by type - ✅ FIXED
   // ============================================================
   static async getStatusCounts(userId, orderType = null) {
+    // ✅ FIXED: Use createdBy instead of userId
     const activeFilter = {
       isActive: true,
-      userId: userId
+      createdBy: userId
     };
 
     if (orderType) {
@@ -532,9 +542,7 @@ class OrderModel {
         ...activeFilter,
         orderStatus: 'Delivered'
       },
-      _sum: {
-        grandTotal: true
-      }
+      _sum: { grandTotal: true }
     });
 
     return {

@@ -14,6 +14,7 @@ const getInventoryValuation = async (req, res) => {
     console.log('📌 Query params:', req.query);
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { category, search, sortBy = 'name', sortOrder = 'asc' } = req.query;
 
     console.log('📌 User ID:', userId);
@@ -21,9 +22,9 @@ const getInventoryValuation = async (req, res) => {
     console.log('📌 Search term:', search);
     console.log('📌 Sort by:', sortBy, 'Order:', sortOrder);
 
-    // ✅ Build filter with userId
+    // ✅ Build filter with companyId
     const filter = {
-      userId: userId,
+      companyId: companyId,
       isActive: true
     };
     console.log('📌 Initial filter:', JSON.stringify(filter, null, 2));
@@ -35,7 +36,7 @@ const getInventoryValuation = async (req, res) => {
       const categoryExists = await prisma.category.findFirst({
         where: {
           id: category,
-          userId: userId
+          companyId: companyId
         },
         select: { id: true, name: true }
       });
@@ -220,11 +221,12 @@ const getValuationSummary = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     console.log('🔄 Fetching products for summary...');
 
     const products = await prisma.product.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true
       },
       select: {
@@ -287,11 +289,12 @@ const getCategoryBreakdown = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     console.log('🔄 Fetching categories with products...');
 
     const categories = await prisma.category.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true
       },
       select: {
@@ -299,7 +302,7 @@ const getCategoryBreakdown = async (req, res) => {
         name: true,
         products: {
           where: {
-            userId: userId,
+            companyId: companyId,
             isActive: true
           },
           select: {
@@ -361,6 +364,7 @@ const getInventoryTurnover = async (req, res) => {
     console.log('📌 Query params:', req.query);
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { period = 'month' } = req.query;
 
     console.log('📌 Period:', period);
@@ -373,7 +377,7 @@ const getInventoryTurnover = async (req, res) => {
     const [totalOut, products] = await Promise.all([
       prisma.stockMovement.aggregate({
         where: {
-          userId: userId,
+          companyId: companyId,
           type: 'stock_out',
           createdAt: dateFilter
         },
@@ -381,7 +385,7 @@ const getInventoryTurnover = async (req, res) => {
       }),
       prisma.product.findMany({
         where: {
-          userId: userId,
+          companyId: companyId,
           isActive: true
         },
         select: {

@@ -40,14 +40,11 @@ class BankAccountModel {
   // ============================================================
   // ✅ GENERATE ACCOUNT CODE FOR BANK ACCOUNT
   // ============================================================
-  static async generateAccountCode(userId) {
-    // Find all bank accounts for this user
+  static async generateAccountCode(companyId) {
+    // Find all bank accounts for this company
     const bankAccounts = await prisma.bankAccount.findMany({
       where: {
-        OR: [
-          { createdBy: userId },
-          { userId: userId }
-        ]
+        companyId: companyId
       },
       orderBy: {
         accountCode: 'asc'
@@ -72,13 +69,10 @@ class BankAccountModel {
   // ============================================================
   // ✅ GENERATE ACCOUNT NUMBER (Unique)
   // ============================================================
-  static async generateAccountNumber(userId) {
+  static async generateAccountNumber(companyId) {
     const count = await prisma.bankAccount.count({
       where: {
-        OR: [
-          { createdBy: userId },
-          { userId: userId }
-        ]
+        companyId: companyId
       }
     });
     
@@ -100,11 +94,11 @@ class BankAccountModel {
     // ─── Generate account code if not provided ─────────────────
     let accountCode = data.accountCode;
     if (!accountCode) {
-      accountCode = await this.generateAccountCode(data.createdBy);
+      accountCode = await this.generateAccountCode(data.companyId);
     }
 
     // ─── Create bank account ────────────────────────────────────
-    // ✅ FIXED: Set BOTH userId AND createdBy
+    // ✅ FIXED: Set companyId
     return await prisma.bankAccount.create({
       data: {
         accountName: data.accountName,
@@ -120,7 +114,7 @@ class BankAccountModel {
         lastReconciled: data.lastReconciled || new Date(),
         chartOfAccountId: data.chartOfAccountId,
         createdBy: data.createdBy,
-        userId: data.userId || data.createdBy // ✅ FIXED: Set userId as well
+        companyId: data.companyId // 👈 CRITICAL: Link to company
       },
       include: {
         chartOfAccount: {
@@ -150,14 +144,11 @@ class BankAccountModel {
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { createdAt: 'desc' } } = options;
 
-    // ✅ FIXED: If filter has createdBy, also include userId
-    if (filter.createdBy) {
-      const userId = filter.createdBy;
-      delete filter.createdBy;
-      filter.OR = [
-        { createdBy: userId },
-        { userId: userId }
-      ];
+    // ✅ FIXED: If filter has companyId, use it directly
+    if (filter.companyId) {
+      const companyId = filter.companyId;
+      delete filter.companyId;
+      filter.companyId = companyId;
     }
 
     return await prisma.bankAccount.findMany({
@@ -191,14 +182,11 @@ class BankAccountModel {
   // ✅ COUNT BANK ACCOUNTS - FIXED
   // ============================================================
   static async count(filter = {}) {
-    // ✅ FIXED: If filter has createdBy, also include userId
-    if (filter.createdBy) {
-      const userId = filter.createdBy;
-      delete filter.createdBy;
-      filter.OR = [
-        { createdBy: userId },
-        { userId: userId }
-      ];
+    // ✅ FIXED: If filter has companyId, use it directly
+    if (filter.companyId) {
+      const companyId = filter.companyId;
+      delete filter.companyId;
+      filter.companyId = companyId;
     }
     return await prisma.bankAccount.count({ where: filter });
   }
@@ -234,14 +222,11 @@ class BankAccountModel {
   // ============================================================
   // ✅ FIND BANK ACCOUNT BY ACCOUNT NUMBER - FIXED
   // ============================================================
-  static async findByAccountNumber(accountNumber, userId) {
+  static async findByAccountNumber(accountNumber, companyId) {
     return await prisma.bankAccount.findFirst({
       where: {
         accountNumber,
-        OR: [
-          { createdBy: userId },
-          { userId: userId }
-        ]
+        companyId: companyId
       },
       include: {
         chartOfAccount: {
@@ -444,15 +429,12 @@ class BankAccountModel {
   // ============================================================
   // ✅ GET BANK ACCOUNTS BY TYPE - FIXED
   // ============================================================
-  static async findByType(accountType, userId) {
+  static async findByType(accountType, companyId) {
     return await prisma.bankAccount.findMany({
       where: {
         accountType,
         status: 'Active',
-        OR: [
-          { createdBy: userId },
-          { userId: userId }
-        ]
+        companyId: companyId
       },
       orderBy: { accountName: 'asc' },
       include: {
@@ -472,14 +454,11 @@ class BankAccountModel {
   // ============================================================
   // ✅ GET BANK ACCOUNTS BY STATUS - FIXED
   // ============================================================
-  static async findByStatus(status, userId) {
+  static async findByStatus(status, companyId) {
     return await prisma.bankAccount.findMany({
       where: {
         status,
-        OR: [
-          { createdBy: userId },
-          { userId: userId }
-        ]
+        companyId: companyId
       },
       orderBy: { accountName: 'asc' },
       include: {
@@ -499,22 +478,17 @@ class BankAccountModel {
   // ============================================================
   // ✅ SEARCH BANK ACCOUNTS - FIXED
   // ============================================================
-  static async search(query, userId, options = {}) {
+  static async search(query, companyId, options = {}) {
     const { skip, take } = options;
 
     const filter = {
+      companyId: companyId,
       OR: [
-        { createdBy: userId },
-        { userId: userId }
-      ],
-      AND: {
-        OR: [
-          { accountName: { contains: query, mode: 'insensitive' } },
-          { accountNumber: { contains: query, mode: 'insensitive' } },
-          { bankName: { contains: query, mode: 'insensitive' } },
-          { accountCode: { contains: query, mode: 'insensitive' } }
-        ]
-      }
+        { accountName: { contains: query, mode: 'insensitive' } },
+        { accountNumber: { contains: query, mode: 'insensitive' } },
+        { bankName: { contains: query, mode: 'insensitive' } },
+        { accountCode: { contains: query, mode: 'insensitive' } }
+      ]
     };
 
     const accounts = await prisma.bankAccount.findMany({
@@ -606,7 +580,7 @@ class BankAccountModel {
   // ============================================================
   // ✅ BULK IMPORT BANK ACCOUNTS - FIXED
   // ============================================================
-  static async bulkImport(accountsData, userId) {
+  static async bulkImport(accountsData, companyId) {
     const results = {
       success: [],
       failed: [],
@@ -626,10 +600,7 @@ class BankAccountModel {
         const existing = await prisma.bankAccount.findFirst({
           where: {
             accountNumber: data.accountNumber,
-            OR: [
-              { createdBy: userId },
-              { userId: userId }
-            ]
+            companyId: companyId
           }
         });
 
@@ -644,8 +615,8 @@ class BankAccountModel {
         // Create account
         const account = await this.create({
           ...data,
-          createdBy: userId,
-          userId: userId // ✅ FIXED: Explicitly set userId
+          createdBy: data.createdBy,
+          companyId: companyId // 👈 CRITICAL: Link to company
         });
 
         results.success.push(account);
@@ -660,14 +631,11 @@ class BankAccountModel {
   // ============================================================
   // ✅ GET TOTAL BALANCE BY CURRENCY - FIXED
   // ============================================================
-  static async getBalanceByCurrency(userId) {
+  static async getBalanceByCurrency(companyId) {
     const accounts = await prisma.bankAccount.findMany({
       where: {
         status: 'Active',
-        OR: [
-          { createdBy: userId },
-          { userId: userId }
-        ]
+        companyId: companyId
       }
     });
 

@@ -1,4 +1,4 @@
-// warehouse/models/PurchasePaymentMake.js - COMPLETE
+// warehouse/models/PurchasePaymentMake.js - FIXED
 
 const prisma = require('../../prisma/client');
 
@@ -123,7 +123,9 @@ class PurchasePaymentMakeModel {
         notes,
         invoicePayments,
         userId,
-        createdBy
+        createdBy,
+        companyId,
+        fiscalYearId
       } = data;
 
       // ─── Validation ──────────────────────────────────────
@@ -143,7 +145,7 @@ class PurchasePaymentMakeModel {
       const supplier = await tx.supplier.findFirst({
         where: {
           id: supplierId,
-          userId: userId,
+          companyId: companyId,
           status: 'active'
         }
       });
@@ -153,7 +155,7 @@ class PurchasePaymentMakeModel {
       }
 
       // ─── Validate Bank Account ──────────────────────────
-      if (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque') {
+      if (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online Payment') {
         if (!bankAccountId) {
           throw new Error('Bank account is required for this payment method');
         }
@@ -161,7 +163,7 @@ class PurchasePaymentMakeModel {
         const bankAccount = await tx.bankAccount.findFirst({
           where: {
             id: bankAccountId,
-            userId: userId,
+            companyId: companyId,
             status: 'Active'
           }
         });
@@ -187,7 +189,7 @@ class PurchasePaymentMakeModel {
           where: {
             id: inv.invoiceId,
             supplierId: supplierId,
-            userId: userId,
+            companyId: companyId,
             isActive: true,
             isDeleted: false,
             invoiceStatus: {
@@ -238,7 +240,7 @@ class PurchasePaymentMakeModel {
         bankAccount = await tx.bankAccount.findFirst({
           where: {
             id: bankAccountId,
-            userId: userId,
+            companyId: companyId,
             status: 'Active'
           }
         });
@@ -249,8 +251,6 @@ class PurchasePaymentMakeModel {
       }
 
       // ─── Resolve Credit Account for Journal Entry ────────
-      // Bank account linked hoga to uska GL account use karo,
-      // warna Cash account dhundo, warna AP account fallback
       let creditAccountId = apAccount.id;
       let creditAccountName = 'Cash';
       let creditAccountCode = '1100';
@@ -292,10 +292,12 @@ class PurchasePaymentMakeModel {
           description: `Purchase payment made to ${supplier.name} (${paymentNumber})`,
           reference: paymentNumber,
           status: 'Posted',
-          createdBy: createdBy,
-          postedBy: createdBy,
+          createdBy: createdBy || userId,
+          postedBy: createdBy || userId,
           postedAt: new Date(),
           userId: userId,
+          companyId: companyId,
+          fiscalYearId: fiscalYearId,
           lines: {
             create: [
               // Debit: Accounts Payable
@@ -326,14 +328,6 @@ class PurchasePaymentMakeModel {
         }
       });
 
-      // ─── Get AP Record for first invoice ─────────────────
-      const firstInvoice = validatedInvoices[0].invoice;
-      const apRecord = await tx.accountsPayable.findFirst({
-        where: {
-          invoiceId: firstInvoice.id
-        }
-      });
-
       // ─── Create Payment Record ───────────────────────────
       const payment = await tx.purchasePaymentMake.create({
         data: {
@@ -349,8 +343,10 @@ class PurchasePaymentMakeModel {
           notes: notes || '',
           status: 'Completed',
           journalEntryId: journalEntry.id,
-          createdBy: createdBy,
+          createdBy: createdBy || userId,
           userId: userId,
+          companyId: companyId,
+          fiscalYearId: fiscalYearId,
           invoicePayments: {
             create: invoicePayments.map(inv => ({
               invoiceId: inv.invoiceId,
@@ -398,7 +394,8 @@ class PurchasePaymentMakeModel {
             paidAmount: newPaidAmount,
             outstanding: newOutstanding,
             invoiceStatus: invoiceStatus,
-            paymentStatus: newOutstanding <= 0 ? 'Paid' : 'Partial'
+            paymentStatus: newOutstanding <= 0 ? 'Paid' : 'Partial',
+            updatedBy: createdBy || userId
           }
         });
 
@@ -408,49 +405,23 @@ class PurchasePaymentMakeModel {
           data: {
             paidAmount: newPaidAmount,
             outstanding: newOutstanding,
-            status: newOutstanding <= 0 ? 'Paid' : 'Current'
+            status: newOutstanding <= 0 ? 'Paid' : 'Current',
+            updatedAt: new Date()
           }
         });
       }
 
       // ─── Update Bank Account Balance (DECREASE) ──────────
-      if (bankAccountId) {
+      if (bankAccountId && bankAccount) {
         await tx.bankAccount.update({
           where: { id: bankAccountId },
           data: {
             currentBalance: {
               decrement: amount
-            }
+            },
+            updatedAt: new Date()
           }
         });
-      }
-
-      // ─── Update Supplier Outstanding Balance ─────────────
-      // We need to update supplier's outstanding balance
-      // This could be stored in a supplier field or calculated on the fly
-      // For now, we'll update it if the supplier has a balance field
-      try {
-        const totalOutstanding = await tx.purchaseInvoice.aggregate({
-          where: {
-            supplierId: supplierId,
-            userId: userId,
-            isActive: true,
-            isDeleted: false,
-            invoiceStatus: {
-              in: ['Posted', 'Partially Paid']
-            }
-          },
-          _sum: {
-            outstanding: true
-          }
-        });
-
-        // If supplier has an outstandingBalance field (you may need to add it)
-        // For now, we'll skip this as it's not in the current schema
-        // You can add it if needed
-      } catch (error) {
-        // Supplier outstanding balance field may not exist
-        // Skip gracefully
       }
 
       return payment;
@@ -525,9 +496,14 @@ class PurchasePaymentMakeModel {
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { paymentDate: 'desc' } } = options;
 
+    // Remove userId from filter if present (use companyId instead)
+    const cleanFilter = { ...filter };
+    // Don't use userId in where clause - use companyId
+    // The companyId is already in the filter from the controller
+
     return await prisma.purchasePaymentMake.findMany({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       },
@@ -558,12 +534,16 @@ class PurchasePaymentMakeModel {
   }
 
   // ============================================================
-  // COUNT PAYMENTS
+  // COUNT PAYMENTS - FIXED: Removed userId from where clause
   // ============================================================
   static async count(filter = {}) {
+    // Remove userId from filter if present
+    const cleanFilter = { ...filter };
+    delete cleanFilter.userId; // Remove userId as it doesn't exist in the model
+    
     return await prisma.purchasePaymentMake.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       }
@@ -571,17 +551,18 @@ class PurchasePaymentMakeModel {
   }
 
   // ============================================================
-  // GET PAYMENT STATS
+  // GET PAYMENT STATS - FIXED: Use companyId instead of userId
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(userId, companyId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
+    // Use companyId for filtering instead of userId
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId
     };
 
     const todayPayments = await prisma.purchasePaymentMake.count({
@@ -676,7 +657,8 @@ class PurchasePaymentMakeModel {
             paidAmount: newPaidAmount,
             outstanding: newOutstanding,
             invoiceStatus: invoiceStatus,
-            paymentStatus: newPaidAmount <= 0 ? 'Unpaid' : 'Partial'
+            paymentStatus: newPaidAmount <= 0 ? 'Unpaid' : 'Partial',
+            updatedBy: userId
           }
         });
 
@@ -685,7 +667,8 @@ class PurchasePaymentMakeModel {
           data: {
             paidAmount: newPaidAmount,
             outstanding: newOutstanding,
-            status: newOutstanding <= 0 ? 'Paid' : 'Current'
+            status: newOutstanding <= 0 ? 'Paid' : 'Current',
+            updatedAt: new Date()
           }
         });
       }
@@ -705,6 +688,7 @@ class PurchasePaymentMakeModel {
             postedBy: userId,
             postedAt: new Date(),
             userId: payment.userId,
+            companyId: payment.companyId,
             lines: {
               create: payment.journalEntry.lines.map(line => ({
                 accountId: line.accountId,
@@ -725,7 +709,8 @@ class PurchasePaymentMakeModel {
           data: {
             currentBalance: {
               increment: payment.amount
-            }
+            },
+            updatedAt: new Date()
           }
         });
       }
@@ -735,7 +720,8 @@ class PurchasePaymentMakeModel {
         where: { id },
         data: {
           status: 'Cancelled',
-          updatedBy: userId
+          updatedBy: userId,
+          updatedAt: new Date()
         },
         include: {
           invoicePayments: {

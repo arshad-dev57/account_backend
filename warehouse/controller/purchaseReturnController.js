@@ -2,6 +2,8 @@
 
 const PurchaseReturnModel = require('../models/PurchaseReturn');
 const prisma = require('../../prisma/client');
+const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 
 // ============================================================
 // ─── PURCHASE RETURN CONTROLLERS ──────────────────────────────
@@ -13,6 +15,7 @@ const prisma = require('../../prisma/client');
 const getInvoiceProducts = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { invoiceId } = req.params;
 
     console.log('🔵 [getInvoiceProducts] Called');
@@ -23,7 +26,7 @@ const getInvoiceProducts = async (req, res) => {
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: invoiceId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -71,6 +74,7 @@ const getInvoiceProducts = async (req, res) => {
 const getSupplierInvoices = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { supplierId } = req.params;
 
     console.log('🔵 [getSupplierInvoices] Called');
@@ -80,7 +84,7 @@ const getSupplierInvoices = async (req, res) => {
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        userId: userId,
+        companyId: companyId,
         status: 'active'
       }
     });
@@ -96,7 +100,7 @@ const getSupplierInvoices = async (req, res) => {
     const invoices = await prisma.purchaseInvoice.findMany({
       where: {
         supplierId: supplierId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false,
         invoiceStatus: {
@@ -138,6 +142,7 @@ const getSupplierInvoices = async (req, res) => {
 const createDraftReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       supplierId,
       supplierName,
@@ -145,8 +150,24 @@ const createDraftReturn = async (req, res) => {
       purchaseInvoiceNumber,
       returnReason,
       notes,
-      items
+      items,
+      returnDate,
     } = req.body;
+
+    const postingDate = returnDate ? new Date(returnDate) : new Date();
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [createDraftReturn] Called');
@@ -219,8 +240,10 @@ const createDraftReturn = async (req, res) => {
       returnReason: returnReason || 'Return',
       notes: notes || '',
       items,
+      returnDate: postingDate,
       userId,
-      createdBy: userId
+      createdBy: userId,
+      fiscalYearId,
     };
 
     console.log('🔵 [createDraftReturn] Creating draft return...');
@@ -252,6 +275,7 @@ const createDraftReturn = async (req, res) => {
 const processReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     console.log('═══════════════════════════════════════════════════');
@@ -263,7 +287,7 @@ const processReturn = async (req, res) => {
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -322,6 +346,7 @@ const processReturn = async (req, res) => {
 const cancelReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -334,7 +359,7 @@ const cancelReturn = async (req, res) => {
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -392,6 +417,7 @@ const cancelReturn = async (req, res) => {
 const getReturns = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -487,6 +513,7 @@ const getReturns = async (req, res) => {
 const getReturnById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     console.log('🔵 [getReturnById] Called');
@@ -495,7 +522,7 @@ const getReturnById = async (req, res) => {
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -568,6 +595,7 @@ const getReturnById = async (req, res) => {
 const getReturnByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { returnNumber } = req.params;
 
     console.log('🔵 [getReturnByNumber] Called');
@@ -576,7 +604,7 @@ const getReturnByNumber = async (req, res) => {
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         returnNumber: returnNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -631,6 +659,7 @@ const getReturnStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     console.log('🔵 [getReturnStats] Called');
 
     const stats = await PurchaseReturnModel.getStats(userId);
@@ -657,6 +686,7 @@ const getReturnStats = async (req, res) => {
 const getReturnNote = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     console.log('🔵 [getReturnNote] Called');
@@ -665,7 +695,7 @@ const getReturnNote = async (req, res) => {
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -702,6 +732,7 @@ const getReturnNote = async (req, res) => {
 const deleteReturn = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     console.log('🔵 [deleteReturn] Called');
@@ -711,7 +742,7 @@ const deleteReturn = async (req, res) => {
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }

@@ -13,6 +13,7 @@ const prisma = require('../../prisma/client');
 const createDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       salesOrderId,
       deliveryDate,
@@ -48,7 +49,7 @@ const createDelivery = async (req, res) => {
     const salesOrder = await prisma.order.findFirst({
       where: {
         id: salesOrderId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         orderType: 'Sales Order'
       },
@@ -107,13 +108,14 @@ const createDelivery = async (req, res) => {
 const confirmDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if delivery exists ────────────────────────
     const delivery = await prisma.delivery.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -164,12 +166,13 @@ const confirmDelivery = async (req, res) => {
 const getDeliveryById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const delivery = await prisma.delivery.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -196,6 +199,20 @@ const getDeliveryById = async (req, res) => {
         },
         updater: {
           select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        salesInvoices: {
+          where: {
+            isActive: true,
+            isDeleted: false
+          },
+          select: {
+            id: true,
+            invoiceNumber: true,
+            paymentStatus: true,
+            paidAmount: true,
+            outstanding: true,
+            grandTotal: true
+          }
         }
       }
     });
@@ -227,12 +244,13 @@ const getDeliveryById = async (req, res) => {
 const getDeliveryByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { deliveryNumber } = req.params;
 
     const delivery = await prisma.delivery.findFirst({
       where: {
         deliveryNumber: deliveryNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -285,13 +303,14 @@ const getDeliveryByNumber = async (req, res) => {
 const getDeliveriesByOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { orderId } = req.params;
 
     // ─── Check if order exists ──────────────────────────
     const order = await prisma.order.findFirst({
       where: {
         id: orderId,
-        userId: userId,
+        companyId: companyId,
         isActive: true
       }
     });
@@ -326,6 +345,7 @@ const getDeliveriesByOrder = async (req, res) => {
 const getDeliveries = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -380,12 +400,36 @@ const getDeliveries = async (req, res) => {
       Delivery.count(filter)
     ]);
 
+    // Add payment status to each delivery
+    const deliveriesWithPayment = deliveries.map(delivery => {
+      const salesInvoices = delivery.salesInvoices || [];
+      const totalInvoiceAmount = salesInvoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
+      const totalPaid = salesInvoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0);
+      const totalOutstanding = salesInvoices.reduce((sum, inv) => sum + (inv.outstanding || 0), 0);
+
+      let paymentStatus = 'Unpaid';
+      if (totalInvoiceAmount > 0) {
+        if (totalPaid >= totalInvoiceAmount) {
+          paymentStatus = 'Paid';
+        } else if (totalPaid > 0) {
+          paymentStatus = 'Partially Paid';
+        }
+      }
+
+      return {
+        ...delivery,
+        paymentStatus,
+        paidAmount: totalPaid,
+        outstandingAmount: totalOutstanding
+      };
+    });
+
     const kpi = await Delivery.getStatusCounts(userId);
 
     res.status(200).json({
       success: true,
-      count: deliveries.length,
-      data: deliveries,
+      count: deliveriesWithPayment.length,
+      data: deliveriesWithPayment,
       kpi,
       pagination: {
         page: pageNum,
@@ -412,6 +456,7 @@ const getDeliveries = async (req, res) => {
 const updateDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const {
       deliveryDate,
@@ -425,7 +470,7 @@ const updateDelivery = async (req, res) => {
     const delivery = await prisma.delivery.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -480,13 +525,14 @@ const updateDelivery = async (req, res) => {
 const deleteDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if delivery exists ────────────────────────
     const delivery = await prisma.delivery.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -529,6 +575,7 @@ const deleteDelivery = async (req, res) => {
 const getDeliveryStats = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const stats = await Delivery.getStats(userId);
     
     res.status(200).json({
@@ -551,6 +598,7 @@ const getDeliveryStats = async (req, res) => {
 const getDeliveryKPI = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const kpi = await Delivery.getStatusCounts(userId);
     
     res.status(200).json({
@@ -573,6 +621,7 @@ const getDeliveryKPI = async (req, res) => {
 const getProductDeliverySummary = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { startDate, endDate } = req.query;
 
     const summary = await Delivery.getProductDeliverySummary(userId, startDate, endDate);
@@ -597,6 +646,7 @@ const getProductDeliverySummary = async (req, res) => {
 const getAvailableOrdersForDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
     const where = {

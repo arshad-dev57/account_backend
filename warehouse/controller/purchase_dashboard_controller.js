@@ -58,6 +58,7 @@ const getColorForIndex = (i) => {
 const getMetrics = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { period = 'month', startDate, endDate } = req.query;
     const { start, end } = parsePeriod(period, startDate, endDate);
 

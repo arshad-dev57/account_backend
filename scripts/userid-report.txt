@@ -1,0 +1,1786 @@
+
+===== whereUserId (0) =====
+
+===== dataUserIdCreate (0) =====
+
+===== targetUserIdDecl (0) =====
+
+===== reqUserId (390) =====
+controllers\accountsPayableController.js:198: const userId = req.user.id;
+controllers\accountsPayableController.js:226: const userId = req.user.id;
+controllers\accountsPayableController.js:322: const userId = req.user.id;
+controllers\accountsPayableController.js:418: const userId = req.user.id;
+controllers\accountsPayableController.js:613: const userId = req.user.id;
+controllers\accountsPayableController.js:716: const userId = req.user.id;
+controllers\accountsPayableController.js:798: const userId = req.user.id;
+controllers\accountsPayableController.js:917: const userId = req.user.id;
+controllers\accountsPayableController.js:991: const userId = req.user.id;
+controllers\accountsPayableController.js:1212: const userId = req.user.id;
+controllers\accountsPayableController.js:1302: const userId = req.user.id;
+controllers\accountsPayableController.js:1442: const userId = req.user.id;
+controllers\accountsPayableController.js:1510: const userId = req.user.id;
+controllers\accountsReceivableController.js:244: const userId = req.user.id;
+controllers\accountsReceivableController.js:313: const userId = req.user.id;
+controllers\accountsReceivableController.js:407: const userId = req.user.id;
+controllers\accountsReceivableController.js:486: const userId = req.user.id;
+controllers\accountsReceivableController.js:571: const userId = req.user.id;
+controllers\accountsReceivableController.js:640: const userId = req.user.id;
+controllers\accountsReceivableController.js:713: const userId = req.user.id;
+controllers\accountsReceivableController.js:804: const userId = req.user.id;
+controllers\accountsReceivableController.js:878: const userId = req.user.id;
+controllers\accountsReceivableController.js:935: const userId = req.user.id;
+controllers\accountsReceivableController.js:1063: const userId = req.user.id;
+controllers\accountsReceivableController.js:1298: const userId = req.user.id;
+controllers\accountsReceivableController.js:1384: const userId = req.user.id;
+controllers\balanceSheetController.js:9: const userId = req.user.id;
+controllers\balanceSheetController.js:47: const userId = req.user.id;
+controllers\balanceSheetController.js:94: const userId = req.user.id;
+controllers\balanceSheetController.js:160: const userId = req.user.id;
+controllers\balanceSheetController.js:218: const userId = req.user.id;
+controllers\bankAccountController.js:134: const userId = req.user.id;
+controllers\bankAccountController.js:303: const userId = req.user.id;
+controllers\bankAccountController.js:416: const userId = req.user.id;
+controllers\bankAccountController.js:500: const userId = req.user.id;
+controllers\bankAccountController.js:587: const userId = req.user.id;
+controllers\bankAccountController.js:662: const userId = req.user.id;
+controllers\bankAccountController.js:728: const userId = req.user.id;
+controllers\bankAccountController.js:803: const userId = req.user.id;
+controllers\bankAccountController.js:886: const userId = req.user.id;
+controllers\bankAccountController.js:952: const userId = req.user.id;
+controllers\bankAccountController.js:997: const userId = req.user.id;
+controllers\cashFlowController.js:8: const userId = req.user.id;
+controllers\cashFlowController.js:306: const userId = req.user.id;
+controllers\cashFlowController.js:449: const userId = req.user.id;
+controllers\cashFlowController.js:588: const userId = req.user.id;
+controllers\chartOfAccountController.js:305: const userId = req.user.id;
+controllers\chartOfAccountController.js:429: const userId = req.user.id;
+controllers\chartOfAccountController.js:528: const userId = req.user.id;
+controllers\chartOfAccountController.js:636: const userId = req.user.id;
+controllers\chartOfAccountController.js:724: const userId = req.user.id;
+controllers\chartOfAccountController.js:842: const userId = req.user.id;
+controllers\chartOfAccountController.js:900: const userId = req.user.id;
+controllers\chartOfAccountController.js:1042: const userId = req.user.id;
+controllers\chartOfAccountController.js:1115: const userId = req.user.id;
+controllers\chartOfAccountController.js:1178: const userId = req.user.id;
+controllers\chartOfAccountController.js:1246: const userId = req.user.id;
+controllers\chartOfAccountController.js:1311: const userId = req.user.id;
+controllers\chartOfAccountController.js:1391: const userId = req.user.id;
+controllers\chartOfAccountController.js:1456: const userId = req.user.id;
+controllers\chartOfAccountController.js:1532: const userId = req.user.id;
+controllers\chartOfAccountController.js:1612: const userId = req.user.id;
+controllers\chartOfAccountController.js:1702: const userId = req.user.id;
+controllers\creditNoteController.js:303: const userId = req.user.id;
+controllers\creditNoteController.js:532: const userId = req.user.id;
+controllers\creditNoteController.js:621: const userId = req.user.id;
+controllers\creditNoteController.js:697: const userId = req.user.id;
+controllers\creditNoteController.js:798: const userId = req.user.id;
+controllers\creditNoteController.js:930: const userId = req.user.id;
+controllers\creditNoteController.js:1130: const userId = req.user.id;
+controllers\creditNoteController.js:1183: const userId = req.user.id;
+controllers\creditNoteController.js:1244: const userId = req.user.id;
+controllers\creditNoteController.js:1315: const userId = req.user.id;
+controllers\dashboardController.js:106: const userId = req.user.id;
+controllers\dashboardController.js:307: const userId = req.user.id;
+controllers\dashboardController.js:412: const userId = req.user.id;
+controllers\dashboardController.js:490: const userId = req.user.id;
+controllers\dashboardController.js:679: const userId = req.user.id;
+controllers\equityController.js:150: const userId = req.user.id;
+controllers\equityController.js:171: const userId = req.user.id;
+controllers\equityController.js:236: const userId = req.user.id;
+controllers\equityController.js:317: const userId = req.user.id;
+controllers\equityController.js:395: const userId = req.user.id;
+controllers\equityController.js:487: const userId = req.user.id;
+controllers\equityController.js:636: const userId = req.user.id;
+controllers\equityController.js:657: const userId = req.user.id;
+controllers\equityController.js:737: const userId = req.user.id;
+controllers\equityController.js:823: const userId = req.user.id;
+controllers\expenseController.js:172: const userId = req.user.id;
+controllers\expenseController.js:227: const userId = req.user.id;
+controllers\expenseController.js:502: const userId = req.user.id;
+controllers\expenseController.js:590: const userId = req.user.id;
+controllers\expenseController.js:688: const userId = req.user.id;
+controllers\expenseController.js:881: const userId = req.user.id;
+controllers\expenseController.js:949: const userId = req.user.id;
+controllers\expenseController.js:1009: const userId = req.user.id;
+controllers\fiscalYearController.js:54: const userId = req.user.id;
+controllers\fiscalYearController.js:126: const userId = req.user.id;
+controllers\fiscalYearController.js:173: const userId = req.user.id;
+controllers\fiscalYearController.js:218: const userId = req.user.id;
+controllers\fiscalYearController.js:262: const userId    = req.user.id;
+controllers\fiscalYearController.js:341: const userId    = req.user.id;
+controllers\fiscalYearController.js:705: const userId    = req.user.id;
+controllers\fiscalYearController.js:760: const userId       = req.user.id;
+controllers\fixedAssetController.js:320: const userId = req.user.id;
+controllers\fixedAssetController.js:450: const userId = req.user.id;
+controllers\fixedAssetController.js:521: const userId = req.user.id;
+controllers\fixedAssetController.js:600: const userId = req.user.id;
+controllers\fixedAssetController.js:708: const userId = req.user.id;
+controllers\fixedAssetController.js:827: const userId = req.user.id;
+controllers\fixedAssetController.js:897: const userId = req.user.id;
+controllers\fixedAssetController.js:1053: const userId = req.user.id;
+controllers\fixedAssetController.js:1100: const userId = req.user.id;
+controllers\generalLedgerController.js:17: const userId = req.user.id;
+controllers\generalLedgerController.js:187: const userId = req.user.id;
+controllers\generalLedgerController.js:312: const userId = req.user.id;
+controllers\generalLedgerController.js:442: const userId = req.user.id;
+controllers\generalLedgerController.js:627: const userId = req.user.id;
+controllers\generalLedgerController.js:743: const userId = req.user.id;
+controllers\generalLedgerController.js:876: const userId = req.user.id;
+controllers\incomeController.js:175: const userId = req.user.id;
+controllers\incomeController.js:212: const userId = req.user.id;
+controllers\incomeController.js:494: const userId = req.user.id;
+controllers\incomeController.js:557: const userId = req.user.id;
+controllers\incomeController.js:636: const userId = req.user.id;
+controllers\incomeController.js:806: const userId = req.user.id;
+controllers\incomeController.js:861: const userId = req.user.id;
+controllers\incomeController.js:955: const userId = req.user.id;
+controllers\journalEntryController.js:198: const userId = req.user.id;
+controllers\journalEntryController.js:404: const userId = req.user.id;
+controllers\journalEntryController.js:503: const userId = req.user.id;
+controllers\journalEntryController.js:556: const userId = req.user.id;
+controllers\journalEntryController.js:649: const userId = req.user.id;
+controllers\journalEntryController.js:696: const userId = req.user.id;
+controllers\loanController.js:236: const userId = req.user.id;
+controllers\loanController.js:390: const userId = req.user.id;
+controllers\loanController.js:434: const userId = req.user.id;
+controllers\loanController.js:507: const userId = req.user.id;
+controllers\loanController.js:596: const userId = req.user.id;
+controllers\loanController.js:774: const userId = req.user.id;
+controllers\loanController.js:815: const userId = req.user.id;
+controllers\loanController.js:949: const userId = req.user.id;
+controllers\loanController.js:979: const userId = req.user.id;
+controllers\loanController.js:1021: const userId = req.user.id;
+controllers\notificationController.js:44: const userId = req.user.id;
+controllers\notificationController.js:91: const userId = req.user.id;
+controllers\notificationController.js:125: const userId = req.user.id;
+controllers\notificationController.js:153: const userId = req.user.id;
+controllers\notificationController.js:183: const userId = req.user.id;
+controllers\paymentMadeController.js:234: const userId = req.user.id;
+controllers\paymentMadeController.js:506: const userId = req.user.id;
+controllers\paymentMadeController.js:585: const userId = req.user.id;
+controllers\paymentMadeController.js:660: const userId = req.user.id;
+controllers\paymentMadeController.js:755: const userId = req.user.id;
+controllers\paymentMadeController.js:818: const userId = req.user.id;
+controllers\paymentMadeController.js:883: const userId = req.user.id;
+controllers\paymentReceivedController.js:139: const userId = req.user.id;
+controllers\paymentReceivedController.js:376: const userId = req.user.id;
+controllers\paymentReceivedController.js:447: const userId = req.user.id;
+controllers\paymentReceivedController.js:477: const userId = req.user.id;
+controllers\paymentReceivedController.js:520: const userId = req.user.id;
+controllers\paymentReceivedController.js:625: const userId = req.user.id;
+controllers\paymentReceivedController.js:677: const userId = req.user.id;
+controllers\plReportController.js:92: const userId = req.user.id;
+controllers\plReportController.js:374: const userId = req.user.id;
+controllers\plReportController.js:521: const userId = req.user.id;
+controllers\plReportController.js:620: const userId = req.user.id;
+controllers\plReportController.js:737: const userId = req.user.id;
+controllers\profileController.js:8: const userId = req.user.id;
+controllers\profileController.js:84: const userId = req.user.id;
+controllers\profileController.js:262: const userId = req.user.id;
+controllers\profileController.js:351: const userId = req.user.id;
+controllers\profileController.js:408: const userId = req.user.id;
+controllers\reportsController.js:79: const userId = req.user.id;
+controllers\reportsController.js:217: const userId = req.user.id;
+controllers\reportsController.js:471: const userId = req.user.id;
+controllers\reportsController.js:649: const userId = req.user.id;
+controllers\reportsController.js:771: const userId = req.user.id;
+controllers\stripeController.js:26: const userId = req.user.id;
+controllers\subscriptionController.js:73: const userId = req.user.id;
+controllers\subscriptionController.js:191: const userId = req.user.id;
+controllers\subscriptionController.js:287: const userId = req.user.id;
+controllers\subscriptionController.js:397: const userId = req.user.id;
+controllers\subscriptionController.js:442: const userId = req.user.id;
+controllers\subscriptionController.js:495: const userId = req.user.id;
+controllers\subscriptionController.js:557: const userId = req.user.id;
+controllers\transactionController.js:17: const userId = req.user.id;
+controllers\transactionController.js:134: const userId = req.user.id;
+controllers\transactionController.js:242: const userId = req.user.id;
+controllers\transactionController.js:312: const userId = req.user.id;
+controllers\transactionController.js:382: const userId = req.user.id;
+controllers\transactionController.js:517: const userId = req.user.id;
+controllers\transactionController.js:572: const userId = req.user.id;
+controllers\transactionController.js:645: const userId = req.user.id;
+controllers\trialBalanceController.js:13: const userId = req.user.id;
+controllers\trialBalanceController.js:191: const userId = req.user.id;
+controllers\trialBalanceController.js:342: const userId = req.user.id;
+controllers\trialBalanceController.js:486: const userId = req.user.id;
+controllers\trialBalanceController.js:643: const userId = req.user.id;
+controllers\trialBalanceController.js:825: const userId = req.user.id;
+controllers\userController.js:580: const userId = req.user.id;
+controllers\userController.js:659: const userId = req.user.id;
+controllers\userController.js:832: const userId = req.user.id;
+controllers\userController.js:1097: const userId = req.user.id;
+warehouse\controller\category_controller.js:22: const userId = req.user.id;
+warehouse\controller\category_controller.js:89: const userId = req.user.id;
+warehouse\controller\category_controller.js:143: const userId = req.user.id;
+warehouse\controller\category_controller.js:249: const userId = req.user.id;
+warehouse\controller\category_controller.js:410: const userId = req.user.id;
+warehouse\controller\customerController.js:5: const userId = req.user.id;
+warehouse\controller\customerController.js:107: const userId = req.user.id;
+warehouse\controller\customerController.js:153: const userId = req.user.id;
+warehouse\controller\customerController.js:211: const userId = req.user.id;
+warehouse\controller\customerController.js:234: const userId = req.user.id;
+warehouse\controller\customerController.js:268: const userId = req.user.id;
+warehouse\controller\deliveryController.js:15: const userId = req.user.id;
+warehouse\controller\deliveryController.js:110: const userId = req.user.id;
+warehouse\controller\deliveryController.js:167: const userId = req.user.id;
+warehouse\controller\deliveryController.js:244: const userId = req.user.id;
+warehouse\controller\deliveryController.js:302: const userId = req.user.id;
+warehouse\controller\deliveryController.js:343: const userId = req.user.id;
+warehouse\controller\deliveryController.js:453: const userId = req.user.id;
+warehouse\controller\deliveryController.js:521: const userId = req.user.id;
+warehouse\controller\deliveryController.js:570: const userId = req.user.id;
+warehouse\controller\deliveryController.js:592: const userId = req.user.id;
+warehouse\controller\deliveryController.js:614: const userId = req.user.id;
+warehouse\controller\deliveryController.js:638: const userId = req.user.id;
+warehouse\controller\expiry_report_controller.js:8: const userId = req.user.id;
+warehouse\controller\expiry_report_controller.js:397: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:9: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:114: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:171: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:261: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:331: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:390: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:415: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:508: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:557: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:579: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:603: const userId = req.user.id;
+warehouse\controller\goodsReceivingController.js:703: const userId = req.user.id;
+warehouse\controller\inventory_controller.js:16: const userId = req.user.id;
+warehouse\controller\inventory_controller.js:222: const userId = req.user.id;
+warehouse\controller\inventory_controller.js:289: const userId = req.user.id;
+warehouse\controller\inventory_controller.js:364: const userId = req.user.id;
+warehouse\controller\invoiceController.js:11: const userId = req.user.id;
+warehouse\controller\low_stock_report_controller.js:10: const userId = req.user.id;
+warehouse\controller\order_controller.js:76: const userId = req.user.id;
+warehouse\controller\order_controller.js:262: const userId = req.user.id;
+warehouse\controller\order_controller.js:344: const userId = req.user.id;
+warehouse\controller\order_controller.js:517: const userId = req.user.id;
+warehouse\controller\order_controller.js:599: const userId = req.user.id;
+warehouse\controller\order_controller.js:648: const userId = req.user.id;
+warehouse\controller\order_controller.js:697: const userId = req.user.id;
+warehouse\controller\order_controller.js:726: const userId = req.user.id;
+warehouse\controller\order_controller.js:758: const userId = req.user.id;
+warehouse\controller\order_controller.js:789: const userId = req.user.id;
+warehouse\controller\order_controller.js:813: const userId = req.user.id;
+warehouse\controller\product_controller.js:11: const userId = req.user.id;
+warehouse\controller\product_controller.js:133: const userId = req.user.id;
+warehouse\controller\product_controller.js:190: const userId = req.user.id;
+warehouse\controller\product_controller.js:389: const userId = req.user.id;
+warehouse\controller\product_controller.js:529: const userId = req.user.id;
+warehouse\controller\product_controller.js:578: const userId = req.user.id;
+warehouse\controller\product_controller.js:889: const userId = req.user.id;
+warehouse\controller\product_controller.js:1052: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:18: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:127: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:213: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:270: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:371: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:451: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:513: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:623: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:681: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:730: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:752: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:776: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:867: const userId = req.user.id;
+warehouse\controller\purchaseInvoiceController.js:967: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:15: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:127: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:212: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:266: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:317: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:448: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:499: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:559: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:610: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:659: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:681: const userId = req.user.id;
+warehouse\controller\purchaseOrderController.js:705: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:17: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:62: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:320: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:400: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:464: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:520: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:570: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:592: const userId = req.user.id;
+warehouse\controller\purchasePaymentController.js:632: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:17: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:76: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:143: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:275: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:345: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:415: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:510: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:591: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:653: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:680: const userId = req.user.id;
+warehouse\controller\purchaseReturnController.js:725: const userId = req.user.id;
+warehouse\controller\purchase_dashboard_controller.js:60: const userId = req.user.id;
+warehouse\controller\purchase_dashboard_controller.js:135: const userId = req.user.id;
+warehouse\controller\purchase_dashboard_controller.js:188: const userId = req.user.id;
+warehouse\controller\purchase_dashboard_controller.js:220: const userId = req.user.id;
+warehouse\controller\purchase_dashboard_controller.js:252: const userId = req.user.id;
+warehouse\controller\quotationController.js:15: const userId = req.user.id;
+warehouse\controller\quotationController.js:159: const userId = req.user.id;
+warehouse\controller\quotationController.js:250: const userId = req.user.id;
+warehouse\controller\quotationController.js:307: const userId = req.user.id;
+warehouse\controller\quotationController.js:361: const userId = req.user.id;
+warehouse\controller\quotationController.js:487: const userId = req.user.id;
+warehouse\controller\quotationController.js:554: const userId = req.user.id;
+warehouse\controller\quotationController.js:617: const userId = req.user.id;
+warehouse\controller\quotationController.js:666: const userId = req.user.id;
+warehouse\controller\quotationController.js:698: const userId = req.user.id;
+warehouse\controller\quotationController.js:722: const userId = req.user.id;
+warehouse\controller\quotationController.js:746: const userId = req.user.id;
+warehouse\controller\quotationController.js:801: const userId = req.user.id;
+warehouse\controller\refundController.js:15: const userId = req.user.id;
+warehouse\controller\refundController.js:50: const userId = req.user.id;
+warehouse\controller\refundController.js:131: const userId = req.user.id;
+warehouse\controller\refundController.js:157: const userId = req.user.id;
+warehouse\controller\refundController.js:238: const userId = req.user.id;
+warehouse\controller\refundController.js:281: const userId = req.user.id;
+warehouse\controller\refundController.js:316: const userId = req.user.id;
+warehouse\controller\refundController.js:330: const userId = req.user.id;
+warehouse\controller\refundController.js:344: const userId = req.user.id;
+warehouse\controller\refundController.js:374: const userId = req.user.id;
+warehouse\controller\refundController.js:400: const userId = req.user.id;
+warehouse\controller\refundController.js:426: const userId = req.user.id;
+warehouse\controller\refundController.js:452: const userId = req.user.id;
+warehouse\controller\refundController.js:478: const userId = req.user.id;
+warehouse\controller\refundController.js:510: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:59: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:86: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:179: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:205: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:298: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:345: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:374: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:407: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:452: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:481: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:502: const userId = req.user.id;
+warehouse\controller\Returncontroller.js:534: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:17: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:89: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:215: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:272: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:365: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:441: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:503: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:635: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:693: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:742: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:771: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:795: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:870: const userId = req.user.id;
+warehouse\controller\salesInvoiceController.js:924: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:17: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:58: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:147: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:227: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:290: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:346: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:396: const userId = req.user.id;
+warehouse\controller\salesPaymentController.js:418: const userId = req.user.id;
+warehouse\controller\sales_dashboard_controller.js:415: const userId = req.user.id; // 👈 Current user
+warehouse\controller\sales_dashboard_controller.js:514: const userId = req.user.id;
+warehouse\controller\sales_dashboard_controller.js:644: const userId = req.user.id;
+warehouse\controller\sales_dashboard_controller.js:723: const userId = req.user.id;
+warehouse\controller\settingController.js:49: const userId = req.user.id;
+warehouse\controller\settingController.js:85: const userId = req.user.id;
+warehouse\controller\settingController.js:155: const userId = req.user.id;
+warehouse\controller\settingController.js:214: const userId = req.user.id;
+warehouse\controller\settingController.js:285: const userId = req.user.id;
+warehouse\controller\settingController.js:374: const userId = req.user.id;
+warehouse\controller\settingController.js:394: const userId = req.user.id;
+
+===== other (1386) =====
+controllers\accountsPayableController.js:7: async function getOrCreatePayableAccount(userId, companyId, tx) {
+controllers\accountsPayableController.js:9: console.log('🔍 [AP] Getting/Creating Accounts Payable account for user:', userId);
+controllers\accountsPayableController.js:14: createdBy: userId,
+controllers\accountsPayableController.js:33: createdBy: userId
+controllers\accountsPayableController.js:45: async function getOrCreateCashAccount(userId, companyId, tx) {
+controllers\accountsPayableController.js:47: console.log('🔍 [AP] Getting/Creating Cash account for user:', userId);
+controllers\accountsPayableController.js:52: createdBy: userId,
+controllers\accountsPayableController.js:71: createdBy: userId,
+controllers\accountsPayableController.js:84: async function getOrCreateExpenseAccount(userId, tx) {
+controllers\accountsPayableController.js:86: console.log('🔍 [AP] Getting/Creating Expense account for user:', userId);
+controllers\accountsPayableController.js:91: createdBy: userId
+controllers\accountsPayableController.js:109: createdBy: userId
+controllers\accountsPayableController.js:122: async function generateBillNumber(userId) {
+controllers\accountsPayableController.js:127: createdBy: userId,
+controllers\accountsPayableController.js:145: where: { createdBy: userId, billNumber: candidate }
+controllers\accountsPayableController.js:157: async function validateBankAccount(bankAccountId, userId, tx) {
+controllers\accountsPayableController.js:164: createdBy: userId,
+controllers\accountsPayableController.js:199: const billNumber = await generateBillNumber(userId);
+controllers\accountsPayableController.js:229: const cacheKey = `ap:suppliers:${userId}:${search || ''}:${status || ''}`;
+controllers\accountsPayableController.js:242: const filter = { createdBy: userId };
+controllers\accountsPayableController.js:276: createdBy: userId,
+controllers\accountsPayableController.js:325: const cacheKey = `ap:supplier:${userId}:${id}`;
+controllers\accountsPayableController.js:340: createdBy: userId
+controllers\accountsPayableController.js:364: createdBy: userId
+controllers\accountsPayableController.js:424: createdBy: userId
+controllers\accountsPayableController.js:466: const billNumber = await generateBillNumber(userId);
+controllers\accountsPayableController.js:488: createdBy: userId
+controllers\accountsPayableController.js:513: const apAccount = await getOrCreatePayableAccount(userId, tx);
+controllers\accountsPayableController.js:514: const expenseAccount = await getOrCreateExpenseAccount(userId, tx);
+controllers\accountsPayableController.js:523: createdBy: userId,
+controllers\accountsPayableController.js:524: postedBy: userId,
+controllers\accountsPayableController.js:580: await delPattern(`ap:bills:${userId}:*`);
+controllers\accountsPayableController.js:581: await delPattern(`ap:summary:${userId}:*`);
+controllers\accountsPayableController.js:582: await delPattern(`ap:aged:${userId}:*`);
+controllers\accountsPayableController.js:583: await delPattern(`ap:suppliers:${userId}:*`);
+controllers\accountsPayableController.js:584: await delPattern(`ap:supplier:${userId}:${supplierId}`);
+controllers\accountsPayableController.js:616: const cacheKey = `ap:bills:${userId}:${supplierId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+controllers\accountsPayableController.js:629: const filter = { createdBy: userId };
+controllers\accountsPayableController.js:635: createdBy: userId
+controllers\accountsPayableController.js:719: const cacheKey = `ap:bill:${userId}:${id}`;
+controllers\accountsPayableController.js:734: createdBy: userId
+controllers\accountsPayableController.js:803: createdBy: userId
+controllers\accountsPayableController.js:922: createdBy: userId
+controllers\accountsPayableController.js:943: createdBy: userId
+controllers\accountsPayableController.js:1008: where: { id: billId, createdBy: userId },
+controllers\accountsPayableController.js:1041: const apAccount = await getOrCreatePayableAccount(userId, tx);
+controllers\accountsPayableController.js:1046: bankAccountData = await validateBankAccount(bankAccountId, userId, tx);
+controllers\accountsPayableController.js:1053: debitAccount = await getOrCreateCashAccount(userId, tx);
+controllers\accountsPayableController.js:1064: createdBy: userId,
+controllers\accountsPayableController.js:1065: postedBy: userId,
+controllers\accountsPayableController.js:1135: createdBy: userId
+controllers\accountsPayableController.js:1176: await delPattern(`ap:bills:${userId}:*`);
+controllers\accountsPayableController.js:1177: await delPattern(`ap:bill:${userId}:${billId}`);
+controllers\accountsPayableController.js:1178: await delPattern(`ap:summary:${userId}:*`);
+controllers\accountsPayableController.js:1179: await delPattern(`ap:aged:${userId}:*`);
+controllers\accountsPayableController.js:1180: await delPattern(`ap:suppliers:${userId}:*`);
+controllers\accountsPayableController.js:1216: const cacheKey = `ap:summary:${userId}:${fiscalYearId || ''}`;
+controllers\accountsPayableController.js:1229: createdBy: userId,
+controllers\accountsPayableController.js:1265: createdBy: userId,
+controllers\accountsPayableController.js:1306: const cacheKey = `ap:aged:${userId}:${fiscalYearId || ''}`;
+controllers\accountsPayableController.js:1319: createdBy: userId,
+controllers\accountsPayableController.js:1447: createdBy: userId
+controllers\accountsPayableController.js:1461: createdBy: userId,
+controllers\accountsPayableController.js:1514: createdBy: userId,
+controllers\accountsReceivableController.js:8: async function getOrCreateReceivableAccount(userId, companyId) {
+controllers\accountsReceivableController.js:13: createdBy: userId,
+controllers\accountsReceivableController.js:32: createdBy: userId
+controllers\accountsReceivableController.js:43: async function getOrCreateCashAccount(userId, companyId) {
+controllers\accountsReceivableController.js:48: createdBy: userId,
+controllers\accountsReceivableController.js:67: createdBy: userId,
+controllers\accountsReceivableController.js:79: async function getOrCreateRevenueAccount(userId) {
+controllers\accountsReceivableController.js:84: createdBy: userId
+controllers\accountsReceivableController.js:102: createdBy: userId
+controllers\accountsReceivableController.js:113: async function getOrCreateTaxLiabilityAccount(userId) {
+controllers\accountsReceivableController.js:118: createdBy: userId
+controllers\accountsReceivableController.js:136: createdBy: userId
+controllers\accountsReceivableController.js:147: async function generateInvoiceNumber(userId) {
+controllers\accountsReceivableController.js:149: where: { createdBy: userId }
+controllers\accountsReceivableController.js:158: async function validateWarehouseCustomer(customerId, userId) {
+controllers\accountsReceivableController.js:163: createdBy: userId,
+controllers\accountsReceivableController.js:177: async function validateBankAccount(bankAccountId, userId) {
+controllers\accountsReceivableController.js:184: createdBy: userId,
+controllers\accountsReceivableController.js:201: async function validateWarehouseInvoice(invoiceId, userId) {
+controllers\accountsReceivableController.js:208: createdBy: userId,
+controllers\accountsReceivableController.js:245: console.log('👤 [AR] User ID:', userId);
+controllers\accountsReceivableController.js:250: where: { createdBy: userId }
+controllers\accountsReceivableController.js:271: createdBy: userId
+controllers\accountsReceivableController.js:289: await delPattern(`ar:customers:${userId}:*`);
+controllers\accountsReceivableController.js:316: const cacheKey = `ar:customers:${userId}:${search || ''}:${status || ''}`;
+controllers\accountsReceivableController.js:329: const filter = { createdBy: userId };
+controllers\accountsReceivableController.js:362: createdBy: userId,
+controllers\accountsReceivableController.js:410: const cacheKey = `ar:customer:${userId}:${id}`;
+controllers\accountsReceivableController.js:425: createdBy: userId
+controllers\accountsReceivableController.js:449: createdBy: userId
+controllers\accountsReceivableController.js:506: createdBy: userId
+controllers\accountsReceivableController.js:548: await delPattern(`ar:customers:${userId}:*`);
+controllers\accountsReceivableController.js:549: await delPattern(`ar:customer:${userId}:${id}`);
+controllers\accountsReceivableController.js:576: createdBy: userId
+controllers\accountsReceivableController.js:590: createdBy: userId
+controllers\accountsReceivableController.js:603: await delPattern(`ar:customers:${userId}:*`);
+controllers\accountsReceivableController.js:604: await delPattern(`ar:customer:${userId}:${id}`);
+controllers\accountsReceivableController.js:643: const customer = await validateWarehouseCustomer(customerId, userId);
+controllers\accountsReceivableController.js:679: createdBy: userId,
+controllers\accountsReceivableController.js:690: await delPattern(`ar:invoices:${userId}:*`);
+controllers\accountsReceivableController.js:691: await delPattern(`ar:summary:${userId}:*`);
+controllers\accountsReceivableController.js:692: await delPattern(`ar:aged:${userId}:*`);
+controllers\accountsReceivableController.js:693: await delPattern(`ar:customer:${userId}:${customerId}:unpaid-invoices`);
+controllers\accountsReceivableController.js:694: await delPattern(`ar:customer:${userId}:${customerId}`);
+controllers\accountsReceivableController.js:716: const cacheKey = `ar:invoices:${userId}:${customerId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+controllers\accountsReceivableController.js:729: const filter = { createdBy: userId };
+controllers\accountsReceivableController.js:735: createdBy: userId
+controllers\accountsReceivableController.js:807: const cacheKey = `ar:invoice:${userId}:${id}`;
+controllers\accountsReceivableController.js:822: createdBy: userId
+controllers\accountsReceivableController.js:883: createdBy: userId
+controllers\accountsReceivableController.js:908: const cancelled = await WarehouseInvoiceModel.cancelInvoice(id, userId);
+controllers\accountsReceivableController.js:931: console.log('🔍 [AR] userId:', req.user.id);
+controllers\accountsReceivableController.js:938: const cacheKey = `ar:customer:${userId}:${customerId}:unpaid-invoices`;
+controllers\accountsReceivableController.js:955: createdBy: userId
+controllers\accountsReceivableController.js:973: createdBy: userId,
+controllers\accountsReceivableController.js:992: createdBy: userId,
+controllers\accountsReceivableController.js:1033: async function generatePaymentNumber(userId, tx) {
+controllers\accountsReceivableController.js:1038: where: { createdBy: userId, paymentNumber: { startsWith: prefix } },
+controllers\accountsReceivableController.js:1080: where: { id: invoiceId, createdBy: userId, invoiceStatus: { not: 'Paid' } }
+controllers\accountsReceivableController.js:1111: let arAccount = await tx.chartOfAccount.findFirst({ where: { code: '1110', createdBy: userId } });
+controllers\accountsReceivableController.js:1118: balanceType: 'Debit', isActive: true, createdBy: userId
+controllers\accountsReceivableController.js:1123: let cashAccount = await tx.chartOfAccount.findFirst({ where: { code: '1010', createdBy: userId } });
+controllers\accountsReceivableController.js:1130: balanceType: 'Debit', isActive: true, createdBy: userId
+controllers\accountsReceivableController.js:1140: where: { id: bankAccountId, createdBy: userId, status: 'Active' },
+controllers\accountsReceivableController.js:1152: const paymentNumber = await generatePaymentNumber(userId, tx);
+controllers\accountsReceivableController.js:1171: createdBy: userId,
+controllers\accountsReceivableController.js:1184: createdBy: userId,
+controllers\accountsReceivableController.js:1185: postedBy: userId,
+controllers\accountsReceivableController.js:1265: await delPattern(`ar:invoices:${userId}:*`);
+controllers\accountsReceivableController.js:1266: await delPattern(`ar:invoice:${userId}:${invoiceId}`);
+controllers\accountsReceivableController.js:1267: await delPattern(`ar:summary:${userId}:*`);
+controllers\accountsReceivableController.js:1268: await delPattern(`ar:aged:${userId}:*`);
+controllers\accountsReceivableController.js:1269: await delPattern(`ar:customers:${userId}:*`);
+controllers\accountsReceivableController.js:1302: const cacheKey = `ar:summary:${userId}:${fiscalYearId || ''}`;
+controllers\accountsReceivableController.js:1315: createdBy: userId,
+controllers\accountsReceivableController.js:1351: createdBy: userId,
+controllers\accountsReceivableController.js:1388: const cacheKey = `ar:aged:${userId}:${fiscalYearId || ''}`;
+controllers\accountsReceivableController.js:1401: createdBy: userId,
+controllers\balanceSheetController.js:13: const cacheKey = `bs:balance-sheet:${userId}:${period || ''}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+controllers\balanceSheetController.js:25: const data = await buildBalanceSheetFromLedger(userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate);
+controllers\balanceSheetController.js:51: const cacheKey = `bs:summary:${userId}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+controllers\balanceSheetController.js:63: const data = await buildBalanceSheetFromLedger(userId, 'All Time', null, fiscalYearId, startDate, endDate);
+controllers\balanceSheetController.js:97: const cacheKey = `bs:by-date:${userId}:${date}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+controllers\balanceSheetController.js:109: const data = await buildBalanceSheetFromLedger(userId, 'All Time', date, fiscalYearId, startDate, endDate);
+controllers\balanceSheetController.js:162: const cacheKey = `bs:assets:${userId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+controllers\balanceSheetController.js:173: const data = await buildBalanceSheetFromLedger(userId, 'All Time', asOfDate, fiscalYearId, startDate, endDate);
+controllers\balanceSheetController.js:221: const cacheKey = `bs:liabilities:${userId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+controllers\balanceSheetController.js:233: const data = await buildBalanceSheetFromLedger(userId, 'All Time', asOfDate, fiscalYearId, startDate, endDate);
+controllers\bankAccountController.js:8: async function getOrCreateOpeningBalanceEquity(userId, companyId) {
+controllers\bankAccountController.js:42: createdBy: userId,
+controllers\bankAccountController.js:52: async function getOrCreateOpeningBalanceEntry(userId, companyId) {
+controllers\bankAccountController.js:71: createdBy: userId,
+controllers\bankAccountController.js:72: postedBy: userId,
+controllers\bankAccountController.js:166: createdBy: userId,
+controllers\bankAccountController.js:182: createdBy: userId,
+controllers\bankAccountController.js:187: const openingEntry = await getOrCreateOpeningBalanceEntry(userId, companyId);
+controllers\bankAccountController.js:188: const equityAccount = await getOrCreateOpeningBalanceEquity(userId, companyId);
+controllers\bankAccountController.js:296: // @desc    Get all bank accounts - FIXED to use BOTH userId and createdBy
+controllers\bankAccountController.js:409: // @desc    Get single bank account - FIXED to use BOTH userId and createdBy
+controllers\bankReconciliationController.js:6: async function getOrCreateAdjustmentAccounts(userId) {
+controllers\bankReconciliationController.js:18: createdBy: userId,
+controllers\bankReconciliationController.js:33: createdBy: userId,
+controllers\cashFlowController.js:12: const cacheKey = `cf:statement:${userId}:${period || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+controllers\cashFlowController.js:309: const cacheKey = `cf:summary:${userId}:${fiscalYearId || ''}`;
+controllers\cashFlowController.js:452: const cacheKey = `cf:trend:${userId}:${months}:${fiscalYearId || ''}`;
+controllers\cashFlowController.js:591: const cacheKey = `cf:detailed:${userId}:${startDate || ''}:${endDate || ''}`;
+controllers\chartOfAccountController.js:25: async function getOrCreateOpeningBalanceEquity(userId, companyId) {
+controllers\chartOfAccountController.js:29: { code: '3010', createdBy: userId, companyId: companyId },
+controllers\chartOfAccountController.js:30: { name: 'Opening Balance Equity', createdBy: userId, companyId: companyId },
+controllers\chartOfAccountController.js:31: { name: "Owner's Capital", createdBy: userId, companyId: companyId }
+controllers\chartOfAccountController.js:49: createdBy: userId,
+controllers\chartOfAccountController.js:61: async function getOpeningBalanceEntry(userId, companyId) {
+controllers\chartOfAccountController.js:64: createdBy: userId,
+controllers\chartOfAccountController.js:99: userId,
+controllers\chartOfAccountController.js:107: let openingEntry = await getOpeningBalanceEntry(userId);
+controllers\chartOfAccountController.js:110: const equityAccount = await getOrCreateOpeningBalanceEquity(userId);
+controllers\chartOfAccountController.js:123: createdBy: userId,
+controllers\chartOfAccountController.js:124: postedBy: userId,
+controllers\chartOfAccountController.js:331: createdBy: userId
+controllers\chartOfAccountController.js:358: createdBy: userId
+controllers\chartOfAccountController.js:370: userId,
+controllers\chartOfAccountController.js:384: const openingEntry = await getOpeningBalanceEntry(userId);
+controllers\chartOfAccountController.js:402: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:403: await delPattern(`coa:account:${userId}:*`);
+controllers\chartOfAccountController.js:404: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:405: await delPattern(`coa:search:${userId}:*`);
+controllers\chartOfAccountController.js:406: await delPattern(`coa:by-type:${userId}:*`);
+controllers\chartOfAccountController.js:407: await delPattern(`coa:stats:${userId}`);
+controllers\chartOfAccountController.js:408: await delPattern(`coa:ob-status:${userId}`);
+controllers\chartOfAccountController.js:409: await delPattern(`coa:ob-summary:${userId}`);
+controllers\chartOfAccountController.js:432: const cacheKey = `coa:ob-status:${userId}`;
+controllers\chartOfAccountController.js:444: const entry = await getOpeningBalanceEntry(userId);
+controllers\chartOfAccountController.js:445: const equityAccount = await getOrCreateOpeningBalanceEquity(userId);
+controllers\chartOfAccountController.js:531: const cacheKey = `coa:ob-summary:${userId}`;
+controllers\chartOfAccountController.js:543: const entry = await getOpeningBalanceEntry(userId);
+controllers\chartOfAccountController.js:656: createdBy: userId
+controllers\chartOfAccountController.js:727: const cacheKey = `coa:accounts:${userId}:${type || 'All'}:${search || ''}:${page}:${limit}:${sortBy}:${sortOrder}`;
+controllers\chartOfAccountController.js:740: createdBy: userId,
+controllers\chartOfAccountController.js:845: const cacheKey = `coa:account:${userId}:${id}`;
+controllers\chartOfAccountController.js:860: createdBy: userId
+controllers\chartOfAccountController.js:916: createdBy: userId
+controllers\chartOfAccountController.js:973: createdBy: userId,
+controllers\chartOfAccountController.js:1016: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:1017: await delPattern(`coa:account:${userId}:${id}`);
+controllers\chartOfAccountController.js:1018: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:1019: await delPattern(`coa:search:${userId}:*`);
+controllers\chartOfAccountController.js:1020: await delPattern(`coa:by-type:${userId}:*`);
+controllers\chartOfAccountController.js:1021: await delPattern(`coa:stats:${userId}`);
+controllers\chartOfAccountController.js:1047: createdBy: userId
+controllers\chartOfAccountController.js:1088: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:1089: await delPattern(`coa:account:${userId}:${id}`);
+controllers\chartOfAccountController.js:1090: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:1091: await delPattern(`coa:search:${userId}:*`);
+controllers\chartOfAccountController.js:1092: await delPattern(`coa:by-type:${userId}:*`);
+controllers\chartOfAccountController.js:1093: await delPattern(`coa:stats:${userId}`);
+controllers\chartOfAccountController.js:1120: createdBy: userId
+controllers\chartOfAccountController.js:1153: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:1154: await delPattern(`coa:account:${userId}:${id}`);
+controllers\chartOfAccountController.js:1155: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:1156: await delPattern(`coa:search:${userId}:*`);
+controllers\chartOfAccountController.js:1157: await delPattern(`coa:by-type:${userId}:*`);
+controllers\chartOfAccountController.js:1158: await delPattern(`coa:stats:${userId}`);
+controllers\chartOfAccountController.js:1181: const cacheKey = `coa:summary:${userId}`;
+controllers\chartOfAccountController.js:1195: createdBy: userId,
+controllers\chartOfAccountController.js:1256: const cacheKey = `coa:search:${userId}:${q}:${limit}`;
+controllers\chartOfAccountController.js:1270: createdBy: userId,
+controllers\chartOfAccountController.js:1323: createdBy: userId
+controllers\chartOfAccountController.js:1367: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:1368: await delPattern(`coa:account:${userId}:${id}`);
+controllers\chartOfAccountController.js:1369: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:1370: await delPattern(`coa:stats:${userId}`);
+controllers\chartOfAccountController.js:1405: const cacheKey = `coa:by-type:${userId}:${type}`;
+controllers\chartOfAccountController.js:1420: createdBy: userId,
+controllers\chartOfAccountController.js:1479: createdBy: userId
+controllers\chartOfAccountController.js:1507: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:1508: await delPattern(`coa:account:${userId}:${id}`);
+controllers\chartOfAccountController.js:1509: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:1510: await delPattern(`coa:search:${userId}:*`);
+controllers\chartOfAccountController.js:1511: await delPattern(`coa:by-type:${userId}:*`);
+controllers\chartOfAccountController.js:1512: await delPattern(`coa:stats:${userId}`);
+controllers\chartOfAccountController.js:1536: createdBy: userId,
+controllers\chartOfAccountController.js:1588: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:1589: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:1590: await delPattern(`coa:search:${userId}:*`);
+controllers\chartOfAccountController.js:1591: await delPattern(`coa:by-type:${userId}:*`);
+controllers\chartOfAccountController.js:1592: await delPattern(`coa:stats:${userId}`);
+controllers\chartOfAccountController.js:1615: const cacheKey = `coa:stats:${userId}`;
+controllers\chartOfAccountController.js:1631: createdBy: userId,
+controllers\chartOfAccountController.js:1639: createdBy: userId,
+controllers\chartOfAccountController.js:1657: createdBy: userId,
+controllers\chartOfAccountController.js:1735: createdBy: userId
+controllers\chartOfAccountController.js:1756: createdBy: userId
+controllers\chartOfAccountController.js:1774: await delPattern(`coa:accounts:${userId}:*`);
+controllers\chartOfAccountController.js:1775: await delPattern(`coa:account:${userId}:*`);
+controllers\chartOfAccountController.js:1776: await delPattern(`coa:summary:${userId}`);
+controllers\chartOfAccountController.js:1777: await delPattern(`coa:search:${userId}:*`);
+controllers\chartOfAccountController.js:1778: await delPattern(`coa:by-type:${userId}:*`);
+controllers\chartOfAccountController.js:1779: await delPattern(`coa:stats:${userId}`);
+controllers\creditNoteController.js:59: async function getOrCreateContraRevenueAccount(userId, companyId, reasonType) {
+controllers\creditNoteController.js:65: createdBy: userId,
+controllers\creditNoteController.js:82: where: { code: newCode, createdBy: userId, companyId: companyId }
+controllers\creditNoteController.js:103: createdBy: userId,
+controllers\creditNoteController.js:111: async function getOrCreateReceivableAccount(userId) {
+controllers\creditNoteController.js:115: createdBy: userId
+controllers\creditNoteController.js:131: where: { code: newCode, createdBy: userId }
+controllers\creditNoteController.js:152: createdBy: userId
+controllers\creditNoteController.js:159: async function getOrCreateTaxPayableAccount(userId) {
+controllers\creditNoteController.js:163: createdBy: userId
+controllers\creditNoteController.js:179: where: { code: newCode, createdBy: userId }
+controllers\creditNoteController.js:200: createdBy: userId
+controllers\creditNoteController.js:207: async function validateCustomer(customerId, userId) {
+controllers\creditNoteController.js:211: createdBy: userId
+controllers\creditNoteController.js:221: async function validateWarehouseInvoice(invoiceId, userId) {
+controllers\creditNoteController.js:225: createdBy: userId
+controllers\creditNoteController.js:308: await fiscalYearGuard(userId, postingDate);
+controllers\creditNoteController.js:317: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+controllers\creditNoteController.js:319: const customer = await validateCustomer(customerId, userId);
+controllers\creditNoteController.js:320: const invoice = await validateWarehouseInvoice(originalInvoiceId, userId);
+controllers\creditNoteController.js:333: createdBy: userId
+controllers\creditNoteController.js:364: const contraRevenueAccount = await getOrCreateContraRevenueAccount(userId, reasonType || 'Return');
+controllers\creditNoteController.js:365: const arAccount = await getOrCreateReceivableAccount(userId);
+controllers\creditNoteController.js:366: const taxAccount = await getOrCreateTaxPayableAccount(userId);
+controllers\creditNoteController.js:388: createdBy: userId,
+controllers\creditNoteController.js:402: createdBy: userId,
+controllers\creditNoteController.js:403: postedBy: userId,
+controllers\creditNoteController.js:463: createdBy: userId,
+controllers\creditNoteController.js:506: await delPattern(`cn:list:${userId}:*`);
+controllers\creditNoteController.js:507: await delPattern(`cn:detail:${userId}:*`);
+controllers\creditNoteController.js:508: await delPattern(`cn:summary:${userId}:*`);
+controllers\creditNoteController.js:509: await delPattern(`cn:unpaid-invoices:${userId}:*`);
+controllers\creditNoteController.js:510: await delPattern(`cn:by-number:${userId}:*`);
+controllers\creditNoteController.js:535: const cacheKey = `cn:list:${userId}:${customerId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${search || ''}`;
+controllers\creditNoteController.js:547: const filter = { createdBy: userId };
+controllers\creditNoteController.js:624: const cacheKey = `cn:detail:${userId}:${id}`;
+controllers\creditNoteController.js:639: createdBy: userId
+controllers\creditNoteController.js:700: const cacheKey = `cn:summary:${userId}:${startDate || ''}:${endDate || ''}`;
+controllers\creditNoteController.js:712: const filter = { createdBy: userId };
+controllers\creditNoteController.js:801: const cacheKey = `cn:unpaid-invoices:${userId}:${customerId}`;
+controllers\creditNoteController.js:816: createdBy: userId
+controllers\creditNoteController.js:830: createdBy: userId,
+controllers\creditNoteController.js:866: createdBy: userId,
+controllers\creditNoteController.js:942: createdBy: userId
+controllers\creditNoteController.js:977: createdBy: userId
+controllers\creditNoteController.js:1056: const arAccount = await getOrCreateReceivableAccount(userId);
+controllers\creditNoteController.js:1057: const contraRevenueAccount = await getOrCreateContraRevenueAccount(userId, creditNote.reasonType || 'Return');
+controllers\creditNoteController.js:1066: createdBy: userId,
+controllers\creditNoteController.js:1067: postedBy: userId,
+controllers\creditNoteController.js:1104: await delPattern(`cn:list:${userId}:*`);
+controllers\creditNoteController.js:1105: await delPattern(`cn:detail:${userId}:${creditNoteId}`);
+controllers\creditNoteController.js:1106: await delPattern(`cn:summary:${userId}:*`);
+controllers\creditNoteController.js:1107: await delPattern(`cn:unpaid-invoices:${userId}:*`);
+controllers\creditNoteController.js:1134: createdBy: userId,
+controllers\creditNoteController.js:1160: await delPattern(`cn:list:${userId}:*`);
+controllers\creditNoteController.js:1161: await delPattern(`cn:summary:${userId}:*`);
+controllers\creditNoteController.js:1188: createdBy: userId
+controllers\creditNoteController.js:1217: await delPattern(`cn:list:${userId}:*`);
+controllers\creditNoteController.js:1218: await delPattern(`cn:detail:${userId}:${id}`);
+controllers\creditNoteController.js:1219: await delPattern(`cn:summary:${userId}:*`);
+controllers\creditNoteController.js:1220: await delPattern(`cn:unpaid-invoices:${userId}:*`);
+controllers\creditNoteController.js:1221: await delPattern(`cn:by-number:${userId}:*`);
+controllers\creditNoteController.js:1249: createdBy: userId
+controllers\creditNoteController.js:1289: await delPattern(`cn:list:${userId}:*`);
+controllers\creditNoteController.js:1290: await delPattern(`cn:detail:${userId}:${id}`);
+controllers\creditNoteController.js:1291: await delPattern(`cn:summary:${userId}:*`);
+controllers\creditNoteController.js:1292: await delPattern(`cn:unpaid-invoices:${userId}:*`);
+controllers\creditNoteController.js:1293: await delPattern(`cn:by-number:${userId}:*`);
+controllers\creditNoteController.js:1318: const cacheKey = `cn:by-number:${userId}:${creditNumber}`;
+controllers\creditNoteController.js:1333: createdBy: userId
+controllers\dashboardController.js:111: const cacheKey = `dashboard:summary:${userId}:${timePeriod}`;
+controllers\dashboardController.js:142: userId: userId,
+controllers\dashboardController.js:152: userId: userId,
+controllers\dashboardController.js:162: userId: userId,
+controllers\dashboardController.js:171: userId: userId,
+controllers\dashboardController.js:181: userId: userId,
+controllers\dashboardController.js:190: userId: userId,
+controllers\dashboardController.js:200: userId: userId,
+controllers\dashboardController.js:311: const cacheKey = `dashboard:chart:${userId}:${months}:${timePeriod}`;
+controllers\dashboardController.js:329: userId: userId,
+controllers\dashboardController.js:337: userId: userId,
+controllers\dashboardController.js:345: userId: userId,
+controllers\dashboardController.js:352: userId: userId,
+controllers\dashboardController.js:360: userId: userId,
+controllers\dashboardController.js:415: const cacheKey = `dashboard:expense-categories:${userId}:${timePeriod}`;
+controllers\dashboardController.js:433: userId: userId,
+controllers\dashboardController.js:441: userId: userId,
+controllers\dashboardController.js:493: const cacheKey = `dashboard:recent-transactions:${userId}:${limit}`;
+controllers\dashboardController.js:507: where: { userId: userId },
+controllers\dashboardController.js:520: where: { userId: userId, status: 'Posted' },
+controllers\dashboardController.js:534: where: { userId: userId, status: 'Posted' },
+controllers\dashboardController.js:548: where: { userId: userId, invoiceStatus: { not: 'Draft' } },
+controllers\dashboardController.js:560: where: { userId: userId },
+controllers\dashboardController.js:685: const cacheKey = `dashboard:yearly-summary:${userId}:${year}`;
+controllers\dashboardController.js:700: userId: userId,
+controllers\dashboardController.js:708: userId: userId,
+controllers\dashboardController.js:716: userId: userId,
+controllers\dashboardController.js:723: userId: userId,
+controllers\dashboardController.js:731: userId: userId,
+controllers\equityController.js:5: async function getOrCreateEquityAccount(userId, companyId, accountCode, accountName) {
+controllers\equityController.js:9: createdBy: userId,
+controllers\equityController.js:27: createdBy: userId,
+controllers\equityController.js:35: async function getOrCreateCashAccount(userId, companyId) {
+controllers\equityController.js:39: createdBy: userId,
+controllers\equityController.js:57: createdBy: userId,
+controllers\equityController.js:151: await delPattern(`equity:accounts:${userId}:*`);
+controllers\equityController.js:152: await delPattern(`equity:summary:${userId}:*`);
+controllers\equityController.js:153: await delPattern(`equity:transactions:${userId}:*`);
+controllers\equityController.js:174: const cacheKey = `equity:accounts:${userId}:${accountType || 'All'}:${search || ''}:${fiscalYearId || ''}`;
+controllers\equityController.js:187: createdBy: userId
+controllers\equityController.js:239: const cacheKey = `equity:account:${userId}:${id}`;
+controllers\equityController.js:254: createdBy: userId
+controllers\equityController.js:318: await delPattern(`equity:accounts:${userId}:*`);
+controllers\equityController.js:319: await delPattern(`equity:account:${userId}:${req.params.id}`);
+controllers\equityController.js:320: await delPattern(`equity:summary:${userId}:*`);
+controllers\equityController.js:396: await delPattern(`equity:accounts:${userId}:*`);
+controllers\equityController.js:397: await delPattern(`equity:account:${userId}:${accountId}`);
+controllers\equityController.js:398: await delPattern(`equity:summary:${userId}:*`);
+controllers\equityController.js:399: await delPattern(`equity:transactions:${userId}:*`);
+controllers\equityController.js:488: await delPattern(`equity:accounts:${userId}:*`);
+controllers\equityController.js:489: await delPattern(`equity:account:${userId}:${accountId}`);
+controllers\equityController.js:490: await delPattern(`equity:summary:${userId}:*`);
+controllers\equityController.js:491: await delPattern(`equity:transactions:${userId}:*`);
+controllers\equityController.js:637: await delPattern(`equity:accounts:${userId}:*`);
+controllers\equityController.js:638: await delPattern(`equity:summary:${userId}:*`);
+controllers\equityController.js:639: await delPattern(`equity:transactions:${userId}:*`);
+controllers\equityController.js:660: const cacheKey = `equity:summary:${userId}:${fiscalYearId || ''}`;
+controllers\equityController.js:675: createdBy: userId
+controllers\equityController.js:740: const cacheKey = `equity:transactions:${userId}:${fiscalYearId || ''}`;
+controllers\equityController.js:753: createdBy: userId
+controllers\equityController.js:824: await delPattern(`equity:accounts:${userId}:*`);
+controllers\equityController.js:825: await delPattern(`equity:account:${userId}:${req.params.id}`);
+controllers\equityController.js:826: await delPattern(`equity:summary:${userId}:*`);
+controllers\equityController.js:827: await delPattern(`equity:transactions:${userId}:*`);
+controllers\expenseController.js:27: async function getExistingExpenseAccount(userId, companyId, expenseType) {
+controllers\expenseController.js:33: createdBy: userId,
+controllers\expenseController.js:43: createdBy: userId,
+controllers\expenseController.js:54: async function getExpenseAccountsForDropdown(userId, companyId) {
+controllers\expenseController.js:57: createdBy: userId,
+controllers\expenseController.js:75: async function getOrCreateCashAccount(userId) {
+controllers\expenseController.js:79: createdBy: userId
+controllers\expenseController.js:97: createdBy: userId
+controllers\expenseController.js:119: createdBy: userId
+controllers\expenseController.js:128: async function createExpenseJournalEntry(userId, expense, expenseAccount, cashOrBankAccount) {
+controllers\expenseController.js:138: createdBy: userId,
+controllers\expenseController.js:139: postedBy: userId,
+controllers\expenseController.js:175: const cacheKey = `expense:accounts:${userId}`;
+controllers\expenseController.js:187: const accounts = await getExpenseAccountsForDropdown(userId);
+controllers\expenseController.js:231: await fiscalYearGuard(userId, postingDate);
+controllers\expenseController.js:252: createdBy: userId,
+controllers\expenseController.js:288: createdBy: userId
+controllers\expenseController.js:301: createdBy: userId
+controllers\expenseController.js:358: const fyId = await resolveFiscalYearId(userId, postingDate);
+controllers\expenseController.js:374: postedBy: userId,
+controllers\expenseController.js:376: createdBy: userId
+controllers\expenseController.js:387: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\expenseController.js:393: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\expenseController.js:398: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\expenseController.js:403: await createExpenseJournalEntry(userId, expense, expenseAccount, cashOrBankAccount);
+controllers\expenseController.js:461: await delPattern(`expense:list:${userId}:*`);
+controllers\expenseController.js:462: await delPattern(`expense:accounts:${userId}`);
+controllers\expenseController.js:463: await delPattern(`expense:summary:${userId}:*`);
+controllers\expenseController.js:505: const cacheKey = `expense:list:${userId}:${expenseType || 'All'}:${status || 'All'}:${startDate || ''}:${endDate || ''}:${search || ''}:${page}:${limit}`;
+controllers\expenseController.js:519: id: userId
+controllers\expenseController.js:593: const cacheKey = `expense:detail:${userId}:${id}`;
+controllers\expenseController.js:609: id: userId
+controllers\expenseController.js:694: id: userId
+controllers\expenseController.js:715: await fiscalYearGuard(userId, newDate, existing.date);
+controllers\expenseController.js:742: createdBy: userId
+controllers\expenseController.js:767: createdBy: userId
+controllers\expenseController.js:782: createdBy: userId,
+controllers\expenseController.js:856: await delPattern(`expense:list:${userId}:*`);
+controllers\expenseController.js:857: await delPattern(`expense:detail:${userId}:${id}`);
+controllers\expenseController.js:858: await delPattern(`expense:accounts:${userId}`);
+controllers\expenseController.js:859: await delPattern(`expense:summary:${userId}:*`);
+controllers\expenseController.js:887: id: userId
+controllers\expenseController.js:907: await fiscalYearGuard(userId, existing.date);
+controllers\expenseController.js:924: await delPattern(`expense:list:${userId}:*`);
+controllers\expenseController.js:925: await delPattern(`expense:detail:${userId}:${id}`);
+controllers\expenseController.js:926: await delPattern(`expense:accounts:${userId}`);
+controllers\expenseController.js:927: await delPattern(`expense:summary:${userId}:*`);
+controllers\expenseController.js:952: const cacheKey = `expense:summary:${userId}:${startDate || ''}:${endDate || ''}`;
+controllers\expenseController.js:966: id: userId
+controllers\expenseController.js:1015: id: userId
+controllers\expenseController.js:1037: createdBy: userId,
+controllers\expenseController.js:1049: const posted = await ExpenseModel.postExpense(id, userId);
+controllers\expenseController.js:1054: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\expenseController.js:1059: createdBy: userId
+controllers\expenseController.js:1071: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\expenseController.js:1074: await createExpenseJournalEntry(userId, expense, expenseAccount, cashOrBankAccount);
+controllers\expenseController.js:1080: createdBy: userId
+controllers\expenseController.js:1115: await delPattern(`expense:list:${userId}:*`);
+controllers\expenseController.js:1116: await delPattern(`expense:detail:${userId}:${id}`);
+controllers\expenseController.js:1117: await delPattern(`expense:accounts:${userId}`);
+controllers\expenseController.js:1118: await delPattern(`expense:summary:${userId}:*`);
+controllers\fiscalYearController.js:21: async function writeAuditLog(tx, fiscalYearId, userId, action, details, ipAddress) {
+controllers\fiscalYearController.js:25: userId,
+controllers\fiscalYearController.js:36: async function checkOverlap(userId, companyId, startDate, endDate, excludeId) {
+controllers\fiscalYearController.js:38: userId,
+controllers\fiscalYearController.js:76: const conflict = await checkOverlap(userId, startDate, endDate, null);
+controllers\fiscalYearController.js:88: userId,
+controllers\fiscalYearController.js:96: await writeAuditLog(tx, fy.id, userId, 'Created', { name, startDate, endDate }, ipAddress);
+controllers\fiscalYearController.js:102: await delPattern(`fiscal:list:${userId}:*`);
+controllers\fiscalYearController.js:103: await delPattern(`fiscal:active:${userId}`);
+controllers\fiscalYearController.js:104: await delPattern(`fiscal:audit-log:${userId}:*`);
+controllers\fiscalYearController.js:113: // Unique constraint on (userId, name)
+controllers\fiscalYearController.js:129: const cacheKey = `fiscal:list:${userId}`;
+controllers\fiscalYearController.js:142: where:   { userId },
+controllers\fiscalYearController.js:176: const cacheKey = `fiscal:active:${userId}`;
+controllers\fiscalYearController.js:192: userId,
+controllers\fiscalYearController.js:222: const cacheKey = `fiscal:detail:${userId}:${id}`;
+controllers\fiscalYearController.js:234: // Ownership enforced via userId — return 404 (never 403) per Req 10.6
+controllers\fiscalYearController.js:236: where: { id, userId },
+controllers\fiscalYearController.js:268: const existing = await prisma.fiscalYear.findFirst({ where: { id, userId } });
+controllers\fiscalYearController.js:287: const conflict = await checkOverlap(userId, effectiveStart, effectiveEnd, id);
+controllers\fiscalYearController.js:311: await writeAuditLog(tx, id, userId, 'Updated', { changedFields }, ipAddress);
+controllers\fiscalYearController.js:317: await delPattern(`fiscal:list:${userId}:*`);
+controllers\fiscalYearController.js:318: await delPattern(`fiscal:active:${userId}`);
+controllers\fiscalYearController.js:319: await delPattern(`fiscal:detail:${userId}:${id}`);
+controllers\fiscalYearController.js:320: await delPattern(`fiscal:audit-log:${userId}:*`);
+controllers\fiscalYearController.js:346: const fy = await prisma.fiscalYear.findFirst({ where: { id, userId } });
+controllers\fiscalYearController.js:360: userId,
+controllers\fiscalYearController.js:382: userId,
+controllers\fiscalYearController.js:398: userId,
+controllers\fiscalYearController.js:416: where: { userId, type: 'Revenue', isActive: true },
+controllers\fiscalYearController.js:425: userId,
+controllers\fiscalYearController.js:442: where: { userId, type: 'Expense', isActive: true },
+controllers\fiscalYearController.js:451: userId,
+controllers\fiscalYearController.js:528: createdBy:   userId,
+controllers\fiscalYearController.js:529: postedBy:    userId,
+controllers\fiscalYearController.js:531: userId,
+controllers\fiscalYearController.js:540: where:   { userId, startDate: { gt: fy.endDate } },
+controllers\fiscalYearController.js:558: userId,
+controllers\fiscalYearController.js:571: userId,
+controllers\fiscalYearController.js:587: userId,
+controllers\fiscalYearController.js:630: createdBy:   userId,
+controllers\fiscalYearController.js:631: postedBy:    userId,
+controllers\fiscalYearController.js:633: userId,
+controllers\fiscalYearController.js:648: data:  { status: 'Closed', closedAt: new Date(), closedBy: userId },
+controllers\fiscalYearController.js:652: await writeAuditLog(tx, fy.id, userId, 'YearEndClosing', {
+controllers\fiscalYearController.js:659: await writeAuditLog(tx, fy.id, userId, 'Closed', {
+controllers\fiscalYearController.js:661: closedBy: userId,
+controllers\fiscalYearController.js:664: await writeAuditLog(tx, fy.id, userId, 'OpeningBalanceCreated', {
+controllers\fiscalYearController.js:676: await delPattern(`fiscal:list:${userId}:*`);
+controllers\fiscalYearController.js:677: await delPattern(`fiscal:active:${userId}`);
+controllers\fiscalYearController.js:678: await delPattern(`fiscal:detail:${userId}:${id}`);
+controllers\fiscalYearController.js:679: await delPattern(`fiscal:audit-log:${userId}:*`);
+controllers\fiscalYearController.js:711: const existing = await prisma.fiscalYear.findFirst({ where: { id, userId } });
+controllers\fiscalYearController.js:726: await writeAuditLog(tx, id, userId, 'Reopened', {
+controllers\fiscalYearController.js:737: await delPattern(`fiscal:list:${userId}:*`);
+controllers\fiscalYearController.js:738: await delPattern(`fiscal:active:${userId}`);
+controllers\fiscalYearController.js:739: await delPattern(`fiscal:detail:${userId}:${id}`);
+controllers\fiscalYearController.js:740: await delPattern(`fiscal:audit-log:${userId}:*`);
+controllers\fiscalYearController.js:764: const cacheKey = `fiscal:audit-log:${userId}:${fiscalYearId || 'all'}`;
+controllers\fiscalYearController.js:776: const where = { userId };
+controllers\fiscalYearController.js:779: const fy = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, userId } });
+controllers\fixedAssetController.js:12: async function getOrCreateFixedAssetAccount(userId, companyId) {
+controllers\fixedAssetController.js:17: createdBy: userId,
+controllers\fixedAssetController.js:35: where: { code: newCode, createdBy: userId }
+controllers\fixedAssetController.js:56: createdBy: userId,
+controllers\fixedAssetController.js:66: async function getOrCreateAccumulatedDepreciationAccount(userId) {
+controllers\fixedAssetController.js:71: createdBy: userId
+controllers\fixedAssetController.js:88: where: { code: newCode, createdBy: userId }
+controllers\fixedAssetController.js:109: createdBy: userId
+controllers\fixedAssetController.js:118: async function getOrCreateDepreciationExpenseAccount(userId) {
+controllers\fixedAssetController.js:123: createdBy: userId
+controllers\fixedAssetController.js:140: where: { code: newCode, createdBy: userId }
+controllers\fixedAssetController.js:161: createdBy: userId
+controllers\fixedAssetController.js:170: async function getOrCreateCashAccount(userId) {
+controllers\fixedAssetController.js:175: createdBy: userId
+controllers\fixedAssetController.js:192: where: { code: newCode, createdBy: userId }
+controllers\fixedAssetController.js:213: createdBy: userId
+controllers\fixedAssetController.js:222: async function getOrCreateGainLossAccount(userId, isGain) {
+controllers\fixedAssetController.js:229: createdBy: userId
+controllers\fixedAssetController.js:245: where: { code: newCode, createdBy: userId }
+controllers\fixedAssetController.js:266: createdBy: userId
+controllers\fixedAssetController.js:275: async function validateSupplier(supplierId, userId) {
+controllers\fixedAssetController.js:284: createdBy: userId
+controllers\fixedAssetController.js:322: console.log('👤 [FA] User ID:', userId);
+controllers\fixedAssetController.js:326: await fiscalYearGuard(userId, postingDate);
+controllers\fixedAssetController.js:335: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+controllers\fixedAssetController.js:342: const supplier = await validateSupplier(supplierId, userId);
+controllers\fixedAssetController.js:368: createdBy: userId,
+controllers\fixedAssetController.js:375: const assetAccount = await getOrCreateFixedAssetAccount(userId);
+controllers\fixedAssetController.js:376: const cashAccount = await getOrCreateCashAccount(userId);
+controllers\fixedAssetController.js:387: createdBy: userId,
+controllers\fixedAssetController.js:388: postedBy: userId,
+controllers\fixedAssetController.js:418: await delPattern(`fixedasset:list:${userId}:*`);
+controllers\fixedAssetController.js:419: await delPattern(`fixedasset:summary:${userId}`);
+controllers\fixedAssetController.js:451: console.log('👤 [FA] User ID:', userId);
+controllers\fixedAssetController.js:454: const cacheKey = `fixedasset:list:${userId}:${category || 'All'}:${status || 'All'}:${search || ''}`;
+controllers\fixedAssetController.js:466: const filter = { createdBy: userId };
+controllers\fixedAssetController.js:524: const cacheKey = `fixedasset:detail:${userId}:${id}`;
+controllers\fixedAssetController.js:539: createdBy: userId
+controllers\fixedAssetController.js:618: createdBy: userId
+controllers\fixedAssetController.js:633: await fiscalYearGuard(userId, newDate, existingAsset.purchaseDate);
+controllers\fixedAssetController.js:646: const supplier = await validateSupplier(supplierId, userId);
+controllers\fixedAssetController.js:675: await delPattern(`fixedasset:list:${userId}:*`);
+controllers\fixedAssetController.js:676: await delPattern(`fixedasset:detail:${userId}:${id}`);
+controllers\fixedAssetController.js:677: await delPattern(`fixedasset:summary:${userId}`);
+controllers\fixedAssetController.js:715: createdBy: userId
+controllers\fixedAssetController.js:745: const depExpAccount = await getOrCreateDepreciationExpenseAccount(userId);
+controllers\fixedAssetController.js:746: const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId);
+controllers\fixedAssetController.js:755: createdBy: userId,
+controllers\fixedAssetController.js:756: postedBy: userId,
+controllers\fixedAssetController.js:785: await delPattern(`fixedasset:list:${userId}:*`);
+controllers\fixedAssetController.js:786: await delPattern(`fixedasset:detail:${userId}:${assetId}`);
+controllers\fixedAssetController.js:787: await delPattern(`fixedasset:summary:${userId}`);
+controllers\fixedAssetController.js:833: createdBy: userId,
+controllers\fixedAssetController.js:862: await delPattern(`fixedasset:list:${userId}:*`);
+controllers\fixedAssetController.js:863: await delPattern(`fixedasset:summary:${userId}`);
+controllers\fixedAssetController.js:903: createdBy: userId
+controllers\fixedAssetController.js:934: const assetAccount = await getOrCreateFixedAssetAccount(userId);
+controllers\fixedAssetController.js:935: const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId);
+controllers\fixedAssetController.js:936: const cashAccount = await getOrCreateCashAccount(userId);
+controllers\fixedAssetController.js:937: const gainLossAccount = await getOrCreateGainLossAccount(userId, gainLoss >= 0);
+controllers\fixedAssetController.js:999: createdBy: userId,
+controllers\fixedAssetController.js:1000: postedBy: userId,
+controllers\fixedAssetController.js:1012: await delPattern(`fixedasset:list:${userId}:*`);
+controllers\fixedAssetController.js:1013: await delPattern(`fixedasset:detail:${userId}:${assetId}`);
+controllers\fixedAssetController.js:1014: await delPattern(`fixedasset:summary:${userId}`);
+controllers\fixedAssetController.js:1056: const cacheKey = `fixedasset:summary:${userId}`;
+controllers\fixedAssetController.js:1068: const stats = await FixedAssetModel.getStats(userId);
+controllers\fixedAssetController.js:1106: createdBy: userId
+controllers\fixedAssetController.js:1120: await fiscalYearGuard(userId, asset.purchaseDate);
+controllers\fixedAssetController.js:1143: await delPattern(`fixedasset:list:${userId}:*`);
+controllers\fixedAssetController.js:1144: await delPattern(`fixedasset:detail:${userId}:${id}`);
+controllers\fixedAssetController.js:1145: await delPattern(`fixedasset:summary:${userId}`);
+controllers\generalLedgerController.js:21: const cacheKey = `gl:accounts:${userId}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+controllers\generalLedgerController.js:39: createdBy: userId,
+controllers\generalLedgerController.js:58: createdBy: userId,
+controllers\generalLedgerController.js:67: const hasOBEntries = await LedgerHelper.hasOpeningBalanceEntries(accountIds, userId);
+controllers\generalLedgerController.js:68: const openingBalancesFromJournal = await LedgerHelper.getOpeningBalancesFromJournal(accountIds, userId);
+controllers\generalLedgerController.js:190: const cacheKey = `gl:account-summary:${userId}:${accountId}:${startDate || ''}:${endDate || ''}`;
+controllers\generalLedgerController.js:205: createdBy: userId
+controllers\generalLedgerController.js:219: createdBy: userId,
+controllers\generalLedgerController.js:233: const hasOBEntry = await LedgerHelper.hasSingleOpeningBalanceEntry(accountId, userId);
+controllers\generalLedgerController.js:237: openingBalanceFromJournal = await LedgerHelper.getSingleOpeningBalanceFromJournal(accountId, userId);
+controllers\generalLedgerController.js:315: const cacheKey = `gl:entries:${userId}:${accountId}:${startDate || ''}:${endDate || ''}:${search || ''}`;
+controllers\generalLedgerController.js:329: createdBy: userId
+controllers\generalLedgerController.js:338: createdBy: userId,
+controllers\generalLedgerController.js:359: const hasOBEntry = await LedgerHelper.hasSingleOpeningBalanceEntry(accountId, userId);
+controllers\generalLedgerController.js:447: const cacheKey = `gl:all-entries:${userId}:${startDate || ''}:${endDate || ''}:${accountId || ''}:${search || ''}:${pageNum}:${limitNum}:${sortBy}:${sortOrder}`;
+controllers\generalLedgerController.js:461: createdBy: userId,
+controllers\generalLedgerController.js:475: createdBy: userId
+controllers\generalLedgerController.js:499: createdBy: userId,
+controllers\generalLedgerController.js:506: const hasOBEntries = await LedgerHelper.hasOpeningBalanceEntries(accountIds, userId);
+controllers\generalLedgerController.js:630: const cacheKey = `gl:trial-balance:${userId}:${startDate || ''}:${endDate || ''}`;
+controllers\generalLedgerController.js:646: createdBy: userId,
+controllers\generalLedgerController.js:746: const cacheKey = `gl:export:${userId}:${startDate || ''}:${endDate || ''}:${accountId || ''}`;
+controllers\generalLedgerController.js:758: createdBy: userId,
+controllers\generalLedgerController.js:781: createdBy: userId,
+controllers\generalLedgerController.js:788: const hasOBEntries = await LedgerHelper.hasOpeningBalanceEntries(accountIds, userId);
+controllers\generalLedgerController.js:879: const cacheKey = `gl:account-transactions:${userId}:${accountId}:${limit}:${offset}`;
+controllers\generalLedgerController.js:893: createdBy: userId
+controllers\generalLedgerController.js:905: createdBy: userId,
+controllers\incomeController.js:9: async function getIncomeAccountsForDropdown(userId, companyId) {
+controllers\incomeController.js:12: createdBy: userId,
+controllers\incomeController.js:60: createdBy: userId,
+controllers\incomeController.js:78: async function getOrCreateCashAccount(userId) {
+controllers\incomeController.js:82: createdBy: userId
+controllers\incomeController.js:100: createdBy: userId
+controllers\incomeController.js:122: createdBy: userId
+controllers\incomeController.js:131: async function createIncomeJournalEntry(userId, income, cashOrBankAccount, incomeAccount) {
+controllers\incomeController.js:141: createdBy: userId,
+controllers\incomeController.js:142: postedBy: userId,
+controllers\incomeController.js:176: const accounts = await getIncomeAccountsForDropdown(userId);
+controllers\incomeController.js:216: await fiscalYearGuard(userId, postingDate);
+controllers\incomeController.js:238: createdBy: userId,
+controllers\incomeController.js:289: createdBy: userId
+controllers\incomeController.js:318: createdBy: userId
+controllers\incomeController.js:365: const fyId = await resolveFiscalYearId(userId, postingDate);
+controllers\incomeController.js:381: postedBy: userId,
+controllers\incomeController.js:383: createdBy: userId
+controllers\incomeController.js:395: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\incomeController.js:401: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\incomeController.js:406: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\incomeController.js:412: await createIncomeJournalEntry(userId, income, cashOrBankAccount, incomeAccount);
+controllers\incomeController.js:496: const filter = { createdBy: userId };
+controllers\incomeController.js:562: createdBy: userId
+controllers\incomeController.js:655: createdBy: userId
+controllers\incomeController.js:668: await fiscalYearGuard(userId, newDate, existing.date);
+controllers\incomeController.js:688: createdBy: userId
+controllers\incomeController.js:701: createdBy: userId
+controllers\incomeController.js:718: createdBy: userId,
+controllers\incomeController.js:811: createdBy: userId
+controllers\incomeController.js:823: await fiscalYearGuard(userId, existing.date);
+controllers\incomeController.js:864: createdBy: userId,
+controllers\incomeController.js:960: createdBy: userId
+controllers\incomeController.js:982: createdBy: userId,
+controllers\incomeController.js:994: const posted = await IncomeModel.postIncome(id, userId);
+controllers\incomeController.js:999: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\incomeController.js:1004: createdBy: userId
+controllers\incomeController.js:1016: cashOrBankAccount = await getOrCreateCashAccount(userId);
+controllers\incomeController.js:1019: await createIncomeJournalEntry(userId, income, cashOrBankAccount, incomeAccount);
+controllers\incomeController.js:1026: createdBy: userId
+controllers\journalEntryController.js:27: async function validateAccount(accountId, userId, companyId) {
+controllers\journalEntryController.js:35: createdBy: userId,
+controllers\journalEntryController.js:83: async function checkAccountBalance(accountId, debit, credit, userId) {
+controllers\journalEntryController.js:87: createdBy: userId
+controllers\journalEntryController.js:130: async function updateBankAccountBalance(accountId, userId) {
+controllers\journalEntryController.js:135: createdBy: userId
+controllers\journalEntryController.js:150: createdBy: userId
+controllers\journalEntryController.js:168: async function updateBankAccountsForJournalEntry(journalEntryId, userId) {
+controllers\journalEntryController.js:181: const result = await updateBankAccountBalance(line.accountId, userId);
+controllers\journalEntryController.js:205: await fiscalYearGuard(userId, postingDate);
+controllers\journalEntryController.js:214: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+controllers\journalEntryController.js:234: const account = await validateAccount(line.accountId, userId);
+controllers\journalEntryController.js:260: const result = await checkAccountBalance(line.accountId, line.debit, line.credit, userId);
+controllers\journalEntryController.js:285: postedBy: userId,
+controllers\journalEntryController.js:287: createdBy: userId,
+controllers\journalEntryController.js:346: const bankAccountUpdates = await updateBankAccountsForJournalEntry(result.entry.id, userId);
+controllers\journalEntryController.js:406: createdBy: userId,
+controllers\journalEntryController.js:508: createdBy: userId
+controllers\journalEntryController.js:561: createdBy: userId
+controllers\journalEntryController.js:581: await fiscalYearGuard(userId, existing.date);
+controllers\journalEntryController.js:621: const bankAccountUpdates = await updateBankAccountsForJournalEntry(id, userId);
+controllers\journalEntryController.js:652: prisma.journalEntry.count({ where: { createdBy: userId } }),
+controllers\journalEntryController.js:653: prisma.journalEntry.count({ where: { createdBy: userId, status: 'Posted' } })
+controllers\journalEntryController.js:659: createdBy: userId,
+controllers\journalEntryController.js:700: createdBy: userId,
+controllers\loanController.js:6: async function getOrCreateLoanAccount(userId, companyId) {
+controllers\loanController.js:11: createdBy: userId,
+controllers\loanController.js:29: where: { code: newCode, createdBy: userId, companyId: companyId }
+controllers\loanController.js:50: createdBy: userId,
+controllers\loanController.js:60: async function getOrCreateInterestExpenseAccount(userId, companyId) {
+controllers\loanController.js:65: createdBy: userId
+controllers\loanController.js:82: where: { code: newCode, createdBy: userId }
+controllers\loanController.js:103: createdBy: userId
+controllers\loanController.js:112: async function getOrCreateCashAccount(userId) {
+controllers\loanController.js:117: createdBy: userId
+controllers\loanController.js:134: where: { code: newCode, createdBy: userId }
+controllers\loanController.js:155: createdBy: userId
+controllers\loanController.js:166: async function validateLender(lenderId, userId) {
+controllers\loanController.js:175: createdBy: userId
+controllers\loanController.js:190: async function validateBankAccount(bankAccountId, userId) {
+controllers\loanController.js:199: createdBy: userId
+controllers\loanController.js:238: console.log('👤 [LN] User ID:', userId);
+controllers\loanController.js:242: await fiscalYearGuard(userId, postingDate);
+controllers\loanController.js:251: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+controllers\loanController.js:257: const lender = await validateLender(lenderId, userId);
+controllers\loanController.js:273: const bankAccount = await validateBankAccount(bankAccountId, userId);
+controllers\loanController.js:299: createdBy: userId,
+controllers\loanController.js:306: const loanAccount = await getOrCreateLoanAccount(userId);
+controllers\loanController.js:307: let cashChartAccount = await getOrCreateCashAccount(userId);
+controllers\loanController.js:314: createdBy: userId
+controllers\loanController.js:321: createdBy: userId
+controllers\loanController.js:337: createdBy: userId,
+controllers\loanController.js:338: postedBy: userId,
+controllers\loanController.js:392: const filter = { createdBy: userId };
+controllers\loanController.js:439: createdBy: userId
+controllers\loanController.js:524: createdBy: userId
+controllers\loanController.js:538: await fiscalYearGuard(userId, existingLoan.disbursementDate);
+controllers\loanController.js:548: await validateLender(lenderId, userId);
+controllers\loanController.js:553: await validateBankAccount(bankAccountId, userId);
+controllers\loanController.js:603: createdBy: userId
+controllers\loanController.js:632: const loanAccount = await getOrCreateLoanAccount(userId);
+controllers\loanController.js:633: const interestAccount = await getOrCreateInterestExpenseAccount(userId);
+controllers\loanController.js:635: let cashChartAccount = await getOrCreateCashAccount(userId);
+controllers\loanController.js:640: createdBy: userId
+controllers\loanController.js:647: createdBy: userId
+controllers\loanController.js:663: createdBy: userId,
+controllers\loanController.js:664: postedBy: userId,
+controllers\loanController.js:779: createdBy: userId
+controllers\loanController.js:821: createdBy: userId
+controllers\loanController.js:859: const loanAccount = await getOrCreateLoanAccount(userId);
+controllers\loanController.js:860: let cashChartAccount = await getOrCreateCashAccount(userId);
+controllers\loanController.js:866: createdBy: userId
+controllers\loanController.js:873: createdBy: userId
+controllers\loanController.js:889: createdBy: userId,
+controllers\loanController.js:890: postedBy: userId,
+controllers\loanController.js:951: const stats = await LoanModel.getStats(userId);
+controllers\loanController.js:984: createdBy: userId
+controllers\loanController.js:1027: createdBy: userId
+controllers\loanController.js:1041: await fiscalYearGuard(userId, loan.disbursementDate);
+controllers\notificationController.js:9: const { userId, title, message, type, category, data } = req.body;
+controllers\notificationController.js:11: if (!userId || !title || !message) {
+controllers\notificationController.js:14: message: 'userId, title, and message are required',
+controllers\notificationController.js:20: userId,
+controllers\notificationController.js:49: userId,
+controllers\notificationController.js:67: where: { userId, isRead: false },
+controllers\notificationController.js:96: userId,
+controllers\notificationController.js:129: userId,
+controllers\notificationController.js:158: userId,
+controllers\notificationController.js:187: userId,
+controllers\paymentMadeController.js:8: async function getOrCreatePayableAccount(userId, companyId) {
+controllers\paymentMadeController.js:13: createdBy: userId,
+controllers\paymentMadeController.js:32: createdBy: userId
+controllers\paymentMadeController.js:43: async function getOrCreateCashAccount(userId, companyId) {
+controllers\paymentMadeController.js:48: createdBy: userId,
+controllers\paymentMadeController.js:67: createdBy: userId,
+controllers\paymentMadeController.js:79: async function validateSupplier(supplierId, userId) {
+controllers\paymentMadeController.js:84: createdBy: userId
+controllers\paymentMadeController.js:97: async function validateBill(billId, userId) {
+controllers\paymentMadeController.js:102: createdBy: userId
+controllers\paymentMadeController.js:115: async function validateBankAccount(bankAccountId, userId) {
+controllers\paymentMadeController.js:120: createdBy: userId,
+controllers\paymentMadeController.js:137: async function generatePaymentNumber(userId) {
+controllers\paymentMadeController.js:139: where: { createdBy: userId }
+controllers\paymentMadeController.js:146: async function reverseJournalEntry(payment, userId, tx) {
+controllers\paymentMadeController.js:173: createdBy: userId,
+controllers\paymentMadeController.js:174: postedBy: userId,
+controllers\paymentMadeController.js:235: console.log('👤 [PM] User ID:', userId);
+controllers\paymentMadeController.js:239: await fiscalYearGuard(userId, postingDate);
+controllers\paymentMadeController.js:247: const supplier = await validateSupplier(supplierId, userId);
+controllers\paymentMadeController.js:252: const bill = await validateBill(id, userId);
+controllers\paymentMadeController.js:258: const bill = await validateBill(billIds, userId);
+controllers\paymentMadeController.js:295: bankAccount = await validateBankAccount(bankAccountId, userId);
+controllers\paymentMadeController.js:301: const apAccount = await getOrCreatePayableAccount(userId);
+controllers\paymentMadeController.js:302: const cashAccount = await getOrCreateCashAccount(userId);
+controllers\paymentMadeController.js:312: const paymentNumber = await generatePaymentNumber(userId);
+controllers\paymentMadeController.js:314: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+controllers\paymentMadeController.js:381: createdBy: userId,
+controllers\paymentMadeController.js:409: createdBy: userId,
+controllers\paymentMadeController.js:410: postedBy: userId,
+controllers\paymentMadeController.js:511: createdBy: userId
+controllers\paymentMadeController.js:529: await fiscalYearGuard(userId, payment.paymentDate, payment.paymentDate);
+controllers\paymentMadeController.js:538: await reverseJournalEntry(payment, userId, tx);
+controllers\paymentMadeController.js:590: createdBy: userId
+controllers\paymentMadeController.js:662: const filter = { createdBy: userId };
+controllers\paymentMadeController.js:666: where: { id: supplierId, createdBy: userId }
+controllers\paymentMadeController.js:675: where: { id: billId, createdBy: userId }
+controllers\paymentMadeController.js:760: createdBy: userId
+controllers\paymentMadeController.js:823: createdBy: userId
+controllers\paymentMadeController.js:841: createdBy: userId
+controllers\paymentMadeController.js:885: const filter = { createdBy: userId };
+controllers\paymentReceivedController.js:9: async function getOrCreateReceivableAccount(userId, companyId, tx) {
+controllers\paymentReceivedController.js:12: where: { code: '1110', createdBy: userId, companyId: companyId }
+controllers\paymentReceivedController.js:28: createdBy: userId
+controllers\paymentReceivedController.js:36: async function getOrCreateCashAccount(userId, companyId, tx) {
+controllers\paymentReceivedController.js:39: where: { code: '1010', createdBy: userId, companyId: companyId }
+controllers\paymentReceivedController.js:55: createdBy: userId,
+controllers\paymentReceivedController.js:64: async function validateCustomer(customerId, userId, tx) {
+controllers\paymentReceivedController.js:69: where: { id: customerId, createdBy: userId, isActive: true }
+controllers\paymentReceivedController.js:77: async function validateBankAccount(bankAccountId, userId, tx) {
+controllers\paymentReceivedController.js:82: where: { id: bankAccountId, createdBy: userId, status: 'Active' },
+controllers\paymentReceivedController.js:91: async function validateInvoice(invoiceId, userId, tx) {
+controllers\paymentReceivedController.js:96: where: { id: invoiceId, createdBy: userId, invoiceStatus: { not: 'Paid' } }
+controllers\paymentReceivedController.js:104: async function generatePaymentNumber(userId, tx) {
+controllers\paymentReceivedController.js:109: where: { createdBy: userId, paymentNumber: { startsWith: prefix } },
+controllers\paymentReceivedController.js:151: await fiscalYearGuard(userId, postingDate);
+controllers\paymentReceivedController.js:170: const customer = await validateCustomer(customerId, userId, tx);
+controllers\paymentReceivedController.js:173: const invoice = await validateInvoice(invoiceId, userId, tx);
+controllers\paymentReceivedController.js:190: bankAccount = await validateBankAccount(bankAccountId, userId, tx);
+controllers\paymentReceivedController.js:195: const arAccount = await getOrCreateReceivableAccount(userId, tx);
+controllers\paymentReceivedController.js:196: const cashAccount = await getOrCreateCashAccount(userId, tx);
+controllers\paymentReceivedController.js:216: const paymentNumber = await generatePaymentNumber(userId, tx);
+controllers\paymentReceivedController.js:219: const fyId = await resolveFiscalYearId(userId, postingDate);
+controllers\paymentReceivedController.js:239: createdBy: userId,
+controllers\paymentReceivedController.js:262: createdBy: userId,
+controllers\paymentReceivedController.js:263: postedBy: userId,
+controllers\paymentReceivedController.js:378: const filter = { createdBy: userId };
+controllers\paymentReceivedController.js:381: const customer = await prisma.customer.findFirst({ where: { id: customerId, createdBy: userId } });
+controllers\paymentReceivedController.js:386: const invoice = await prisma.warehouseInvoice.findFirst({ where: { id: invoiceId, createdBy: userId } });
+controllers\paymentReceivedController.js:450: where: { id, createdBy: userId },
+controllers\paymentReceivedController.js:479: const customer = await prisma.customer.findFirst({ where: { id: customerId, createdBy: userId } });
+controllers\paymentReceivedController.js:485: where: { customerId, invoiceStatus: { not: 'Paid' }, createdBy: userId },
+controllers\paymentReceivedController.js:522: const filter = { createdBy: userId };
+controllers\paymentReceivedController.js:559: byMethod: await PaymentReceived.getByMethod(userId)
+controllers\paymentReceivedController.js:569: async function reversePaymentJournalEntry(payment, userId, tx) {
+controllers\paymentReceivedController.js:584: createdBy: userId,
+controllers\paymentReceivedController.js:585: postedBy: userId,
+controllers\paymentReceivedController.js:628: where: { id, createdBy: userId },
+controllers\paymentReceivedController.js:638: await fiscalYearGuard(userId, payment.paymentDate);
+controllers\paymentReceivedController.js:647: await reversePaymentJournalEntry(payment, userId, tx);
+controllers\paymentReceivedController.js:679: const payment = await prisma.paymentReceived.findFirst({ where: { id, createdBy: userId } });
+controllers\paymentReceivedController.js:693: const updated = await PaymentReceived.updateStatus(id, 'Cleared', userId);
+controllers\plReportController.js:109: createdBy: userId,
+controllers\plReportController.js:122: createdBy: userId,
+controllers\plReportController.js:136: createdBy: userId,
+controllers\plReportController.js:151: createdBy: userId,
+controllers\plReportController.js:163: createdBy: userId,
+controllers\plReportController.js:387: createdBy: userId,
+controllers\plReportController.js:396: createdBy: userId,
+controllers\plReportController.js:405: createdBy: userId,
+controllers\plReportController.js:413: createdBy: userId,
+controllers\plReportController.js:422: createdBy: userId,
+controllers\plReportController.js:431: createdBy: userId,
+controllers\plReportController.js:440: createdBy: userId,
+controllers\plReportController.js:449: createdBy: userId,
+controllers\plReportController.js:457: createdBy: userId,
+controllers\plReportController.js:466: createdBy: userId,
+controllers\plReportController.js:537: createdBy: userId,
+controllers\plReportController.js:546: createdBy: userId,
+controllers\plReportController.js:555: createdBy: userId,
+controllers\plReportController.js:563: createdBy: userId,
+controllers\plReportController.js:572: createdBy: userId,
+controllers\plReportController.js:624: where: { createdBy: userId }
+controllers\plReportController.js:657: createdBy: userId,
+controllers\plReportController.js:666: createdBy: userId,
+controllers\plReportController.js:742: createdBy: userId,
+controllers\plReportController.js:751: createdBy: userId,
+controllers\plReportController.js:760: createdBy: userId,
+controllers\plReportController.js:769: createdBy: userId,
+controllers\profileController.js:12: where: { id: userId },
+controllers\profileController.js:116: where: { id: userId }
+controllers\profileController.js:198: where: { id: userId },
+controllers\profileController.js:284: where: { id: userId }
+controllers\profileController.js:309: where: { id: userId },
+controllers\profileController.js:354: where: { id: userId },
+controllers\profileController.js:429: where: { id: userId }
+controllers\profileController.js:452: where: { id: userId },
+controllers\reportsController.js:96: userId: userId,
+controllers\reportsController.js:107: userId: userId,
+controllers\reportsController.js:261: where: { userId: userId, isActive: true }
+controllers\reportsController.js:304: where: { userId: userId, status: 'Active' }
+controllers\reportsController.js:323: userId: userId,
+controllers\reportsController.js:345: userId: userId,
+controllers\reportsController.js:366: where: { userId: userId, status: { not: 'Fully Paid' } }
+controllers\reportsController.js:388: userId: userId,
+controllers\reportsController.js:396: userId: userId,
+controllers\reportsController.js:487: userId: userId,
+controllers\reportsController.js:496: userId: userId,
+controllers\reportsController.js:524: userId: userId,
+controllers\reportsController.js:532: userId: userId,
+controllers\reportsController.js:545: userId: userId,
+controllers\reportsController.js:552: userId: userId,
+controllers\reportsController.js:567: where: { userId: userId, status: 'Active' }
+controllers\reportsController.js:653: const where = { userId: userId };
+controllers\reportsController.js:776: userId: userId
+controllers\stripeController.js:56: // ✅ Webhook ke liye metadata — userId aur plan yahin store hoga
+controllers\stripeController.js:58: userId: userId.toString(),
+controllers\stripeController.js:67: console.log('Stripe session created:', session.id, 'for user:', userId);
+controllers\stripeController.js:110: const { userId, plan } = session.metadata;
+controllers\stripeController.js:113: console.log('Payment successful for user:', userId, 'Plan:', plan);
+controllers\stripeController.js:116: let user = await User.findById(userId);
+controllers\stripeController.js:118: console.error('User not found for webhook:', userId);
+controllers\stripeController.js:124: user = await User.findById(userId);
+controllers\stripeController.js:128: userId: user._id,
+controllers\stripeController.js:142: console.log('Subscription activated via webhook for user:', userId);
+controllers\subscriptionController.js:75: console.log('📡 [subscribeDirect] User:', userId);
+controllers\subscriptionController.js:89: where: { id: userId }
+controllers\subscriptionController.js:128: where: { id: userId }
+controllers\subscriptionController.js:132: console.log('✅ Subscription activated for user:', userId);
+controllers\subscriptionController.js:139: userId: userId,        // ✅ Fixed: use userId directly
+controllers\subscriptionController.js:194: where: { id: userId }
+controllers\subscriptionController.js:239: where: { id: userId }
+controllers\subscriptionController.js:245: userId: userId,          // ✅ Fixed: use userId directly
+controllers\subscriptionController.js:290: where: { id: userId }
+controllers\subscriptionController.js:338: where: { id: userId }
+controllers\subscriptionController.js:400: where: { id: userId }
+controllers\subscriptionController.js:445: where: { id: userId }
+controllers\subscriptionController.js:458: const history = await Subscription.findByUserId(userId);
+controllers\subscriptionController.js:459: const active = await Subscription.findActiveByUserId(userId);
+controllers\subscriptionController.js:498: where: { id: userId }
+controllers\subscriptionController.js:523: userId: userId,     // ✅ Fixed: use userId directly (string)
+controllers\subscriptionController.js:558: const subscriptions = await Subscription.findByUserId(userId);
+controllers\transactionController.js:37: console.log('🔵 [createTransaction] User ID:', userId);
+controllers\transactionController.js:47: await fiscalYearGuard(userId, postingDate);
+controllers\transactionController.js:56: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+controllers\transactionController.js:103: userId,
+controllers\transactionController.js:104: createdBy: userId,
+controllers\transactionController.js:152: createdBy: userId,
+controllers\transactionController.js:206: TransactionModel.getSummary(userId, filter),
+controllers\transactionController.js:207: TransactionModel.getStats(userId)
+controllers\transactionController.js:251: userId: userId,
+controllers\transactionController.js:321: userId: userId,
+controllers\transactionController.js:404: userId: userId,
+controllers\transactionController.js:431: userId: userId,
+controllers\transactionController.js:449: userId: userId,
+controllers\transactionController.js:467: { createdBy: userId },
+controllers\transactionController.js:468: { userId: userId }
+controllers\transactionController.js:494: const updated = await TransactionModel.updateTransaction(id, updateData, userId);
+controllers\transactionController.js:527: userId: userId,
+controllers\transactionController.js:550: await TransactionModel.deleteTransaction(id, userId);
+controllers\transactionController.js:578: userId: userId,
+controllers\transactionController.js:595: const summary = await TransactionModel.getSummary(userId, filter);
+controllers\transactionController.js:596: const stats = await TransactionModel.getStats(userId);
+controllers\transactionController.js:649: const stats = await TransactionModel.getStats(userId);
+controllers\trialBalanceController.js:38: createdBy: userId,
+controllers\trialBalanceController.js:51: createdBy: userId,
+controllers\trialBalanceController.js:207: createdBy: userId,
+controllers\trialBalanceController.js:219: createdBy: userId,
+controllers\trialBalanceController.js:368: createdBy: userId,
+controllers\trialBalanceController.js:380: createdBy: userId,
+controllers\trialBalanceController.js:502: createdBy: userId,
+controllers\trialBalanceController.js:513: createdBy: userId,
+controllers\trialBalanceController.js:663: createdBy: userId,
+controllers\trialBalanceController.js:674: createdBy: userId,
+controllers\trialBalanceController.js:841: createdBy: userId,
+controllers\trialBalanceController.js:853: createdBy: userId,
+controllers\userController.js:27: const checkAndExpireSubscription = async (userId) => {
+controllers\userController.js:28: const userData = await User.findById(userId);
+controllers\userController.js:53: const checkTrialDays = async (userId) => {
+controllers\userController.js:54: const userData = await User.findById(userId);
+controllers\userController.js:187: userId: user._id,
+controllers\userController.js:596: console.log('🔄 [updateBusinessDetails] Called for user:', userId);
+controllers\userController.js:599: where: { id: userId }
+controllers\userController.js:610: where: { id: userId },
+controllers\userController.js:661: console.log('🔄 [getBusinessDetails] Called for user:', userId);
+controllers\userController.js:664: where: { id: userId },
+controllers\userController.js:834: console.log('🔄 [changePassword] Called for user:', userId);
+controllers\userController.js:850: where: { id: userId }
+controllers\userController.js:880: where: { id: userId },
+controllers\userController.js:1100: console.log('🔄 [updateCurrency] Called for user:', userId);
+controllers\userController.js:1111: where: { id: userId }
+controllers\userController.js:1130: where: { id: userId },
+controllers\userManagementController.js:26: userId: currentUserId,
+controllers\userManagementController.js:285: userId: currentUserId,
+controllers\userManagementController.js:413: userId: newUser.id,
+controllers\userManagementController.js:505: userId: currentUserId,
+controllers\userManagementController.js:577: where: { userId: id }
+controllers\userManagementController.js:583: userId: id,
+controllers\userManagementController.js:632: userId: currentUserId,
+controllers\userManagementController.js:697: userId: currentUserId,
+controllers\userManagementController.js:714: where: { userId: id }
+controllers\userManagementController.js:721: userId: id,
+controllers\userManagementController.js:734: where: { userId: id }
+warehouse\controller\category_controller.js:207: createdBy: userId,
+warehouse\controller\category_controller.js:352: updatedBy: userId,
+warehouse\controller\category_controller.js:456: updatedBy: userId
+warehouse\controller\customerController.js:138: createdBy: userId,
+warehouse\controller\customerController.js:139: userId
+warehouse\controller\customerController.js:198: updatedBy: userId
+warehouse\controller\customerController.js:221: data: { isDeleted: true, isActive: false, updatedBy: userId }
+warehouse\controller\customerController.js:243: data: { status, updatedBy: userId }
+warehouse\controller\customerController.js:274: userId,
+warehouse\controller\deliveryController.js:84: createdBy: userId,
+warehouse\controller\deliveryController.js:85: userId: userId
+warehouse\controller\deliveryController.js:117: userId: userId,
+warehouse\controller\deliveryController.js:145: const confirmedDelivery = await Delivery.confirmDelivery(id, userId);
+warehouse\controller\deliveryController.js:173: userId: userId,
+warehouse\controller\deliveryController.js:250: userId: userId,
+warehouse\controller\deliveryController.js:309: userId: userId,
+warehouse\controller\deliveryController.js:357: userId: userId,
+warehouse\controller\deliveryController.js:422: const kpi = await Delivery.getStatusCounts(userId);
+warehouse\controller\deliveryController.js:467: userId: userId,
+warehouse\controller\deliveryController.js:489: updatedBy: userId
+warehouse\controller\deliveryController.js:528: userId: userId,
+warehouse\controller\deliveryController.js:549: await Delivery.softDelete(id, userId);
+warehouse\controller\deliveryController.js:571: const stats = await Delivery.getStats(userId);
+warehouse\controller\deliveryController.js:593: const kpi = await Delivery.getStatusCounts(userId);
+warehouse\controller\deliveryController.js:617: const summary = await Delivery.getProductDeliverySummary(userId, startDate, endDate);
+warehouse\controller\deliveryController.js:642: userId: userId,
+warehouse\controller\expiry_report_controller.js:53: await sendExpiryNotifications(userId, expired, expiringSoon);
+warehouse\controller\expiry_report_controller.js:102: const sendExpiryNotifications = async (userId, expiredProducts, expiringSoonProducts) => {
+warehouse\controller\expiry_report_controller.js:106: where: { id: userId },
+warehouse\controller\expiry_report_controller.js:116: console.error('❌ User not found for notifications:', userId);
+warehouse\controller\expiry_report_controller.js:134: await sendExpiryPushNotification(userId, expiredProducts, expiringSoonProducts);
+warehouse\controller\expiry_report_controller.js:135: console.log('✅ Expiry push notification sent to user:', userId);
+warehouse\controller\expiry_report_controller.js:341: const sendExpiryPushNotification = async (userId, expiredProducts, expiringSoonProducts) => {
+warehouse\controller\expiry_report_controller.js:376: mongoUserId: userId.toString(),
+warehouse\controller\expiry_report_controller.js:406: id: userId, // For admin: remove this to send to all
+warehouse\controller\expiry_report_controller.js:423: userId: user.id,
+warehouse\controller\expiry_report_controller.js:446: userId: user.id,
+warehouse\controller\expiry_report_controller.js:454: userId: user.id,
+warehouse\controller\expiry_report_controller.js:462: userId: user.id,
+warehouse\controller\goodsReceivingController.js:88: createdBy: userId,
+warehouse\controller\goodsReceivingController.js:89: userId: userId
+warehouse\controller\goodsReceivingController.js:121: userId: userId,
+warehouse\controller\goodsReceivingController.js:149: const confirmedGRN = await GoodsReceiving.confirmReceiving(id, userId);
+warehouse\controller\goodsReceivingController.js:186: userId: userId,
+warehouse\controller\goodsReceivingController.js:229: GoodsReceiving.getStats(userId)
+warehouse\controller\goodsReceivingController.js:267: userId: userId,
+warehouse\controller\goodsReceivingController.js:337: userId: userId,
+warehouse\controller\goodsReceivingController.js:429: userId: userId,
+warehouse\controller\goodsReceivingController.js:451: updatedBy: userId,
+warehouse\controller\goodsReceivingController.js:515: userId: userId,
+warehouse\controller\goodsReceivingController.js:536: await GoodsReceiving.softDelete(id, userId);
+warehouse\controller\goodsReceivingController.js:558: const stats = await GoodsReceiving.getStats(userId);
+warehouse\controller\goodsReceivingController.js:582: const summary = await GoodsReceiving.getSupplierSummary(userId, supplierId);
+warehouse\controller\goodsReceivingController.js:607: userId: userId,
+warehouse\controller\goodsReceivingController.js:709: userId: userId,
+warehouse\controller\inventory_controller.js:20: console.log('📌 User ID:', userId);
+warehouse\controller\inventory_controller.js:34: console.log('🔍 Checking category existence for user:', userId);
+warehouse\controller\inventory_controller.js:228: userId: userId,
+warehouse\controller\inventory_controller.js:295: userId: userId,
+warehouse\controller\inventory_controller.js:303: userId: userId,
+warehouse\controller\inventory_controller.js:377: userId: userId,
+warehouse\controller\inventory_controller.js:385: userId: userId,
+warehouse\controller\invoiceController.js:108: createdBy: userId,
+warehouse\controller\order_controller.js:9: const autoGenerateInvoice = async (order, userId) => {
+warehouse\controller\order_controller.js:39: createdBy: userId,
+warehouse\controller\order_controller.js:40: updatedBy: userId,
+warehouse\controller\order_controller.js:132: userId: userId
+warehouse\controller\order_controller.js:139: userId: userId
+warehouse\controller\order_controller.js:146: userId: userId
+warehouse\controller\order_controller.js:230: createdBy: userId,
+warehouse\controller\order_controller.js:231: userId: userId
+warehouse\controller\order_controller.js:237: const invoice = await autoGenerateInvoice(order, userId);
+warehouse\controller\order_controller.js:277: userId: userId,
+warehouse\controller\order_controller.js:313: const kpi = await Order.getStatusCounts(userId, 'Sales Order');
+warehouse\controller\order_controller.js:394: userId: userId
+warehouse\controller\order_controller.js:401: userId: userId
+warehouse\controller\order_controller.js:408: userId: userId
+warehouse\controller\order_controller.js:485: createdBy: userId,
+warehouse\controller\order_controller.js:486: userId: userId
+warehouse\controller\order_controller.js:492: const invoice = await autoGenerateInvoice(order, userId);
+warehouse\controller\order_controller.js:532: userId: userId,
+warehouse\controller\order_controller.js:568: const kpi = await Order.getStatusCounts(userId, 'Purchase Order');
+warehouse\controller\order_controller.js:603: userId: userId,
+warehouse\controller\order_controller.js:657: where: { id: id, userId: userId }
+warehouse\controller\order_controller.js:684: const updatedOrder = await Order.updateStatus(id, status, userId, notes);
+warehouse\controller\order_controller.js:706: where: { id: id, userId: userId }
+warehouse\controller\order_controller.js:713: const updatedOrder = await Order.updatePayment(id, paymentStatus, paymentReference, userId);
+warehouse\controller\order_controller.js:731: where: { id: id, userId: userId }
+warehouse\controller\order_controller.js:745: const cancelledOrder = await Order.cancelOrder(id, userId, reason);
+warehouse\controller\order_controller.js:762: where: { id: id, userId: userId }
+warehouse\controller\order_controller.js:776: await Order.softDelete(id, userId);
+warehouse\controller\order_controller.js:794: stats = await Order.getStats(userId, 'Sales Order');
+warehouse\controller\order_controller.js:796: stats = await Order.getStats(userId, 'Purchase Order');
+warehouse\controller\order_controller.js:798: stats = await Order.getStats(userId);
+warehouse\controller\order_controller.js:818: kpi = await Order.getStatusCounts(userId, 'Sales Order');
+warehouse\controller\order_controller.js:820: kpi = await Order.getStatusCounts(userId, 'Purchase Order');
+warehouse\controller\order_controller.js:822: kpi = await Order.getStatusCounts(userId);
+warehouse\controller\product_controller.js:84: // ✅ Execute query with userId filter
+warehouse\controller\product_controller.js:184: // @desc    Create product (Auto-add userId)
+warehouse\controller\product_controller.js:308: // ✅ Build product data with userId
+warehouse\controller\product_controller.js:324: createdBy: userId,
+warehouse\controller\product_controller.js:325: userId: userId,  // 👈 Audit: who created it
+warehouse\controller\product_controller.js:492: req.body.updatedBy = userId;
+warehouse\controller\product_controller.js:553: updatedBy: userId
+warehouse\controller\product_controller.js:954: createdBy: userId,
+warehouse\controller\product_controller.js:955: userId: userId,  // 👈 Audit: who created it
+warehouse\controller\product_controller.js:967: updatedBy: userId
+warehouse\controller\product_controller.js:1063: // ✅ Add userId + companyId to each product
+warehouse\controller\product_controller.js:1067: userId: userId,
+warehouse\controller\product_controller.js:1068: createdBy: userId,
+warehouse\controller\purchaseInvoiceController.js:33: await fiscalYearGuard(userId, postingDate);
+warehouse\controller\purchaseInvoiceController.js:42: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+warehouse\controller\purchaseInvoiceController.js:100: createdBy: userId,
+warehouse\controller\purchaseInvoiceController.js:101: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:149: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:186: createdBy: userId,
+warehouse\controller\purchaseInvoiceController.js:187: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:220: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:248: const postedInvoice = await PurchaseInvoice.postInvoice(id, userId);
+warehouse\controller\purchaseInvoiceController.js:287: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:339: PurchaseInvoice.getStats(userId)
+warehouse\controller\purchaseInvoiceController.js:377: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:457: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:529: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:558: updatedBy: userId,
+warehouse\controller\purchaseInvoiceController.js:574: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:631: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:659: const cancelledInvoice = await PurchaseInvoice.cancelInvoice(id, userId, reason);
+warehouse\controller\purchaseInvoiceController.js:688: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:709: await PurchaseInvoice.softDelete(id, userId);
+warehouse\controller\purchaseInvoiceController.js:731: const stats = await PurchaseInvoice.getStats(userId);
+warehouse\controller\purchaseInvoiceController.js:755: const summary = await PurchaseInvoice.getSupplierSummary(userId, supplierId);
+warehouse\controller\purchaseInvoiceController.js:782: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:873: userId: userId,
+warehouse\controller\purchaseInvoiceController.js:973: userId: userId,
+warehouse\controller\purchaseOrderController.js:63: userId: userId,
+warehouse\controller\purchaseOrderController.js:101: createdBy: userId,
+warehouse\controller\purchaseOrderController.js:102: userId: userId
+warehouse\controller\purchaseOrderController.js:141: userId: userId,
+warehouse\controller\purchaseOrderController.js:180: PurchaseOrder.getStats(userId)
+warehouse\controller\purchaseOrderController.js:218: userId: userId,
+warehouse\controller\purchaseOrderController.js:272: userId: userId,
+warehouse\controller\purchaseOrderController.js:337: userId: userId,
+warehouse\controller\purchaseOrderController.js:367: updatedBy: userId,
+warehouse\controller\purchaseOrderController.js:390: userId: userId,
+warehouse\controller\purchaseOrderController.js:398: userId: userId,
+warehouse\controller\purchaseOrderController.js:463: userId: userId,
+warehouse\controller\purchaseOrderController.js:477: const updatedOrder = await PurchaseOrder.updateStatus(id, status, userId, notes);
+warehouse\controller\purchaseOrderController.js:506: userId: userId,
+warehouse\controller\purchaseOrderController.js:537: const sentOrder = await PurchaseOrder.sendOrder(id, userId);
+warehouse\controller\purchaseOrderController.js:567: userId: userId,
+warehouse\controller\purchaseOrderController.js:588: const cancelledOrder = await PurchaseOrder.cancelOrder(id, userId, reason);
+warehouse\controller\purchaseOrderController.js:617: userId: userId,
+warehouse\controller\purchaseOrderController.js:638: await PurchaseOrder.softDelete(id, userId);
+warehouse\controller\purchaseOrderController.js:660: const stats = await PurchaseOrder.getStats(userId);
+warehouse\controller\purchaseOrderController.js:684: const summary = await PurchaseOrder.getSupplierSummary(userId, supplierId);
+warehouse\controller\purchaseOrderController.js:706: const summary = await PurchaseOrder.getSummary(userId);
+warehouse\controller\purchasePaymentController.js:37: const invoices = await PurchasePaymentMake.getSupplierInvoices(supplierId, userId);
+warehouse\controller\purchasePaymentController.js:80: await fiscalYearGuard(userId, postingDate);
+warehouse\controller\purchasePaymentController.js:89: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+warehouse\controller\purchasePaymentController.js:94: console.log('🔵 [makePayment] User ID:', userId);
+warehouse\controller\purchasePaymentController.js:139: userId: userId,
+warehouse\controller\purchasePaymentController.js:189: console.log(`🔵 [makePayment] For User ID: ${userId}`);
+warehouse\controller\purchasePaymentController.js:191: // First try: Find by ID AND userId
+warehouse\controller\purchasePaymentController.js:195: userId: userId,
+warehouse\controller\purchasePaymentController.js:200: console.log(`🔵 [makePayment] Bank account found with userId filter: ${bankAccount ? 'YES' : 'NO'}`);
+warehouse\controller\purchasePaymentController.js:202: // If not found, try finding by ID only (to see if it exists but with different userId)
+warehouse\controller\purchasePaymentController.js:204: console.log('🔵 [makePayment] Trying to find bank account by ID only (without userId filter)...');
+warehouse\controller\purchasePaymentController.js:213: console.log(`🔵 [makePayment] Bank account found but with different userId!`);
+warehouse\controller\purchasePaymentController.js:214: console.log(`🔵 [makePayment] Bank account userId: ${bankAccountById.userId}`);
+warehouse\controller\purchasePaymentController.js:215: console.log(`🔵 [makePayment] Current user userId: ${userId}`);
+warehouse\controller\purchasePaymentController.js:229: userId: userId,
+warehouse\controller\purchasePaymentController.js:259: userId: bankAccount.userId
+warehouse\controller\purchasePaymentController.js:288: userId,
+warehouse\controller\purchasePaymentController.js:289: createdBy: userId,
+warehouse\controller\purchasePaymentController.js:333: userId: userId,
+warehouse\controller\purchasePaymentController.js:368: PurchasePaymentMake.getStats(userId)
+warehouse\controller\purchasePaymentController.js:406: userId: userId,
+warehouse\controller\purchasePaymentController.js:470: userId: userId,
+warehouse\controller\purchasePaymentController.js:528: userId: userId,
+warehouse\controller\purchasePaymentController.js:549: const cancelledPayment = await PurchasePaymentMake.cancelPayment(id, userId, reason);
+warehouse\controller\purchasePaymentController.js:571: const stats = await PurchasePaymentMake.getStats(userId);
+warehouse\controller\purchasePaymentController.js:599: userId: userId,
+warehouse\controller\purchasePaymentController.js:639: userId: userId,
+warehouse\controller\purchasePaymentController.js:665: updatedBy: userId
+warehouse\controller\purchaseReturnController.js:23: console.log('🔵 [getInvoiceProducts] User ID:', userId);
+warehouse\controller\purchaseReturnController.js:53: const result = await PurchaseReturnModel.getInvoiceProducts(invoiceId, userId);
+warehouse\controller\purchaseReturnController.js:86: userId: userId,
+warehouse\controller\purchaseReturnController.js:102: userId: userId,
+warehouse\controller\purchaseReturnController.js:159: await fiscalYearGuard(userId, postingDate);
+warehouse\controller\purchaseReturnController.js:168: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+warehouse\controller\purchaseReturnController.js:242: userId,
+warehouse\controller\purchaseReturnController.js:243: createdBy: userId,
+warehouse\controller\purchaseReturnController.js:281: console.log('🔵 [processReturn] User ID:', userId);
+warehouse\controller\purchaseReturnController.js:287: userId: userId,
+warehouse\controller\purchaseReturnController.js:319: const processedReturn = await PurchaseReturnModel.processReturn(id, userId);
+warehouse\controller\purchaseReturnController.js:358: userId: userId,
+warehouse\controller\purchaseReturnController.js:390: const cancelledReturn = await PurchaseReturnModel.cancelReturn(id, userId, reason || '');
+warehouse\controller\purchaseReturnController.js:433: userId: userId,
+warehouse\controller\purchaseReturnController.js:476: PurchaseReturnModel.getStats(userId)
+warehouse\controller\purchaseReturnController.js:519: userId: userId,
+warehouse\controller\purchaseReturnController.js:600: userId: userId,
+warehouse\controller\purchaseReturnController.js:657: const stats = await PurchaseReturnModel.getStats(userId);
+warehouse\controller\purchaseReturnController.js:689: userId: userId,
+warehouse\controller\purchaseReturnController.js:735: userId: userId,
+warehouse\controller\purchaseReturnController.js:763: updatedBy: userId
+warehouse\controller\purchase_dashboard_controller.js:81: prisma.purchaseOrder.count({ where: { userId, createdAt: dateFilter } }),
+warehouse\controller\purchase_dashboard_controller.js:82: prisma.purchaseOrder.aggregate({ where: { userId, status: 'approved', createdAt: dateFilter }, _sum: { grandTotal: true }, _count: true }),
+warehouse\controller\purchase_dashboard_controller.js:83: prisma.purchaseOrder.count({ where: { userId, status: 'draft', createdAt: dateFilter } }),
+warehouse\controller\purchase_dashboard_controller.js:84: prisma.purchaseOrder.count({ where: { userId, status: 'sent', createdAt: dateFilter } }),
+warehouse\controller\purchase_dashboard_controller.js:85: prisma.purchaseOrder.count({ where: { userId, status: { in: ['cancelled', 'rejected'] }, createdAt: dateFilter } }),
+warehouse\controller\purchase_dashboard_controller.js:86: prisma.purchaseOrder.count({ where: { userId, status: 'received', createdAt: dateFilter } }),
+warehouse\controller\purchase_dashboard_controller.js:88: prisma.purchaseInvoice.count({ where: { userId, invoiceDate: dateFilter } }),
+warehouse\controller\purchase_dashboard_controller.js:89: prisma.purchaseInvoice.aggregate({ where: { userId, paymentStatus: 'paid', invoiceDate: dateFilter }, _sum: { grandTotal: true } }),
+warehouse\controller\purchase_dashboard_controller.js:90: prisma.purchaseInvoice.aggregate({ where: { userId, paymentStatus: { in: ['unpaid', 'partial'] }, invoiceDate: dateFilter }, _sum: { grandTotal: true } }),
+warehouse\controller\purchase_dashboard_controller.js:92: prisma.purchaseReturn.count({ where: { userId, createdAt: dateFilter } }),
+warehouse\controller\purchase_dashboard_controller.js:93: prisma.purchasePaymentMake.aggregate({ where: { userId, paymentDate: dateFilter }, _sum: { amount: true } }),
+warehouse\controller\purchase_dashboard_controller.js:98: where: { userId, invoiceDate: dateFilter },
+warehouse\controller\purchase_dashboard_controller.js:140: where: { userId, invoiceDate: { gte: start, lte: end } },
+warehouse\controller\purchase_dashboard_controller.js:146: where: { userId, createdAt: { gte: start, lte: end } },
+warehouse\controller\purchase_dashboard_controller.js:196: where: { userId, status, createdAt: { gte: start, lte: end } },
+warehouse\controller\purchase_dashboard_controller.js:226: where: { userId, createdAt: { gte: start, lte: end } },
+warehouse\controller\purchase_dashboard_controller.js:256: where: { userId },
+warehouse\controller\purchase_dashboard_controller.js:262: where: { userId },
+warehouse\controller\purchase_dashboard_controller.js:268: where: { userId },
+warehouse\controller\quotationController.js:86: userId: userId,
+warehouse\controller\quotationController.js:94: userId: userId,
+warehouse\controller\quotationController.js:133: createdBy: userId,
+warehouse\controller\quotationController.js:134: userId: userId
+warehouse\controller\quotationController.js:173: userId: userId,
+warehouse\controller\quotationController.js:211: await Quotation.updateExpiredQuotations(userId);
+warehouse\controller\quotationController.js:216: Quotation.getStatusCounts(userId),
+warehouse\controller\quotationController.js:217: Quotation.getStats(userId)
+warehouse\controller\quotationController.js:256: userId: userId,
+warehouse\controller\quotationController.js:313: userId: userId,
+warehouse\controller\quotationController.js:382: userId: userId,
+warehouse\controller\quotationController.js:404: updatedBy: userId
+warehouse\controller\quotationController.js:429: userId: userId,
+warehouse\controller\quotationController.js:437: userId: userId,
+warehouse\controller\quotationController.js:502: userId: userId,
+warehouse\controller\quotationController.js:532: const updatedQuotation = await Quotation.updateStatus(id, status, userId, notes);
+warehouse\controller\quotationController.js:561: userId: userId,
+warehouse\controller\quotationController.js:592: const result = await Quotation.convertToOrder(id, userId);
+warehouse\controller\quotationController.js:624: userId: userId,
+warehouse\controller\quotationController.js:645: await Quotation.softDelete(id, userId);
+warehouse\controller\quotationController.js:669: await Quotation.updateExpiredQuotations(userId);
+warehouse\controller\quotationController.js:672: Quotation.getStatusCounts(userId),
+warehouse\controller\quotationController.js:673: Quotation.getStats(userId)
+warehouse\controller\quotationController.js:701: const summary = await Quotation.getCustomerSummary(userId, startDate, endDate);
+warehouse\controller\quotationController.js:725: const summary = await Quotation.getProductSummary(userId, startDate, endDate);
+warehouse\controller\quotationController.js:754: userId: userId,
+warehouse\controller\quotationController.js:775: const updatedQuotation = await Quotation.updateStatus(id, 'Sent', userId);
+warehouse\controller\quotationController.js:807: userId: userId,
+warehouse\controller\refundController.js:20: createdBy: userId,
+warehouse\controller\refundController.js:100: Refund.getStats(userId, 'Sales Refund')
+warehouse\controller\refundController.js:135: createdBy: userId,
+warehouse\controller\refundController.js:136: userId: userId
+warehouse\controller\refundController.js:173: userId: userId,
+warehouse\controller\refundController.js:207: Refund.getStats(userId, 'Purchase Refund')
+warehouse\controller\refundController.js:242: userId: userId,
+warehouse\controller\refundController.js:285: userId: userId
+warehouse\controller\refundController.js:359: updatedBy: userId
+warehouse\controller\refundController.js:387: const processed = await Refund.process(req.params.id, userId);
+warehouse\controller\refundController.js:413: const completed = await Refund.complete(req.params.id, userId);
+warehouse\controller\refundController.js:439: const cancelled = await Refund.cancel(req.params.id, userId, req.body.reason);
+warehouse\controller\refundController.js:465: await Refund.softDelete(req.params.id, userId);
+warehouse\controller\refundController.js:485: stats = await Refund.getStats(userId, 'Sales Refund', period);
+warehouse\controller\refundController.js:486: dailyTrend = await Refund.getDailyTrend(userId, 'Sales Refund', period);
+warehouse\controller\refundController.js:488: stats = await Refund.getStats(userId, 'Purchase Refund', period);
+warehouse\controller\refundController.js:489: dailyTrend = await Refund.getDailyTrend(userId, 'Purchase Refund', period);
+warehouse\controller\refundController.js:491: stats = await Refund.getStats(userId, null, period);
+warehouse\controller\refundController.js:492: dailyTrend = await Refund.getDailyTrend(userId, null, period);
+warehouse\controller\refundController.js:517: const refunds = await Refund.search(userId, q, parseInt(limit));
+warehouse\controller\Returncontroller.js:9: const autoCreateRefund = async (returnData, userId) => {
+warehouse\controller\Returncontroller.js:36: createdBy: userId,
+warehouse\controller\Returncontroller.js:37: updatedBy: userId,
+warehouse\controller\Returncontroller.js:64: createdBy: userId,
+warehouse\controller\Returncontroller.js:102: userId: userId,
+warehouse\controller\Returncontroller.js:119: where: { id: customerId, userId: userId }
+warehouse\controller\Returncontroller.js:148: Return.getStats(userId, 'Sales Return')
+warehouse\controller\Returncontroller.js:183: createdBy: userId,
+warehouse\controller\Returncontroller.js:184: userId: userId
+warehouse\controller\Returncontroller.js:221: userId: userId,
+warehouse\controller\Returncontroller.js:238: where: { id: supplierId, userId: userId }
+warehouse\controller\Returncontroller.js:267: Return.getStats(userId, 'Purchase Return')
+warehouse\controller\Returncontroller.js:302: userId: userId,
+warehouse\controller\Returncontroller.js:361: const updated = await Return.approve(id, userId, notes);
+warehouse\controller\Returncontroller.js:394: const updated = await Return.reject(id, userId, rejectionReason);
+warehouse\controller\Returncontroller.js:423: const updated = await Return.complete(id, userId, receivedDate);
+warehouse\controller\Returncontroller.js:427: const refund = await autoCreateRefund(returnData, userId);
+warehouse\controller\Returncontroller.js:468: const updated = await Return.cancel(id, userId, reason);
+warehouse\controller\Returncontroller.js:489: await Return.softDelete(id, userId);
+warehouse\controller\Returncontroller.js:509: stats = await Return.getStats(userId, 'Sales Return', period);
+warehouse\controller\Returncontroller.js:510: dailyTrend = await Return.getDailyTrend(userId, 'Sales Return', period);
+warehouse\controller\Returncontroller.js:512: stats = await Return.getStats(userId, 'Purchase Return', period);
+warehouse\controller\Returncontroller.js:513: dailyTrend = await Return.getDailyTrend(userId, 'Purchase Return', period);
+warehouse\controller\Returncontroller.js:515: stats = await Return.getStats(userId, null, period);
+warehouse\controller\Returncontroller.js:516: dailyTrend = await Return.getDailyTrend(userId, null, period);
+warehouse\controller\Returncontroller.js:538: where: { id: orderId, userId: userId },
+warehouse\controller\Returncontroller.js:549: userId: userId,
+warehouse\controller\salesInvoiceController.js:24: await fiscalYearGuard(userId, postingDate);
+warehouse\controller\salesInvoiceController.js:33: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+warehouse\controller\salesInvoiceController.js:63: userId,
+warehouse\controller\salesInvoiceController.js:108: await fiscalYearGuard(userId, postingDate);
+warehouse\controller\salesInvoiceController.js:117: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+warehouse\controller\salesInvoiceController.js:143: userId: userId,
+warehouse\controller\salesInvoiceController.js:151: userId: userId,
+warehouse\controller\salesInvoiceController.js:188: userId: userId,
+warehouse\controller\salesInvoiceController.js:189: createdBy: userId,
+warehouse\controller\salesInvoiceController.js:222: userId: userId,
+warehouse\controller\salesInvoiceController.js:250: const postedInvoice = await SalesInvoice.postInvoice(id, userId);
+warehouse\controller\salesInvoiceController.js:287: userId: userId,
+warehouse\controller\salesInvoiceController.js:331: SalesInvoice.getStatusCounts(userId),
+warehouse\controller\salesInvoiceController.js:332: SalesInvoice.getStats(userId)
+warehouse\controller\salesInvoiceController.js:371: userId: userId,
+warehouse\controller\salesInvoiceController.js:447: userId: userId,
+warehouse\controller\salesInvoiceController.js:524: userId: userId,
+warehouse\controller\salesInvoiceController.js:553: updatedBy: userId,
+warehouse\controller\salesInvoiceController.js:577: userId: userId,
+warehouse\controller\salesInvoiceController.js:585: userId: userId,
+warehouse\controller\salesInvoiceController.js:643: userId: userId,
+warehouse\controller\salesInvoiceController.js:671: const cancelledInvoice = await SalesInvoice.cancelInvoice(id, userId, reason);
+warehouse\controller\salesInvoiceController.js:700: userId: userId,
+warehouse\controller\salesInvoiceController.js:721: await SalesInvoice.softDelete(id, userId);
+warehouse\controller\salesInvoiceController.js:745: SalesInvoice.getStatusCounts(userId),
+warehouse\controller\salesInvoiceController.js:746: SalesInvoice.getStats(userId)
+warehouse\controller\salesInvoiceController.js:774: const summary = await SalesInvoice.getCustomerSummary(userId, customerId);
+warehouse\controller\salesInvoiceController.js:799: userId: userId,
+warehouse\controller\salesInvoiceController.js:876: userId: userId,
+warehouse\controller\salesInvoiceController.js:932: userId: userId,
+warehouse\controller\salesInvoiceController.js:953: updatedBy: userId
+warehouse\controller\salesPaymentController.js:24: userId: userId,
+warehouse\controller\salesPaymentController.js:37: const invoices = await SalesPaymentReceived.getCustomerInvoices(customerId, userId);
+warehouse\controller\salesPaymentController.js:76: await fiscalYearGuard(userId, postingDate);
+warehouse\controller\salesPaymentController.js:85: const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+warehouse\controller\salesPaymentController.js:121: userId,
+warehouse\controller\salesPaymentController.js:122: createdBy: userId,
+warehouse\controller\salesPaymentController.js:160: userId: userId,
+warehouse\controller\salesPaymentController.js:195: SalesPaymentReceived.getStats(userId)
+warehouse\controller\salesPaymentController.js:233: userId: userId,
+warehouse\controller\salesPaymentController.js:296: userId: userId,
+warehouse\controller\salesPaymentController.js:354: userId: userId,
+warehouse\controller\salesPaymentController.js:375: const cancelledPayment = await SalesPaymentReceived.cancelPayment(id, userId, reason);
+warehouse\controller\salesPaymentController.js:397: const stats = await SalesPaymentReceived.getStats(userId);
+warehouse\controller\salesPaymentController.js:425: userId: userId,
+warehouse\controller\salesPaymentController.js:451: updatedBy: userId
+warehouse\controller\sales_dashboard_controller.js:30: const getOrderTrend = async (userId, dateFilter, days = 30) => {
+warehouse\controller\sales_dashboard_controller.js:33: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:71: const getInvoiceStats = async (userId, period) => {
+warehouse\controller\sales_dashboard_controller.js:77: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:85: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:94: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:103: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:114: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:125: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:145: const getInvoiceTrend = async (userId, days = 30) => {
+warehouse\controller\sales_dashboard_controller.js:152: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:188: const getReturnStats = async (userId, period) => {
+warehouse\controller\sales_dashboard_controller.js:194: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:202: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:211: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:220: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:229: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:240: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:259: const getRefundStats = async (userId, period) => {
+warehouse\controller\sales_dashboard_controller.js:265: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:273: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:282: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:291: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:302: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:321: const getTopProducts = async (userId, period, limit = 10) => {
+warehouse\controller\sales_dashboard_controller.js:328: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:360: const getCustomerStats = async (userId, period) => {
+warehouse\controller\sales_dashboard_controller.js:366: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:373: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:381: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:421: userId: userId, // 👈 User-specific
+warehouse\controller\sales_dashboard_controller.js:439: getOrderTrend(userId, dateFilter)
+warehouse\controller\sales_dashboard_controller.js:444: getInvoiceStats(userId, period),
+warehouse\controller\sales_dashboard_controller.js:445: getInvoiceTrend(userId)
+warehouse\controller\sales_dashboard_controller.js:449: const returnStats = await getReturnStats(userId, period);
+warehouse\controller\sales_dashboard_controller.js:452: const refundStats = await getRefundStats(userId, period);
+warehouse\controller\sales_dashboard_controller.js:455: const topProducts = await getTopProducts(userId, period);
+warehouse\controller\sales_dashboard_controller.js:458: const customerStats = await getCustomerStats(userId, period);
+warehouse\controller\sales_dashboard_controller.js:518: // ✅ All queries with userId filter
+warehouse\controller\sales_dashboard_controller.js:531: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:539: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:548: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:556: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:566: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:574: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:584: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:591: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:655: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:727: // ✅ All queries with userId filter
+warehouse\controller\sales_dashboard_controller.js:738: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:746: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:755: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:764: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:773: userId: userId,
+warehouse\controller\sales_dashboard_controller.js:783: userId: userId,
+warehouse\controller\settingController.js:60: console.log('🔵 [getSettings] User ID:', userId);
+warehouse\controller\settingController.js:62: const settings = await Setting.findByCategory(category, userId, true);
+warehouse\controller\settingController.js:88: const filter = { userId: userId };
+warehouse\controller\settingController.js:161: console.log('🔵 [createSetting] User ID:', userId);
+warehouse\controller\settingController.js:172: const existing = await Setting.findByCategoryAndName(category, name, userId);
+warehouse\controller\settingController.js:190: createdBy: userId,
+warehouse\controller\settingController.js:191: userId: userId
+warehouse\controller\settingController.js:221: console.log('🔵 [updateSetting] User ID:', userId);
+warehouse\controller\settingController.js:234: const duplicate = await Setting.findByCategoryAndName(existing.category, name, userId);
+warehouse\controller\settingController.js:258: updatedBy: userId
+warehouse\controller\settingController.js:290: console.log('🔵 [deleteSetting] User ID:', userId);
+warehouse\controller\settingController.js:310: await Setting.deactivate(id, userId);
+warehouse\controller\settingController.js:375: const categories = await Setting.getCategories(userId);
+warehouse\controller\settingController.js:452: const results = await Setting.bulkCreate(defaultSettings, userId);
+warehouse\controller\supplier_controller.js:190: // @desc    Create a new supplier (Auto-add userId)

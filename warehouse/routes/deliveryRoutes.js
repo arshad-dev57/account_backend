@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../../middleware/authMiddleware');
+const { protectOnly } = require('../../middleware/authMiddleware');
 const {
   createDelivery,
   confirmDelivery,
@@ -19,7 +19,7 @@ const {
 } = require('../controller/deliveryController');
 
 // ─── All routes protected ──────────────────────────────────────
-router.use(protect);
+router.use(protectOnly);
 
 // ============================================================
 // ─── DELIVERY ROUTES ──────────────────────────────────────────

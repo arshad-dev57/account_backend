@@ -80,7 +80,7 @@ const getColorForIndex = (index) => {
 // ============================================================
 const getDashboardMetrics = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { start, end } = parsePeriodFilter(req.query);
 
     const [
@@ -93,21 +93,21 @@ const getDashboardMetrics = async (req, res) => {
       periodStockIn,
       periodStockOut,
     ] = await Promise.all([
-      prisma.product.count({ where: { userId, isActive: true } }),
+      prisma.product.count({ where: { companyId, isActive: true } }),
       prisma.product.findMany({
-        where: { userId, isActive: true },
+        where: { companyId, isActive: true },
         select: { sellingPrice: true, currentStock: true, minimumStock: true, maximumStock: true }
       }),
-      prisma.product.count({ where: { userId, isActive: true, currentStock: 0 } }),
+      prisma.product.count({ where: { companyId, isActive: true, currentStock: 0 } }),
       prisma.product.count({
-        where: { userId, isActive: true, expiryDate: { gte: new Date(), lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } }
+        where: { companyId, isActive: true, expiryDate: { gte: new Date(), lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } }
       }),
       // Always today's counts (not period-filtered — header stats)
-      prisma.stockMovement.count({ where: { userId, type: 'stock_in',  createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
-      prisma.stockMovement.count({ where: { userId, type: 'stock_out', createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
+      prisma.stockMovement.count({ where: { companyId, type: 'stock_in',  createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
+      prisma.stockMovement.count({ where: { companyId, type: 'stock_out', createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
       // Period-filtered movement counts
-      prisma.stockMovement.count({ where: { userId, type: 'stock_in',  createdAt: { gte: start, lte: end } } }),
-      prisma.stockMovement.count({ where: { userId, type: 'stock_out', createdAt: { gte: start, lte: end } } }),
+      prisma.stockMovement.count({ where: { companyId, type: 'stock_in',  createdAt: { gte: start, lte: end } } }),
+      prisma.stockMovement.count({ where: { companyId, type: 'stock_out', createdAt: { gte: start, lte: end } } }),
     ]);
 
     const totalStockValue = products.reduce((s, p) => s + (p.sellingPrice * p.currentStock), 0);
@@ -144,11 +144,11 @@ const getDashboardMetrics = async (req, res) => {
 // ============================================================
 const getRecentActivities = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { limit = 10 } = req.query;
 
     const movements = await prisma.stockMovement.findMany({
-      where: { userId },
+      where: { companyId },
       orderBy: { createdAt: 'desc' },
       take: parseInt(limit),
     });
@@ -188,12 +188,12 @@ const getAlerts = async (req, res) => {
     console.log("User:", req.user?.id, req.user?.email);
     console.log("Timestamp:", new Date().toISOString());
 
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     // Get low stock products as alerts
     const lowStockProducts = await prisma.product.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         currentStock: { lte: prisma.product.fields.minimumStock }
       },
@@ -248,11 +248,11 @@ const getAlerts = async (req, res) => {
 // ============================================================
 const getStockMovementChart = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { start, end, groupBy } = parsePeriodFilter(req.query);
 
     const movements = await prisma.stockMovement.findMany({
-      where: { userId, createdAt: { gte: start, lte: end } },
+      where: { companyId, createdAt: { gte: start, lte: end } },
       select: { type: true, quantity: true, createdAt: true }
     });
 
@@ -336,12 +336,12 @@ const getCategoryDistribution = async (req, res) => {
     console.log("User:", req.user?.id, req.user?.email);
     console.log("Timestamp:", new Date().toISOString());
 
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // Get categories with product counts (user-specific)
+    // Get categories with product counts (company-specific)
     const categories = await prisma.category.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true
       },
       select: {
@@ -349,7 +349,7 @@ const getCategoryDistribution = async (req, res) => {
         name: true,
         products: {
           where: {
-            userId: userId,
+            companyId: companyId,
             isActive: true
           },
           select: { id: true }
@@ -416,13 +416,13 @@ const getTopProducts = async (req, res) => {
     console.log("User:", req.user?.id, req.user?.email);
     console.log("Timestamp:", new Date().toISOString());
 
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // Get top products by stock movement quantity (user-specific)
+    // Get top products by stock movement quantity (company-specific)
     const topProducts = await prisma.stockMovement.groupBy({
       by: ['productId', 'productName'],
       where: {
-        userId: userId
+        companyId: companyId
       },
       _sum: {
         quantity: true
@@ -478,13 +478,13 @@ const getOrderStatusDistribution = async (req, res) => {
     console.log("User:", req.user?.id, req.user?.email);
     console.log("Timestamp:", new Date().toISOString());
 
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // Get order status counts (user-specific)
+    // Get order status counts (company-specific)
     const statusCounts = await prisma.order.groupBy({
       by: ['orderStatus'],
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -551,7 +551,7 @@ const getDashboardSummary = async (req, res) => {
     console.log("User:", req.user?.id, req.user?.email);
     console.log("Timestamp:", new Date().toISOString());
 
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const [
       totalProducts,
@@ -564,27 +564,27 @@ const getDashboardSummary = async (req, res) => {
       totalPurchases
     ] = await Promise.all([
       prisma.product.count({
-        where: { userId: userId, isActive: true }
+        where: { companyId: companyId, isActive: true }
       }),
       prisma.order.count({
-        where: { userId: userId, isActive: true, isDeleted: false }
+        where: { companyId: companyId, isActive: true, isDeleted: false }
       }),
       prisma.customer.count({
-        where: { userId: userId, isActive: true, isDeleted: false }
+        where: { companyId: companyId, isActive: true, isDeleted: false }
       }),
       prisma.supplier.count({
-        where: { userId: userId, status: 'active' }
+        where: { companyId: companyId, status: 'active' }
       }),
       prisma.product.count({
         where: {
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           currentStock: { lte: prisma.product.fields.minimumStock }
         }
       }),
       prisma.order.count({
         where: {
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false,
           orderStatus: 'Pending'
@@ -592,7 +592,7 @@ const getDashboardSummary = async (req, res) => {
       }),
       prisma.order.aggregate({
         where: {
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false,
           orderStatus: 'Delivered'
@@ -601,7 +601,7 @@ const getDashboardSummary = async (req, res) => {
       }),
       prisma.warehousePurchase.aggregate({
         where: {
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false,
           purchaseStatus: 'Received'

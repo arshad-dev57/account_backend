@@ -1,4 +1,4 @@
-// warehouse/models/GoodsReceiving.js - COMPLETE
+// warehouse/models/GoodsReceiving.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 
@@ -25,7 +25,7 @@ class GoodsReceivingModel {
       const purchaseOrder = await tx.purchaseOrder.findFirst({
         where: {
           id: data.purchaseOrderId,
-          userId: data.userId,
+          companyId: data.companyId,  // ✅ FIXED: Use companyId instead of userId
           isActive: true,
           isDeleted: false,
           status: {
@@ -50,6 +50,7 @@ class GoodsReceivingModel {
       const previousGRNs = await tx.goodsReceiving.findMany({
         where: {
           purchaseOrderId: data.purchaseOrderId,
+          companyId: data.companyId,  // ✅ FIXED
           isActive: true,
           isDeleted: false,
           status: {
@@ -114,7 +115,6 @@ class GoodsReceivingModel {
       // ─── Determine GRN status ────────────────────────────────
       let status = 'Draft';
       if (data.status === 'Confirmed') {
-        // Check if all items are fully received
         const allItemsFullyReceived = receivingItems.every(item => item.remainingQuantity === 0);
         status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
       }
@@ -132,7 +132,7 @@ class GoodsReceivingModel {
           receivedBy: data.receivedBy || null,
           notes: data.notes || null,
           createdBy: data.createdBy,
-          userId: data.userId,
+          companyId: data.companyId,  // ✅ FIXED: Use companyId instead of userId
           items: {
             create: receivingItems
           }
@@ -156,10 +156,31 @@ class GoodsReceivingModel {
         }
       });
 
+      // Add supplier details from the supplier relation
+      const supplierDetails = goodsReceiving.supplier ? {
+        supplierEmail: goodsReceiving.supplier.email,
+        supplierPhone: goodsReceiving.supplier.phone,
+        supplierAddress: goodsReceiving.supplier.address
+      } : {};
+
+      // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
+      const totalReceivedQty = goodsReceiving.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
+      const totalOrderedQty = goodsReceiving.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
+      const totalItems = goodsReceiving.items.length;
+      const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+
+      const goodsReceivingWithTotals = {
+        ...goodsReceiving,
+        ...supplierDetails,
+        totalReceivedQty,
+        totalOrderedQty,
+        totalItems,
+        receivingProgress
+      };
+
       // ─── Update Inventory Stock ──────────────────────────────
       if (data.status === 'Confirmed') {
         for (const item of receivingItems) {
-          // Update product stock
           const product = await tx.product.findUnique({
             where: { id: item.productId }
           });
@@ -174,7 +195,6 @@ class GoodsReceivingModel {
               }
             });
 
-            // Create stock movement record
             await tx.stockMovement.create({
               data: {
                 productId: item.productId,
@@ -187,7 +207,7 @@ class GoodsReceivingModel {
                 reference: grnNumber,
                 status: 'Completed',
                 createdBy: data.createdBy,
-                userId: data.userId,
+                companyId: data.companyId,  // ✅ FIXED
                 supplierId: purchaseOrder.supplierId,
                 supplierName: purchaseOrder.supplierName
               }
@@ -195,19 +215,7 @@ class GoodsReceivingModel {
           }
         }
 
-        // ─── Update Purchase Order status ──────────────────────
-        // Check if all items are fully received
         const allItemsFullyReceived = receivingItems.every(item => item.remainingQuantity === 0);
-        let poStatus = purchaseOrder.status;
-        
-        if (allItemsFullyReceived) {
-          poStatus = 'Approved'; // or 'Fully Received' - you can add this status
-        } else if (totalReceivingQty > 0) {
-          // You may want to add a 'Partially Received' status to PurchaseOrder
-          // For now, keep as is or update accordingly
-        }
-
-        // Update purchase order status if fully received
         if (allItemsFullyReceived && purchaseOrder.status !== 'Approved') {
           await tx.purchaseOrder.update({
             where: { id: data.purchaseOrderId },
@@ -219,16 +227,15 @@ class GoodsReceivingModel {
         }
       }
 
-      return goodsReceiving;
+      return goodsReceivingWithTotals;
     });
   }
 
   // ============================================================
   // CONFIRM GOODS RECEIVING
   // ============================================================
-  static async confirmReceiving(id, userId) {
+  static async confirmReceiving(id, userId, companyId) {  // ✅ Added companyId
     return await prisma.$transaction(async (tx) => {
-      // ─── Get GRN with items ──────────────────────────────────
       const goodsReceiving = await tx.goodsReceiving.findUnique({
         where: { id },
         include: {
@@ -258,10 +265,10 @@ class GoodsReceivingModel {
         throw new Error('Goods receiving already confirmed');
       }
 
-      // ─── Get all previous GRNs for this PO ──────────────────
       const previousGRNs = await tx.goodsReceiving.findMany({
         where: {
           purchaseOrderId: goodsReceiving.purchaseOrderId,
+          companyId: companyId,  // ✅ FIXED
           isActive: true,
           isDeleted: false,
           status: {
@@ -274,7 +281,6 @@ class GoodsReceivingModel {
         }
       });
 
-      // ─── Calculate previously received quantities ───────────
       const previousReceivedQty = {};
       for (const grn of previousGRNs) {
         for (const item of grn.items) {
@@ -283,7 +289,6 @@ class GoodsReceivingModel {
         }
       }
 
-      // ─── Update inventory and calculate remaining ────────────
       let allItemsFullyReceived = true;
       let totalReceivingQty = 0;
 
@@ -292,7 +297,6 @@ class GoodsReceivingModel {
         const orderedQuantity = item.purchaseOrderItem.quantity;
         const remainingQuantity = orderedQuantity - (alreadyReceived + item.receivingQuantity);
 
-        // Update product stock
         const product = await tx.product.findUnique({
           where: { id: item.productId }
         });
@@ -307,7 +311,6 @@ class GoodsReceivingModel {
             }
           });
 
-          // Create stock movement record
           await tx.stockMovement.create({
             data: {
               productId: item.productId,
@@ -320,14 +323,13 @@ class GoodsReceivingModel {
               reference: goodsReceiving.grnNumber,
               status: 'Completed',
               createdBy: userId,
-              userId: goodsReceiving.userId,
+              companyId: companyId,  // ✅ FIXED
               supplierId: goodsReceiving.purchaseOrder.supplierId,
               supplierName: goodsReceiving.purchaseOrder.supplierName
             }
           });
         }
 
-        // Update GRN item remaining quantity
         await tx.goodsReceivingItem.update({
           where: { id: item.id },
           data: {
@@ -341,10 +343,8 @@ class GoodsReceivingModel {
         }
       }
 
-      // ─── Determine GRN status ─────────────────────────────────
       const status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
 
-      // ─── Update GRN ──────────────────────────────────────────
       const updatedGRN = await tx.goodsReceiving.update({
         where: { id },
         data: {
@@ -375,7 +375,28 @@ class GoodsReceivingModel {
         }
       });
 
-      // ─── Update Purchase Order status if fully received ──────
+      // Add supplier details from the supplier relation
+      const supplierDetails = updatedGRN.supplier ? {
+        supplierEmail: updatedGRN.supplier.email,
+        supplierPhone: updatedGRN.supplier.phone,
+        supplierAddress: updatedGRN.supplier.address
+      } : {};
+
+      // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
+      const totalReceivedQty = updatedGRN.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
+      const totalOrderedQty = updatedGRN.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
+      const totalItems = updatedGRN.items.length;
+      const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+
+      const updatedGRNWithTotals = {
+        ...updatedGRN,
+        ...supplierDetails,
+        totalReceivedQty,
+        totalOrderedQty,
+        totalItems,
+        receivingProgress
+      };
+
       if (allItemsFullyReceived) {
         await tx.purchaseOrder.update({
           where: { id: goodsReceiving.purchaseOrderId },
@@ -386,7 +407,7 @@ class GoodsReceivingModel {
         });
       }
 
-      return updatedGRN;
+      return updatedGRNWithTotals;
     });
   }
 
@@ -394,7 +415,7 @@ class GoodsReceivingModel {
   // GET GOODS RECEIVING BY ID
   // ============================================================
   static async findById(id) {
-    return await prisma.goodsReceiving.findUnique({
+    const grn = await prisma.goodsReceiving.findUnique({
       where: { id },
       include: {
         items: {
@@ -429,13 +450,37 @@ class GoodsReceivingModel {
         }
       }
     });
+
+    if (!grn) return null;
+
+    // Add supplier details from the supplier relation
+    const supplierDetails = grn.supplier ? {
+      supplierEmail: grn.supplier.email,
+      supplierPhone: grn.supplier.phone,
+      supplierAddress: grn.supplier.address
+    } : {};
+
+    // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
+    const totalReceivedQty = grn.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
+    const totalOrderedQty = grn.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
+    const totalItems = grn.items.length;
+    const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+
+    return {
+      ...grn,
+      ...supplierDetails,
+      totalReceivedQty,
+      totalOrderedQty,
+      totalItems,
+      receivingProgress
+    };
   }
 
   // ============================================================
   // GET GOODS RECEIVING BY GRN NUMBER
   // ============================================================
   static async findByGRNNumber(grnNumber) {
-    return await prisma.goodsReceiving.findUnique({
+    const grn = await prisma.goodsReceiving.findUnique({
       where: { grnNumber },
       include: {
         items: {
@@ -453,13 +498,37 @@ class GoodsReceivingModel {
         supplier: true
       }
     });
+
+    if (!grn) return null;
+
+    // Add supplier details from the supplier relation
+    const supplierDetails = grn.supplier ? {
+      supplierEmail: grn.supplier.email,
+      supplierPhone: grn.supplier.phone,
+      supplierAddress: grn.supplier.address
+    } : {};
+
+    // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
+    const totalReceivedQty = grn.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
+    const totalOrderedQty = grn.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
+    const totalItems = grn.items.length;
+    const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+
+    return {
+      ...grn,
+      ...supplierDetails,
+      totalReceivedQty,
+      totalOrderedQty,
+      totalItems,
+      receivingProgress
+    };
   }
 
   // ============================================================
   // GET GOODS RECEIVINGS BY PURCHASE ORDER
   // ============================================================
   static async findByPurchaseOrder(purchaseOrderId) {
-    return await prisma.goodsReceiving.findMany({
+    const grns = await prisma.goodsReceiving.findMany({
       where: {
         purchaseOrderId: purchaseOrderId,
         isActive: true,
@@ -488,6 +557,29 @@ class GoodsReceivingModel {
         createdAt: 'desc'
       }
     });
+
+    // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress for each GRN
+    return grns.map(grn => {
+      const supplierDetails = grn.supplier ? {
+        supplierEmail: grn.supplier.email,
+        supplierPhone: grn.supplier.phone,
+        supplierAddress: grn.supplier.address
+      } : {};
+
+      const totalReceivedQty = grn.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
+      const totalOrderedQty = grn.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
+      const totalItems = grn.items.length;
+      const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+
+      return {
+        ...grn,
+        ...supplierDetails,
+        totalReceivedQty,
+        totalOrderedQty,
+        totalItems,
+        receivingProgress
+      };
+    });
   }
 
   // ============================================================
@@ -496,9 +588,16 @@ class GoodsReceivingModel {
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { receivingDate: 'desc' } } = options;
     
-    return await prisma.goodsReceiving.findMany({
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
+    const grns = await prisma.goodsReceiving.findMany({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       },
@@ -527,15 +626,45 @@ class GoodsReceivingModel {
         }
       }
     });
+
+    // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress for each GRN
+    return grns.map(grn => {
+      const supplierDetails = grn.supplier ? {
+        supplierEmail: grn.supplier.email,
+        supplierPhone: grn.supplier.phone,
+        supplierAddress: grn.supplier.address
+      } : {};
+
+      const totalReceivedQty = grn.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
+      const totalOrderedQty = grn.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
+      const totalItems = grn.items.length;
+      const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+
+      return {
+        ...grn,
+        ...supplierDetails,
+        totalReceivedQty,
+        totalOrderedQty,
+        totalItems,
+        receivingProgress
+      };
+    });
   }
 
   // ============================================================
-  // COUNT GOODS RECEIVINGS
+  // COUNT GOODS RECEIVINGS - ✅ FIXED
   // ============================================================
   static async count(filter = {}) {
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.goodsReceiving.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       }
@@ -560,7 +689,6 @@ class GoodsReceivingModel {
         throw new Error('Cannot update confirmed goods receiving');
       }
 
-      // ─── Update header ──────────────────────────────────────
       const updateData = {
         updatedBy: data.updatedBy,
         ...(data.receivingDate && { receivingDate: new Date(data.receivingDate) }),
@@ -569,14 +697,11 @@ class GoodsReceivingModel {
         ...(data.status && { status: data.status })
       };
 
-      // ─── Update items if provided ──────────────────────────
       if (data.items) {
-        // Delete existing items
         await tx.goodsReceivingItem.deleteMany({
           where: { goodsReceivingId: id }
         });
 
-        // Get purchase order with items
         const purchaseOrder = await tx.purchaseOrder.findUnique({
           where: { id: goodsReceiving.purchaseOrderId },
           include: {
@@ -592,7 +717,6 @@ class GoodsReceivingModel {
           throw new Error('Purchase order not found');
         }
 
-        // Get all previous GRNs for this PO (excluding current)
         const previousGRNs = await tx.goodsReceiving.findMany({
           where: {
             purchaseOrderId: goodsReceiving.purchaseOrderId,
@@ -608,7 +732,6 @@ class GoodsReceivingModel {
           }
         });
 
-        // Calculate previously received quantities
         const previousReceivedQty = {};
         for (const grn of previousGRNs) {
           for (const item of grn.items) {
@@ -617,7 +740,6 @@ class GoodsReceivingModel {
           }
         }
 
-        // Process new items
         const receivingItems = [];
         let totalReceivingQty = 0;
 
@@ -658,7 +780,6 @@ class GoodsReceivingModel {
           totalReceivingQty += item.receivingQuantity;
         }
 
-        // Determine GRN status
         const allItemsFullyReceived = receivingItems.every(item => item.remainingQuantity === 0);
         let status = goodsReceiving.status;
         if (data.status !== 'Draft') {
@@ -724,9 +845,9 @@ class GoodsReceivingModel {
   }
 
   // ============================================================
-  // GET GOODS RECEIVING STATS
+  // GET GOODS RECEIVING STATS - ✅ FIXED
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId) {  // ✅ Use companyId instead of userId
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -734,10 +855,9 @@ class GoodsReceivingModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId  // ✅ Use companyId
     };
 
-    // ─── Today's GRNs ──────────────────────────────────────────
     const todayGRNs = await prisma.goodsReceiving.count({
       where: {
         ...baseFilter,
@@ -747,7 +867,6 @@ class GoodsReceivingModel {
       }
     });
 
-    // ─── Monthly GRNs ──────────────────────────────────────────
     const monthGRNs = await prisma.goodsReceiving.count({
       where: {
         ...baseFilter,
@@ -757,7 +876,6 @@ class GoodsReceivingModel {
       }
     });
 
-    // ─── Status counts ─────────────────────────────────────────
     const [draft, partiallyReceived, fullyReceived] = await Promise.all([
       prisma.goodsReceiving.count({ where: { ...baseFilter, status: 'Draft' } }),
       prisma.goodsReceiving.count({ where: { ...baseFilter, status: 'Partially Received' } }),
@@ -781,13 +899,13 @@ class GoodsReceivingModel {
   }
 
   // ============================================================
-  // GET GOODS RECEIVING SUMMARY BY SUPPLIER
+  // GET GOODS RECEIVING SUMMARY BY SUPPLIER - ✅ FIXED
   // ============================================================
-  static async getSupplierSummary(userId, supplierId) {
+  static async getSupplierSummary(companyId, supplierId) {  // ✅ Use companyId instead of userId
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId,
+      companyId: companyId,  // ✅ Use companyId
       supplierId: supplierId
     };
 

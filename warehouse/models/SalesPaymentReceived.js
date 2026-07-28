@@ -1,4 +1,4 @@
-// warehouse/models/SalesPaymentReceived.js - COMPLETE
+// warehouse/models/SalesPaymentReceived.js - COMPLETE WITH AUTO-CREATE
 
 const prisma = require('../../prisma/client');
 
@@ -12,13 +12,12 @@ function generatePaymentNumber() {
   return `SP-${year}${month}${day}-${random}`;
 }
 
-// ─── Helper: Find AR Account (same as SalesInvoice.js) ───────
-// userId aur createdBy dono se try karta hai, code aur name dono se
-async function findARAccount(tx, userId) {
-  // First try: userId field se (payment model convention)
+// ─── Helper: Find or Create AR Account ───────────────────────
+async function findOrCreateARAccount(tx, companyId, userId) {
+  // First try to find existing account
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '1200' },
@@ -27,29 +26,35 @@ async function findARAccount(tx, userId) {
     }
   });
 
-  // Second try: createdBy field se (invoice model convention)
+  // If not found, create it
   if (!account) {
-    account = await tx.chartOfAccount.findFirst({
-      where: {
-        createdBy: userId,
+    account = await tx.chartOfAccount.create({
+      data: {
+        code: '1200',
+        name: 'Accounts Receivable',
+        type: 'Asset',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        currentBalance: 0,
+        balanceType: 'Debit',
+        description: 'Accounts Receivable - Money owed by customers',
         isActive: true,
-        OR: [
-          { code: '1200' },
-          { name: { contains: 'Accounts Receivable', mode: 'insensitive' } }
-        ]
+        createdBy: userId || 'SYSTEM',
+        companyId: companyId
       }
     });
+    console.log('✅ Created Accounts Receivable account');
   }
 
   return account;
 }
 
-// ─── Helper: Find Cash/Bank Account for journal entry ────────
-async function findCashAccount(tx, userId) {
-  // userId se try
+// ─── Helper: Find or Create Cash Account ──────────────────────
+async function findOrCreateCashAccount(tx, companyId, userId) {
+  // First try to find existing account
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '1100' },
@@ -58,18 +63,24 @@ async function findCashAccount(tx, userId) {
     }
   });
 
-  // createdBy se try
+  // If not found, create it
   if (!account) {
-    account = await tx.chartOfAccount.findFirst({
-      where: {
-        createdBy: userId,
+    account = await tx.chartOfAccount.create({
+      data: {
+        code: '1100',
+        name: 'Cash',
+        type: 'Asset',
+        parentAccount: 'Current Assets',
+        openingBalance: 0,
+        currentBalance: 0,
+        balanceType: 'Debit',
+        description: 'Cash on hand',
         isActive: true,
-        OR: [
-          { code: '1100' },
-          { name: { contains: 'Cash', mode: 'insensitive' } }
-        ]
+        createdBy: userId || 'SYSTEM',
+        companyId: companyId
       }
     });
+    console.log('✅ Created Cash account');
   }
 
   return account;
@@ -79,29 +90,46 @@ class SalesPaymentReceivedModel {
   // ============================================================
   // GET CUSTOMER INVOICES (Unpaid & Partially Paid)
   // ============================================================
-  static async getCustomerInvoices(customerId, userId) {
+  static async getCustomerInvoices(customerId, companyId) {
     const invoices = await prisma.salesInvoice.findMany({
       where: {
         customerId: customerId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false,
         invoiceStatus: {
-          in: ['Posted', 'Partially Paid']
-        },
-        outstanding: {
-          gt: 0
+          notIn: ['Paid', 'Cancelled']
         }
       },
       orderBy: {
         invoiceDate: 'asc'
       },
       include: {
-        items: true
+        items: true,
+        invoicePayments: {
+          where: {
+            payment: {
+              isActive: true,
+              isDeleted: false,
+              status: 'Completed'
+            }
+          }
+        }
       }
     });
 
-    return invoices;
+    const invoicesWithOutstanding = invoices.map(invoice => {
+      const totalPaid = invoice.invoicePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
+      const outstanding = invoice.grandTotal - totalPaid;
+      
+      return {
+        ...invoice,
+        paidAmount: totalPaid,
+        outstanding: Math.max(0, outstanding)
+      };
+    });
+
+    return invoicesWithOutstanding.filter(inv => inv.outstanding > 0);
   }
 
   // ============================================================
@@ -122,7 +150,8 @@ class SalesPaymentReceivedModel {
         notes,
         invoicePayments,
         userId,
-        createdBy
+        createdBy,
+        companyId
       } = data;
 
       // ─── Validation ──────────────────────────────────────
@@ -142,7 +171,7 @@ class SalesPaymentReceivedModel {
       const customer = await tx.customer.findFirst({
         where: {
           id: customerId,
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false
         }
@@ -161,7 +190,7 @@ class SalesPaymentReceivedModel {
         const bankAccount = await tx.bankAccount.findFirst({
           where: {
             id: bankAccountId,
-            userId: userId,
+            companyId: companyId,
             status: 'Active'
           }
         });
@@ -180,11 +209,22 @@ class SalesPaymentReceivedModel {
           where: {
             id: inv.invoiceId,
             customerId: customerId,
-            userId: userId,
+            companyId: companyId,
             isActive: true,
             isDeleted: false,
             invoiceStatus: {
-              in: ['Posted', 'Partially Paid']
+              notIn: ['Paid', 'Cancelled']
+            }
+          },
+          include: {
+            invoicePayments: {
+              where: {
+                payment: {
+                  isActive: true,
+                  isDeleted: false,
+                  status: 'Completed'
+                }
+              }
             }
           }
         });
@@ -193,20 +233,25 @@ class SalesPaymentReceivedModel {
           throw new Error(`Invoice ${inv.invoiceNumber} not found or cannot be paid`);
         }
 
-        if (invoice.outstanding <= 0) {
+        const totalPaid = invoice.invoicePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
+        const currentOutstanding = invoice.grandTotal - totalPaid;
+
+        if (currentOutstanding <= 0) {
           throw new Error(`Invoice ${inv.invoiceNumber} is already fully paid`);
         }
 
-        if (inv.amountPaid > invoice.outstanding) {
+        if (inv.amountPaid > currentOutstanding) {
           throw new Error(
-            `Amount ${inv.amountPaid} exceeds outstanding amount ${invoice.outstanding} for invoice ${inv.invoiceNumber}`
+            `Amount ${inv.amountPaid} exceeds outstanding amount ${currentOutstanding} for invoice ${inv.invoiceNumber}`
           );
         }
 
         totalPaidAmount += inv.amountPaid;
         validatedInvoices.push({
           invoice,
-          amountPaid: inv.amountPaid
+          amountPaid: inv.amountPaid,
+          currentOutstanding,
+          totalPaid
         });
       }
 
@@ -215,16 +260,13 @@ class SalesPaymentReceivedModel {
         throw new Error('Total paid amount does not match invoice amounts');
       }
 
-      // ─── Get AR Account ───────────────────────────────────
-      // ✅ FIXED: name-based fallback + userId/createdBy dual search
-      const arAccount = await findARAccount(tx, userId);
+      // ─── Get or Create AR Account ─────────────────────────
+      // ✅ Auto-creates if not found
+      const arAccount = await findOrCreateARAccount(tx, companyId, userId);
 
-      if (!arAccount) {
-        throw new Error(
-          'Accounts Receivable account not found. ' +
-          'Please create an account with code "1200" or name "Accounts Receivable" in Chart of Accounts.'
-        );
-      }
+      // ─── Get or Create Cash Account ────────────────────────
+      // ✅ Auto-creates if not found
+      const cashAccount = await findOrCreateCashAccount(tx, companyId, userId);
 
       // ─── Get Bank Account ────────────────────────────────
       let bankAccount = null;
@@ -232,7 +274,7 @@ class SalesPaymentReceivedModel {
         bankAccount = await tx.bankAccount.findFirst({
           where: {
             id: bankAccountId,
-            userId: userId,
+            companyId: companyId,
             status: 'Active'
           }
         });
@@ -243,14 +285,11 @@ class SalesPaymentReceivedModel {
       }
 
       // ─── Resolve Debit Account for Journal Entry ─────────
-      // Bank account linked hoga to uska GL account use karo,
-      // warna Cash account dhundo, warna AR account fallback
       let debitAccountId = arAccount.id;
       let debitAccountName = 'Cash';
       let debitAccountCode = '1100';
 
       if (bankAccount) {
-        // Bank account ke saath linked GL account ho sakta hai
         if (bankAccount.chartOfAccountId) {
           const bankGLAccount = await tx.chartOfAccount.findUnique({
             where: { id: bankAccount.chartOfAccountId }
@@ -261,19 +300,14 @@ class SalesPaymentReceivedModel {
             debitAccountCode = bankGLAccount.code;
           }
         } else {
-          // Bank account name/code directly use karo
           debitAccountName = bankAccount.accountName || 'Bank Account';
           debitAccountCode = bankAccount.accountCode || '1110';
-          debitAccountId = arAccount.id; // fallback, journal mein account link chahiye
+          debitAccountId = arAccount.id;
         }
       } else {
-        // Cash payment — Cash account dhundo
-        const cashAccount = await findCashAccount(tx, userId);
-        if (cashAccount) {
-          debitAccountId = cashAccount.id;
-          debitAccountName = cashAccount.name;
-          debitAccountCode = cashAccount.code;
-        }
+        debitAccountId = cashAccount.id;
+        debitAccountName = cashAccount.name;
+        debitAccountCode = cashAccount.code;
       }
 
       // ─── Create Journal Entry ────────────────────────────
@@ -289,10 +323,10 @@ class SalesPaymentReceivedModel {
           createdBy: createdBy,
           postedBy: createdBy,
           postedAt: new Date(),
-          userId: userId,
+          companyId: companyId,
+          fiscalYearId: data.fiscalYearId,
           lines: {
             create: [
-              // Debit: Bank/Cash Account
               {
                 accountId: debitAccountId,
                 accountName: debitAccountName,
@@ -300,7 +334,6 @@ class SalesPaymentReceivedModel {
                 debit: amount,
                 credit: 0
               },
-              // Credit: Accounts Receivable
               {
                 accountId: arAccount.id,
                 accountName: arAccount.name,
@@ -345,7 +378,8 @@ class SalesPaymentReceivedModel {
           journalEntryId: journalEntry.id,
           arRecordId: arRecord?.id || null,
           createdBy: createdBy,
-          userId: userId,
+          companyId: companyId,
+          fiscalYearId: data.fiscalYearId,
           invoicePayments: {
             create: invoicePayments.map(inv => ({
               invoiceId: inv.invoiceId,
@@ -377,7 +411,7 @@ class SalesPaymentReceivedModel {
       // ─── Update Each Invoice ─────────────────────────────
       for (const inv of validatedInvoices) {
         const invoice = inv.invoice;
-        const newPaidAmount = invoice.paidAmount + inv.amountPaid;
+        const newPaidAmount = inv.totalPaid + inv.amountPaid;
         const newOutstanding = invoice.grandTotal - newPaidAmount;
 
         let invoiceStatus = invoice.invoiceStatus;
@@ -391,18 +425,17 @@ class SalesPaymentReceivedModel {
           where: { id: invoice.id },
           data: {
             paidAmount: newPaidAmount,
-            outstanding: newOutstanding,
+            outstanding: Math.max(0, newOutstanding),
             invoiceStatus: invoiceStatus,
             paymentStatus: newOutstanding <= 0 ? 'Paid' : 'Partial'
           }
         });
 
-        // ─── Update Accounts Receivable ─────────────────────
         await tx.accountsReceivable.updateMany({
           where: { invoiceId: invoice.id },
           data: {
             paidAmount: newPaidAmount,
-            outstanding: newOutstanding,
+            outstanding: Math.max(0, newOutstanding),
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
@@ -412,11 +445,11 @@ class SalesPaymentReceivedModel {
       const totalOutstanding = await tx.salesInvoice.aggregate({
         where: {
           customerId: customerId,
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false,
           invoiceStatus: {
-            in: ['Posted', 'Partially Paid']
+            notIn: ['Paid', 'Cancelled']
           }
         },
         _sum: {
@@ -556,7 +589,7 @@ class SalesPaymentReceivedModel {
   // ============================================================
   // GET PAYMENT STATS
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -564,47 +597,57 @@ class SalesPaymentReceivedModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId
     };
 
-    const todayPayments = await prisma.salesPaymentReceived.count({
-      where: {
-        ...baseFilter,
-        paymentDate: { gte: today }
-      }
-    });
-
-    const todayAmount = await prisma.salesPaymentReceived.aggregate({
-      where: {
-        ...baseFilter,
-        paymentDate: { gte: today }
-      },
-      _sum: { amount: true }
-    });
-
-    const monthPayments = await prisma.salesPaymentReceived.count({
-      where: {
-        ...baseFilter,
-        paymentDate: { gte: startOfMonth }
-      }
-    });
-
-    const monthAmount = await prisma.salesPaymentReceived.aggregate({
-      where: {
-        ...baseFilter,
-        paymentDate: { gte: startOfMonth }
-      },
-      _sum: { amount: true }
-    });
+    const [todayPayments, todayAmount, monthPayments, monthAmount, totalPayments, totalAmount] = await Promise.all([
+      prisma.salesPaymentReceived.count({
+        where: {
+          ...baseFilter,
+          paymentDate: { gte: today }
+        }
+      }),
+      prisma.salesPaymentReceived.aggregate({
+        where: {
+          ...baseFilter,
+          paymentDate: { gte: today }
+        },
+        _sum: { amount: true }
+      }),
+      prisma.salesPaymentReceived.count({
+        where: {
+          ...baseFilter,
+          paymentDate: { gte: startOfMonth }
+        }
+      }),
+      prisma.salesPaymentReceived.aggregate({
+        where: {
+          ...baseFilter,
+          paymentDate: { gte: startOfMonth }
+        },
+        _sum: { amount: true }
+      }),
+      prisma.salesPaymentReceived.count({
+        where: baseFilter
+      }),
+      prisma.salesPaymentReceived.aggregate({
+        where: baseFilter,
+        _sum: { amount: true }
+      })
+    ]);
 
     return {
       today: {
-        count: todayPayments,
+        count: todayPayments || 0,
         amount: todayAmount._sum.amount || 0
       },
       month: {
-        count: monthPayments,
+        count: monthPayments || 0,
         amount: monthAmount._sum.amount || 0
+      },
+      total: {
+        count: totalPayments || 0,
+        amount: totalAmount._sum.amount || 0
       }
     };
   }
@@ -619,7 +662,19 @@ class SalesPaymentReceivedModel {
         include: {
           invoicePayments: {
             include: {
-              invoice: true
+              invoice: {
+                include: {
+                  invoicePayments: {
+                    where: {
+                      payment: {
+                        isActive: true,
+                        isDeleted: false,
+                        status: 'Completed'
+                      }
+                    }
+                  }
+                }
+              }
             }
           },
           customer: true,
@@ -643,31 +698,34 @@ class SalesPaymentReceivedModel {
       // ─── Reverse Invoice Payments ──────────────────────────
       for (const invPayment of payment.invoicePayments) {
         const invoice = invPayment.invoice;
-        const newPaidAmount = invoice.paidAmount - invPayment.amountPaid;
+        const totalPaid = invoice.invoicePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
+        const newPaidAmount = totalPaid - invPayment.amountPaid;
         const newOutstanding = invoice.grandTotal - newPaidAmount;
 
         let invoiceStatus = invoice.invoiceStatus;
         if (newPaidAmount <= 0) {
           invoiceStatus = 'Posted';
-        } else if (newPaidAmount > 0) {
+        } else if (newPaidAmount > 0 && newOutstanding > 0) {
           invoiceStatus = 'Partially Paid';
+        } else if (newOutstanding <= 0) {
+          invoiceStatus = 'Paid';
         }
 
         await tx.salesInvoice.update({
           where: { id: invoice.id },
           data: {
-            paidAmount: newPaidAmount,
-            outstanding: newOutstanding,
+            paidAmount: Math.max(0, newPaidAmount),
+            outstanding: Math.max(0, newOutstanding),
             invoiceStatus: invoiceStatus,
-            paymentStatus: newPaidAmount <= 0 ? 'Unpaid' : 'Partial'
+            paymentStatus: newPaidAmount <= 0 ? 'Unpaid' : (newOutstanding <= 0 ? 'Paid' : 'Partial')
           }
         });
 
         await tx.accountsReceivable.updateMany({
           where: { invoiceId: invoice.id },
           data: {
-            paidAmount: newPaidAmount,
-            outstanding: newOutstanding,
+            paidAmount: Math.max(0, newPaidAmount),
+            outstanding: Math.max(0, newOutstanding),
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
@@ -687,7 +745,8 @@ class SalesPaymentReceivedModel {
             createdBy: userId,
             postedBy: userId,
             postedAt: new Date(),
-            userId: payment.userId,
+            companyId: payment.companyId,
+            fiscalYearId: payment.fiscalYearId,
             lines: {
               create: payment.journalEntry.lines.map(line => ({
                 accountId: line.accountId,
@@ -717,11 +776,11 @@ class SalesPaymentReceivedModel {
       const totalOutstanding = await tx.salesInvoice.aggregate({
         where: {
           customerId: payment.customerId,
-          userId: payment.userId,
+          companyId: payment.companyId,
           isActive: true,
           isDeleted: false,
           invoiceStatus: {
-            in: ['Posted', 'Partially Paid']
+            notIn: ['Paid', 'Cancelled']
           }
         },
         _sum: {
@@ -741,7 +800,8 @@ class SalesPaymentReceivedModel {
         where: { id },
         data: {
           status: 'Cancelled',
-          updatedBy: userId
+          updatedBy: userId,
+          notes: payment.notes ? `${payment.notes}\nCancelled: ${reason || 'No reason'}` : `Cancelled: ${reason || 'No reason'}`
         },
         include: {
           invoicePayments: {

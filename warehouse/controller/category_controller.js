@@ -20,10 +20,11 @@ const buildCategoryTree = (categories, parentId = null) => {
 const getCategories = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { tree = 'false', includeInactive = 'false', parentId } = req.query;
 
     const filter = {
-      userId: userId,
+      companyId: companyId,
     };
     
     if (includeInactive !== 'true') {
@@ -86,12 +87,13 @@ const getCategories = async (req, res) => {
 const getCategoryById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const categoryId = req.params.id;
 
     const category = await prisma.category.findFirst({
       where: {
         id: categoryId,
-        userId: userId
+        companyId: companyId
       },
       include: {
         parent: {
@@ -139,6 +141,7 @@ const getCategoryById = async (req, res) => {
 const createCategory = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { name, description, code, parentId } = req.body;
 
     // Validation
@@ -149,18 +152,18 @@ const createCategory = async (req, res) => {
       });
     }
 
-    // Check duplicate name for this user
+    // Check duplicate name for this company
     const existing = await prisma.category.findFirst({
       where: {
         name: name,
-        userId: userId
+        companyId: companyId
       }
     });
 
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: 'Category with this name already exists for your account'
+        message: 'Category with this name already exists for your company'
       });
     }
 
@@ -173,15 +176,15 @@ const createCategory = async (req, res) => {
       const parent = await prisma.category.findFirst({
         where: {
           id: parentId,
-          userId: userId,
+          companyId: companyId,
           isActive: true
         }
       });
-      
+
       if (!parent) {
         return res.status(400).json({
           success: false,
-          message: 'Parent category not found or does not belong to you'
+          message: 'Parent category not found or does not belong to your company'
         });
       }
 
@@ -202,7 +205,7 @@ const createCategory = async (req, res) => {
         level: level,
         path: path,
         createdBy: userId,
-        userId: userId,
+        companyId: companyId,
         isActive: true
       }
     });
@@ -244,14 +247,15 @@ const createCategory = async (req, res) => {
 const updateCategory = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const categoryId = req.params.id;
     const { name, description, code, parentId, isActive } = req.body;
 
-    // Check if category exists AND belongs to this user
+    // Check if category exists AND belongs to this company
     const existing = await prisma.category.findFirst({
       where: {
         id: categoryId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -267,7 +271,7 @@ const updateCategory = async (req, res) => {
       const duplicate = await prisma.category.findFirst({
         where: {
           name: name,
-          userId: userId,
+          companyId: companyId,
           NOT: { id: categoryId }
         }
       });
@@ -275,20 +279,20 @@ const updateCategory = async (req, res) => {
       if (duplicate) {
         return res.status(400).json({
           success: false,
-          message: 'Category with this name already exists for your account'
+          message: 'Category with this name already exists for your company'
         });
       }
     }
 
     // Handle parent change
     if (parentId !== undefined && parentId !== existing.parentId) {
-      // Check if parent exists and belongs to user
+      // Check if parent exists and belongs to company
       let parent = null;
       if (parentId) {
         parent = await prisma.category.findFirst({
           where: {
             id: parentId,
-            userId: userId,
+            companyId: companyId,
             isActive: true
           }
         });
@@ -296,12 +300,12 @@ const updateCategory = async (req, res) => {
         if (!parent) {
           return res.status(400).json({
             success: false,
-            message: 'Parent category not found or does not belong to you'
+            message: 'Parent category not found or does not belong to your company'
           });
         }
 
         // Prevent moving under own descendant
-        const allChildrenIds = await getAllChildrenIds(userId, categoryId);
+        const allChildrenIds = await getAllChildrenIds(companyId, categoryId);
         if (allChildrenIds.includes(parentId)) {
           return res.status(400).json({
             success: false,
@@ -378,7 +382,7 @@ const updateCategory = async (req, res) => {
 };
 
 // ─── GET ALL CHILDREN IDS (Helper) ─────────────────────────
-const getAllChildrenIds = async (userId, categoryId) => {
+const getAllChildrenIds = async (companyId, categoryId) => {
   const allIds = [categoryId];
   const queue = [categoryId];
 
@@ -387,7 +391,7 @@ const getAllChildrenIds = async (userId, categoryId) => {
     const children = await prisma.category.findMany({
       where: {
         parentId: currentId,
-        userId: userId
+        companyId: companyId
       },
       select: { id: true }
     });
@@ -404,12 +408,13 @@ const getAllChildrenIds = async (userId, categoryId) => {
 const deleteCategory = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const categoryId = req.params.id;
 
     const category = await prisma.category.findFirst({
       where: {
         id: categoryId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -424,7 +429,7 @@ const deleteCategory = async (req, res) => {
     const hasProducts = await prisma.product.count({
       where: {
         categoryId: categoryId,
-        userId: userId,
+        companyId: companyId,
         isActive: true
       }
     });
@@ -437,14 +442,14 @@ const deleteCategory = async (req, res) => {
     }
 
     // Get all descendant IDs
-    const allIds = await getAllChildrenIds(userId, categoryId);
+    const allIds = await getAllChildrenIds(companyId, categoryId);
     const descendantCount = allIds.length - 1;
 
     // Soft delete - mark as inactive
     await prisma.category.updateMany({
       where: {
         id: { in: allIds },
-        userId: userId
+        companyId: companyId
       },
       data: {
         isActive: false,
@@ -485,11 +490,11 @@ const deleteCategory = async (req, res) => {
 // ─── GET CATEGORY TREE (Hierarchical) ──────────────────────
 const getCategoryTree = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const categories = await prisma.category.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true
       },
       include: {
@@ -527,14 +532,14 @@ const getCategoryTree = async (req, res) => {
 // ─── GET SUB-CATEGORIES OF A CATEGORY ──────────────────────
 const getSubCategories = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { parentId } = req.params;
 
-    // Verify parent belongs to user
+    // Verify parent belongs to company
     const parent = await prisma.category.findFirst({
       where: {
         id: parentId,
-        userId: userId,
+        companyId: companyId,
         isActive: true
       }
     });
@@ -549,7 +554,7 @@ const getSubCategories = async (req, res) => {
     const subCategories = await prisma.category.findMany({
       where: {
         parentId: parentId,
-        userId: userId,
+        companyId: companyId,
         isActive: true
       },
       include: {
@@ -594,13 +599,13 @@ const getSubCategories = async (req, res) => {
 // ─── GET CATEGORY BREADCRUMB ──────────────────────────────
 const getCategoryBreadcrumb = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const category = await prisma.category.findFirst({
       where: {
         id: id,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -625,7 +630,7 @@ const getCategoryBreadcrumb = async (req, res) => {
         const parent = await prisma.category.findFirst({
           where: {
             id: current.parentId,
-            userId: userId
+            companyId: companyId
           }
         });
         current = parent;
@@ -651,36 +656,36 @@ const getCategoryBreadcrumb = async (req, res) => {
 // ─── GET CATEGORY STATS ────────────────────────────────────
 const getCategoryStats = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const stats = await prisma.$transaction([
       prisma.category.count({
-        where: { userId: userId, isActive: true }
+        where: { companyId: companyId, isActive: true }
       }),
       prisma.category.count({
         where: { 
-          userId: userId, 
+          companyId: companyId, 
           isActive: true,
           parentId: null
         }
       }),
       prisma.category.count({
         where: { 
-          userId: userId, 
+          companyId: companyId, 
           isActive: true,
           parentId: { not: null }
         }
       }),
       prisma.product.count({
         where: { 
-          userId: userId, 
+          companyId: companyId, 
           isActive: true,
           categoryId: { not: null }
         }
       }),
       prisma.category.count({
         where: {
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           children: {
             some: {}
@@ -699,7 +704,7 @@ const getCategoryStats = async (req, res) => {
         categoriesWithSubs: stats[4],
         uncategorizedProducts: await prisma.product.count({
           where: {
-            userId: userId,
+            companyId: companyId,
             isActive: true,
             categoryId: null
           }

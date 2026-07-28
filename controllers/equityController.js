@@ -1,76 +1,94 @@
-  const EquityAccount = require('../models/EquityAccount');
-  const JournalEntry = require('../models/JournalEntry');
-  const ChartOfAccount = require('../models/ChartOfAccount');
+const prisma = require('../prisma/client');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
-  // Helper: Get or create Equity account in Chart of Accounts
-  async function getOrCreateEquityAccount(userId, accountCode, accountName) {
-    let equityAccount = await ChartOfAccount.findOne({ 
+// Helper: Get or create Equity account in Chart of Accounts
+async function getOrCreateEquityAccount(userId, companyId, accountCode, accountName) {
+  let equityAccount = await prisma.chartOfAccount.findFirst({ 
+    where: {
       code: accountCode,
-      createdBy: userId  // 👈 Only find account created by this user
-    });
-    
-    if (!equityAccount) {
-      equityAccount = await ChartOfAccount.create({
+      
+      companyId: companyId
+    }
+  });
+  
+  if (!equityAccount) {
+    equityAccount = await prisma.chartOfAccount.create({
+      data: {
         code: accountCode,
         name: accountName,
         type: 'Equity',
         parentAccount: 'Shareholders Equity',
         openingBalance: 0,
+        currentBalance: 0,
         description: accountName,
         taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
         createdBy: userId,
-      });
-    }
-    return equityAccount;
-  }
-
-  // Helper: Get cash account
-  async function getOrCreateCashAccount(userId) {
-    let cashAccount = await ChartOfAccount.findOne({ 
-      code: '1010',
-      createdBy: userId  // 👈 Only find account created by this user
+      }
     });
-    
-    if (!cashAccount) {
-      cashAccount = await ChartOfAccount.create({
+  }
+  return equityAccount;
+}
+
+// Helper: Get cash account
+async function getOrCreateCashAccount(userId, companyId) {
+  let cashAccount = await prisma.chartOfAccount.findFirst({ 
+    where: {
+      code: '1010',
+      
+      companyId: companyId
+    }
+  });
+  
+  if (!cashAccount) {
+    cashAccount = await prisma.chartOfAccount.create({
+      data: {
         code: '1010',
         name: 'Cash in Hand',
         type: 'Assets',
         parentAccount: 'Current Assets',
         openingBalance: 0,
+        currentBalance: 0,
         description: 'Physical cash',
         taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
         createdBy: userId,
+        companyId: companyId,
+      }
+    });
+  }
+  return cashAccount;
+}
+
+// ==================== CREATE EQUITY ACCOUNT ====================
+exports.createEquityAccount = async (req, res) => {
+  try {
+    const {
+      accountName,
+      accountCode,
+      accountType,
+      openingBalance,
+      notes,
+    } = req.body;
+
+    // Check if account code already exists for this user
+    const existingAccount = await prisma.equityAccount.findFirst({
+      where: {
+        accountCode,
+        companyId: companyId}
+    });
+
+    if (existingAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Equity account with this code already exists',
       });
     }
-    return cashAccount;
-  }
 
-  // ==================== CREATE EQUITY ACCOUNT ====================
-  exports.createEquityAccount = async (req, res) => {
-    try {
-      const {
-        accountName,
-        accountCode,
-        accountType,
-        openingBalance,
-        notes,
-      } = req.body;
-
-      // Check if account code already exists for this user
-      const existingAccount = await EquityAccount.findOne({
-        accountCode,
-        createdBy: req.user.id
-      });
-
-      if (existingAccount) {
-        return res.status(400).json({
-          success: false,
-          message: 'Equity account with this code already exists',
-        });
-      }
-
-      const equityAccount = await EquityAccount.create({
+    const equityAccount = await prisma.equityAccount.create({
+      data: {
         accountName,
         accountCode,
         accountType,
@@ -80,198 +98,289 @@
         withdrawals: 0,
         notes: notes || '',
         createdBy: req.user.id,
-      });
+      }
+    });
 
-      // Create journal entry for opening balance
-      if (openingBalance > 0) {
-        const equityChartAccount = await getOrCreateEquityAccount(req.user.id, accountCode, accountName);
-        const cashAccount = await getOrCreateCashAccount(req.user.id);
+    // Create journal entry for opening balance
+    if (openingBalance > 0) {
+      const equityChartAccount = await getOrCreateEquityAccount(req.user.id, accountCode, accountName);
+      const cashAccount = await getOrCreateCashAccount(req.user.id);
 
-        await JournalEntry.create({
+      await prisma.journalEntry.create({
+        data: {
           entryNumber: `JE-${Date.now()}`,
           date: new Date(),
           description: `Opening balance for ${accountName}`,
           reference: accountCode,
-          lines: [
-            {
-              accountId: cashAccount._id,
-              accountName: cashAccount.name,
-              accountCode: cashAccount.code,
-              debit: openingBalance,
-              credit: 0,
-            },
-            {
-              accountId: equityChartAccount._id,
-              accountName: equityChartAccount.name,
-              accountCode: equityChartAccount.code,
-              debit: 0,
-              credit: openingBalance,
-            },
-          ],
           status: 'Posted',
           createdBy: req.user.id,
           postedBy: req.user.id,
           postedAt: new Date(),
-        });
-      }
-
-      res.status(201).json({
-        success: true,
-        data: equityAccount,
-        message: 'Equity account created successfully',
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
+          lines: {
+            create: [
+              {
+                accountId: cashAccount.id,
+                accountName: cashAccount.name,
+                accountCode: cashAccount.code,
+                debit: openingBalance,
+                credit: 0,
+              },
+              {
+                accountId: equityChartAccount.id,
+                accountName: equityChartAccount.name,
+                accountCode: equityChartAccount.code,
+                debit: 0,
+                credit: openingBalance,
+              },
+            ]
+          }
+        }
       });
     }
-  };
 
-  // ==================== GET ALL EQUITY ACCOUNTS ====================
-  exports.getEquityAccounts = async (req, res) => {
+    res.status(201).json({
+      success: true,
+      data: equityAccount,
+      message: 'Equity account created successfully',
+    });
+
+    // Invalidate cache after successful equity account creation
     try {
-      const { accountType, search } = req.query;
-      let query = {
-        createdBy: req.user.id  // 👈 Only show equity accounts created by this user
-      };
+      const userId = req.user.id;
+    const companyId = req.user.companyId;
+      await delPattern(`equity:accounts:${userId}:*`);
+      await delPattern(`equity:summary:${userId}:*`);
+      await delPattern(`equity:transactions:${userId}:*`);
+      console.log('🗑️ [Equity] Cache invalidated after equity account creation');
+    } catch (cacheError) {
+      console.log('⚠️ [Equity] Cache invalidation error:', cacheError.message);
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 
-      if (accountType && accountType !== 'All') {
-        query.accountType = accountType;
-      }
+// ==================== GET ALL EQUITY ACCOUNTS ====================
+exports.getEquityAccounts = async (req, res) => {
+  try {
+    const { accountType, search, fiscalYearId } = req.query;
+    const userId = req.user.id;
 
-      if (search) {
-        query.$or = [
-          { accountName: { $regex: search, $options: 'i' } },
-          { accountCode: { $regex: search, $options: 'i' } },
-        ];
-      }
-
-      const accounts = await EquityAccount.find(query)
-        .sort({ accountType: 1, accountName: 1 });
-
-      res.status(200).json({
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `equity:accounts:${userId}:${accountType || 'All'}:${search || ''}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
         success: true,
-        count: accounts.length,
-        data: accounts,
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
+        ...cached,
+        cached: true,
       });
     }
-  };
 
-  // ==================== GET SINGLE EQUITY ACCOUNT ====================
-  exports.getEquityAccount = async (req, res) => {
+    let where = {
+      companyId: companyId
+    };
+
+    if (accountType && accountType !== 'All') {
+      where.accountType = accountType;
+    }
+
+    if (search) {
+      where.OR = [
+        { accountName: { contains: search, mode: 'insensitive' } },
+        { accountCode: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (fiscalYearId) {
+      where.fiscalYearId = fiscalYearId;
+    }
+
+    const equityAccounts = await prisma.equityAccount.findMany({
+      where,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const responseData = {
+      count: equityAccounts.length,
+      data: equityAccounts,
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ==================== GET SINGLE EQUITY ACCOUNT ====================
+exports.getEquityAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `equity:account:${userId}:${id}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const account = await prisma.equityAccount.findFirst({
+      where: {
+        id,
+        companyId: companyId}
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equity account not found',
+      });
+    }
+
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, account, 600);
+
+    res.status(200).json({
+      success: true,
+      data: account,
+      cached: false,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ==================== UPDATE EQUITY ACCOUNT ====================
+exports.updateEquityAccount = async (req, res) => {
+  try {
+    const { notes, accountName } = req.body;
+    const account = await prisma.equityAccount.findFirst({
+      where: {
+        id: req.params.id,
+        companyId: companyId}
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equity account not found',
+      });
+    }
+
+    const updateData = {};
+    if (accountName) updateData.accountName = accountName;
+    if (notes !== undefined) updateData.notes = notes;
+
+    const updatedAccount = await prisma.equityAccount.update({
+      where: { id: req.params.id },
+      data: updateData
+    });
+
+    res.status(200).json({
+      success: true,
+      data: updatedAccount,
+      message: 'Equity account updated successfully',
+    });
+
+    // Invalidate cache after successful equity account update
     try {
-      const account = await EquityAccount.findOne({
-        _id: req.params.id,
-        createdBy: req.user.id  // 👈 Only allow if user owns this account
-      });
-
-      if (!account) {
-        return res.status(404).json({
-          success: false,
-          message: 'Equity account not found',
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        data: account,
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      const userId = req.user.id;
+    const companyId = req.user.companyId;
+      await delPattern(`equity:accounts:${userId}:*`);
+      await delPattern(`equity:account:${userId}:${req.params.id}`);
+      await delPattern(`equity:summary:${userId}:*`);
+      console.log('🗑️ [Equity] Cache invalidated after equity account update');
+    } catch (cacheError) {
+      console.log('⚠️ [Equity] Cache invalidation error:', cacheError.message);
     }
-  };
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 
-  // ==================== UPDATE EQUITY ACCOUNT ====================
-  exports.updateEquityAccount = async (req, res) => {
-    try {
-      const { notes, accountName } = req.body;
-      const account = await EquityAccount.findOne({
-        _id: req.params.id,
-        createdBy: req.user.id  // 👈 Only allow if user owns this account
-      });
-
-      if (!account) {
-        return res.status(404).json({
-          success: false,
-          message: 'Equity account not found',
-        });
-      }
-
-      if (accountName) account.accountName = accountName;
-      if (notes !== undefined) account.notes = notes;
-
-      await account.save();
-
-      res.status(200).json({
-        success: true,
-        data: account,
-        message: 'Equity account updated successfully',
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  };
 exports.addCapital = async (req, res) => {
   try {
     const { accountId, amount, description, reference } = req.body;
 
-    const account = await ChartOfAccount.findOne({
-      _id: accountId,
-      createdBy: req.user.id
+    const account = await prisma.chartOfAccount.findFirst({
+      where: {
+        id: accountId,
+        companyId: companyId}
     });
 
     if (!account) {
       return res.status(404).json({ success: false, message: 'Account not found' });
     }
 
-    // ❌ Yeh hata do — journal entry se automatically calculate hoga
-    // account.currentBalance = oldBalance + amount;
-    // await account.save();
-
-    const cashAccount = await ChartOfAccount.findOne({ 
-      code: '1010',
-      createdBy: req.user.id
+    const cashAccount = await prisma.chartOfAccount.findFirst({ 
+      where: {
+        code: '1010',
+        companyId: companyId}
     });
 
-    await JournalEntry.create({
-      entryNumber: `JE-${Date.now()}`,
-      date: new Date(),
-      description: description || `Additional capital to ${account.name}`,
-      reference: reference || `CAP-${Date.now()}`,
-      lines: [
-        {
-          accountId: cashAccount ? cashAccount._id : account._id,
-          accountName: cashAccount ? cashAccount.name : 'Cash',
-          accountCode: cashAccount ? cashAccount.code : '1010',
-          debit: amount,
-          credit: 0,
-        },
-        {
-          accountId: account._id,
-          accountName: account.name,
-          accountCode: account.code,
-          debit: 0,
-          credit: amount,
-        },
-      ],
-      status: 'Posted',
-      createdBy: req.user.id,
+    await prisma.journalEntry.create({
+      data: {
+        entryNumber: `JE-${Date.now()}`,
+        date: new Date(),
+        description: description || `Additional capital to ${account.name}`,
+        reference: reference || `CAP-${Date.now()}`,
+        status: 'Posted',
+        createdBy: req.user.id,
+        postedBy: req.user.id,
+        postedAt: new Date(),
+        lines: {
+          create: [
+            {
+              accountId: cashAccount ? cashAccount.id : account.id,
+              accountName: cashAccount ? cashAccount.name : 'Cash',
+              accountCode: cashAccount ? cashAccount.code : '1010',
+              debit: amount,
+              credit: 0,
+            },
+            {
+              accountId: account.id,
+              accountName: account.name,
+              accountCode: account.code,
+              debit: 0,
+              credit: amount,
+            },
+          ]
+        }
+      }
     });
 
     res.status(200).json({
@@ -280,92 +389,140 @@ exports.addCapital = async (req, res) => {
       message: 'Capital added successfully',
     });
 
+    // Invalidate cache after successful capital addition
+    try {
+      const userId = req.user.id;
+    const companyId = req.user.companyId;
+      await delPattern(`equity:accounts:${userId}:*`);
+      await delPattern(`equity:account:${userId}:${accountId}`);
+      await delPattern(`equity:summary:${userId}:*`);
+      await delPattern(`equity:transactions:${userId}:*`);
+      console.log('🗑️ [Equity] Cache invalidated after capital addition');
+    } catch (cacheError) {
+      console.log('⚠️ [Equity] Cache invalidation error:', cacheError.message);
+    }
+
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-  exports.recordDrawings = async (req, res) => {
-    try {
-      const { accountId, amount, description, reference } = req.body;
 
-      const account = await EquityAccount.findOne({
-        _id: accountId,
-        createdBy: req.user.id  
+exports.recordDrawings = async (req, res) => {
+  try {
+    const { accountId, amount, description, reference } = req.body;
+
+    const account = await prisma.equityAccount.findFirst({
+      where: {
+        id: accountId,
+        companyId: companyId}
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equity account not found',
       });
+    }
 
-      if (!account) {
-        return res.status(404).json({
-          success: false,
-          message: 'Equity account not found',
-        });
+    if (account.accountType !== 'Drawings') {
+      return res.status(400).json({
+        success: false,
+        message: 'Can only record drawings to Drawings account',
+      });
+    }
+
+    // Update equity account
+    await prisma.equityAccount.update({
+      where: { id: accountId },
+      data: {
+        currentBalance: account.currentBalance - amount,
+        withdrawals: account.withdrawals + amount
       }
+    });
 
-      if (account.accountType !== 'Drawings') {
-        return res.status(400).json({
-          success: false,
-          message: 'Can only record drawings to Drawings account',
-        });
-      }
+    // Create journal entry
+    const equityChartAccount = await getOrCreateEquityAccount(req.user.id, account.accountCode, account.accountName);
+    const cashAccount = await getOrCreateCashAccount(req.user.id);
 
-      await account.recordDrawings(amount, description, reference, req.user.id);
-
-      // Create journal entry
-      const equityChartAccount = await getOrCreateEquityAccount(req.user.id, account.accountCode, account.accountName);
-      const cashAccount = await getOrCreateCashAccount(req.user.id);
-
-      await JournalEntry.create({
+    await prisma.journalEntry.create({
+      data: {
         entryNumber: `JE-${Date.now()}`,
         date: new Date(),
         description: description || `Owner drawings from ${account.accountName}`,
         reference: reference || `DRW-${Date.now()}`,
-        lines: [
-          {
-            accountId: equityChartAccount._id,
-            accountName: equityChartAccount.name,
-            accountCode: equityChartAccount.code,
-            debit: amount,
-            credit: 0,
-          },
-          {
-            accountId: cashAccount._id,
-            accountName: cashAccount.name,
-            accountCode: cashAccount.code,
-            debit: 0,
-            credit: amount,
-          },
-        ],
         status: 'Posted',
         createdBy: req.user.id,
         postedBy: req.user.id,
         postedAt: new Date(),
-      });
+        lines: {
+          create: [
+            {
+              accountId: equityChartAccount.id,
+              accountName: equityChartAccount.name,
+              accountCode: equityChartAccount.code,
+              debit: amount,
+              credit: 0,
+            },
+            {
+              accountId: cashAccount.id,
+              accountName: cashAccount.name,
+              accountCode: cashAccount.code,
+              debit: 0,
+              credit: amount,
+            },
+          ]
+        }
+      }
+    });
 
-      res.status(200).json({
-        success: true,
-        data: account,
-        message: `Drawings of ${amount} recorded successfully`,
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  };
+    res.status(200).json({
+      success: true,
+      data: account,
+      message: `Drawings of ${amount} recorded successfully`,
+    });
 
-  // ==================== TRANSFER TO RETAINED EARNINGS ====================
-  exports.transferToRetainedEarnings = async (req, res) => {
+    // Invalidate cache after successful drawings recording
     try {
-      const { amount, description, reference } = req.body;
+      const userId = req.user.id;
+    const companyId = req.user.companyId;
+      await delPattern(`equity:accounts:${userId}:*`);
+      await delPattern(`equity:account:${userId}:${accountId}`);
+      await delPattern(`equity:summary:${userId}:*`);
+      await delPattern(`equity:transactions:${userId}:*`);
+      console.log('🗑️ [Equity] Cache invalidated after drawings recording');
+    } catch (cacheError) {
+      console.log('⚠️ [Equity] Cache invalidation error:', cacheError.message);
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 
-      let retainedEarnings = await EquityAccount.findOne({ 
+// ==================== TRANSFER TO RETAINED EARNINGS ====================
+exports.transferToRetainedEarnings = async (req, res) => {
+  try {
+    console.log('🚀 [Equity] Transfer to Retained Earnings called');
+    console.log('📦 [Equity] Request body:', JSON.stringify(req.body, null, 2));
+    
+    const { amount, description, reference } = req.body;
+    console.log('💰 [Equity] Amount:', amount);
+    console.log('👤 [Equity] User ID:', req.user.id);
+
+    console.log('🔍 [Equity] Looking for Retained Earnings account...');
+    let retainedEarnings = await prisma.equityAccount.findFirst({ 
+      where: {
         accountType: 'Retained Earnings',
-        createdBy: req.user.id
-      });
+        companyId: companyId}
+    });
 
-      if (!retainedEarnings) {
-        retainedEarnings = await EquityAccount.create({
+    if (!retainedEarnings) {
+      console.log('⚠️ [Equity] Retained Earnings account not found, creating...');
+      retainedEarnings = await prisma.equityAccount.create({
+        data: {
           accountName: 'Retained Earnings',
           accountCode: '3020',
           accountType: 'Retained Earnings',
@@ -375,185 +532,309 @@ exports.addCapital = async (req, res) => {
           withdrawals: 0,
           notes: 'Accumulated profits',
           createdBy: req.user.id,
-        });
-      }
-
-      await retainedEarnings.transferToRetainedEarnings(amount, description, reference, req.user.id);
-
-      // Create journal entry
-      const pnlAccount = await ChartOfAccount.findOne({ 
-        code: '3000',
-        createdBy: req.user.id
+        }
       });
-      const retainedEarningsChart = await getOrCreateEquityAccount(req.user.id, retainedEarnings.accountCode, retainedEarnings.accountName);
+      console.log('✅ [Equity] Retained Earnings account created:', retainedEarnings.id);
+    } else {
+      console.log('✅ [Equity] Retained Earnings account found:', retainedEarnings.id);
+    }
 
-      await JournalEntry.create({
+    console.log('📝 [Equity] Updating retained earnings balance...');
+    // Update retained earnings
+    await prisma.equityAccount.update({
+      where: { id: retainedEarnings.id },
+      data: {
+        currentBalance: retainedEarnings.currentBalance + amount,
+        additions: retainedEarnings.additions + amount
+      }
+    });
+    console.log('✅ [Equity] Balance updated');
+
+    // Create journal entry
+    console.log('🔍 [Equity] Looking for P&L account (code 3000)...');
+    let pnlAccount = await prisma.chartOfAccount.findFirst({
+      where: {
+        code: '3000',
+        companyId: companyId}
+    });
+    console.log('🔍 [Equity] P&L Account:', pnlAccount ? pnlAccount.name : 'Not found');
+
+    // Create P&L account if it doesn't exist
+    if (!pnlAccount) {
+      console.log('🔨 [Equity] Creating P&L account...');
+      pnlAccount = await prisma.chartOfAccount.create({
+        data: {
+          code: '3000',
+          name: 'Profit & Loss',
+          type: 'Equity',
+          parentAccount: 'Shareholders Equity',
+          openingBalance: 0,
+          currentBalance: 0,
+          description: 'Profit & Loss Account',
+          taxCode: 'N/A',
+          balanceType: 'Credit',
+          isActive: true,
+          createdBy: req.user.id,
+        }
+      });
+      console.log('✅ [Equity] P&L account created');
+    }
+
+    console.log('🔍 [Equity] Getting/creating Retained Earnings chart account...');
+    const retainedEarningsChart = await getOrCreateEquityAccount(req.user.id, retainedEarnings.accountCode, retainedEarnings.accountName);
+    console.log('🔍 [Equity] Retained Earnings Chart Account:', retainedEarningsChart ? retainedEarningsChart.name : 'Not found');
+
+    if (!retainedEarningsChart) {
+      console.error('❌ [Equity] Failed to create or find Retained Earnings chart account');
+      throw new Error('Failed to create or find Retained Earnings chart account');
+    }
+
+    console.log('📝 [Equity] Creating journal entry...');
+    await prisma.journalEntry.create({
+      data: {
         entryNumber: `JE-${Date.now()}`,
         date: new Date(),
         description: description || `Transfer to retained earnings`,
         reference: reference || `RE-${Date.now()}`,
-        lines: [
-          {
-            accountId: pnlAccount ? pnlAccount._id : retainedEarningsChart._id,
-            accountName: pnlAccount ? pnlAccount.name : 'Profit & Loss',
-            accountCode: pnlAccount ? pnlAccount.code : '3000',
-            debit: amount,
-            credit: 0,
-          },
-          {
-            accountId: retainedEarningsChart._id,
-            accountName: retainedEarningsChart.name,
-            accountCode: retainedEarningsChart.code,
-            debit: 0,
-            credit: amount,
-          },
-        ],
         status: 'Posted',
         createdBy: req.user.id,
         postedBy: req.user.id,
         postedAt: new Date(),
-      });
-
-      res.status(200).json({
-        success: true,
-        data: retainedEarnings,
-        message: `${amount} transferred to retained earnings successfully`,
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  };
-
-  // ==================== GET SUMMARY ====================
-  exports.getSummary = async (req, res) => {
-    try {
-      // Chart of Accounts se Equity type ke accounts fetch karo - created by this user
-      const accounts = await ChartOfAccount.find({ 
-        type: 'Equity',
-        createdBy: req.user.id
-      });
-      
-      let totalCapital = 0;
-      let totalRetainedEarnings = 0;
-      let totalReserves = 0;
-      let totalDrawings = 0;
-      
-      for (const account of accounts) {
-        const balance = account.currentBalance || account.openingBalance || 0;
-        const name = account.name.toLowerCase();
-        
-        if (name.includes('capital') || name.includes('share')) {
-          totalCapital += balance;
-        } else if (name.includes('retained')) {
-          totalRetainedEarnings += balance;
-        } else if (name.includes('reserve')) {
-          totalReserves += balance;
-        } else if (name.includes('drawing')) {
-          totalDrawings += balance;
-        } else {
-          totalCapital += balance;
+        lines: {
+          create: [
+            {
+              accountId: pnlAccount ? pnlAccount.id : retainedEarningsChart.id,
+              accountName: pnlAccount ? pnlAccount.name : 'Profit & Loss',
+              accountCode: pnlAccount ? pnlAccount.code : '3000',
+              debit: amount,
+              credit: 0,
+            },
+            {
+              accountId: retainedEarningsChart.id,
+              accountName: retainedEarningsChart.name,
+              accountCode: retainedEarningsChart.code,
+              debit: 0,
+              credit: amount,
+            },
+          ]
         }
       }
-      
-      const totalEquity = totalCapital + totalRetainedEarnings + totalReserves - totalDrawings;
-      
-      res.status(200).json({
-        success: true,
-        data: {
-          totalCapital,
-          totalRetainedEarnings,
-          totalReserves,
-          totalDrawings,
-          totalEquity,
-        },
-      });
-    } catch (error) {
-      console.error("🔥 Error in getSummary:", error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  };
+    });
+    console.log('✅ [Equity] Journal entry created');
 
-  // ==================== GET ALL TRANSACTIONS ====================
-  exports.getAllTransactions = async (req, res) => {
+    console.log('✅ [Equity] Transfer completed successfully');
+    res.status(200).json({
+      success: true,
+      data: retainedEarnings,
+      message: `${amount} transferred to retained earnings successfully`,
+    });
+
+    // Invalidate cache after successful transfer to retained earnings
     try {
-      const accounts = await EquityAccount.find({
-        createdBy: req.user.id  // 👈 Only show equity accounts created by this user
+      const userId = req.user.id;
+    const companyId = req.user.companyId;
+      await delPattern(`equity:accounts:${userId}:*`);
+      await delPattern(`equity:summary:${userId}:*`);
+      await delPattern(`equity:transactions:${userId}:*`);
+      console.log('🗑️ [Equity] Cache invalidated after transfer to retained earnings');
+    } catch (cacheError) {
+      console.log('⚠️ [Equity] Cache invalidation error:', cacheError.message);
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ==================== GET SUMMARY ====================
+exports.getSummary = async (req, res) => {
+  try {
+    const { fiscalYearId } = req.query;
+    const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `equity:summary:${userId}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
       });
+    }
+    
+    // Chart of Accounts se Equity type ke accounts fetch karo - created by this user
+    let where = {
+      type: 'Equity',
+      companyId: companyId
+    };
+
+    if (fiscalYearId) {
+      where.fiscalYearId = fiscalYearId;
+    }
+
+    const accounts = await prisma.chartOfAccount.findMany({ where });
+    
+    let totalCapital = 0;
+    let totalRetainedEarnings = 0;
+    let totalReserves = 0;
+    let totalDrawings = 0;
+    
+    for (const account of accounts) {
+      const balance = account.currentBalance || account.openingBalance || 0;
+      const name = account.name.toLowerCase();
       
-      let allTransactions = [];
-      accounts.forEach(account => {
-        account.transactions.forEach(txn => {
-          allTransactions.push({
-            id: txn._id,
-            date: txn.date,
-            type: txn.type,
-            accountName: account.accountName,
-            accountType: account.accountType,
-            amount: txn.amount,
-            description: txn.description,
-            reference: txn.reference,
-            status: txn.status,
-          });
-        });
-      });
+      if (name.includes('capital') || name.includes('share')) {
+        totalCapital += balance;
+      } else if (name.includes('retained')) {
+        totalRetainedEarnings += balance;
+      } else if (name.includes('reserve')) {
+        totalReserves += balance;
+      } else if (name.includes('drawing')) {
+        totalDrawings += balance;
+      } else {
+        totalCapital += balance;
+      }
+    }
+    
+    const totalEquity = totalCapital + totalRetainedEarnings + totalReserves - totalDrawings;
+    
+    const summaryData = {
+      totalCapital,
+      totalRetainedEarnings,
+      totalReserves,
+      totalDrawings,
+      totalEquity,
+    };
 
-      // Sort by date descending
-      allTransactions.sort((a, b) => b.date - a.date);
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summaryData, 120);
+    
+    res.status(200).json({
+      success: true,
+      data: summaryData,
+      cached: false,
+    });
+  } catch (error) {
+    console.error("🔥 Error in getSummary:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 
-      res.status(200).json({
+// ==================== GET ALL TRANSACTIONS ====================
+exports.getAllTransactions = async (req, res) => {
+  try {
+    const { fiscalYearId } = req.query;
+    const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `equity:transactions:${userId}:${fiscalYearId || ''}`;
+
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
         success: true,
-        count: allTransactions.length,
-        data: allTransactions,
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
+        ...cached,
+        cached: true,
       });
     }
-  };
 
-  // ==================== DELETE EQUITY ACCOUNT ====================
-  exports.deleteEquityAccount = async (req, res) => {
+    let where = {
+      companyId: companyId
+    };
+
+    if (fiscalYearId) {
+      where.fiscalYearId = fiscalYearId;
+    }
+
+    const accounts = await prisma.equityAccount.findMany({ where });
+
+    // Note: Transactions are not stored in equityAccount model in Prisma schema
+    // They are tracked via journal entries. For now, return empty array
+    let allTransactions = [];
+
+    const responseData = {
+      count: allTransactions.length,
+      data: allTransactions,
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ==================== DELETE EQUITY ACCOUNT ====================
+exports.deleteEquityAccount = async (req, res) => {
+  try {
+    const account = await prisma.equityAccount.findFirst({
+      where: {
+        id: req.params.id,
+        companyId: companyId}
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Equity account not found',
+      });
+    }
+
+    if (account.transactions && account.transactions.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete account with transactions',
+      });
+    }
+
+    await prisma.equityAccount.delete({
+      where: { id: req.params.id }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Equity account deleted successfully',
+    });
+
+    // Invalidate cache after successful equity account deletion
     try {
-      const account = await EquityAccount.findOne({
-        _id: req.params.id,
-        createdBy: req.user.id  // 👈 Only allow if user owns this account
-      });
-
-      if (!account) {
-        return res.status(404).json({
-          success: false,
-          message: 'Equity account not found',
-        });
-      }
-
-      if (account.transactions.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot delete account with transactions',
-        });
-      }
-
-      await account.deleteOne();
-
-      res.status(200).json({
-        success: true,
-        message: 'Equity account deleted successfully',
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      const userId = req.user.id;
+    const companyId = req.user.companyId;
+      await delPattern(`equity:accounts:${userId}:*`);
+      await delPattern(`equity:account:${userId}:${req.params.id}`);
+      await delPattern(`equity:summary:${userId}:*`);
+      await delPattern(`equity:transactions:${userId}:*`);
+      console.log('🗑️ [Equity] Cache invalidated after equity account deletion');
+    } catch (cacheError) {
+      console.log('⚠️ [Equity] Cache invalidation error:', cacheError.message);
     }
-  };
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};

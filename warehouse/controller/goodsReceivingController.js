@@ -1,12 +1,15 @@
-// warehouse/controller/goodsReceivingController.js - COMPLETE
+// warehouse/controller/goodsReceivingController.js - COMPLETE CORRECTED
 
 const GoodsReceiving = require('../models/GoodsReceiving');
 const prisma = require('../../prisma/client');
 
-
+// @desc    Create Goods Receiving
+// @route   POST /api/purchase/goods-receiving
+// @access  Private
 const createGoodsReceiving = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       purchaseOrderId,
       receivingDate,
@@ -35,7 +38,7 @@ const createGoodsReceiving = async (req, res) => {
     const purchaseOrder = await prisma.purchaseOrder.findFirst({
       where: {
         id: purchaseOrderId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false,
         status: {
@@ -54,7 +57,6 @@ const createGoodsReceiving = async (req, res) => {
     // ─── Process Items ──────────────────────────────────
     const processedItems = [];
     for (const item of items) {
-      // Verify purchase order item exists
       const poItem = await prisma.purchaseOrderItem.findFirst({
         where: {
           id: item.purchaseOrderItemId,
@@ -77,6 +79,7 @@ const createGoodsReceiving = async (req, res) => {
     }
 
     // ─── Create Goods Receiving ──────────────────────────
+    // ✅ FIXED: Use createdBy and companyId
     const grnData = {
       purchaseOrderId,
       receivingDate: receivingDate || new Date(),
@@ -85,7 +88,7 @@ const createGoodsReceiving = async (req, res) => {
       items: processedItems,
       status: status || 'Draft',
       createdBy: userId,
-      userId: userId
+      companyId: companyId  // ✅ Use companyId
     };
 
     const goodsReceiving = await GoodsReceiving.create(grnData);
@@ -111,13 +114,13 @@ const createGoodsReceiving = async (req, res) => {
 const confirmGoodsReceiving = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    // ─── Check if GRN exists ────────────────────────────
     const grn = await prisma.goodsReceiving.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -144,8 +147,8 @@ const confirmGoodsReceiving = async (req, res) => {
       });
     }
 
-    // ─── Confirm GRN ──────────────────────────────────────
-    const confirmedGRN = await GoodsReceiving.confirmReceiving(id, userId);
+    // ✅ FIXED: Pass companyId to confirmReceiving
+    const confirmedGRN = await GoodsReceiving.confirmReceiving(id, userId, companyId);
 
     res.status(200).json({
       success: true,
@@ -168,6 +171,7 @@ const confirmGoodsReceiving = async (req, res) => {
 const getGoodsReceivings = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -181,8 +185,10 @@ const getGoodsReceivings = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
+    // ✅ FIXED: Use createdBy and companyId
     const filter = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy instead of userId
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false
     };
@@ -222,10 +228,11 @@ const getGoodsReceivings = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const orderBy = { [sortBy]: sortOrder === 'asc' ? 'asc' : 'desc' };
 
+    // ✅ FIXED: Pass companyId to getStats
     const [grns, total, stats] = await Promise.all([
       GoodsReceiving.findAll(filter, { skip, take: limitNum, orderBy }),
       GoodsReceiving.count(filter),
-      GoodsReceiving.getStats(userId)
+      GoodsReceiving.getStats(companyId)  // ✅ Pass companyId
     ]);
 
     res.status(200).json({
@@ -258,48 +265,10 @@ const getGoodsReceivings = async (req, res) => {
 const getGoodsReceivingById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    const grn = await prisma.goodsReceiving.findFirst({
-      where: {
-        id: id,
-        userId: userId,
-        isActive: true,
-        isDeleted: false
-      },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: { id: true, name: true, sku: true }
-            },
-            purchaseOrderItem: {
-              include: {
-                product: {
-                  select: { id: true, name: true, sku: true }
-                }
-              }
-            }
-          }
-        },
-        purchaseOrder: {
-          include: {
-            supplier: true,
-            items: true
-          }
-        },
-        supplier: true,
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        updater: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        confirmer: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        }
-      }
-    });
+    const grn = await GoodsReceiving.findById(id);
 
     if (!grn) {
       return res.status(404).json({
@@ -328,12 +297,13 @@ const getGoodsReceivingById = async (req, res) => {
 const getGoodsReceivingByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { grnNumber } = req.params;
 
     const grn = await prisma.goodsReceiving.findFirst({
       where: {
         grnNumber: grnNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -387,6 +357,7 @@ const getGoodsReceivingByNumber = async (req, res) => {
 const getGoodsReceivingsByOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { purchaseOrderId } = req.params;
 
     const grns = await GoodsReceiving.findByPurchaseOrder(purchaseOrderId);
@@ -412,6 +383,7 @@ const getGoodsReceivingsByOrder = async (req, res) => {
 const updateGoodsReceiving = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const {
       receivingDate,
@@ -421,11 +393,10 @@ const updateGoodsReceiving = async (req, res) => {
       status
     } = req.body;
 
-    // ─── Check if GRN exists ────────────────────────────
     const grn = await prisma.goodsReceiving.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -445,7 +416,6 @@ const updateGoodsReceiving = async (req, res) => {
       });
     }
 
-    // ─── Prepare update data ─────────────────────────────
     const updateData = {
       updatedBy: userId,
       ...(receivingDate && { receivingDate: new Date(receivingDate) }),
@@ -454,7 +424,6 @@ const updateGoodsReceiving = async (req, res) => {
       ...(status && { status })
     };
 
-    // ─── Process items if provided ──────────────────────
     if (items) {
       const processedItems = [];
       for (const item of items) {
@@ -481,7 +450,6 @@ const updateGoodsReceiving = async (req, res) => {
       updateData.items = processedItems;
     }
 
-    // ─── Update GRN ──────────────────────────────────────
     const updatedGRN = await GoodsReceiving.update(id, updateData);
 
     res.status(200).json({
@@ -505,13 +473,13 @@ const updateGoodsReceiving = async (req, res) => {
 const deleteGoodsReceiving = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    // ─── Check if GRN exists ────────────────────────────
     const grn = await prisma.goodsReceiving.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -531,7 +499,6 @@ const deleteGoodsReceiving = async (req, res) => {
       });
     }
 
-    // ─── Soft Delete ─────────────────────────────────────
     await GoodsReceiving.softDelete(id, userId);
 
     res.status(200).json({
@@ -554,7 +521,9 @@ const deleteGoodsReceiving = async (req, res) => {
 const getGoodsReceivingStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const stats = await GoodsReceiving.getStats(userId);
+    const companyId = req.user.companyId;
+    // ✅ FIXED: Pass companyId
+    const stats = await GoodsReceiving.getStats(companyId);
 
     res.status(200).json({
       success: true,
@@ -576,9 +545,11 @@ const getGoodsReceivingStats = async (req, res) => {
 const getSupplierGoodsReceivingSummary = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { supplierId } = req.params;
 
-    const summary = await GoodsReceiving.getSupplierSummary(userId, supplierId);
+    // ✅ FIXED: Pass companyId first
+    const summary = await GoodsReceiving.getSupplierSummary(companyId, supplierId);
 
     res.status(200).json({
       success: true,
@@ -600,10 +571,13 @@ const getSupplierGoodsReceivingSummary = async (req, res) => {
 const getAvailablePurchaseOrders = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
+    // ✅ FIXED: Use createdBy instead of userId
     const where = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false,
       status: {
@@ -618,7 +592,6 @@ const getAvailablePurchaseOrders = async (req, res) => {
       ];
     }
 
-    // Get purchase orders with their GRNs
     const orders = await prisma.purchaseOrder.findMany({
       where,
       include: {
@@ -645,9 +618,7 @@ const getAvailablePurchaseOrders = async (req, res) => {
       }
     });
 
-    // Calculate remaining quantities for each order
     const availableOrders = orders.map(order => {
-      // Calculate total received per product from all GRNs
       const receivedQty = {};
       for (const grn of order.goodsReceivings) {
         for (const item of grn.items) {
@@ -656,7 +627,6 @@ const getAvailablePurchaseOrders = async (req, res) => {
         }
       }
 
-      // Calculate remaining items
       const remainingItems = order.items.map(item => ({
         ...item,
         alreadyReceived: receivedQty[item.id] || 0,
@@ -700,12 +670,13 @@ const getAvailablePurchaseOrders = async (req, res) => {
 const printGoodsReceiving = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const grn = await prisma.goodsReceiving.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -736,8 +707,6 @@ const printGoodsReceiving = async (req, res) => {
       });
     }
 
-    // Here you would generate PDF
-    // For now, return the GRN data
     res.status(200).json({
       success: true,
       message: 'GRN data for print',

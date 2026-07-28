@@ -1,4 +1,4 @@
-// warehouse/models/PurchaseOrder.js - FIXED
+// warehouse/models/PurchaseOrder.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 
@@ -22,12 +22,11 @@ class PurchaseOrderModel {
     
     return await prisma.$transaction(async (tx) => {
       // ─── Validate Supplier ──────────────────────────────────
-      // ✅ FIX: Use 'status' instead of 'isActive'
       const supplier = await tx.supplier.findFirst({
         where: {
           id: data.supplierId,
-          userId: data.userId,
-          status: 'active'  // ✅ Changed from isActive: true
+          companyId: data.companyId,  // ✅ Use companyId instead of userId
+          status: 'active'
         }
       });
 
@@ -40,7 +39,7 @@ class PurchaseOrderModel {
         const product = await tx.product.findFirst({
           where: {
             id: item.productId,
-            userId: data.userId,
+            companyId: data.companyId,  // ✅ Use companyId instead of userId
             isActive: true
           }
         });
@@ -83,6 +82,7 @@ class PurchaseOrderModel {
       const grandTotal = subtotal - totalDiscount + totalTax;
 
       // ─── Create Purchase Order ──────────────────────────────
+      // ✅ FIXED: Use createdBy and companyId (NOT userId)
       const purchaseOrder = await tx.purchaseOrder.create({
         data: {
           orderNumber,
@@ -100,8 +100,8 @@ class PurchaseOrderModel {
           grandTotal,
           notes: data.notes || null,
           termsConditions: data.termsConditions || null,
-          createdBy: data.createdBy,
-          userId: data.userId,
+          createdBy: data.createdBy,        // ✅ Use createdBy
+          companyId: data.companyId,        // ✅ Use companyId
           items: {
             create: orderItems
           }
@@ -119,7 +119,11 @@ class PurchaseOrderModel {
         }
       });
 
-      return purchaseOrder;
+      // Calculate totalItems
+      return {
+        ...purchaseOrder,
+        totalItems: purchaseOrder.items.reduce((sum, item) => sum + item.quantity, 0)
+      };
     });
   }
 
@@ -127,7 +131,7 @@ class PurchaseOrderModel {
   // GET PURCHASE ORDER BY ID
   // ============================================================
   static async findById(id) {
-    return await prisma.purchaseOrder.findUnique({
+    const order = await prisma.purchaseOrder.findUnique({
       where: { id },
       include: {
         items: {
@@ -146,13 +150,21 @@ class PurchaseOrderModel {
         }
       }
     });
+
+    if (!order) return null;
+
+    // Calculate totalItems
+    return {
+      ...order,
+      totalItems: order.items.reduce((sum, item) => sum + item.quantity, 0)
+    };
   }
 
   // ============================================================
   // GET PURCHASE ORDER BY NUMBER
   // ============================================================
   static async findByOrderNumber(orderNumber) {
-    return await prisma.purchaseOrder.findUnique({
+    const order = await prisma.purchaseOrder.findUnique({
       where: { orderNumber },
       include: {
         items: {
@@ -168,6 +180,14 @@ class PurchaseOrderModel {
         }
       }
     });
+
+    if (!order) return null;
+
+    // Calculate totalItems
+    return {
+      ...order,
+      totalItems: order.items.reduce((sum, item) => sum + item.quantity, 0)
+    };
   }
 
   // ============================================================
@@ -176,9 +196,16 @@ class PurchaseOrderModel {
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { orderDate: 'desc' } } = options;
     
-    return await prisma.purchaseOrder.findMany({
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
+    const orders = await prisma.purchaseOrder.findMany({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       },
@@ -199,15 +226,28 @@ class PurchaseOrderModel {
         }
       }
     });
+
+    // Calculate totalItems for each order
+    return orders.map(order => ({
+      ...order,
+      totalItems: order.items.reduce((sum, item) => sum + item.quantity, 0)
+    }));
   }
 
   // ============================================================
-  // COUNT PURCHASE ORDERS
+  // COUNT PURCHASE ORDERS - ✅ FIXED
   // ============================================================
   static async count(filter = {}) {
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.purchaseOrder.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       }
@@ -254,12 +294,10 @@ class PurchaseOrderModel {
 
       // ─── Update items if provided ──────────────────────────
       if (data.items) {
-        // Delete existing items
         await tx.purchaseOrderItem.deleteMany({
           where: { purchaseOrderId: id }
         });
 
-        // Recalculate totals
         let subtotal = 0;
         let totalDiscount = 0;
         let totalTax = 0;
@@ -316,7 +354,11 @@ class PurchaseOrderModel {
         }
       });
 
-      return updatedOrder;
+      // Calculate totalItems
+      return {
+        ...updatedOrder,
+        totalItems: updatedOrder.items.reduce((sum, item) => sum + item.quantity, 0)
+      };
     });
   }
 
@@ -332,7 +374,6 @@ class PurchaseOrderModel {
       throw new Error('Purchase order not found');
     }
 
-    // ─── Validate status transition ──────────────────────────
     const validTransitions = {
       'Draft': ['Sent', 'Cancelled'],
       'Sent': ['Approved', 'Cancelled'],
@@ -349,7 +390,6 @@ class PurchaseOrderModel {
       updatedBy: userId
     };
 
-    // ─── Set timestamps ──────────────────────────────────────
     if (status === 'Sent') {
       updateData.sentAt = new Date();
     } else if (status === 'Approved') {
@@ -358,7 +398,7 @@ class PurchaseOrderModel {
       updateData.cancelledAt = new Date();
     }
 
-    return await prisma.purchaseOrder.update({
+    const updatedOrder = await prisma.purchaseOrder.update({
       where: { id },
       data: updateData,
       include: {
@@ -373,6 +413,12 @@ class PurchaseOrderModel {
         }
       }
     });
+
+    // Calculate totalItems
+    return {
+      ...updatedOrder,
+      totalItems: updatedOrder.items.reduce((sum, item) => sum + item.quantity, 0)
+    };
   }
 
   // ============================================================
@@ -407,7 +453,6 @@ class PurchaseOrderModel {
         throw new Error('Supplier email is not configured');
       }
 
-      // ─── Update status to Sent ─────────────────────────────
       const updatedOrder = await tx.purchaseOrder.update({
         where: { id },
         data: {
@@ -428,7 +473,11 @@ class PurchaseOrderModel {
         }
       });
 
-      return updatedOrder;
+      // Calculate totalItems
+      return {
+        ...updatedOrder,
+        totalItems: updatedOrder.items.reduce((sum, item) => sum + item.quantity, 0)
+      };
     });
   }
 
@@ -448,7 +497,7 @@ class PurchaseOrderModel {
       throw new Error('Purchase order already cancelled');
     }
 
-    return await prisma.purchaseOrder.update({
+    const updatedOrder = await prisma.purchaseOrder.update({
       where: { id },
       data: {
         status: 'Cancelled',
@@ -470,6 +519,12 @@ class PurchaseOrderModel {
         }
       }
     });
+
+    // Calculate totalItems
+    return {
+      ...updatedOrder,
+      totalItems: updatedOrder.items.reduce((sum, item) => sum + item.quantity, 0)
+    };
   }
 
   // ============================================================
@@ -502,9 +557,9 @@ class PurchaseOrderModel {
   }
 
   // ============================================================
-  // GET PURCHASE ORDER STATS
+  // GET PURCHASE ORDER STATS - ✅ FIXED
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId) {  // ✅ Use companyId instead of userId
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -512,10 +567,9 @@ class PurchaseOrderModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId  // ✅ Use companyId
     };
 
-    // ─── Today's orders ──────────────────────────────────────
     const todayOrders = await prisma.purchaseOrder.count({
       where: {
         ...baseFilter,
@@ -537,7 +591,6 @@ class PurchaseOrderModel {
       }
     });
 
-    // ─── Monthly orders ──────────────────────────────────────
     const monthOrders = await prisma.purchaseOrder.count({
       where: {
         ...baseFilter,
@@ -559,7 +612,6 @@ class PurchaseOrderModel {
       }
     });
 
-    // ─── Status counts ──────────────────────────────────────
     const [draft, sent, approved, cancelled] = await Promise.all([
       prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Draft' } }),
       prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Sent' } }),
@@ -587,13 +639,13 @@ class PurchaseOrderModel {
   }
 
   // ============================================================
-  // GET PURCHASE ORDER SUMMARY
+  // GET PURCHASE ORDER SUMMARY - ✅ FIXED
   // ============================================================
-  static async getSummary(userId) {
+  static async getSummary(companyId) {  // ✅ Use companyId instead of userId
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId  // ✅ Use companyId
     };
 
     const totalOrders = await prisma.purchaseOrder.count({
@@ -633,13 +685,13 @@ class PurchaseOrderModel {
   }
 
   // ============================================================
-  // GET SUPPLIER PURCHASE ORDER SUMMARY
+  // GET SUPPLIER PURCHASE ORDER SUMMARY - ✅ FIXED
   // ============================================================
-  static async getSupplierSummary(userId, supplierId) {
+  static async getSupplierSummary(companyId, supplierId) {  // ✅ Use companyId instead of userId
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId,
+      companyId: companyId,  // ✅ Use companyId
       supplierId: supplierId
     };
 

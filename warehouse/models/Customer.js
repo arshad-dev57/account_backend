@@ -1,7 +1,8 @@
 // warehouse/models/customer.js - Prisma Version
-const prisma = require('../../prisma/client');  // ✅ CORRECT PATH - 2 levels up
+const prisma = require('../../prisma/client');
 console.log('🔍 Prisma in customer model:', prisma ? '✅ Defined' : '❌ UNDEFINED');
 console.log('🔍 Prisma methods:', Object.keys(prisma || {}));
+
 // ─── Generate Customer Number Function ──────────────────────
 function generateCustomerNumber() {
   const date = new Date();
@@ -122,9 +123,9 @@ class CustomerModel {
       name: data.name,
       email: data.email,
       phone: data.phone,
-      company: data.company,
+      companyName: data.company || data.companyName || null,
       customerType: data.customerType || 'Individual',
-      taxId: data.taxId,
+      taxId: data.taxId || null,
       address: data.address || {},
       shippingAddress: data.shippingAddress || {},
       billingAddress: data.billingAddress || {},
@@ -134,7 +135,8 @@ class CustomerModel {
       tags: data.tags || [],
       preferences: data.preferences || {},
       createdBy: data.createdBy,
-      updatedBy: data.createdBy
+      updatedBy: data.createdBy,
+      companyId: data.companyId || null
     };
 
     return await prisma.customer.create({
@@ -151,7 +153,16 @@ class CustomerModel {
   // UPDATE CUSTOMER
   // ============================================================
   static async update(id, data) {
-    const updateData = { ...data, updatedBy: data.updatedBy };
+    const updateData = { 
+      ...data, 
+      updatedBy: data.updatedBy,
+      // If company is provided, map it to companyName
+      ...(data.company !== undefined && { companyName: data.company }),
+      ...(data.companyName !== undefined && { companyName: data.companyName })
+    };
+    
+    // Remove company field if exists (not in schema)
+    delete updateData.company;
     
     // Calculate average order value if totalOrders and totalSpent provided
     if (data.totalOrders !== undefined && data.totalSpent !== undefined) {
@@ -322,7 +333,8 @@ class CustomerModel {
         totalSpent: true,
         totalOrders: true,
         email: true,
-        phone: true
+        phone: true,
+        companyName: true
       }
     });
   }
@@ -343,7 +355,7 @@ class CustomerModel {
           { name: { contains: query, mode: 'insensitive' } },
           { email: { contains: query, mode: 'insensitive' } },
           { phone: { contains: query, mode: 'insensitive' } },
-          { company: { contains: query, mode: 'insensitive' } },
+          { companyName: { contains: query, mode: 'insensitive' } },
           { customerNumber: { contains: query, mode: 'insensitive' } }
         ]
       },
@@ -353,7 +365,7 @@ class CustomerModel {
         name: true,
         email: true,
         phone: true,
-        company: true,
+        companyName: true,
         customerNumber: true,
         customerType: true,
         address: true

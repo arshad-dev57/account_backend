@@ -1,12 +1,9 @@
-// models/User.js - Prisma Version (COMPLETE FIXED)
 
 const prisma = require('../prisma/client');
 const bcrypt = require('bcryptjs');
 
 class User {
-  // ========== STATIC METHODS (Class-level) ==========
 
-  // Find user by email or id
   static async findOne(query) {
     if (query.email) {
       return await prisma.user.findUnique({
@@ -21,7 +18,6 @@ class User {
     return null;
   }
 
-  // ✅ FIXED: Find user by id with businessDetails
   static async findById(id) {
     console.log('🔍 [User.findById] Looking for user:', id);
 
@@ -66,7 +62,6 @@ class User {
     return user;
   }
 
-  // Find user by id with select fields
   static async findByIdWithSelect(id, selectFields) {
     const select = {};
     if (selectFields) {
@@ -88,7 +83,6 @@ class User {
     });
   }
 
-  // Find one with select (for login)
   static async findOneWithSelect(query, selectFields) {
     const select = {};
     if (selectFields) {
@@ -104,7 +98,6 @@ class User {
     });
   }
 
-  // Create user
   static async create(data) {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
@@ -128,7 +121,6 @@ class User {
     });
   }
 
-  // Find and update
   static async findByIdAndUpdate(id, updateData) {
     let data = {};
 

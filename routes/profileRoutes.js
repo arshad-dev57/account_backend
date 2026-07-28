@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const { upload } = require('../config/cloudinary');
 const {
   getProfile,
   updateProfile,
@@ -16,13 +17,13 @@ router.use(protect);
 
 // ─── PROFILE ROUTES ────────────────────────────────────────
 router.get('/', getProfile);
-router.put('/', updateProfile);
+router.put('/', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'signature', maxCount: 1 }]), updateProfile);
 
 // ─── BUSINESS DETAILS ROUTES ──────────────────────────────
 router.get('/business', getBusinessDetails);
-router.put('/business', updateBusinessDetails);
+router.put('/business', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'signature', maxCount: 1 }]), updateBusinessDetails);
 
 // ─── PROFILE IMAGE ROUTES ──────────────────────────────────
-router.put('/image', updateProfileImage);
+router.put('/image', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'signature', maxCount: 1 }]), updateProfileImage);
 
 module.exports = router;

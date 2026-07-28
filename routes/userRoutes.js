@@ -12,6 +12,7 @@
     resetPassword,
     updateCurrency,
   } = require('../controllers/userController');
+  const { upload } = require('../config/cloudinary');
 
   // Public routes mein add karo:
   router.post('/verify-login-otp', verifyLoginOTP);
@@ -19,7 +20,7 @@
   const { protect, protectOnly } = require('../middleware/authMiddleware');  // ✅ protectOnly import karo
 
   // ========== PUBLIC ROUTES (No authentication) ==========
-  router.post('/register', register);
+  router.post('/register', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'signature', maxCount: 1 }]), register);
   router.post('/login', login);
   router.post('/forgot-password', forgotPassword);
   router.post('/verify-otp', passwordverifyOTP);

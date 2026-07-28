@@ -11,6 +11,7 @@ const {
   updatePurchaseOrder,
   updatePurchaseOrderStatus,
   sendPurchaseOrder,
+  sendPurchaseOrderWithInvoice,
   cancelPurchaseOrder,
   deletePurchaseOrder,
   getPurchaseOrderStats,
@@ -47,6 +48,9 @@ router.post('/', createPurchaseOrder);
 
 // Send purchase order (email)
 router.post('/:id/send', sendPurchaseOrder);
+
+// Send purchase order with invoice (email with PDF)
+router.post('/:id/send-with-invoice', sendPurchaseOrderWithInvoice);
 
 // Cancel purchase order
 router.post('/:id/cancel', cancelPurchaseOrder);

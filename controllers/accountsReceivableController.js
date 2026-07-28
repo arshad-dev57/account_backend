@@ -2,14 +2,16 @@
 
 const prisma = require('../prisma/client');
 const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 // ─── HELPER: Get or create Accounts Receivable account ──────────
-async function getOrCreateReceivableAccount(userId) {
+async function getOrCreateReceivableAccount(userId, companyId) {
   console.log('🔍 [AR] Getting/Creating Accounts Receivable account');
   let arAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1110',
-      createdBy: userId
+      
+      companyId: companyId
     }
   });
 
@@ -38,12 +40,13 @@ async function getOrCreateReceivableAccount(userId) {
 }
 
 // ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId) {
+async function getOrCreateCashAccount(userId, companyId) {
   console.log('🔍 [AR] Getting/Creating Cash account');
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      createdBy: userId
+      
+      companyId: companyId
     }
   });
 
@@ -61,7 +64,8 @@ async function getOrCreateCashAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [AR] Cash account created');
@@ -77,8 +81,7 @@ async function getOrCreateRevenueAccount(userId) {
   let revenueAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '4010',
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!revenueAccount) {
@@ -111,8 +114,7 @@ async function getOrCreateTaxLiabilityAccount(userId) {
   let taxAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '2220',
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!taxAccount) {
@@ -142,7 +144,7 @@ async function getOrCreateTaxLiabilityAccount(userId) {
 // ─── HELPER: Generate invoice number ────────────────────────────
 async function generateInvoiceNumber(userId) {
   const count = await prisma.warehouseInvoice.count({
-    where: { createdBy: userId }
+    where: { companyId: companyId}
   });
   const year = new Date().getFullYear();
   const invoiceNumber = `INV-${year}-${String(count + 1).padStart(4, '0')}`;
@@ -156,7 +158,7 @@ async function validateWarehouseCustomer(customerId, userId) {
   const customer = await prisma.customer.findFirst({
     where: {
       id: customerId,
-      createdBy: userId,
+      companyId: companyId,
       isActive: true
     }
   });
@@ -177,7 +179,7 @@ async function validateBankAccount(bankAccountId, userId) {
   const bankAccount = await prisma.bankAccount.findFirst({
     where: {
       id: bankAccountId,
-      createdBy: userId,
+      companyId: companyId,
       status: 'Active'
     },
     include: {
@@ -201,7 +203,7 @@ async function validateWarehouseInvoice(invoiceId, userId) {
   const invoice = await prisma.warehouseInvoice.findFirst({
     where: {
       id: invoiceId,
-      createdBy: userId,
+      companyId: companyId,
       invoiceStatus: { not: 'Paid' }
     }
   });
@@ -238,12 +240,13 @@ const createCustomer = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     console.log('👤 [AR] User ID:', userId);
 
     let finalCustomerNumber = customerNumber;
     if (!finalCustomerNumber) {
       const count = await prisma.customer.count({
-        where: { createdBy: userId }
+        where: { companyId: companyId}
       });
       finalCustomerNumber = `CUST-${String(count + 1).padStart(4, '0')}`;
       console.log(`📝 [AR] Generated customer number: ${finalCustomerNumber}`);
@@ -279,6 +282,15 @@ const createCustomer = async (req, res) => {
     });
 
     console.log(`✅ [AR] Customer created: ${customer.name}`);
+
+    // Invalidate cache after successful customer creation
+    try {
+      await delPattern(`ar:customers:${userId}:*`);
+      console.log('🗑️ [AR] Cache invalidated after customer creation');
+    } catch (cacheError) {
+      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
+    }
+
     res.status(201).json({
       success: true,
       data: customer,
@@ -299,7 +311,22 @@ const getCustomers = async (req, res) => {
     const { search, status } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `ar:customers:${userId}:${search || ''}:${status || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        count: cached.length,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = { companyId: companyId };
 
     if (search) {
       filter.OR = [
@@ -332,7 +359,7 @@ const getCustomers = async (req, res) => {
 
     const invoices = await prisma.warehouseInvoice.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         invoiceStatus: { not: 'Paid' }
       }
     });
@@ -354,10 +381,14 @@ const getCustomers = async (req, res) => {
       };
     });
 
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, customersWithOutstanding, 600);
+
     res.status(200).json({
       success: true,
       count: customersWithOutstanding.length,
       data: customersWithOutstanding,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AR] Get customers error:', error);
@@ -375,11 +406,24 @@ const getCustomer = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `ar:customer:${userId}:${id}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const customer = await prisma.customer.findFirst({
       where: {
         id,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         creator: {
           select: {
@@ -402,8 +446,7 @@ const getCustomer = async (req, res) => {
     const invoices = await prisma.warehouseInvoice.findMany({
       where: {
         customerId: customer.id,
-        createdBy: userId
-      },
+        companyId: companyId},
       orderBy: { invoiceDate: 'desc' }
     });
 
@@ -411,15 +454,21 @@ const getCustomer = async (req, res) => {
     const paidAmount = invoices.reduce((sum, inv) => sum + inv.paidAmount, 0);
     const outstandingAmount = totalAmount - paidAmount;
 
+    const customerData = {
+      ...customer,
+      invoices,
+      totalAmount,
+      paidAmount,
+      outstandingAmount,
+    };
+
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, customerData, 600);
+
     res.status(200).json({
       success: true,
-      data: {
-        ...customer,
-        invoices,
-        totalAmount,
-        paidAmount,
-        outstandingAmount,
-      },
+      data: customerData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AR] Get customer error:', error);
@@ -434,6 +483,7 @@ const updateCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       customerNumber,
       name,
@@ -453,8 +503,7 @@ const updateCustomer = async (req, res) => {
     const existing = await prisma.customer.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!existing) {
@@ -493,6 +542,15 @@ const updateCustomer = async (req, res) => {
       }
     });
 
+    // Invalidate cache after successful customer update
+    try {
+      await delPattern(`ar:customers:${userId}:*`);
+      await delPattern(`ar:customer:${userId}:${id}`);
+      console.log('🗑️ [AR] Cache invalidated after customer update');
+    } catch (cacheError) {
+      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
+    }
+
     res.status(200).json({
       success: true,
       data: customer,
@@ -511,11 +569,11 @@ const deleteCustomer = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const hasInvoices = await prisma.warehouseInvoice.findFirst({
       where: {
         customerId: id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (hasInvoices) {
@@ -528,8 +586,7 @@ const deleteCustomer = async (req, res) => {
     const customer = await prisma.customer.deleteMany({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (customer.count === 0) {
@@ -537,6 +594,15 @@ const deleteCustomer = async (req, res) => {
         success: false,
         message: 'Customer not found',
       });
+    }
+
+    // Invalidate cache after successful customer deletion
+    try {
+      await delPattern(`ar:customers:${userId}:*`);
+      await delPattern(`ar:customer:${userId}:${id}`);
+      console.log('🗑️ [AR] Cache invalidated after customer deletion');
+    } catch (cacheError) {
+      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
     }
 
     res.status(200).json({
@@ -571,6 +637,7 @@ const createInvoice = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // Validate warehouse customer
     const customer = await validateWarehouseCustomer(customerId, userId);
 
@@ -616,6 +683,18 @@ const createInvoice = async (req, res) => {
       message: 'Invoice created successfully',
       data: invoice,
     });
+
+    // Invalidate cache after successful invoice creation
+    try {
+      await delPattern(`ar:invoices:${userId}:*`);
+      await delPattern(`ar:summary:${userId}:*`);
+      await delPattern(`ar:aged:${userId}:*`);
+      await delPattern(`ar:customer:${userId}:${customerId}:unpaid-invoices`);
+      await delPattern(`ar:customer:${userId}:${customerId}`);
+      console.log('🗑️ [AR] Cache invalidated after invoice creation');
+    } catch (cacheError) {
+      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ [AR] Create invoice error:', error);
     res.status(500).json({
@@ -629,17 +708,31 @@ const getInvoices = async (req, res) => {
   console.log('📦 [AR] getInvoices called');
   
   try {
-    const { customerId, status, startDate, endDate } = req.query;
+    const { customerId, status, startDate, endDate, fiscalYearId } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `ar:invoices:${userId}:${customerId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        count: cached.length,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = { companyId: companyId };
 
     if (customerId) {
       const customer = await prisma.customer.findFirst({
         where: {
           id: customerId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (customer) {
         filter.customerId = customerId;
@@ -655,6 +748,10 @@ const getInvoices = async (req, res) => {
         gte: new Date(startDate),
         lte: new Date(endDate)
       };
+    }
+
+    if (fiscalYearId) {
+      filter.fiscalYearId = fiscalYearId;
     }
 
     const invoices = await prisma.warehouseInvoice.findMany({
@@ -680,10 +777,14 @@ const getInvoices = async (req, res) => {
       }
     });
 
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, invoices, 300);
+
     res.status(200).json({
       success: true,
       count: invoices.length,
       data: invoices,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AR] Get invoices error:', error);
@@ -701,11 +802,24 @@ const getInvoice = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `ar:invoice:${userId}:${id}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const invoice = await prisma.warehouseInvoice.findFirst({
       where: {
         id,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         customer: {
           select: {
@@ -734,9 +848,13 @@ const getInvoice = async (req, res) => {
       });
     }
 
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, invoice, 600);
+
     res.status(200).json({
       success: true,
       data: invoice,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AR] Get invoice error:', error);
@@ -758,11 +876,11 @@ const cancelInvoice = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const invoice = await prisma.warehouseInvoice.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!invoice) {
@@ -814,13 +932,27 @@ const getUnpaidInvoices = async (req, res) => {
   try {
     const { customerId } = req.params;
     const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `ar:customer:${userId}:${customerId}:unpaid-invoices`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        count: cached.length,
+        data: cached,
+        cached: true,
+      });
+    }
     
     // ─── Step 1: Check customer ──────────────────────────────
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
     
     if (!customer) {
@@ -837,7 +969,7 @@ const getUnpaidInvoices = async (req, res) => {
     const allInvoices = await prisma.warehouseInvoice.findMany({
       where: {
         customerId: customerId,
-        createdBy: userId,
+        companyId: companyId,
       }
     });
     
@@ -856,7 +988,7 @@ const getUnpaidInvoices = async (req, res) => {
     const unpaidInvoices = await prisma.warehouseInvoice.findMany({
       where: {
         customerId: customerId,
-        createdBy: userId,
+        companyId: companyId,
         // ✅ FIX: Include Active status (not just Unpaid)
         invoiceStatus: { in: ['Active', 'Unpaid', 'Partial'] },
         isActive: true,
@@ -877,11 +1009,15 @@ const getUnpaidInvoices = async (req, res) => {
       outstanding: parseFloat(invoice.grandTotal - invoice.paidAmount),
       status: invoice.invoiceStatus,
     }));
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, result, 300);
     
     res.status(200).json({
       success: true,
       count: result.length,
       data: result,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AR] getUnpaidInvoices error:', error);
@@ -898,7 +1034,7 @@ async function generatePaymentNumber(userId, tx) {
   const prefix = `PMT-${year}-`;
 
   const lastPayment = await tx.paymentReceived.findFirst({
-    where: { createdBy: userId, paymentNumber: { startsWith: prefix } },
+    where: { companyId: companyId, paymentNumber: { startsWith: prefix } },
     orderBy: { paymentNumber: 'desc' }
   });
 
@@ -925,6 +1061,7 @@ const recordPayment = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -940,7 +1077,7 @@ const recordPayment = async (req, res) => {
         const result = await prisma.$transaction(async (tx) => {
           // Validate warehouse invoice (inside tx for consistency)
           const invoice = await tx.warehouseInvoice.findFirst({
-            where: { id: invoiceId, createdBy: userId, invoiceStatus: { not: 'Paid' } }
+            where: { id: invoiceId, companyId: companyId, invoiceStatus: { not: 'Paid' } }
           });
           if (!invoice) {
             const err = new Error('Invoice not found or already paid');
@@ -971,7 +1108,7 @@ const recordPayment = async (req, res) => {
           });
 
           // Get/create accounts
-          let arAccount = await tx.chartOfAccount.findFirst({ where: { code: '1110', createdBy: userId } });
+          let arAccount = await tx.chartOfAccount.findFirst({ where: { code: '1110', companyId: companyId} });
           if (!arAccount) {
             arAccount = await tx.chartOfAccount.create({
               data: {
@@ -983,7 +1120,7 @@ const recordPayment = async (req, res) => {
             });
           }
 
-          let cashAccount = await tx.chartOfAccount.findFirst({ where: { code: '1010', createdBy: userId } });
+          let cashAccount = await tx.chartOfAccount.findFirst({ where: { code: '1010', companyId: companyId} });
           if (!cashAccount) {
             cashAccount = await tx.chartOfAccount.create({
               data: {
@@ -1000,7 +1137,7 @@ const recordPayment = async (req, res) => {
 
           if (bankAccountId) {
             bankAccount = await tx.bankAccount.findFirst({
-              where: { id: bankAccountId, createdBy: userId, status: 'Active' },
+              where: { id: bankAccountId, companyId: companyId, status: 'Active' },
               include: { chartOfAccount: true }
             });
             if (!bankAccount) {
@@ -1123,6 +1260,18 @@ const recordPayment = async (req, res) => {
       }
     }
 
+    // Invalidate cache after successful payment recording
+    try {
+      await delPattern(`ar:invoices:${userId}:*`);
+      await delPattern(`ar:invoice:${userId}:${invoiceId}`);
+      await delPattern(`ar:summary:${userId}:*`);
+      await delPattern(`ar:aged:${userId}:*`);
+      await delPattern(`ar:customers:${userId}:*`);
+      console.log('🗑️ [AR] Cache invalidated after payment recording');
+    } catch (cacheError) {
+      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
+    }
+
     const statusCode = lastError && lastError.statusCode ? lastError.statusCode : 500;
     return res.status(statusCode).json({
       success: false,
@@ -1147,12 +1296,33 @@ const getSummary = async (req, res) => {
   
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { fiscalYearId } = req.query;
+
+    // Build cache key with parameters
+    const cacheKey = `ar:summary:${userId}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = {
+      companyId: companyId,
+      invoiceStatus: { not: 'Paid' }
+    };
+
+    if (fiscalYearId) {
+      filter.fiscalYearId = fiscalYearId;
+    }
 
     const invoices = await prisma.warehouseInvoice.findMany({
-      where: {
-        createdBy: userId,
-        invoiceStatus: { not: 'Paid' }
-      }
+      where: filter
     });
 
     const totalOutstanding = invoices.reduce(
@@ -1179,20 +1349,26 @@ const getSummary = async (req, res) => {
 
     const activeCustomers = await prisma.customer.count({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         isActive: true
       }
     });
 
+    const summaryData = {
+      totalOutstanding,
+      overdue,
+      dueThisWeek,
+      dueThisMonth,
+      activeCustomers,
+    };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summaryData, 120);
+
     res.status(200).json({
       success: true,
-      data: {
-        totalOutstanding,
-        overdue,
-        dueThisWeek,
-        dueThisMonth,
-        activeCustomers,
-      },
+      data: summaryData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AR] Get AR summary error:', error);
@@ -1202,18 +1378,38 @@ const getSummary = async (req, res) => {
     });
   }
 };
-
 const getAgedReceivables = async (req, res) => {
   console.log('📦 [AR] getAgedReceivables called');
   
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { fiscalYearId } = req.query;
+
+    // Build cache key with parameters
+    const cacheKey = `ar:aged:${userId}:${fiscalYearId || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const filter = {
+      companyId: companyId,
+      invoiceStatus: { not: 'Paid' }
+    };
+
+    if (fiscalYearId) {
+      filter.fiscalYearId = fiscalYearId;
+    }
 
     const invoices = await prisma.warehouseInvoice.findMany({
-      where: {
-        createdBy: userId,
-        invoiceStatus: { not: 'Paid' }
-      },
+      where: filter,
       include: {
         customer: {
           select: {
@@ -1300,9 +1496,15 @@ const getAgedReceivables = async (req, res) => {
       { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0, totalOutstanding: 0 }
     );
 
+    const agedData = { customers, summary };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, agedData, 120);
+
     res.status(200).json({
       success: true,
-      data: { customers, summary },
+      data: agedData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [AR] Get aged receivables error:', error);
@@ -1328,4 +1530,5 @@ module.exports = {
   getSummary,
   getAgedReceivables,
   getUnpaidInvoices,
+getUnpaidInvoices,
 };

@@ -1,7 +1,6 @@
-// server.js - COMPLETE WITH ALL ROUTES (Including Sales & Purchase Orders)
+// app.js - COMPLETE WITH ALL ROUTES (Including Sales & Purchase Orders)
 
 const express = require('express');
-const axios = require('axios');
 const cors = require('cors');
 
 const app = express();
@@ -12,13 +11,6 @@ app.use(cors({
   credentials: true
 }));
 
-const { handleWebhook } = require('./controllers/stripeController');
-app.post(
-  '/api/subscription/stripe/webhook',
-  express.raw({ type: 'application/json' }),
-  handleWebhook
-);
-
 app.use(express.json());
 
 app.get('/', (req, res) => {
@@ -26,6 +18,7 @@ app.get('/', (req, res) => {
 });
 
 const userRoutes = require('./routes/userRoutes');
+const userManagementRoutes = require('./routes/userManagementRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 
@@ -46,6 +39,8 @@ const expenseRoutes = require('./routes/expenseRoutes');
 const incomeRoutes = require('./routes/incomeRoutes');
 const equityRoutes = require('./routes/equityRoutes');
 const loanRoutes = require('./routes/loanRoutes');
+const fiscalYearRoutes = require('./routes/fiscalYearRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
@@ -79,6 +74,9 @@ const purchaseInvoiceRoutes = require('./warehouse/routes/purchaseInvoiceRoutes'
 const purchasePaymentRoutes = require('./warehouse/routes/purchasePaymentRoutes');
 const purchaseReturnRoutes = require('./warehouse/routes/purchaseReturnRoutes');
 const purchaseDashboardRoutes = require('./warehouse/routes/purchase_dashboard_routes');
+const expiryReportRoutes = require('./warehouse/routes/expiry_report_routes');
+const lowStockReportRoutes = require('./warehouse/routes/low_stock_report_routes');
+const emailRoutes = require('./routes/emailRoutes');
 
 app.use('/api/purchase/dashboard', purchaseDashboardRoutes);
 app.use('/api/purchase/returns', purchaseReturnRoutes);
@@ -90,6 +88,7 @@ app.use('/api/sales/payments', salesPaymentRoutes);
 app.use('/api/sales/invoices', salesInvoiceRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/admin/users', userManagementRoutes);
 app.use('/api/deliveries', deliveryRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/subscription', subscriptionRoutes);
@@ -111,6 +110,8 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/income', incomeRoutes);
 app.use('/api/equity', equityRoutes);
 app.use('/api/loans', loanRoutes);
+app.use('/api/fiscal-year', fiscalYearRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/transactions', transactionRoutes);
@@ -130,6 +131,9 @@ app.use('/api/sales/refunds', refundRoutes);
 app.use('/api/settings', settingRoutes);
 app.use('/api/warehouse/dashboard', DashboardRoutes);
 app.use('/api/warehouse/stock', StockRoutes);
+app.use('/api/warehouse/reports/expiry', expiryReportRoutes);
+app.use('/api/warehouse/reports/low-stock', lowStockReportRoutes);
+app.use('/api/email', emailRoutes);
 
 app.use('/api/orders', OrderRoutes);
 

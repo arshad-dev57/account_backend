@@ -5,10 +5,14 @@ const prisma = require('../prisma/client');
 // ============================================================
 // BUILD BALANCE SHEET FROM LEDGER
 // ============================================================
-async function buildBalanceSheetFromLedger(userId, asOfDate) {
+async function buildBalanceSheetFromLedger(userId, period, asOfDate, fiscalYearId, startDate, endDate) {
   console.log('\n========== BUILD BALANCE SHEET ==========');
   console.log('🔍 User ID:', userId);
+  console.log('📅 Period:', period);
   console.log('📅 As Of Date:', asOfDate);
+  console.log('📅 Start Date:', startDate);
+  console.log('📅 End Date:', endDate);
+  console.log('📅 Fiscal Year ID:', fiscalYearId);
 
   // ✅ FIX: If asOfDate is undefined, use current date
   if (!asOfDate) {
@@ -21,6 +25,31 @@ async function buildBalanceSheetFromLedger(userId, asOfDate) {
   reportDate.setHours(23, 59, 59, 999);
 
   console.log('📅 Report Date:', reportDate);
+
+  // Determine date range for retained earnings calculation
+  let startOfPeriod, endOfPeriod;
+
+  if (startDate && endDate) {
+    // Use provided startDate and endDate
+    startOfPeriod = new Date(startDate);
+    startOfPeriod.setHours(0, 0, 0, 0);
+    endOfPeriod = new Date(endDate);
+    endOfPeriod.setHours(23, 59, 59, 999);
+    console.log('📅 Using provided date range:', startOfPeriod, 'to', endOfPeriod);
+  } else {
+    // Default to start of year to report date
+    startOfPeriod = new Date(reportDate.getFullYear(), 0, 1);
+    endOfPeriod = reportDate;
+    console.log('📅 Using default date range (start of year):', startOfPeriod, 'to', endOfPeriod);
+  }
+
+  // Build fiscal year filter
+  let fiscalYearFilter = {};
+  if (fiscalYearId) {
+    fiscalYearFilter = {
+      fiscalYearId: fiscalYearId
+    };
+  }
 
   // ─── GET ALL CHART OF ACCOUNTS ──────────────────────────────
   const accounts = await prisma.chartOfAccount.findMany({
@@ -115,19 +144,18 @@ async function buildBalanceSheetFromLedger(userId, asOfDate) {
   console.log('📊 Total Liabilities from Accounts:', totalLiabilities);
 
   // ─── GET RETAINED EARNINGS ──────────────────────────────────
-  const startOfPeriod = new Date(reportDate.getFullYear(), 0, 1);
-  
   console.log('📅 Start of Period:', startOfPeriod);
-  console.log('📅 End of Period:', reportDate);
+  console.log('📅 End of Period:', endOfPeriod);
 
   const incomes = await prisma.income.aggregate({
     where: {
       createdBy: userId,
       date: { 
         gte: startOfPeriod, 
-        lte: reportDate 
+        lte: endOfPeriod 
       },
-      status: 'Posted'
+      status: 'Posted',
+      ...fiscalYearFilter
     },
     _sum: { totalAmount: true }
   });
@@ -137,9 +165,10 @@ async function buildBalanceSheetFromLedger(userId, asOfDate) {
       createdBy: userId,
       date: { 
         gte: startOfPeriod, 
-        lte: reportDate 
+        lte: endOfPeriod 
       },
-      status: 'Posted'
+      status: 'Posted',
+      ...fiscalYearFilter
     },
     _sum: { totalAmount: true }
   });
@@ -200,7 +229,8 @@ async function buildBalanceSheetFromLedger(userId, asOfDate) {
       where: {
         createdBy: userId,
         paymentStatus: { in: ['Unpaid', 'Partial', 'Overdue'] },
-        outstanding: { gt: 0 }
+        outstanding: { gt: 0 },
+        ...fiscalYearFilter
       }
     });
     console.log('✅ Warehouse Invoices found:', unpaidInvoices.length);
@@ -233,7 +263,8 @@ async function buildBalanceSheetFromLedger(userId, asOfDate) {
       where: {
         createdBy: userId,
         status: { in: ['Unpaid', 'Partial', 'Overdue'] },
-        outstanding: { gt: 0 }
+        outstanding: { gt: 0 },
+        ...fiscalYearFilter
       }
     });
     console.log('✅ Bills found:', unpaidBills.length);

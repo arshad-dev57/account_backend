@@ -2,6 +2,8 @@
 
 const TransactionModel = require('../models/Transaction');
 const prisma = require('../prisma/client');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 
 // ============================================================
 // ─── TRANSACTION CONTROLLERS ──────────────────────────────────
@@ -13,6 +15,7 @@ const prisma = require('../prisma/client');
 const createTransaction = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       date,
       type,
@@ -27,6 +30,8 @@ const createTransaction = async (req, res) => {
       bankAccountId
     } = req.body;
 
+    const postingDate = date ? new Date(date) : new Date();
+
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [createTransaction] Called');
     console.log('🔵 [createTransaction] User ID:', userId);
@@ -36,6 +41,19 @@ const createTransaction = async (req, res) => {
     console.log('🔵 [createTransaction] Category:', category);
     console.log('🔵 [createTransaction] Payment Method:', paymentMethod);
     console.log('═══════════════════════════════════════════════════');
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     // ─── Validation ──────────────────────────────────────────
     if (!type || !title || !amount || !category) {
@@ -71,7 +89,7 @@ const createTransaction = async (req, res) => {
 
     // ─── Create Transaction ──────────────────────────────────
     const transactionData = {
-      date: date || new Date(),
+      date: postingDate,
       type,
       title,
       description: description || '',
@@ -83,7 +101,8 @@ const createTransaction = async (req, res) => {
       vendorId,
       bankAccountId,
       userId,
-      createdBy: userId
+      createdBy: userId,
+      fiscalYearId,
     };
 
     const transaction = await TransactionModel.createTransaction(transactionData);
@@ -113,6 +132,7 @@ const createTransaction = async (req, res) => {
 const getTransactions = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       type,
       category,
@@ -130,7 +150,7 @@ const getTransactions = async (req, res) => {
     console.log('🔵 [getTransactions] Filters:', { type, category, search, page, limit });
 
     const filter = {
-      createdBy: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false
     };
@@ -221,6 +241,7 @@ const getTransactions = async (req, res) => {
 const getTransactionById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     console.log('🔵 [getTransactionById] Called');
@@ -229,7 +250,7 @@ const getTransactionById = async (req, res) => {
     const transaction = await prisma.transaction.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -291,6 +312,7 @@ const getTransactionById = async (req, res) => {
 const getTransactionByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { transactionNumber } = req.params;
 
     console.log('🔵 [getTransactionByNumber] Called');
@@ -299,7 +321,7 @@ const getTransactionByNumber = async (req, res) => {
     const transaction = await prisma.transaction.findFirst({
       where: {
         transactionNumber: transactionNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -361,6 +383,7 @@ const getTransactionByNumber = async (req, res) => {
 const updateTransaction = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const {
       date,
@@ -382,7 +405,7 @@ const updateTransaction = async (req, res) => {
     const existing = await prisma.transaction.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -409,7 +432,7 @@ const updateTransaction = async (req, res) => {
       const customer = await prisma.customer.findFirst({
         where: {
           id: customerId,
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false
         }
@@ -427,7 +450,7 @@ const updateTransaction = async (req, res) => {
       const vendor = await prisma.supplier.findFirst({
         where: {
           id: vendorId,
-          userId: userId,
+          companyId: companyId,
           status: 'active'
         }
       });
@@ -445,8 +468,8 @@ const updateTransaction = async (req, res) => {
         where: {
           id: bankAccountId,
           OR: [
-            { createdBy: userId },
-            { userId: userId }
+            { companyId: companyId},
+            { companyId: companyId}
           ]
         }
       });
@@ -496,6 +519,7 @@ const updateTransaction = async (req, res) => {
 const deleteTransaction = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     console.log('🔵 [deleteTransaction] Called');
@@ -505,7 +529,7 @@ const deleteTransaction = async (req, res) => {
     const existing = await prisma.transaction.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -551,12 +575,13 @@ const deleteTransaction = async (req, res) => {
 const getTransactionSummary = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { startDate, endDate } = req.query;
 
     console.log('🔵 [getTransactionSummary] Called');
 
     const filter = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false
     };
@@ -625,6 +650,7 @@ const getTransactionStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     console.log('🔵 [getTransactionStats] Called');
 
     const stats = await TransactionModel.getStats(userId);

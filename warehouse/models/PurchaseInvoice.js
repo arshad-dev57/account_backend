@@ -1,4 +1,4 @@
-// warehouse/models/PurchaseInvoice.js - WITH AUTO-CREATE ACCOUNTS
+// warehouse/models/PurchaseInvoice.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 
@@ -13,11 +13,10 @@ function generateInvoiceNumber() {
 }
 
 // ─── Helper: Find or Create Inventory Account ──────────────
-async function findOrCreateInventoryAccount(tx, userId, createdBy) {
-  // First try to find existing account
+async function findOrCreateInventoryAccount(tx, companyId, userId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      createdBy: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '1300' },
@@ -29,22 +28,6 @@ async function findOrCreateInventoryAccount(tx, userId, createdBy) {
     }
   });
 
-  // If not found, try system-wide
-  if (!account) {
-    account = await tx.chartOfAccount.findFirst({
-      where: {
-        isActive: true,
-        OR: [
-          { code: '1300' },
-          { code: '1200' },
-          { name: { contains: 'Inventory', mode: 'insensitive' } },
-          { name: { contains: 'Stock', mode: 'insensitive' } }
-        ]
-      }
-    });
-  }
-
-  // If still not found, CREATE IT
   if (!account) {
     account = await tx.chartOfAccount.create({
       data: {
@@ -57,8 +40,8 @@ async function findOrCreateInventoryAccount(tx, userId, createdBy) {
         balanceType: 'Debit',
         description: 'Inventory Account - Auto-created for Purchase Invoices',
         isActive: true,
-        createdBy: createdBy,
-        userId: userId
+        createdBy: userId || 'SYSTEM',
+        companyId: companyId
       }
     });
     console.log('✅ Auto-created Inventory Account (1300)');
@@ -68,11 +51,10 @@ async function findOrCreateInventoryAccount(tx, userId, createdBy) {
 }
 
 // ─── Helper: Find or Create Accounts Payable Account ──────
-async function findOrCreateAPAccount(tx, userId, createdBy) {
-  // First try to find existing account
+async function findOrCreateAPAccount(tx, companyId, userId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      createdBy: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '2100' },
@@ -84,22 +66,6 @@ async function findOrCreateAPAccount(tx, userId, createdBy) {
     }
   });
 
-  // If not found, try system-wide
-  if (!account) {
-    account = await tx.chartOfAccount.findFirst({
-      where: {
-        isActive: true,
-        OR: [
-          { code: '2100' },
-          { code: '2000' },
-          { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
-          { name: { contains: 'Creditors', mode: 'insensitive' } }
-        ]
-      }
-    });
-  }
-
-  // If still not found, CREATE IT
   if (!account) {
     account = await tx.chartOfAccount.create({
       data: {
@@ -112,8 +78,8 @@ async function findOrCreateAPAccount(tx, userId, createdBy) {
         balanceType: 'Credit',
         description: 'Accounts Payable - Auto-created for Purchase Invoices',
         isActive: true,
-        createdBy: createdBy,
-        userId: userId
+        createdBy: userId || 'SYSTEM',
+        companyId: companyId
       }
     });
     console.log('✅ Auto-created Accounts Payable Account (2100)');
@@ -123,7 +89,7 @@ async function findOrCreateAPAccount(tx, userId, createdBy) {
 }
 
 // ─── Helper: Find or Create Supplier ────────────────────────
-async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy) {
+async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy, companyId) {
   let supplierId = purchaseOrder.supplierId;
   let supplier = null;
 
@@ -135,7 +101,7 @@ async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy) {
 
   if (purchaseOrder.supplierEmail) {
     supplier = await tx.supplier.findFirst({
-      where: { email: purchaseOrder.supplierEmail, userId, isActive: true }
+      where: { email: purchaseOrder.supplierEmail, companyId, isActive: true }
     });
     if (supplier) {
       await tx.purchaseOrder.update({
@@ -148,7 +114,7 @@ async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy) {
 
   if (purchaseOrder.supplierPhone) {
     supplier = await tx.supplier.findFirst({
-      where: { phone: purchaseOrder.supplierPhone, userId, isActive: true }
+      where: { phone: purchaseOrder.supplierPhone, companyId, isActive: true }
     });
     if (supplier) {
       await tx.purchaseOrder.update({
@@ -161,7 +127,7 @@ async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy) {
 
   if (purchaseOrder.supplierName) {
     supplier = await tx.supplier.findFirst({
-      where: { name: purchaseOrder.supplierName, userId, isActive: true }
+      where: { name: purchaseOrder.supplierName, companyId, isActive: true }
     });
     if (supplier) {
       await tx.purchaseOrder.update({
@@ -172,7 +138,6 @@ async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy) {
     }
   }
 
-  // Create new supplier
   const supplierCode = `SUP-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
   let email = purchaseOrder.supplierEmail;
@@ -199,8 +164,8 @@ async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy) {
       code: supplierCode,
       companyName: purchaseOrder.supplierCompany || null,
       status: 'active',
-      userId,
-      createdBy,
+      createdBy: createdBy,
+      companyId: companyId,
       isActive: true
     }
   });
@@ -224,7 +189,7 @@ class PurchaseInvoiceModel {
       const grn = await tx.goodsReceiving.findFirst({
         where: {
           id: data.goodsReceivingId,
-          userId: data.userId,
+          companyId: data.companyId,
           isActive: true,
           isDeleted: false,
           status: { in: ['Partially Received', 'Fully Received'] }
@@ -259,15 +224,14 @@ class PurchaseInvoiceModel {
         throw new Error('Invoice already exists for this goods receiving');
       }
 
-      // ─── Get or create supplier ─────────────────────────────
       const { supplierId, supplier } = await findOrCreateSupplier(
         tx,
         grn.purchaseOrder,
-        grn.purchaseOrder.userId || data.userId,
-        data.createdBy
+        data.userId,
+        data.createdBy,
+        data.companyId
       );
 
-      // ─── Calculate totals ────────────────────────────────────
       let subtotal = 0;
       let totalDiscount = 0;
       let totalTax = 0;
@@ -300,19 +264,17 @@ class PurchaseInvoiceModel {
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
-      // ─── Find or Create Accounts ─────────────────────────────
       const inventoryAccount = await findOrCreateInventoryAccount(
         tx,
-        data.userId,
-        data.createdBy
+        data.companyId,
+        data.userId
       );
       const apAccount = await findOrCreateAPAccount(
         tx,
-        data.userId,
-        data.createdBy
+        data.companyId,
+        data.userId
       );
 
-      // ─── Create Purchase Invoice ──────────────────────────────
       const invoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber,
@@ -340,7 +302,8 @@ class PurchaseInvoiceModel {
           inventoryAccountId: inventoryAccount.id,
           apAccountId: apAccount.id,
           createdBy: data.createdBy,
-          userId: data.userId,
+          companyId: data.companyId,
+          fiscalYearId: data.fiscalYearId,
           items: { create: invoiceItems }
         },
         include: {
@@ -365,7 +328,7 @@ class PurchaseInvoiceModel {
       const purchaseOrder = await tx.purchaseOrder.findFirst({
         where: {
           id: data.purchaseOrderId,
-          userId: data.userId,
+          companyId: data.companyId,
           isActive: true,
           isDeleted: false,
           status: { not: 'Cancelled' }
@@ -384,7 +347,6 @@ class PurchaseInvoiceModel {
         throw new Error('Purchase order not found');
       }
 
-      // ─── Get received quantities ─────────────────────────────
       const receivedQty = {};
       for (const grn of purchaseOrder.goodsReceivings) {
         for (const item of grn.items) {
@@ -405,15 +367,14 @@ class PurchaseInvoiceModel {
         throw new Error('Invoice already exists for this purchase order');
       }
 
-      // ─── Get or create supplier ─────────────────────────────
       const { supplierId, supplier } = await findOrCreateSupplier(
         tx,
         purchaseOrder,
-        purchaseOrder.userId || data.userId,
-        data.createdBy
+        data.userId,
+        data.createdBy,
+        data.companyId
       );
 
-      // ─── Calculate totals ────────────────────────────────────
       let subtotal = 0;
       let totalDiscount = 0;
       let totalTax = 0;
@@ -455,19 +416,17 @@ class PurchaseInvoiceModel {
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
-      // ─── Find or Create Accounts ─────────────────────────────
       const inventoryAccount = await findOrCreateInventoryAccount(
         tx,
-        data.userId,
-        data.createdBy
+        data.companyId,
+        data.userId
       );
       const apAccount = await findOrCreateAPAccount(
         tx,
-        data.userId,
-        data.createdBy
+        data.companyId,
+        data.userId
       );
 
-      // ─── Create Purchase Invoice ──────────────────────────────
       const invoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber,
@@ -495,7 +454,8 @@ class PurchaseInvoiceModel {
           inventoryAccountId: inventoryAccount.id,
           apAccountId: apAccount.id,
           createdBy: data.createdBy,
-          userId: data.userId,
+          companyId: data.companyId,
+          fiscalYearId: data.fiscalYearId,
           items: { create: invoiceItems }
         },
         include: {
@@ -528,19 +488,17 @@ class PurchaseInvoiceModel {
       if (invoice.invoiceStatus === 'Posted') throw new Error('Invoice already posted');
       if (invoice.invoiceStatus === 'Cancelled') throw new Error('Cannot post cancelled invoice');
 
-      // ─── Find or Create Accounts ─────────────────────────────
       const inventoryAccount = await findOrCreateInventoryAccount(
         tx,
-        invoice.userId,
+        invoice.companyId,
         userId
       );
       const apAccount = await findOrCreateAPAccount(
         tx,
-        invoice.userId,
+        invoice.companyId,
         userId
       );
 
-      // Update invoice with account IDs
       await tx.purchaseInvoice.update({
         where: { id: invoiceId },
         data: {
@@ -549,7 +507,6 @@ class PurchaseInvoiceModel {
         }
       });
 
-      // ─── 1. Create Journal Entry ──────────────────────────────
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
       const journalEntry = await tx.journalEntry.create({
@@ -562,7 +519,8 @@ class PurchaseInvoiceModel {
           createdBy: userId,
           postedBy: userId,
           postedAt: new Date(),
-          userId: invoice.userId,
+          companyId: invoice.companyId,
+          fiscalYearId: invoice.fiscalYearId,
           lines: {
             create: [
               {
@@ -585,7 +543,6 @@ class PurchaseInvoiceModel {
         include: { lines: true }
       });
 
-      // ─── 2. Create Accounts Payable Record ─────────────────────
       const apRecord = await tx.accountsPayable.create({
         data: {
           invoiceId: invoice.id,
@@ -598,11 +555,12 @@ class PurchaseInvoiceModel {
           dueDate: invoice.dueDate,
           status: 'Current',
           accountId: apAccount.id,
+          companyId: invoice.companyId,
+          fiscalYearId: invoice.fiscalYearId,
           notes: `Created from invoice #${invoice.invoiceNumber}`
         }
       });
 
-      // ─── 3. Update Invoice Status ──────────────────────────────
       const updatedInvoice = await tx.purchaseInvoice.update({
         where: { id: invoiceId },
         data: {
@@ -677,8 +635,15 @@ class PurchaseInvoiceModel {
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { invoiceDate: 'desc' } } = options;
+    
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.purchaseInvoice.findMany({
-      where: { ...filter, isActive: true, isDeleted: false },
+      where: { ...cleanFilter, isActive: true, isDeleted: false },
       skip,
       take,
       orderBy,
@@ -698,11 +663,17 @@ class PurchaseInvoiceModel {
   }
 
   // ============================================================
-  // COUNT INVOICES
+  // COUNT INVOICES - ✅ FIXED
   // ============================================================
   static async count(filter = {}) {
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.purchaseInvoice.count({
-      where: { ...filter, isActive: true, isDeleted: false }
+      where: { ...cleanFilter, isActive: true, isDeleted: false }
     });
   }
 
@@ -810,7 +781,8 @@ class PurchaseInvoiceModel {
               createdBy: userId,
               postedBy: userId,
               postedAt: new Date(),
-              userId: invoice.userId,
+              companyId: invoice.companyId,
+              fiscalYearId: invoice.fiscalYearId,
               lines: {
                 create: invoice.journalEntry.lines.map(line => ({
                   accountId: line.accountId,
@@ -864,14 +836,18 @@ class PurchaseInvoiceModel {
   }
 
   // ============================================================
-  // GET INVOICE STATS
+  // GET INVOICE STATS - ✅ FIXED
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const baseFilter = { isActive: true, isDeleted: false, userId: userId };
+    const baseFilter = { 
+      isActive: true, 
+      isDeleted: false, 
+      companyId: companyId 
+    };
 
     const todayInvoices = await prisma.purchaseInvoice.count({
       where: { ...baseFilter, invoiceDate: { gte: today } }
@@ -922,12 +898,12 @@ class PurchaseInvoiceModel {
   }
 
   // ============================================================
-  // GET SUPPLIER INVOICE SUMMARY
+  // GET SUPPLIER INVOICE SUMMARY - ✅ FIXED
   // ============================================================
-  static async getSupplierSummary(userId, supplierId) {
+  static async getSupplierSummary(companyId, supplierId) {
     const invoices = await prisma.purchaseInvoice.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         supplierId: supplierId,
         isActive: true,
         isDeleted: false,

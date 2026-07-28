@@ -40,7 +40,7 @@ const getDateFilter = (period) => {
 // ─────────────────────────────────────────────────────────────
 const getPurchases = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -55,7 +55,7 @@ const getPurchases = async (req, res) => {
     const filter = { 
       isActive: true, 
       isDeleted: false,
-      userId: userId
+      companyId: companyId
     };
 
     if (status && status !== 'all') filter.purchaseStatus = status;
@@ -63,7 +63,7 @@ const getPurchases = async (req, res) => {
     
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
-        where: { id: supplierId, userId: userId }
+        where: { id: supplierId, companyId: companyId }
       });
       if (!supplier) {
         return res.status(404).json({ success: false, message: 'Supplier not found' });
@@ -141,13 +141,13 @@ const getPurchases = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 const getPurchaseById = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const purchaseId = req.params.id;
 
     const purchase = await prisma.warehousePurchase.findFirst({
       where: {
         id: purchaseId,
-        userId: userId
+        companyId: companyId
       },
       include: {
         items: {
@@ -185,12 +185,12 @@ const getPurchaseById = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 const getPurchaseStats = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const period = req.query.period || 'month';
     const dateFilter = getDateFilter(period);
 
     const whereCondition = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false
     };
@@ -243,7 +243,7 @@ const getPurchaseStats = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 const createPurchase = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       supplierId,
       expectedDeliveryDate,
@@ -265,7 +265,7 @@ const createPurchase = async (req, res) => {
     }
 
     const supplier = await prisma.supplier.findFirst({
-      where: { id: supplierId, userId: userId }
+      where: { id: supplierId, companyId: companyId }
     });
 
     if (!supplier) {
@@ -278,7 +278,7 @@ const createPurchase = async (req, res) => {
 
     for (const item of items) {
       const product = await prisma.product.findFirst({
-        where: { id: item.productId, userId: userId }
+        where: { id: item.productId, companyId: companyId }
       });
 
       if (!product) {
@@ -331,8 +331,8 @@ const createPurchase = async (req, res) => {
         reference: reference || '',
         notes: notes || '',
         internalNotes: internalNotes || '',
-        createdBy: userId,
-        userId: userId,
+        createdBy: req.user.id,
+        companyId: companyId,
         items: {
           create: processedItems
         }
@@ -370,19 +370,19 @@ const createPurchase = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 const updatePurchaseStatus = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { purchaseStatus, paymentStatus } = req.body;
 
     const existing = await prisma.warehousePurchase.findFirst({
-      where: { id: id, userId: userId }
+      where: { id: id, companyId: companyId }
     });
 
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Purchase not found' });
     }
 
-    const data = { updatedBy: userId };
+    const data = { updatedBy: req.user.id };
     if (purchaseStatus) data.purchaseStatus = purchaseStatus;
     if (paymentStatus) data.paymentStatus = paymentStatus;
 
@@ -419,7 +419,7 @@ const updatePurchaseStatus = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 const receivePurchase = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { items } = req.body;
 
@@ -428,7 +428,7 @@ const receivePurchase = async (req, res) => {
     }
 
     const purchase = await prisma.warehousePurchase.findFirst({
-      where: { id: id, userId: userId },
+      where: { id: id, companyId: companyId },
       include: {
         items: {
           include: {
@@ -502,8 +502,8 @@ const receivePurchase = async (req, res) => {
           supplierName: purchase.supplierName,
           purchaseId: purchase.id,
           notes: `Received ${receivedQty} units of ${purchaseItem.productName}`,
-          createdBy: userId,
-          userId: userId
+          createdBy: req.user.id,
+          companyId: companyId
         }
       });
 
@@ -525,7 +525,7 @@ const receivePurchase = async (req, res) => {
       data: {
         purchaseStatus: newStatus,
         receivedDate: new Date(),
-        updatedBy: userId
+        updatedBy: req.user.id
       },
       include: {
         items: {
@@ -557,11 +557,11 @@ const receivePurchase = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 const deletePurchase = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const purchase = await prisma.warehousePurchase.findFirst({
-      where: { id: id, userId: userId }
+      where: { id: id, companyId: companyId }
     });
 
     if (!purchase) {
@@ -581,7 +581,7 @@ const deletePurchase = async (req, res) => {
         isActive: false,
         isDeleted: true,
         purchaseStatus: 'Cancelled',
-        updatedBy: userId
+        updatedBy: req.user.id
       }
     });
 

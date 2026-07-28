@@ -35,14 +35,90 @@ class FixedAssetModel {
   }
 
   // ============================================================
-  // ✅ GENERATE ASSET CODE
+  // ✅ GENERATE UNIQUE ASSET CODE - FIXED
   // ============================================================
-  static async generateAssetCode(userId) {
-    const count = await prisma.fixedAsset.count({
-      where: { createdBy: userId }
+  static async generateAssetCode(companyId) {
+    const prefix = 'FA-';
+    
+    // Get all existing asset codes for this company
+    const existingAssets = await prisma.fixedAsset.findMany({
+      where: {
+        companyId: companyId,
+        assetCode: {
+          startsWith: prefix
+        }
+      },
+      select: {
+        assetCode: true
+      }
     });
-    const year = new Date().getFullYear();
-    return `FA-${year}-${String(count + 1).padStart(4, '0')}`;
+
+    console.log(`🔍 [FA] Found ${existingAssets.length} existing assets`);
+
+    if (existingAssets.length === 0) {
+      // No assets exist, start with FA-0001
+      return `${prefix}0001`;
+    }
+
+    // Extract numbers from existing codes
+    const numbers = [];
+    for (const asset of existingAssets) {
+      const parts = asset.assetCode.split('-');
+      if (parts.length === 2) {
+        const num = parseInt(parts[1]);
+        if (!isNaN(num)) {
+          numbers.push(num);
+        }
+      }
+    }
+
+    if (numbers.length === 0) {
+      return `${prefix}0001`;
+    }
+
+    // Sort numbers and find the next available number
+    numbers.sort((a, b) => a - b);
+    
+    // Find the first gap in the sequence
+    let nextNumber = 1;
+    for (const num of numbers) {
+      if (num === nextNumber) {
+        nextNumber++;
+      } else if (num > nextNumber) {
+        break;
+      }
+    }
+
+    // Pad with zeros to 4 digits
+    const paddedNumber = String(nextNumber).padStart(4, '0');
+    const assetCode = `${prefix}${paddedNumber}`;
+    
+    console.log(`🔍 [FA] Generated asset code: ${assetCode} (next available number: ${nextNumber})`);
+    return assetCode;
+  }
+
+  // ============================================================
+  // ✅ GENERATE FALLBACK ASSET CODE (when all else fails)
+  // ============================================================
+  static async generateFallbackCode(companyId) {
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const fallbackCode = `FA-${timestamp}${random}`.substring(0, 20);
+    
+    // Make sure it's unique
+    const existing = await prisma.fixedAsset.findFirst({
+      where: {
+        assetCode: fallbackCode,
+        companyId: companyId
+      }
+    });
+
+    if (existing) {
+      // If somehow this also exists, add more random
+      return `FA-${timestamp}${random}${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+    }
+
+    return fallbackCode;
   }
 
   // ============================================================
@@ -52,6 +128,7 @@ class FixedAssetModel {
     if (asset.depreciationMethod === 'Straight Line') {
       const depreciableAmount = asset.purchaseCost - asset.salvageValue;
       const totalMonths = asset.usefulLife * 12;
+      if (totalMonths <= 0) return 0;
       return depreciableAmount / totalMonths;
     }
     // TODO: Add other depreciation methods
@@ -59,7 +136,7 @@ class FixedAssetModel {
   }
 
   // ============================================================
-  // ✅ CREATE FIXED ASSET
+  // ✅ CREATE FIXED ASSET - FIXED
   // ============================================================
   static async create(data) {
     const errors = this.validateAssetData(data);
@@ -67,49 +144,136 @@ class FixedAssetModel {
       throw new Error(errors.join('; '));
     }
 
-    const assetCode = await this.generateAssetCode(data.createdBy);
+    // Generate unique asset code with retry logic
+    let assetCode = await this.generateAssetCode(data.companyId);
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (attempts < maxAttempts) {
+      // Check if this code already exists (double-check)
+      const existing = await prisma.fixedAsset.findFirst({
+        where: {
+          assetCode: assetCode,
+          companyId: data.companyId
+        }
+      });
+
+      if (!existing) {
+        // Code is unique, break out of loop
+        break;
+      }
+
+      // Code exists, generate a new one
+      console.log(`⚠️ [FA] Asset code ${assetCode} already exists, generating new one...`);
+      assetCode = await this.generateAssetCode(data.companyId);
+      attempts++;
+    }
+
+    // If still not unique after max attempts, use fallback
+    if (attempts >= maxAttempts) {
+      console.log(`⚠️ [FA] Max attempts reached, using fallback code...`);
+      assetCode = await this.generateFallbackCode(data.companyId);
+    }
+
+    console.log(`✅ [FA] Final asset code: ${assetCode}`);
+
     const netBookValue = data.purchaseCost;
 
-    return await prisma.fixedAsset.create({
-      data: {
-        assetCode,
-        name: data.name,
-        category: data.category,
-        purchaseDate: data.purchaseDate,
-        purchaseCost: data.purchaseCost,
-        usefulLife: data.usefulLife,
-        salvageValue: data.salvageValue || 0,
-        depreciationMethod: data.depreciationMethod || 'Straight Line',
-        currentDepreciation: 0,
-        accumulatedDepreciation: 0,
-        netBookValue: netBookValue,
-        location: data.location || '',
-        supplierId: data.supplierId || null,
-        supplierName: data.supplierName || '',
-        warrantyExpiry: data.warrantyExpiry || null,
-        notes: data.notes || '',
-        status: 'Active',
-        createdBy: data.createdBy
-      },
-      include: {
-        supplier: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true
-          }
+    try {
+      return await prisma.fixedAsset.create({
+        data: {
+          assetCode,
+          name: data.name,
+          category: data.category,
+          purchaseDate: data.purchaseDate,
+          purchaseCost: data.purchaseCost,
+          usefulLife: data.usefulLife,
+          salvageValue: data.salvageValue || 0,
+          depreciationMethod: data.depreciationMethod || 'Straight Line',
+          currentDepreciation: 0,
+          accumulatedDepreciation: 0,
+          netBookValue: netBookValue,
+          location: data.location || '',
+          supplierId: data.supplierId || null,
+          supplierName: data.supplierName || '',
+          warrantyExpiry: data.warrantyExpiry || null,
+          notes: data.notes || '',
+          status: 'Active',
+          createdBy: data.createdBy,
+          companyId: data.companyId,
+          fiscalYearId: data.fiscalYearId || null
         },
-        creator: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true
+        include: {
+          supplier: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true
+            }
+          },
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
+      });
+    } catch (error) {
+      // If unique constraint fails, try one more time with fallback
+      if (error.code === 'P2002') {
+        console.log('⚠️ [FA] Duplicate asset code, trying fallback...');
+        const fallbackCode = await this.generateFallbackCode(data.companyId);
+        console.log(`🔍 [FA] Fallback code: ${fallbackCode}`);
+        
+        return await prisma.fixedAsset.create({
+          data: {
+            assetCode: fallbackCode,
+            name: data.name,
+            category: data.category,
+            purchaseDate: data.purchaseDate,
+            purchaseCost: data.purchaseCost,
+            usefulLife: data.usefulLife,
+            salvageValue: data.salvageValue || 0,
+            depreciationMethod: data.depreciationMethod || 'Straight Line',
+            currentDepreciation: 0,
+            accumulatedDepreciation: 0,
+            netBookValue: netBookValue,
+            location: data.location || '',
+            supplierId: data.supplierId || null,
+            supplierName: data.supplierName || '',
+            warrantyExpiry: data.warrantyExpiry || null,
+            notes: data.notes || '',
+            status: 'Active',
+            createdBy: data.createdBy,
+            companyId: data.companyId,
+            fiscalYearId: data.fiscalYearId || null
+          },
+          include: {
+            supplier: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true
+              }
+            },
+            creator: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        });
       }
-    });
+      throw error;
+    }
   }
 
   // ============================================================
@@ -175,11 +339,11 @@ class FixedAssetModel {
   // ============================================================
   // ✅ FIND BY ASSET CODE
   // ============================================================
-  static async findByAssetCode(assetCode, createdBy) {
+  static async findByAssetCode(assetCode, companyId) {
     return await prisma.fixedAsset.findFirst({
       where: {
         assetCode,
-        createdBy
+        companyId: companyId
       },
       include: {
         supplier: {
@@ -332,8 +496,8 @@ class FixedAssetModel {
   // ============================================================
   // ✅ GET SUMMARY STATISTICS
   // ============================================================
-  static async getStats(createdBy) {
-    const filter = { createdBy };
+  static async getStats(companyId) {
+    const filter = { companyId: companyId };
 
     const assets = await prisma.fixedAsset.findMany({
       where: filter
@@ -359,6 +523,9 @@ class FixedAssetModel {
     };
   }
 
+  // ============================================================
+  // ✅ DELETE FIXED ASSET
+  // ============================================================
   static async delete(id) {
     return await prisma.fixedAsset.delete({
       where: { id }

@@ -1,4 +1,4 @@
-// warehouse/controller/orderController.js - COMPLETE SALES & PURCHASE ORDER CONTROLLER
+// warehouse/controller/orderController.js - COMPLETE CORRECTED
 
 const Order = require('../models/Order');
 const prisma = require('../../prisma/client');
@@ -6,14 +6,13 @@ const prisma = require('../../prisma/client');
 // ============================================================
 // HELPER: Auto-Generate Invoice
 // ============================================================
-const autoGenerateInvoice = async (order, userId) => {
+const autoGenerateInvoice = async (order, userId, companyId) => {
   try {
     const year = new Date().getFullYear();
     const month = String(new Date().getMonth() + 1).padStart(2, '0');
     const day = String(new Date().getDate()).padStart(2, '0');
     const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     
-    // Different invoice prefix for Sales and Purchase
     const prefix = order.orderType === 'Sales Order' ? 'SI' : 'PI';
     const invoiceNumber = `${prefix}-${year}${month}${day}-${random}`;
 
@@ -38,7 +37,7 @@ const autoGenerateInvoice = async (order, userId) => {
         notes: order.customerNotes || '',
         createdBy: userId,
         updatedBy: userId,
-        userId: userId,
+        companyId: companyId,
         items: {
           create: order.items.map(item => ({
             productId: item.productId,
@@ -74,6 +73,7 @@ const autoGenerateInvoice = async (order, userId) => {
 const createSalesOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       customerName,
       customerEmail,
@@ -128,21 +128,21 @@ const createSalesOrder = async (req, res) => {
         product = await prisma.product.findFirst({
           where: {
             id: item.productId,
-            userId: userId
+            companyId: companyId
           }
         });
       } else if (item.sku) {
         product = await prisma.product.findFirst({
           where: {
             sku: item.sku,
-            userId: userId
+            companyId: companyId
           }
         });
       } else if (item.productName) {
         product = await prisma.product.findFirst({
           where: {
             name: { contains: item.productName, mode: 'insensitive' },
-            userId: userId
+            companyId: companyId
           }
         });
       }
@@ -196,6 +196,7 @@ const createSalesOrder = async (req, res) => {
     const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
 
     // ─── Create Sales Order ──────────────────────────────
+    // ✅ FIXED: Use createdBy and companyId (NOT userId)
     const orderData = {
       customerName,
       customerEmail,
@@ -226,14 +227,14 @@ const createSalesOrder = async (req, res) => {
       customerNotes: customerNotes || '',
       internalNotes: internalNotes || '',
       tags: tags || [],
-      createdBy: userId,
-      userId: userId
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
     };
 
     const order = await Order.create(orderData);
 
     // ─── Auto-Generate Invoice ───────────────────────────
-    const invoice = await autoGenerateInvoice(order, userId);
+    const invoice = await autoGenerateInvoice(order, userId, companyId);
 
     res.status(201).json({
       success: true,
@@ -259,6 +260,7 @@ const createSalesOrder = async (req, res) => {
 const getSalesOrders = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -271,9 +273,11 @@ const getSalesOrders = async (req, res) => {
       sortOrder = 'desc',
     } = req.query;
 
+    // ✅ FIXED: Use createdBy instead of userId
     const filter = {
       isActive: true,
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       orderType: 'Sales Order'
     };
 
@@ -341,6 +345,7 @@ const getSalesOrders = async (req, res) => {
 const createPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       supplierName,
       supplierEmail,
@@ -390,21 +395,21 @@ const createPurchaseOrder = async (req, res) => {
         product = await prisma.product.findFirst({
           where: {
             id: item.productId,
-            userId: userId
+            companyId: companyId
           }
         });
       } else if (item.sku) {
         product = await prisma.product.findFirst({
           where: {
             sku: item.sku,
-            userId: userId
+            companyId: companyId
           }
         });
       } else if (item.productName) {
         product = await prisma.product.findFirst({
           where: {
             name: { contains: item.productName, mode: 'insensitive' },
-            userId: userId
+            companyId: companyId
           }
         });
       }
@@ -451,6 +456,7 @@ const createPurchaseOrder = async (req, res) => {
     const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
 
     // ─── Create Purchase Order ──────────────────────────────
+    // ✅ FIXED: Use createdBy and companyId (NOT userId)
     const orderData = {
       customerName: supplierName,
       customerEmail: supplierEmail,
@@ -481,14 +487,14 @@ const createPurchaseOrder = async (req, res) => {
       customerNotes: '',
       internalNotes: internalNotes || '',
       tags: tags || [],
-      createdBy: userId,
-      userId: userId
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
     };
 
     const order = await Order.create(orderData);
 
     // ─── Auto-Generate Purchase Invoice ────────────────────
-    const invoice = await autoGenerateInvoice(order, userId);
+    const invoice = await autoGenerateInvoice(order, userId, companyId);
 
     res.status(201).json({
       success: true,
@@ -514,6 +520,7 @@ const createPurchaseOrder = async (req, res) => {
 const getPurchaseOrders = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -526,9 +533,11 @@ const getPurchaseOrders = async (req, res) => {
       sortOrder = 'desc',
     } = req.query;
 
+    // ✅ FIXED: Use createdBy instead of userId
     const filter = {
       isActive: true,
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       orderType: 'Purchase Order'
     };
 
@@ -596,10 +605,11 @@ const getPurchaseOrders = async (req, res) => {
 const getOrderById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const order = await prisma.order.findFirst({
       where: {
         id: req.params.id,
-        userId: userId,
+        companyId: companyId,
         isActive: true
       },
       include: {
@@ -645,6 +655,7 @@ const getOrderById = async (req, res) => {
 const updateOrderStatus = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { status, notes } = req.body;
 
@@ -653,7 +664,7 @@ const updateOrderStatus = async (req, res) => {
     }
 
     const order = await prisma.order.findFirst({
-      where: { id: id, userId: userId }
+      where: { id: id, companyId: companyId }
     });
 
     if (!order) {
@@ -694,6 +705,7 @@ const updateOrderStatus = async (req, res) => {
 const updateOrderPayment = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { paymentStatus, paymentReference } = req.body;
 
@@ -702,7 +714,7 @@ const updateOrderPayment = async (req, res) => {
     }
 
     const order = await prisma.order.findFirst({
-      where: { id: id, userId: userId }
+      where: { id: id, companyId: companyId }
     });
 
     if (!order) {
@@ -723,11 +735,12 @@ const updateOrderPayment = async (req, res) => {
 const cancelOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
     const order = await prisma.order.findFirst({
-      where: { id: id, userId: userId }
+      where: { id: id, companyId: companyId }
     });
 
     if (!order) {
@@ -755,10 +768,11 @@ const cancelOrder = async (req, res) => {
 const deleteOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const order = await prisma.order.findFirst({
-      where: { id: id, userId: userId }
+      where: { id: id, companyId: companyId }
     });
 
     if (!order) {
@@ -786,6 +800,7 @@ const deleteOrder = async (req, res) => {
 const getOrderStats = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { type } = req.query;
     
     let stats;
@@ -810,6 +825,7 @@ const getOrderStats = async (req, res) => {
 const getOrderKPI = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { type } = req.query;
     
     let kpi;

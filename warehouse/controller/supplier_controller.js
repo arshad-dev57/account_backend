@@ -3,9 +3,9 @@
 const prisma = require('../../prisma/client');
 
 // ─── HELPERS ────────────────────────────────────────────────
-const buildSupplierFilter = (userId, search, status) => {
+const buildSupplierFilter = (companyId, search, status) => {
   const filter = {
-    userId: userId // 👈 CRITICAL: Sirf current user ke suppliers
+    companyId: companyId // 👈 CRITICAL: Sirf current company ke suppliers
   };
 
   // Status filter
@@ -40,10 +40,10 @@ const buildSupplierFilter = (userId, search, status) => {
 // ============================================================
 const getSuppliers = async (req, res) => {
   try {
-    const userId = req.user.id; // 👈 Current user
+    const companyId = req.user.companyId; // 👈 Current company
     const { search, status, page = 1, limit = 20 } = req.query;
 
-    const filter = buildSupplierFilter(userId, search, status);
+    const filter = buildSupplierFilter(companyId, search, status);
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
@@ -58,7 +58,7 @@ const getSuppliers = async (req, res) => {
         orderBy: { createdAt: 'desc' }
       }),
       prisma.supplier.count({ where: filter }),
-      getSupplierStatsInternal(userId) // 👈 User-specific stats
+      getSupplierStatsInternal(companyId) // 👈 Company-specific stats
     ]);
 
     res.status(200).json({
@@ -97,20 +97,20 @@ const getSuppliers = async (req, res) => {
 // ============================================================
 const getSupplierById = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const supplierId = req.params.id;
 
-    // ✅ Supplier must belong to current user
+    // ✅ Supplier must belong to current company
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        userId: userId // 👈 CRITICAL
+        companyId: companyId // 👈 CRITICAL
       },
       include: {
         products: {
           where: {
             isActive: true,
-            userId: userId // 👈 User-specific
+            companyId: companyId // 👈 Company-specific
           },
           select: {
             id: true,
@@ -123,7 +123,7 @@ const getSupplierById = async (req, res) => {
         },
         purchases: {
           where: {
-            userId: userId // 👈 User-specific
+            companyId: companyId // 👈 Company-specific
           },
           select: {
             id: true,
@@ -137,7 +137,7 @@ const getSupplierById = async (req, res) => {
         },
         bills: {
           where: {
-            userId: userId // 👈 User-specific
+            companyId: companyId // 👈 Company-specific
           },
           select: {
             id: true,
@@ -160,7 +160,7 @@ const getSupplierById = async (req, res) => {
     }
 
     // Get additional stats
-    const stats = await getSupplierStatsInternal(userId, supplierId);
+    const stats = await getSupplierStatsInternal(companyId, supplierId);
 
     res.status(200).json({
       success: true,
@@ -193,7 +193,7 @@ const getSupplierById = async (req, res) => {
 // ============================================================
 const createSupplier = async (req, res) => {
   try {
-    const userId = req.user.id; // 👈 Current user
+    const companyId = req.user.companyId; // 👈 Current company
     const {
       name,
       companyName,
@@ -223,11 +223,11 @@ const createSupplier = async (req, res) => {
       });
     }
 
-    // ✅ Check duplicate name for this user
+    // ✅ Check duplicate name for this company
     const existingName = await prisma.supplier.findFirst({
       where: {
         name: name,
-        userId: userId // 👈 User-specific
+        companyId: companyId // 👈 Company-specific
       }
     });
 
@@ -241,11 +241,11 @@ const createSupplier = async (req, res) => {
     // ✅ Generate unique code for this user
     const code = req.body.code || `SUP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-    // ✅ Check duplicate code for this user
+    // ✅ Check duplicate code for this company
     const existingCode = await prisma.supplier.findFirst({
       where: {
         code: code,
-        userId: userId // 👈 User-specific
+        companyId: companyId // 👈 Company-specific
       }
     });
 
@@ -256,12 +256,12 @@ const createSupplier = async (req, res) => {
       });
     }
 
-    // ✅ Check duplicate email for this user
+    // ✅ Check duplicate email for this company
     if (email) {
       const existingEmail = await prisma.supplier.findFirst({
         where: {
           email: email,
-          userId: userId // 👈 User-specific
+          companyId: companyId // 👈 Company-specific
         }
       });
 
@@ -273,12 +273,12 @@ const createSupplier = async (req, res) => {
       }
     }
 
-    // ✅ Check duplicate phone for this user
+    // ✅ Check duplicate phone for this company
     if (phone) {
       const existingPhone = await prisma.supplier.findFirst({
         where: {
           phone: phone,
-          userId: userId // 👈 User-specific
+          companyId: companyId // 👈 Company-specific
         }
       });
 
@@ -290,7 +290,7 @@ const createSupplier = async (req, res) => {
       }
     }
 
-    // Build supplier data with userId
+    // Build supplier data with companyId
     const supplierData = {
       name,
       code,
@@ -311,8 +311,8 @@ const createSupplier = async (req, res) => {
       isPreferred: isPreferred || false,
       isVerified: isVerified || false,
       notes: notes || '',
-      createdBy: userId,
-      userId: userId // 👈 CRITICAL: Link to current user
+      createdBy: req.user.id,
+      companyId: companyId // 👈 CRITICAL: Link to current company
     };
 
     const supplier = await prisma.supplier.create({
@@ -350,14 +350,14 @@ const createSupplier = async (req, res) => {
 // ============================================================
 const updateSupplier = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const supplierId = req.params.id;
 
-    // ✅ Check if supplier exists AND belongs to this user
+    // ✅ Check if supplier exists AND belongs to this company
     const existing = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        userId: userId // 👈 CRITICAL
+        companyId: companyId // 👈 CRITICAL
       }
     });
 
@@ -368,12 +368,12 @@ const updateSupplier = async (req, res) => {
       });
     }
 
-    // ✅ Check duplicate name for this user (excluding current)
+    // ✅ Check duplicate name for this company (excluding current)
     if (req.body.name && req.body.name !== existing.name) {
       const duplicate = await prisma.supplier.findFirst({
         where: {
           name: req.body.name,
-          userId: userId,
+          companyId: companyId,
           NOT: { id: supplierId }
         }
       });
@@ -386,12 +386,12 @@ const updateSupplier = async (req, res) => {
       }
     }
 
-    // ✅ Check duplicate code for this user (excluding current)
+    // ✅ Check duplicate code for this company (excluding current)
     if (req.body.code && req.body.code !== existing.code) {
       const duplicate = await prisma.supplier.findFirst({
         where: {
           code: req.body.code,
-          userId: userId,
+          companyId: companyId,
           NOT: { id: supplierId }
         }
       });
@@ -404,12 +404,12 @@ const updateSupplier = async (req, res) => {
       }
     }
 
-    // ✅ Check duplicate email for this user (excluding current)
+    // ✅ Check duplicate email for this company (excluding current)
     if (req.body.email && req.body.email !== existing.email) {
       const duplicate = await prisma.supplier.findFirst({
         where: {
           email: req.body.email,
-          userId: userId,
+          companyId: companyId,
           NOT: { id: supplierId }
         }
       });
@@ -422,12 +422,12 @@ const updateSupplier = async (req, res) => {
       }
     }
 
-    // ✅ Check duplicate phone for this user (excluding current)
+    // ✅ Check duplicate phone for this company (excluding current)
     if (req.body.phone && req.body.phone !== existing.phone) {
       const duplicate = await prisma.supplier.findFirst({
         where: {
           phone: req.body.phone,
-          userId: userId,
+          companyId: companyId,
           NOT: { id: supplierId }
         }
       });
@@ -491,14 +491,14 @@ const updateSupplier = async (req, res) => {
 // ============================================================
 const deleteSupplier = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const supplierId = req.params.id;
 
-    // ✅ Check if supplier exists AND belongs to this user
+    // ✅ Check if supplier exists AND belongs to this company
     const existing = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        userId: userId // 👈 CRITICAL
+        companyId: companyId // 👈 CRITICAL
       }
     });
 
@@ -509,28 +509,28 @@ const deleteSupplier = async (req, res) => {
       });
     }
 
-    // ✅ Check if linked to any products (user-specific)
+    // ✅ Check if linked to any products (company-specific)
     const productCount = await prisma.product.count({
       where: {
         supplierId: supplierId,
-        userId: userId, // 👈 User-specific
+        companyId: companyId, // 👈 Company-specific
         isActive: true
       }
     });
 
-    // Check if linked to any purchases (user-specific)
+    // Check if linked to any purchases (company-specific)
     const purchaseCount = await prisma.warehousePurchase.count({
       where: {
         supplierId: supplierId,
-        userId: userId // 👈 User-specific
+        companyId: companyId // 👈 Company-specific
       }
     });
 
-    // Check if linked to any bills (user-specific)
+    // Check if linked to any bills (company-specific)
     const billCount = await prisma.bill.count({
       where: {
         vendorId: supplierId,
-        userId: userId // 👈 User-specific
+        companyId: companyId // 👈 Company-specific
       }
     });
 
@@ -542,7 +542,7 @@ const deleteSupplier = async (req, res) => {
         where: { id: supplierId },
         data: {
           status: 'inactive',
-          updatedBy: userId
+          updatedBy: req.user.id
         }
       });
 
@@ -585,7 +585,7 @@ const deleteSupplier = async (req, res) => {
 // ============================================================
 const hardDeleteSupplier = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const supplierId = req.params.id;
 
     // ✅ Check if user is admin
@@ -596,11 +596,11 @@ const hardDeleteSupplier = async (req, res) => {
       });
     }
 
-    // ✅ Check if supplier exists AND belongs to this user
+    // ✅ Check if supplier exists AND belongs to this company
     const existing = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -636,7 +636,7 @@ const hardDeleteSupplier = async (req, res) => {
 // ============================================================
 const searchSuppliers = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { q, page = 1, limit = 20 } = req.query;
 
     if (!q) {
@@ -650,9 +650,9 @@ const searchSuppliers = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    // ✅ Search only user's suppliers
+    // ✅ Search only company's suppliers
     const where = {
-      userId: userId, // 👈 CRITICAL
+      companyId: companyId, // 👈 CRITICAL
       OR: [
         { name: { contains: q, mode: 'insensitive' } },
         { companyName: { contains: q, mode: 'insensitive' } },
@@ -706,8 +706,8 @@ const searchSuppliers = async (req, res) => {
 // ============================================================
 const getSupplierStats = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const stats = await getSupplierStatsInternal(userId);
+    const companyId = req.user.companyId;
+    const stats = await getSupplierStatsInternal(companyId);
 
     res.status(200).json({
       success: true,
@@ -724,11 +724,11 @@ const getSupplierStats = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Get supplier stats (Internal helper - User-specific)
+// @desc    Get supplier stats (Internal helper - Company-specific)
 // ============================================================
-const getSupplierStatsInternal = async (userId, supplierId = null) => {
+const getSupplierStatsInternal = async (companyId, supplierId = null) => {
   const whereCondition = {
-    userId: userId // 👈 User-specific
+    companyId: companyId // 👈 Company-specific
   };
 
   if (supplierId) {
@@ -772,14 +772,14 @@ const getSupplierStatsInternal = async (userId, supplierId = null) => {
       prisma.product.count({
         where: {
           supplierId: supplierId,
-          userId: userId,
+          companyId: companyId,
           isActive: true
         }
       }),
       prisma.warehousePurchase.aggregate({
         where: {
           supplierId: supplierId,
-          userId: userId
+          companyId: companyId
         },
         _count: true,
         _sum: {
@@ -789,7 +789,7 @@ const getSupplierStatsInternal = async (userId, supplierId = null) => {
       prisma.bill.aggregate({
         where: {
           vendorId: supplierId,
-          userId: userId
+          companyId: companyId
         },
         _count: true,
         _sum: {
@@ -808,7 +808,7 @@ const getSupplierStatsInternal = async (userId, supplierId = null) => {
     const outstanding = await prisma.bill.aggregate({
       where: {
         vendorId: supplierId,
-        userId: userId,
+        companyId: companyId,
         status: { not: 'Paid' }
       },
       _sum: {
@@ -839,7 +839,7 @@ const getSupplierStatsInternal = async (userId, supplierId = null) => {
 // ============================================================
 const bulkCreateSuppliers = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { suppliers } = req.body;
 
     if (!suppliers || !Array.isArray(suppliers) || suppliers.length === 0) {
@@ -849,18 +849,18 @@ const bulkCreateSuppliers = async (req, res) => {
       });
     }
 
-    // ✅ Add userId to each supplier
-    const suppliersWithUser = suppliers.map((sup, index) => ({
+    // ✅ Add companyId to each supplier
+    const suppliersWithCompany = suppliers.map((sup, index) => ({
       ...sup,
       code: sup.code || `SUP-${Date.now()}-${index}`,
-      userId: userId, // 👈 CRITICAL
-      createdBy: userId,
+      companyId: companyId, // 👈 CRITICAL
+      createdBy: req.user.id,
       status: sup.status || 'active'
     }));
 
-    // ✅ Create all suppliers for this user
+    // ✅ Create all suppliers for this company
     const created = await prisma.supplier.createMany({
-      data: suppliersWithUser,
+      data: suppliersWithCompany,
       skipDuplicates: true
     });
 
@@ -888,14 +888,14 @@ const bulkCreateSuppliers = async (req, res) => {
 // ============================================================
 const toggleSupplierStatus = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const supplierId = req.params.id;
 
-    // ✅ Check if supplier exists AND belongs to this user
+    // ✅ Check if supplier exists AND belongs to this company
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -912,7 +912,7 @@ const toggleSupplierStatus = async (req, res) => {
       where: { id: supplierId },
       data: {
         status: newStatus,
-        updatedBy: userId
+        updatedBy: req.user.id
       }
     });
 

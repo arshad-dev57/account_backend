@@ -32,14 +32,90 @@ class LoanModel {
   }
 
   // ============================================================
-  // ✅ GENERATE LOAN NUMBER
+  // ✅ GENERATE UNIQUE LOAN NUMBER - FIXED
   // ============================================================
-  static async generateLoanNumber(userId) {
-    const count = await prisma.loan.count({
-      where: { createdBy: userId }
+  static async generateLoanNumber(companyId) {
+    const prefix = 'LN-';
+    
+    // Get all existing loan numbers for this company
+    const existingLoans = await prisma.loan.findMany({
+      where: {
+        companyId: companyId,
+        loanNumber: {
+          startsWith: prefix
+        }
+      },
+      select: {
+        loanNumber: true
+      }
     });
-    const year = new Date().getFullYear();
-    return `LN-${year}-${String(count + 1).padStart(4, '0')}`;
+
+    console.log(`🔍 [LN] Found ${existingLoans.length} existing loans`);
+
+    if (existingLoans.length === 0) {
+      // No loans exist, start with LN-0001
+      return `${prefix}0001`;
+    }
+
+    // Extract numbers from existing codes
+    const numbers = [];
+    for (const loan of existingLoans) {
+      const parts = loan.loanNumber.split('-');
+      if (parts.length === 2) {
+        const num = parseInt(parts[1]);
+        if (!isNaN(num)) {
+          numbers.push(num);
+        }
+      }
+    }
+
+    if (numbers.length === 0) {
+      return `${prefix}0001`;
+    }
+
+    // Sort numbers and find the next available number
+    numbers.sort((a, b) => a - b);
+    
+    // Find the first gap in the sequence
+    let nextNumber = 1;
+    for (const num of numbers) {
+      if (num === nextNumber) {
+        nextNumber++;
+      } else if (num > nextNumber) {
+        break;
+      }
+    }
+
+    // Pad with zeros to 4 digits
+    const paddedNumber = String(nextNumber).padStart(4, '0');
+    const loanNumber = `${prefix}${paddedNumber}`;
+    
+    console.log(`🔍 [LN] Generated loan number: ${loanNumber} (next available number: ${nextNumber})`);
+    return loanNumber;
+  }
+
+  // ============================================================
+  // ✅ GENERATE FALLBACK LOAN NUMBER (when all else fails)
+  // ============================================================
+  static async generateFallbackNumber(companyId) {
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const fallbackNumber = `LN-${timestamp}${random}`.substring(0, 15);
+    
+    // Make sure it's unique
+    const existing = await prisma.loan.findFirst({
+      where: {
+        loanNumber: fallbackNumber,
+        companyId: companyId
+      }
+    });
+
+    if (existing) {
+      // If somehow this also exists, add more random
+      return `LN-${timestamp}${random}${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+    }
+
+    return fallbackNumber;
   }
 
   // ============================================================
@@ -66,7 +142,7 @@ class LoanModel {
   }
 
   // ============================================================
-  // ✅ CREATE LOAN
+  // ✅ CREATE LOAN - FIXED
   // ============================================================
   static async create(data) {
     const errors = this.validateLoanData(data);
@@ -74,62 +150,158 @@ class LoanModel {
       throw new Error(errors.join('; '));
     }
 
-    const loanNumber = await this.generateLoanNumber(data.createdBy);
+    // Generate unique loan number with retry logic
+    let loanNumber = await this.generateLoanNumber(data.companyId);
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (attempts < maxAttempts) {
+      // Check if this number already exists
+      const existing = await prisma.loan.findFirst({
+        where: {
+          loanNumber: loanNumber,
+          companyId: data.companyId
+        }
+      });
+
+      if (!existing) {
+        // Number is unique, break out of loop
+        break;
+      }
+
+      // Number exists, generate a new one
+      console.log(`⚠️ [LN] Loan number ${loanNumber} already exists, generating new one...`);
+      loanNumber = await this.generateLoanNumber(data.companyId);
+      attempts++;
+    }
+
+    // If still not unique after max attempts, use fallback
+    if (attempts >= maxAttempts) {
+      console.log(`⚠️ [LN] Max attempts reached, using fallback number...`);
+      loanNumber = await this.generateFallbackNumber(data.companyId);
+    }
+
+    console.log(`✅ [LN] Final loan number: ${loanNumber}`);
+
     const emiAmount = this.calculateEMI(data.loanAmount, data.interestRate, data.tenureMonths);
 
     // Calculate next payment date
     const nextPaymentDate = new Date(data.disbursementDate);
     nextPaymentDate.setMonth(nextPaymentDate.getMonth() + 1);
 
-    return await prisma.loan.create({
-      data: {
-        loanNumber,
-        loanType: data.loanType,
-        lenderName: data.lenderName,
-        lenderId: data.lenderId || null,
-        loanAmount: data.loanAmount,
-        disbursementDate: data.disbursementDate,
-        interestRate: data.interestRate,
-        tenureMonths: data.tenureMonths,
-        emiAmount: emiAmount,
-        totalPaid: 0,
-        outstandingBalance: data.loanAmount,
-        nextPaymentDate: nextPaymentDate,
-        status: 'Active',
-        purpose: data.purpose || '',
-        collateral: data.collateral || '',
-        accountNumber: data.accountNumber || '',
-        bankAccountId: data.bankAccountId || null,
-        notes: data.notes || '',
-        createdBy: data.createdBy
-      },
-      include: {
-        lender: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true
-          }
+    try {
+      return await prisma.loan.create({
+        data: {
+          loanNumber,
+          loanType: data.loanType,
+          lenderName: data.lenderName,
+          lenderId: data.lenderId || null,
+          loanAmount: data.loanAmount,
+          disbursementDate: data.disbursementDate,
+          interestRate: data.interestRate,
+          tenureMonths: data.tenureMonths,
+          emiAmount: emiAmount,
+          totalPaid: 0,
+          outstandingBalance: data.loanAmount,
+          nextPaymentDate: nextPaymentDate,
+          status: 'Active',
+          purpose: data.purpose || '',
+          collateral: data.collateral || '',
+          accountNumber: data.accountNumber || '',
+          bankAccountId: data.bankAccountId || null,
+          notes: data.notes || '',
+          createdBy: data.createdBy,
+          companyId: data.companyId,
+          fiscalYearId: data.fiscalYearId || null
         },
-        bankAccount: {
-          select: {
-            id: true,
-            accountName: true,
-            accountNumber: true,
-            bankName: true
-          }
-        },
-        creator: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true
+        include: {
+          lender: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true
+            }
+          },
+          bankAccount: {
+            select: {
+              id: true,
+              accountName: true,
+              accountNumber: true,
+              bankName: true
+            }
+          },
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
+      });
+    } catch (error) {
+      // If unique constraint fails, try one more time with fallback
+      if (error.code === 'P2002') {
+        console.log('⚠️ [LN] Duplicate loan number, trying fallback...');
+        const fallbackNumber = await this.generateFallbackNumber(data.companyId);
+        console.log(`🔍 [LN] Fallback number: ${fallbackNumber}`);
+        
+        return await prisma.loan.create({
+          data: {
+            loanNumber: fallbackNumber,
+            loanType: data.loanType,
+            lenderName: data.lenderName,
+            lenderId: data.lenderId || null,
+            loanAmount: data.loanAmount,
+            disbursementDate: data.disbursementDate,
+            interestRate: data.interestRate,
+            tenureMonths: data.tenureMonths,
+            emiAmount: emiAmount,
+            totalPaid: 0,
+            outstandingBalance: data.loanAmount,
+            nextPaymentDate: nextPaymentDate,
+            status: 'Active',
+            purpose: data.purpose || '',
+            collateral: data.collateral || '',
+            accountNumber: data.accountNumber || '',
+            bankAccountId: data.bankAccountId || null,
+            notes: data.notes || '',
+            createdBy: data.createdBy,
+            companyId: data.companyId,
+            fiscalYearId: data.fiscalYearId || null
+          },
+          include: {
+            lender: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true
+              }
+            },
+            bankAccount: {
+              select: {
+                id: true,
+                accountName: true,
+                accountNumber: true,
+                bankName: true
+              }
+            },
+            creator: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        });
       }
-    });
+      throw error;
+    }
   }
 
   // ============================================================
@@ -218,11 +390,11 @@ class LoanModel {
   // ============================================================
   // ✅ FIND BY LOAN NUMBER
   // ============================================================
-  static async findByLoanNumber(loanNumber, createdBy) {
+  static async findByLoanNumber(loanNumber, companyId) {
     return await prisma.loan.findFirst({
       where: {
         loanNumber,
-        createdBy
+        companyId: companyId
       },
       include: {
         lender: {
@@ -429,8 +601,8 @@ class LoanModel {
   // ============================================================
   // ✅ GET SUMMARY STATISTICS
   // ============================================================
-  static async getStats(createdBy) {
-    const filter = { createdBy };
+  static async getStats(companyId) {
+    const filter = { companyId: companyId };
 
     const loans = await prisma.loan.findMany({
       where: filter

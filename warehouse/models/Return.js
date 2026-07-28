@@ -1,4 +1,4 @@
-// warehouse/models/Return.js - COMPLETE WITH SALES & PURCHASE RETURN SUPPORT
+// warehouse/models/Return.js - COMPLETE FIXED
 
 const prisma = require('../../prisma/client');
 
@@ -17,11 +17,29 @@ function generateReturnNumber(returnType) {
 }
 
 class ReturnModel {
+  // ============================================================
+  // CREATE RETURN
+  // ============================================================
   static async create(data) {
     const returnNumber = generateReturnNumber(data.returnType || 'Sales Return');
     
     return await prisma.$transaction(async (tx) => {
-      // Create return
+      // ─── Calculate Totals from Items ──────────────────────
+      let calculatedTotalRefund = 0;
+      let calculatedSubtotal = 0;
+      
+      for (const item of data.items) {
+        const refundAmount = item.refundAmount ?? (item.unitPrice * item.returnQuantity);
+        calculatedTotalRefund += refundAmount;
+        calculatedSubtotal += (item.unitPrice ?? 0) * (item.quantity ?? 1);
+      }
+      
+      const restockingFee = data.restockingFee ?? 0;
+      const shippingCost = data.shippingCost ?? 0;
+      const finalTotalRefund = Math.max(0, calculatedTotalRefund - restockingFee - shippingCost);
+      
+      // ─── Create Return ──────────────────────────────────────
+      // ✅ REMOVED: totalReturnQty (not in schema)
       const returnData = await tx.return.create({
         data: {
           returnNumber,
@@ -32,20 +50,34 @@ class ReturnModel {
           customerName: data.customerName,
           customerEmail: data.customerEmail,
           customerPhone: data.customerPhone,
-          subtotal: data.subtotal ?? 0,           
-          refundAmount: data.refundAmount ?? 0,  
-          restockingFee: data.restockingFee ?? 0,
-          shippingCost: data.shippingCost ?? 0,
-          totalRefund: data.totalRefund ?? 0,    
+          subtotal: calculatedSubtotal,           
+          refundAmount: calculatedTotalRefund,  
+          restockingFee: restockingFee,
+          shippingCost: shippingCost,
+          totalRefund: finalTotalRefund,
+          // totalReturnQty: calculatedTotalReturnQty, // ❌ REMOVED - not in schema
           returnType: data.returnType || 'Sales Return',
           reason: data.reason,
           notes: data.notes || '',
           returnMethod: data.returnMethod || 'Original Payment',
           images: data.images || [],
           attachments: data.attachments || [],
-          createdBy: data.createdBy,
-          updatedBy: data.createdBy,
-          userId: data.userId // 👈 Multi-tenant support
+          createdBy: data.createdBy || data.userId,
+          companyId: data.companyId,
+          supplierId: data.supplierId || null,
+          supplierName: data.supplierName || null,
+          supplierEmail: data.supplierEmail || null,
+          supplierPhone: data.supplierPhone || null,
+          purchaseId: data.purchaseId || null,
+          purchaseNumber: data.purchaseNumber || null,
+          returnReasonCategory: data.returnReasonCategory || null,
+          restockStatus: data.restockStatus || 'Pending',
+          qualityCheckPassed: data.qualityCheckPassed || null,
+          qualityCheckNotes: data.qualityCheckNotes || null,
+          trackingNumber: data.trackingNumber || null,
+          shippingCarrier: data.shippingCarrier || null,
+          returnLabel: data.returnLabel || null,
+          receivedDate: data.receivedDate || null,
         },
         include: {
           creator: {
@@ -54,8 +86,10 @@ class ReturnModel {
         }
       });
 
-      // Create return items
+      // ─── Create Return Items ──────────────────────────────
       for (const item of data.items) {
+        const refundAmount = item.refundAmount ?? (item.unitPrice * item.returnQuantity);
+        
         await tx.returnItem.create({
           data: {
             returnId: returnData.id,
@@ -66,17 +100,21 @@ class ReturnModel {
             unitPrice: item.unitPrice ?? 0,
             totalPrice: (item.unitPrice ?? 0) * (item.quantity ?? 1),
             returnQuantity: item.returnQuantity ?? 1,
-            reason: item.reason || data.reason,
+            reason: item.reason || data.reason || 'Return',
             condition: item.condition || 'New',
-            refundAmount: item.refundAmount ?? 0,
+            refundAmount: refundAmount,
             batchNumber: item.batchNumber || '',
             serialNumber: item.serialNumber || '',
-            notes: item.notes || ''
+            notes: item.notes || '',
+            restockQuantity: item.restockQuantity || null,
+            restockStatus: item.restockStatus || 'Pending',
+            returnReasonDetail: item.returnReasonDetail || null,
+            replacementProductId: item.replacementProductId || null,
+            replacementProductName: item.replacementProductName || null,
           }
         });
 
-        // For Sales Return: Increase stock (return to inventory)
-        // For Purchase Return: Decrease stock (return to supplier)
+        // ─── Update Stock ─────────────────────────────────────
         if (data.returnType === 'Sales Return') {
           await tx.product.update({
             where: { id: item.productId },
@@ -104,7 +142,15 @@ class ReturnModel {
         }
       }
 
-      // Return complete return with items
+      // ─── Update Order Status ──────────────────────────────
+      await tx.order.update({
+        where: { id: data.orderId },
+        data: {
+          orderStatus: 'Returned'
+        }
+      });
+
+      // ─── Return Complete Return with Items ─────────────────
       return await tx.return.findUnique({
         where: { id: returnData.id },
         include: {
@@ -114,6 +160,12 @@ class ReturnModel {
           },
           order: {
             select: { id: true, orderNumber: true, customerName: true }
+          },
+          supplier: {
+            select: { id: true, name: true, email: true, phone: true }
+          },
+          purchase: {
+            select: { id: true, purchaseNumber: true, supplierName: true }
           }
         }
       });
@@ -121,7 +173,7 @@ class ReturnModel {
   }
 
   // ============================================================
-  // GET RETURNS WITH FILTERS (by type)
+  // GET RETURNS WITH FILTERS
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { createdAt: 'desc' } } = options;
@@ -141,6 +193,12 @@ class ReturnModel {
         },
         order: {
           select: { id: true, orderNumber: true, customerName: true, grandTotal: true }
+        },
+        supplier: {
+          select: { id: true, name: true, email: true, phone: true }
+        },
+        purchase: {
+          select: { id: true, purchaseNumber: true, supplierName: true }
         }
       }
     });
@@ -177,9 +235,15 @@ class ReturnModel {
   // COUNT SALES RETURNS
   // ============================================================
   static async countSalesReturns(filter = {}) {
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.return.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         returnType: 'Sales Return'
       }
     });
@@ -189,9 +253,15 @@ class ReturnModel {
   // COUNT PURCHASE RETURNS
   // ============================================================
   static async countPurchaseReturns(filter = {}) {
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+    
     return await prisma.return.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         returnType: 'Purchase Return'
       }
     });
@@ -201,7 +271,7 @@ class ReturnModel {
   // FIND RETURN BY ID
   // ============================================================
   static async findById(id) {
-    return await prisma.return.findUnique({
+    const returnData = await prisma.return.findUnique({
       where: { id },
       include: {
         items: {
@@ -222,9 +292,26 @@ class ReturnModel {
         },
         order: {
           select: { id: true, orderNumber: true, customerName: true, grandTotal: true, orderDate: true }
+        },
+        supplier: {
+          select: { id: true, name: true, email: true, phone: true }
+        },
+        purchase: {
+          select: { id: true, purchaseNumber: true, supplierName: true }
         }
       }
     });
+
+    // Calculate totalReturnQty from items for frontend
+    if (returnData && returnData.items) {
+      const totalQty = returnData.items.reduce((sum, item) => sum + (item.returnQuantity || 0), 0);
+      return {
+        ...returnData,
+        totalReturnQty: totalQty
+      };
+    }
+    
+    return returnData;
   }
 
   // ============================================================
@@ -361,9 +448,9 @@ class ReturnModel {
   }
 
   // ============================================================
-  // GET RETURN STATS (by type)
+  // GET RETURN STATS
   // ============================================================
-  static async getStats(userId, returnType = null, period = 'month') {
+  static async getStats(companyId, returnType = null, period = 'month') {
     const now = new Date();
     let dateFilter = {};
 
@@ -384,7 +471,7 @@ class ReturnModel {
     const filter = {
       isActive: true,
       isDeleted: false,
-      userId: userId,
+      companyId: companyId,
       ...dateFilter
     };
 
@@ -392,7 +479,6 @@ class ReturnModel {
       filter.returnType = returnType;
     }
 
-    // Get status counts
     const [total, pending, approved, rejected, completed, cancelled] = await Promise.all([
       prisma.return.count({ where: filter }),
       prisma.return.count({ where: { ...filter, returnStatus: 'Pending' } }),
@@ -402,7 +488,6 @@ class ReturnModel {
       prisma.return.count({ where: { ...filter, returnStatus: 'Cancelled' } })
     ]);
 
-    // Get financial stats
     const financial = await prisma.return.aggregate({
       where: filter,
       _sum: {
@@ -434,7 +519,7 @@ class ReturnModel {
   // ============================================================
   // GET DAILY TREND
   // ============================================================
-  static async getDailyTrend(userId, returnType = null, period = 'month') {
+  static async getDailyTrend(companyId, returnType = null, period = 'month') {
     const now = new Date();
     let startDate = new Date(now);
 
@@ -447,7 +532,7 @@ class ReturnModel {
     }
 
     const filter = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false,
       returnDate: { gte: startDate }
@@ -474,6 +559,27 @@ class ReturnModel {
       count: item._count,
       refund: item._sum.totalRefund || 0
     }));
+  }
+
+  // ============================================================
+  // GET RETURNS BY ORDER
+  // ============================================================
+  static async getReturnsByOrder(companyId, orderId) {
+    return await prisma.return.findMany({
+      where: {
+        orderId: orderId,
+        companyId: companyId,
+        isActive: true,
+        isDeleted: false
+      },
+      include: {
+        items: true,
+        creator: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
   }
 }
 

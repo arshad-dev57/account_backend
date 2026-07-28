@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../../middleware/authMiddleware');
+const { protectOnly } = require('../../middleware/authMiddleware');
 const {
   // Sales Orders
   createSalesOrder,
@@ -23,7 +23,7 @@ const {
 } = require('../controller/order_controller');
 
 // ─── All routes protected ──────────────────────────────────────
-router.use(protect);
+router.use(protectOnly);
 
 // ─── IMPORTANT: static routes MUST come before '/:id' ──────────
 

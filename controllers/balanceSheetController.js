@@ -1,15 +1,36 @@
 // controllers/balanceSheetController.js
 
 const { buildBalanceSheetFromLedger } = require('../utils/balanceSheetHelper');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 exports.getBalanceSheet = async (req, res) => {
   try {
-    const { period, asOfDate } = req.query;
-    const data = await buildBalanceSheetFromLedger(req.user.id, period, asOfDate);
+    const { period, asOfDate, fiscalYearId, startDate, endDate } = req.query;
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+
+    // Build cache key with parameters
+    const cacheKey = `bs:balance-sheet:${userId}:${period || ''}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const data = await buildBalanceSheetFromLedger(userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate);
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, data, 300);
 
     res.status(200).json({
       success: true,
       data,
+      cached: false,
     });
   } catch (error) {
     console.error('Error generating balance sheet:', error);
@@ -22,17 +43,40 @@ exports.getBalanceSheet = async (req, res) => {
 
 exports.getSummary = async (req, res) => {
   try {
-    const data = await buildBalanceSheetFromLedger(req.user.id, 'All Time', null);
+    const { fiscalYearId, startDate, endDate } = req.query;
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+
+    // Build cache key with parameters
+    const cacheKey = `bs:summary:${userId}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const data = await buildBalanceSheetFromLedger(userId, 'All Time', null, fiscalYearId, startDate, endDate);
+
+    const summaryData = {
+      asOfDate: data.asOfDate,
+      totalAssets: data.totalAssets,
+      totalLiabilities: data.totalLiabilities,
+      totalEquity: data.totalEquity,
+      isBalanced: data.isBalanced,
+    };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summaryData, 120);
 
     res.status(200).json({
       success: true,
-      data: {
-        asOfDate: data.asOfDate,
-        totalAssets: data.totalAssets,
-        totalLiabilities: data.totalLiabilities,
-        totalEquity: data.totalEquity,
-        isBalanced: data.isBalanced,
-      },
+      data: summaryData,
+      cached: false,
     });
   } catch (error) {
     console.error('Error generating balance sheet summary:', error);
@@ -46,7 +90,23 @@ exports.getSummary = async (req, res) => {
 exports.getBalanceSheetByDate = async (req, res) => {
   try {
     const { date } = req.params;
-    const data = await buildBalanceSheetFromLedger(req.user.id, 'All Time', date);
+    const { fiscalYearId, startDate, endDate } = req.query;
+    const userId = req.user.id;
+
+    // Build cache key with parameters
+    const cacheKey = `bs:by-date:${userId}:${date}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const data = await buildBalanceSheetFromLedger(userId, 'All Time', date, fiscalYearId, startDate, endDate);
 
     const assets = [];
     const liabilities = [];
@@ -70,14 +130,20 @@ exports.getBalanceSheetByDate = async (req, res) => {
       });
     });
 
+    const responseData = {
+      asOfDate: data.asOfDate,
+      assets: { total: data.totalAssets, items: assets },
+      liabilities: { total: data.totalLiabilities, items: liabilities },
+      equity: { total: data.totalEquity, items: equity },
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
     res.status(200).json({
       success: true,
-      data: {
-        asOfDate: data.asOfDate,
-        assets: { total: data.totalAssets, items: assets },
-        liabilities: { total: data.totalLiabilities, items: liabilities },
-        equity: { total: data.totalEquity, items: equity },
-      },
+      data: responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('Error generating balance sheet by date:', error);
@@ -90,8 +156,21 @@ exports.getBalanceSheetByDate = async (req, res) => {
 
 exports.getAssetsBreakdown = async (req, res) => {
   try {
-    const { asOfDate } = req.query;
-    const data = await buildBalanceSheetFromLedger(req.user.id, 'All Time', asOfDate);
+    const { asOfDate, fiscalYearId, startDate, endDate } = req.query;
+    const userId = req.user.id;
+
+    const cacheKey = `bs:assets:${userId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+    
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const data = await buildBalanceSheetFromLedger(userId, 'All Time', asOfDate, fiscalYearId, startDate, endDate);
 
     let currentAssets = 0;
     let fixedAssets = 0;
@@ -107,16 +186,22 @@ exports.getAssetsBreakdown = async (req, res) => {
       });
     });
 
+    const responseData = {
+      asOfDate: data.asOfDate,
+      currentAssets,
+      fixedAssets,
+      otherAssets,
+      totalAssets: data.totalAssets,
+      details: assetDetails,
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
     res.status(200).json({
       success: true,
-      data: {
-        asOfDate: data.asOfDate,
-        currentAssets,
-        fixedAssets,
-        otherAssets,
-        totalAssets: data.totalAssets,
-        details: assetDetails,
-      },
+      data: responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('Error generating assets breakdown:', error);
@@ -129,8 +214,23 @@ exports.getAssetsBreakdown = async (req, res) => {
 
 exports.getLiabilitiesBreakdown = async (req, res) => {
   try {
-    const { asOfDate } = req.query;
-    const data = await buildBalanceSheetFromLedger(req.user.id, 'All Time', asOfDate);
+    const { asOfDate, fiscalYearId, startDate, endDate } = req.query;
+    const userId = req.user.id;
+
+    // Build cache key with parameters
+    const cacheKey = `bs:liabilities:${userId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
+    const data = await buildBalanceSheetFromLedger(userId, 'All Time', asOfDate, fiscalYearId, startDate, endDate);
 
     let currentLiabilities = 0;
     let longTermLiabilities = 0;
@@ -144,17 +244,23 @@ exports.getLiabilitiesBreakdown = async (req, res) => {
       });
     });
 
+    const responseData = {
+      asOfDate: data.asOfDate,
+      currentLiabilities,
+      longTermLiabilities,
+      equity: data.totalEquity,
+      totalLiabilities: data.totalLiabilities,
+      totalEquityAndLiabilities: data.totalLiabilities + data.totalEquity,
+      details: liabilityDetails,
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
     res.status(200).json({
       success: true,
-      data: {
-        asOfDate: data.asOfDate,
-        currentLiabilities,
-        longTermLiabilities,
-        equity: data.totalEquity,
-        totalLiabilities: data.totalLiabilities,
-        totalEquityAndLiabilities: data.totalLiabilities + data.totalEquity,
-        details: liabilityDetails,
-      },
+      data: responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('Error generating liabilities breakdown:', error);

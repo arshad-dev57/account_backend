@@ -1,4 +1,4 @@
-// warehouse/models/SalesInvoice.js
+// warehouse/models/SalesInvoice.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 
@@ -13,10 +13,11 @@ function generateInvoiceNumber() {
 }
 
 // ─── Helper: Find AR Account ────────────────────────────────
-async function findARAccount(tx, userId) {
+async function findARAccount(tx, companyId) {
+  // ✅ FIXED: Use companyId instead of userId
   return await tx.chartOfAccount.findFirst({
     where: {
-      createdBy: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '1200' },
@@ -27,10 +28,11 @@ async function findARAccount(tx, userId) {
 }
 
 // ─── Helper: Find Revenue Account ───────────────────────────
-async function findRevenueAccount(tx, userId) {
+async function findRevenueAccount(tx, companyId) {
+  // ✅ FIXED: Use companyId instead of userId
   return await tx.chartOfAccount.findFirst({
     where: {
-      createdBy: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '4000' },
@@ -42,7 +44,7 @@ async function findRevenueAccount(tx, userId) {
 }
 
 // ─── Helper: Find or Create Customer ────────────────────────
-async function findOrCreateCustomer(tx, order, userId, createdBy) {
+async function findOrCreateCustomer(tx, order, userId, createdBy, companyId) {
   let customerId = order.customerId;
   let customer = null;
 
@@ -54,7 +56,7 @@ async function findOrCreateCustomer(tx, order, userId, createdBy) {
 
   if (order.customerEmail) {
     customer = await tx.customer.findFirst({
-      where: { email: order.customerEmail, userId, isActive: true, isDeleted: false }
+      where: { email: order.customerEmail, companyId: companyId, isActive: true, isDeleted: false }
     });
     if (customer) {
       await tx.order.update({ where: { id: order.id }, data: { customerId: customer.id } });
@@ -64,7 +66,7 @@ async function findOrCreateCustomer(tx, order, userId, createdBy) {
 
   if (order.customerPhone) {
     customer = await tx.customer.findFirst({
-      where: { phone: order.customerPhone, userId, isActive: true, isDeleted: false }
+      where: { phone: order.customerPhone, companyId: companyId, isActive: true, isDeleted: false }
     });
     if (customer) {
       await tx.order.update({ where: { id: order.id }, data: { customerId: customer.id } });
@@ -74,7 +76,7 @@ async function findOrCreateCustomer(tx, order, userId, createdBy) {
 
   if (order.customerName) {
     customer = await tx.customer.findFirst({
-      where: { name: order.customerName, userId, isActive: true, isDeleted: false }
+      where: { name: order.customerName, companyId: companyId, isActive: true, isDeleted: false }
     });
     if (customer) {
       await tx.order.update({ where: { id: order.id }, data: { customerId: customer.id } });
@@ -106,10 +108,10 @@ async function findOrCreateCustomer(tx, order, userId, createdBy) {
       name: order.customerName || 'Unknown Customer',
       email,
       phone,
-      company: order.customerCompany || null,
+      companyName: order.customerCompany || null,
       customerType: order.customerType || 'Individual',
-      userId,
-      createdBy,
+      createdBy: createdBy,
+      companyId: companyId,
       isActive: true
     }
   });
@@ -122,7 +124,7 @@ class SalesInvoiceModel {
   // ============================================================
   // CREATE SALES INVOICE FROM ORDER
   // ============================================================
-  static async createFromOrder(orderId, userId, dueDate, paymentTerms = 'Net 30') {
+  static async createFromOrder(orderId, userId, dueDate, paymentTerms = 'Net 30', fiscalYearId) {
     return await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
@@ -142,8 +144,9 @@ class SalesInvoiceModel {
       });
       if (existingInvoice) throw new Error('Invoice already exists for this order');
 
+      const companyId = order.companyId;
       const { customerId, customer } = await findOrCreateCustomer(
-        tx, order, order.userId || userId, userId
+        tx, order, order.createdBy || userId, userId, companyId
       );
 
       let deliveryId = null;
@@ -186,9 +189,9 @@ class SalesInvoiceModel {
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
-      // ✅ FIXED: name-based fallback search
-      const arAccount = await findARAccount(tx, order.userId || userId);
-      const revenueAccount = await findRevenueAccount(tx, order.userId || userId);
+      // ✅ FIXED: Use companyId instead of userId
+      const arAccount = await findARAccount(tx, companyId);
+      const revenueAccount = await findRevenueAccount(tx, companyId);
 
       const invoice = await tx.salesInvoice.create({
         data: {
@@ -217,8 +220,9 @@ class SalesInvoiceModel {
           notes: order.customerNotes || null,
           salesRevenueAccountId: revenueAccount?.id || null,
           arAccountId: arAccount?.id || null,
-          createdBy: userId,
-          userId: order.userId || userId,
+          createdBy: userId,          // ✅ Use createdBy
+          companyId: companyId,       // ✅ Use companyId
+          fiscalYearId: fiscalYearId,
           items: { create: invoiceItems }
         },
         include: {
@@ -241,7 +245,7 @@ class SalesInvoiceModel {
       const {
         customerId, customerName, customerEmail, customerPhone,
         billingAddress, shippingAddress, items, dueDate,
-        paymentTerms, notes, userId, createdBy
+        paymentTerms, notes, userId, createdBy, fiscalYearId, companyId
       } = data;
 
       if (!customerId && !customerName) throw new Error('Customer is required');
@@ -254,7 +258,7 @@ class SalesInvoiceModel {
 
       if (customerId) {
         const customer = await tx.customer.findFirst({
-          where: { id: customerId, userId, isActive: true, isDeleted: false }
+          where: { id: customerId, companyId: companyId, isActive: true, isDeleted: false }
         });
         if (!customer) throw new Error('Customer not found');
         finalCustomerName = customer.name;
@@ -264,17 +268,17 @@ class SalesInvoiceModel {
         let customer = null;
         if (customerEmail) {
           customer = await tx.customer.findFirst({
-            where: { email: customerEmail, userId, isActive: true, isDeleted: false }
+            where: { email: customerEmail, companyId: companyId, isActive: true, isDeleted: false }
           });
         }
         if (!customer && customerPhone) {
           customer = await tx.customer.findFirst({
-            where: { phone: customerPhone, userId, isActive: true, isDeleted: false }
+            where: { phone: customerPhone, companyId: companyId, isActive: true, isDeleted: false }
           });
         }
         if (!customer) {
           customer = await tx.customer.findFirst({
-            where: { name: customerName, userId, isActive: true, isDeleted: false }
+            where: { name: customerName, companyId: companyId, isActive: true, isDeleted: false }
           });
         }
         if (customer) {
@@ -318,9 +322,9 @@ class SalesInvoiceModel {
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
-      // ✅ FIXED: name-based fallback search
-      const arAccount = await findARAccount(tx, userId);
-      const revenueAccount = await findRevenueAccount(tx, userId);
+      // ✅ FIXED: Use companyId instead of userId
+      const arAccount = await findARAccount(tx, companyId);
+      const revenueAccount = await findRevenueAccount(tx, companyId);
 
       const invoice = await tx.salesInvoice.create({
         data: {
@@ -345,8 +349,9 @@ class SalesInvoiceModel {
           notes: notes || null,
           salesRevenueAccountId: revenueAccount?.id || null,
           arAccountId: arAccount?.id || null,
-          createdBy,
-          userId,
+          createdBy: createdBy || userId,   // ✅ Use createdBy
+          companyId: companyId,             // ✅ Use companyId
+          fiscalYearId: fiscalYearId,
           items: { create: invoiceItems }
         },
         include: {
@@ -378,7 +383,8 @@ class SalesInvoiceModel {
       if (invoice.invoiceStatus === 'Posted') throw new Error('Invoice already posted');
       if (invoice.invoiceStatus === 'Cancelled') throw new Error('Cannot post cancelled invoice');
 
-      // ✅ FIXED: agar invoice pe accounts null hain to name-based search karo
+      const companyId = invoice.companyId;
+
       let arAccountId = invoice.arAccountId;
       let salesRevenueAccountId = invoice.salesRevenueAccountId;
       let arAccountName = invoice.arAccount?.name || 'Accounts Receivable';
@@ -387,8 +393,9 @@ class SalesInvoiceModel {
       let revenueAccountCode = invoice.salesRevenueAccount?.code || '4000';
 
       if (!arAccountId || !salesRevenueAccountId) {
-        const arAccount = await findARAccount(tx, invoice.userId);
-        const revenueAccount = await findRevenueAccount(tx, invoice.userId);
+        // ✅ FIXED: Use companyId instead of userId
+        const arAccount = await findARAccount(tx, companyId);
+        const revenueAccount = await findRevenueAccount(tx, companyId);
 
         if (!arAccount || !revenueAccount) {
           throw new Error(
@@ -404,7 +411,6 @@ class SalesInvoiceModel {
         revenueAccountName = revenueAccount.name;
         revenueAccountCode = revenueAccount.code;
 
-        // Invoice pe account IDs save karo future ke liye
         await tx.salesInvoice.update({
           where: { id: invoiceId },
           data: { arAccountId, salesRevenueAccountId }
@@ -424,7 +430,8 @@ class SalesInvoiceModel {
           createdBy: userId,
           postedBy: userId,
           postedAt: new Date(),
-          userId: invoice.userId,
+          companyId: companyId,
+          fiscalYearId: invoice.fiscalYearId,
           lines: {
             create: [
               {
@@ -460,6 +467,8 @@ class SalesInvoiceModel {
           dueDate: invoice.dueDate,
           status: 'Current',
           accountId: arAccountId,
+          companyId: companyId,
+          fiscalYearId: invoice.fiscalYearId,
           notes: `Created from invoice #${invoice.invoiceNumber}`
         }
       });
@@ -677,7 +686,8 @@ class SalesInvoiceModel {
               createdBy: userId,
               postedBy: userId,
               postedAt: new Date(),
-              userId: invoice.userId,
+              companyId: invoice.companyId,
+              fiscalYearId: invoice.fiscalYearId,
               lines: {
                 create: invoice.journalEntry.lines.map(line => ({
                   accountId: line.accountId,
@@ -728,9 +738,10 @@ class SalesInvoiceModel {
   }
 
   // ============================================================
-  // GET INVOICE STATS / KPI
+  // GET INVOICE STATS / KPI - ✅ FIXED
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId) {
+    // ✅ FIXED: Use companyId instead of userId
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -739,7 +750,11 @@ class SalesInvoiceModel {
     startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const baseFilter = { isActive: true, isDeleted: false, userId };
+    const baseFilter = { 
+      isActive: true, 
+      isDeleted: false, 
+      companyId: companyId  // ✅ Use companyId
+    };
 
     const [todayInvoices, weekInvoices, monthInvoices, monthRevenue, overdueInvoices] =
       await Promise.all([
@@ -769,10 +784,15 @@ class SalesInvoiceModel {
   }
 
   // ============================================================
-  // GET INVOICE STATUS COUNTS (KPI)
+  // GET INVOICE STATUS COUNTS (KPI) - ✅ FIXED
   // ============================================================
-  static async getStatusCounts(userId) {
-    const baseFilter = { isActive: true, isDeleted: false, userId };
+  static async getStatusCounts(companyId) {
+    // ✅ FIXED: Use companyId instead of userId
+    const baseFilter = { 
+      isActive: true, 
+      isDeleted: false, 
+      companyId: companyId  // ✅ Use companyId
+    };
 
     const [total, draft, posted, partiallyPaid, paid, cancelled] = await Promise.all([
       prisma.salesInvoice.count({ where: baseFilter }),
@@ -848,12 +868,16 @@ class SalesInvoiceModel {
   }
 
   // ============================================================
-  // GET CUSTOMER INVOICE SUMMARY
+  // GET CUSTOMER INVOICE SUMMARY - ✅ FIXED
   // ============================================================
-  static async getCustomerSummary(userId, customerId) {
+  static async getCustomerSummary(companyId, customerId) {
+    // ✅ FIXED: Use companyId instead of userId
     const invoices = await prisma.salesInvoice.findMany({
       where: {
-        userId, customerId, isActive: true, isDeleted: false,
+        companyId: companyId, 
+        customerId, 
+        isActive: true, 
+        isDeleted: false,
         invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
       },
       select: {

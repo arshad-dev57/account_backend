@@ -1,10 +1,11 @@
-// controllers/userController.js - WITH DEBUG LOGS
+// controllers/userController.js - WITH EMAIL SERVICE
 
 const User = require('../models/User');
 const prisma = require('../prisma/client');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
+const emailService = require('../services/emailService');
+const { sendToUser } = require('../services/onesignal');
 
 const cleanToken = (token) => {
   if (!token) return null;
@@ -70,10 +71,23 @@ exports.register = async (req, res) => {
       firstName, lastName, email, password,
       country, phone, address,
       organizationName,
-      logo, fiscalYear, taxRegistrationNumber,
-      signature, industry, businessType,
+      fiscalYear, taxRegistrationNumber,
+      industry, businessType,
       websiteLink, contactNo,
+      fiscalYearStartDate, fiscalYearEndDate, fiscalYearName,
     } = req.body;
+    
+    let logo = req.body.logo || '';
+    let signature = req.body.signature || '';
+
+    if (req.files) {
+      if (req.files.logo && req.files.logo[0]) {
+        logo = req.files.logo[0].path;
+      }
+      if (req.files.signature && req.files.signature[0]) {
+        signature = req.files.signature[0].path;
+      }
+    }
 
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [register] Called');
@@ -113,6 +127,29 @@ exports.register = async (req, res) => {
     const trialEnd = new Date(now);
     trialEnd.setDate(trialEnd.getDate() + 30);
 
+    // ─── Every user registering creates their own company, so they should be admin ─────────
+    const userRole = 'admin';
+
+    console.log('🎭 [register] Assigned role:', userRole);
+
+    // Create Company first
+    const company = await prisma.company.create({
+      data: {
+        name: organizationName || `${firstName} ${lastName}'s Company`,
+        email: email,
+        phone: phone || '',
+        address: address || '',
+        businessType: businessType || '',
+        taxRegistrationNumber: taxRegistrationNumber || '',
+        logo: logo || '',
+        website: websiteLink || '',
+        subscriptionPlan: 'trial',
+        subscriptionStatus: 'active',
+        trialStartDate: now,
+        trialEndDate: trialEnd,
+      }
+    });
+
     const userData = await prisma.user.create({
       data: {
         firstName,
@@ -133,6 +170,8 @@ exports.register = async (req, res) => {
           industry: industry || '',
           businessType: businessType || '',
         },
+        role: userRole,
+        companyId: company.id,
         subscriptionPlan: 'trial',
         subscriptionStatus: 'active',
         subscriptionStartDate: now,
@@ -153,6 +192,75 @@ exports.register = async (req, res) => {
         paymentMethod: 'free_trial',
       }
     });
+
+    // ─── Req 4: Auto-create first FiscalYear + default Retained Earnings ───
+    try {
+      let fyStartDate, fyEndDate, fyName;
+      const currentYear = new Date().getFullYear();
+
+      if (fiscalYearStartDate && fiscalYearEndDate) {
+        fyStartDate = new Date(fiscalYearStartDate);
+        fyEndDate   = new Date(fiscalYearEndDate);
+        const startYear = fyStartDate.getFullYear();
+        const endYear   = fyEndDate.getFullYear();
+        fyName = fiscalYearName || (startYear === endYear ? `FY ${startYear}` : `FY ${startYear}-${endYear}`);
+      } else {
+        fyStartDate = new Date(`${currentYear}-01-01T00:00:00.000Z`);
+        fyEndDate   = new Date(`${currentYear}-12-31T23:59:59.999Z`);
+        fyName      = fiscalYearName || `FY ${currentYear}`;
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.fiscalYear.create({
+          data: {
+            companyId: company.id,
+            name:      fyName,
+            startDate: fyStartDate,
+            endDate:   fyEndDate,
+            status:    'Open',
+          },
+        });
+
+        const existingRE = await tx.chartOfAccount.findFirst({
+          where: {
+            companyId: company.id,
+            type:   'Equity',
+            name:   { contains: 'Retained Earnings', mode: 'insensitive' },
+          },
+        });
+
+        if (!existingRE) {
+          await tx.chartOfAccount.create({
+            data: {
+              code:           '3999',
+              name:           'Retained Earnings',
+              type:           'Equity',
+              parentAccount:  'Shareholders Equity',
+              openingBalance: 0,
+              currentBalance: 0,
+              description:    'Retained earnings account',
+              taxCode:        'N/A',
+              balanceType:    'Credit',
+              isActive:       true,
+              createdBy:      user._id,
+              companyId:      company.id,
+            },
+          });
+        }
+      });
+
+      console.log('✅ [register] FiscalYear and Retained Earnings created for user:', user._id);
+    } catch (fyError) {
+      console.error('⚠️ [register] FiscalYear/RetainedEarnings creation failed (non-fatal):', fyError.message);
+    }
+
+    // ─── Send Welcome Email using emailService ───
+    try {
+      await emailService.sendWelcomeEmail(email, firstName);
+      console.log('✅ [register] Welcome email sent successfully');
+    } catch (emailError) {
+      console.error('⚠️ [register] Welcome email failed (non-fatal):', emailError.message);
+    }
 
     const token = generateToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
@@ -204,21 +312,25 @@ exports.login = async (req, res) => {
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [login] Called');
     console.log('📧 [login] Email:', email);
+    console.log('🔐 [login] Password length:', password ? password.length : 0);
+    console.log('📦 [login] Request body keys:', Object.keys(req.body));
     console.log('═══════════════════════════════════════════════════');
 
     if (!email || !password) {
+      console.log('❌ [login] Missing email or password');
       return res.status(400).json({
         success: false,
         message: 'Please provide email and password'
       });
     }
 
+    console.log('🔍 [login] Searching for user in database...');
     const userData = await prisma.user.findUnique({
       where: { email }
     });
 
     if (!userData) {
-      console.log('❌ [login] User not found');
+      console.log('❌ [login] User not found in database');
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -226,6 +338,8 @@ exports.login = async (req, res) => {
     }
 
     console.log('✅ [login] User found:', userData.id);
+    console.log('👤 [login] User name:', userData.firstName, userData.lastName);
+    console.log('📊 [login] User isActive:', userData.isActive);
 
     const user = new User(userData);
 
@@ -237,18 +351,21 @@ exports.login = async (req, res) => {
       });
     }
 
+    console.log('🔒 [login] Checking account lock status...');
     if (user.isLocked()) {
       const remainingMinutes = Math.ceil((new Date(user.lockUntil) - Date.now()) / (1000 * 60));
-      console.log('❌ [login] Account locked:', remainingMinutes);
+      console.log('❌ [login] Account locked:', remainingMinutes, 'minutes remaining');
       return res.status(403).json({
         success: false,
         message: `Account temporarily locked. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`,
       });
     }
 
+    console.log('🔐 [login] Verifying password...');
     const isPasswordMatch = await user.matchPassword(password);
 
     if (!isPasswordMatch) {
+      console.log('❌ [login] Password does not match');
       user.failedLoginAttempts += 1;
 
       if (user.failedLoginAttempts >= 5) {
@@ -270,9 +387,11 @@ exports.login = async (req, res) => {
       });
     }
 
+    console.log('✅ [login] Password verified successfully');
     user.failedLoginAttempts = 0;
     user.lockUntil = null;
 
+    console.log('🔑 [login] Generating OTP...');
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.loginOtp = otp;
     user.loginOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
@@ -281,10 +400,22 @@ exports.login = async (req, res) => {
 
     console.log('🔑 [login] OTP Generated:', otp);
     console.log('📧 [login] Sending OTP to:', email);
+    console.log('⏰ [login] OTP expires at:', user.loginOtpExpiry);
 
-    await sendOTPEmail(email, otp, user.firstName);
+    // ─── Send OTP using emailService ───
+    try {
+      await emailService.sendOTPEmail(email, otp, user.firstName, 'login');
+      console.log('✅ [login] OTP sent successfully');
+    } catch (emailError) {
+      console.error('❌ [login] Failed to send OTP email:', emailError.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP. Please try again.',
+      });
+    }
 
     console.log('✅ [login] OTP sent successfully');
+    console.log('📤 [login] Sending response with requiresOtp: true');
     console.log('═══════════════════════════════════════════════════');
 
     return res.status(200).json({
@@ -296,6 +427,8 @@ exports.login = async (req, res) => {
 
   } catch (error) {
     console.error('❌ [login] Error:', error);
+    console.error('❌ [login] Error stack:', error.stack);
+    console.error('❌ [login] Error name:', error.name);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -406,6 +539,23 @@ exports.verifyLoginOTP = async (req, res) => {
     console.log('   - Currency Code:', responseUser.businessDetails?.currencyCode || 'Not Set');
     console.log('   - Currency Symbol:', responseUser.businessDetails?.currencySymbol || 'Not Set');
     console.log('═══════════════════════════════════════════════════');
+
+    // 🔔 Send login success notification
+    try {
+      console.log('🔔 [verifyLoginOTP] Sending login success notification...');
+      await sendToUser({
+        mongoUserId: updatedUser._id.toString(),
+        title: 'Login Successful',
+        message: 'Welcome back to LedgerPro ✅',
+        data: {
+          type: 'auth',
+          screen: 'home'
+        }
+      });
+      console.log('✅ [verifyLoginOTP] Notification sent successfully');
+    } catch (notificationError) {
+      console.error('⚠️ [verifyLoginOTP] Failed to send notification:', notificationError.message);
+    }
 
     res.status(200).json({
       success: true,
@@ -747,7 +897,6 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-// ==================== FORGOT PASSWORD - SEND OTP ====================
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -777,9 +926,17 @@ exports.forgotPassword = async (req, res) => {
     await user.save();
 
     console.log('🔑 [forgotPassword] OTP Generated:', otp);
-    await sendOTPEmail(email, otp, user.firstName);
 
-    console.log('✅ [forgotPassword] OTP sent successfully');
+    try {
+      await emailService.sendOTPEmail(email, otp, user.firstName, 'reset');
+      console.log('✅ [forgotPassword] OTP sent successfully');
+    } catch (emailError) {
+      console.error('❌ [forgotPassword] Failed to send OTP email:', emailError.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP. Please try again.',
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -932,7 +1089,6 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
-// ==================== UPDATE CURRENCY ====================
 exports.updateCurrency = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -994,134 +1150,3 @@ exports.updateCurrency = async (req, res) => {
     });
   }
 };
-
-// ==================== SEND OTP EMAIL ====================
-async function sendOTPEmail(email, otp, firstName = '') {
-  console.log('📧 [sendOTPEmail] Sending OTP to:', email);
-
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  await transporter.verify();
-  console.log('✅ SMTP connection verified');
-
-  const otpDigits = String(otp).split('');
-  const digitBoxes = otpDigits
-    .map(
-      (digit, i) =>
-        `<td style="padding:0 5px;">
-          <div style="
-            width:48px;height:58px;
-            background:${i % 2 === 0 ? 'linear-gradient(135deg,#f5f3ff,#eef2ff)' : '#ffffff'};
-            border:1.5px solid ${i % 2 === 0 ? '#6366f1' : '#c7d2fe'};
-            border-radius:12px;
-            text-align:center;line-height:58px;
-            font-family:'Courier New',Courier,monospace;
-            font-size:26px;font-weight:700;
-            color:${i % 2 === 0 ? '#4338ca' : '#1e1b4b'};
-            box-shadow:0 4px 12px rgba(99,102,241,0.12);
-          ">${digit}</div>
-        </td>`
-    )
-    .join('');
-
-  const mailOptions = {
-    from: `"LedgerPro" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: '🔐 Your Login Verification Code — LedgerPro',
-    html: `
-<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:40px 16px;">
-    <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" border="0"
-        style="max-width:560px;width:100%;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.12);">
-        <tr>
-          <td style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 55%,#0f2744 100%);padding:48px 40px 56px;text-align:center;">
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr><td align="center" style="padding-bottom:28px;">
-                <table cellpadding="0" cellspacing="0"><tr>
-                  <td style="background:linear-gradient(135deg,#1AB4F5,#6366f1);border-radius:12px;padding:9px 13px;font-size:20px;line-height:1;vertical-align:middle;">💼</td>
-                  <td style="padding-left:10px;vertical-align:middle;">
-                    <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Ledger<span style="color:#1AB4F5;">Pro</span></span>
-                  </td>
-                </tr></table>
-              </td></tr>
-            </table>
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr><td align="center" style="padding-bottom:20px;">
-                <div style="width:80px;height:80px;background:rgba(26,180,245,0.12);border:1.5px solid rgba(26,180,245,0.35);border-radius:50%;display:inline-block;line-height:80px;font-size:36px;text-align:center;">🔐</div>
-              </td></tr>
-            </table>
-            <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;line-height:1.2;">Login Verification</div>
-            <div style="margin-top:8px;font-size:14px;color:rgba(255,255,255,0.5);font-weight:300;">One-Time Password for ${firstName ? firstName + "'s" : 'your'} Login</div>
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px;margin-bottom:-2px;">
-              <tr><td>
-                <svg viewBox="0 0 560 36" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" width="100%" height="36">
-                  <path d="M0,36 C140,0 420,0 560,36 L560,36 L0,36 Z" fill="#ffffff"/>
-                </svg>
-              </td></tr>
-            </table>
-          </td>
-        </tr>
-        <tr>
-          <td style="background:#ffffff;padding:36px 40px 28px;">
-            <p style="font-size:15px;color:#374151;line-height:1.8;margin:0 0 28px 0;">
-              Hello <strong style="color:#111827;">${firstName || 'there'}</strong>,<br/>
-              Use the code below to complete your <strong style="color:#111827;">LedgerPro</strong> login.
-              This code expires in <strong style="color:#ef4444;">10 minutes</strong>.
-            </p>
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#f8faff,#eef2ff);border:1.5px solid #e0e7ff;border-radius:16px;margin-bottom:28px;overflow:hidden;">
-              <tr><td style="height:3px;background:linear-gradient(90deg,#1AB4F5,#6366f1,#a855f7,#1AB4F5);"></td></tr>
-              <tr><td style="padding:30px 24px 28px;text-align:center;">
-                <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#6366f1;font-weight:700;margin-bottom:20px;">YOUR ONE-TIME PASSWORD</div>
-                <table cellpadding="0" cellspacing="0" style="margin:0 auto 20px;"><tr>${digitBoxes}</tr></table>
-                <div style="display:inline-block;background:#f3f4f6;border-radius:20px;padding:7px 18px;font-size:12px;color:#6b7280;">⏱&nbsp; Expires in 10 minutes</div>
-              </td></tr>
-            </table>
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:10px;margin-bottom:28px;">
-              <tr><td style="padding:14px 16px;">
-                <table cellpadding="0" cellspacing="0"><tr>
-                  <td style="padding-right:10px;vertical-align:top;font-size:17px;padding-top:1px;">⚠️</td>
-                  <td style="font-size:13px;color:#78350f;line-height:1.7;">
-                    <strong>Security Notice:</strong> LedgerPro will never ask for your OTP via phone or chat.
-                    If you did not attempt to login, please secure your account immediately.
-                  </td>
-                </tr></table>
-              </td></tr>
-            </table>
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">
-              <tr><td style="height:1px;background:linear-gradient(90deg,transparent,#e5e7eb,transparent);"></td></tr>
-            </table>
-            <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:0;">
-              Sent to <span style="color:#6366f1;">${email}</span><br/>
-              Questions? <span style="color:#6366f1;">support@ledgerpro.com</span>
-            </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:22px 40px;">
-            <p style="font-size:12px;color:#9ca3af;line-height:1.7;margin:0 0 12px 0;">
-              © 2025 LedgerPro. All rights reserved.<br/>Secure Financial Management Platform
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`,
-  };
-
-  const info = await transporter.sendMail(mailOptions);
-  console.log('✅ Email sent:', info.messageId, '→', email);
-}

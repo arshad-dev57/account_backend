@@ -11,12 +11,16 @@ const {
   getBill,
   recordPayment,
   getSummary,
-  getAgedPayables
+  getAgedPayables,
+  getNextBillNumber
 } = require('../controllers/accountsPayableController');
 
 // ─── Supplier Routes (Using Warehouse Supplier) ──────────────────
 router.get('/suppliers', protect, getSuppliers);
 router.get('/suppliers/:id', protect, getSupplier);
+
+// ─── Bill Number Generation ─────────────────────────────────────────
+router.get('/next-bill-number', protect, getNextBillNumber);
 
 // ─── Bill Routes ──────────────────────────────────────────────────
 router.route('/bills')

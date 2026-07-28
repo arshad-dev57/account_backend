@@ -1,19 +1,26 @@
 const prisma = require('../prisma/client');
 const LoanModel = require('../models/Loan');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 
-async function getOrCreateLoanAccount(userId) {
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
+
+// Helper: Get or create Loan Liability account
+async function getOrCreateLoanAccount(userId, companyId) {
   console.log('🔍 [LN] Getting/Creating Loan Liability account');
   let loanAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '2100',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!loanAccount) {
     console.log('📝 [LN] Creating new Loan Liability account');
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '2100' }
+      where: { code: '2100', companyId: companyId }
     });
     
     let newCode = '2100';
@@ -23,7 +30,7 @@ async function getOrCreateLoanAccount(userId) {
       while (codeExists) {
         newCode = `21${counter}0`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -44,7 +51,8 @@ async function getOrCreateLoanAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Credit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [LN] Loan Liability account created');
@@ -53,19 +61,19 @@ async function getOrCreateLoanAccount(userId) {
 }
 
 // Helper: Get or create Interest Expense account
-async function getOrCreateInterestExpenseAccount(userId) {
+async function getOrCreateInterestExpenseAccount(userId, companyId) {
   console.log('🔍 [LN] Getting/Creating Interest Expense account');
   let interestAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '6200',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!interestAccount) {
     console.log('📝 [LN] Creating new Interest Expense account');
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '6200' }
+      where: { code: '6200', companyId: companyId }
     });
     
     let newCode = '6200';
@@ -75,7 +83,7 @@ async function getOrCreateInterestExpenseAccount(userId) {
       while (codeExists) {
         newCode = `62${counter}0`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -96,7 +104,8 @@ async function getOrCreateInterestExpenseAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [LN] Interest Expense account created');
@@ -104,20 +113,20 @@ async function getOrCreateInterestExpenseAccount(userId) {
   return interestAccount;
 }
 
-// Helper: Get or create Cash account
-async function getOrCreateCashAccount(userId) {
+// Helper: Get or create Cash account - FIXED with companyId parameter
+async function getOrCreateCashAccount(userId, companyId) {
   console.log('🔍 [LN] Getting/Creating Cash account');
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!cashAccount) {
     console.log('📝 [LN] Creating new Cash account');
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1010' }
+      where: { code: '1010', companyId: companyId }
     });
     
     let newCode = '1010';
@@ -127,7 +136,7 @@ async function getOrCreateCashAccount(userId) {
       while (codeExists) {
         newCode = `101${counter}`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -148,7 +157,8 @@ async function getOrCreateCashAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [LN] Cash account created');
@@ -156,10 +166,8 @@ async function getOrCreateCashAccount(userId) {
   return cashAccount;
 }
 
-// controllers/loanController.js - Update validateLender
-
-// Helper: Validate Lender (returns null instead of throwing)
-async function validateLender(lenderId, userId) {
+// Helper: Validate Lender
+async function validateLender(lenderId, userId, companyId) {
   if (!lenderId || lenderId === 'null' || lenderId.trim() === '') {
     return null;
   }
@@ -168,7 +176,7 @@ async function validateLender(lenderId, userId) {
   const lender = await prisma.supplier.findFirst({
     where: {
       id: lenderId,
-      createdBy: userId
+      companyId: companyId
     }
   });
 
@@ -179,11 +187,9 @@ async function validateLender(lenderId, userId) {
   console.log(`✅ [LN] Lender found: ${lender.name}`);
   return lender;
 }
-// Helper: Validate Bank Account
-// controllers/loanController.js - Update validateBankAccount
 
-// Helper: Validate Bank Account (returns null instead of throwing)
-async function validateBankAccount(bankAccountId, userId) {
+// Helper: Validate Bank Account
+async function validateBankAccount(bankAccountId, userId, companyId) {
   if (!bankAccountId || bankAccountId === 'null' || bankAccountId.trim() === '') {
     return null;
   }
@@ -192,7 +198,7 @@ async function validateBankAccount(bankAccountId, userId) {
   const bankAccount = await prisma.bankAccount.findFirst({
     where: {
       id: bankAccountId,
-      createdBy: userId
+      companyId: companyId
     }
   });
 
@@ -202,7 +208,7 @@ async function validateBankAccount(bankAccountId, userId) {
   }
   console.log(`✅ [LN] Bank account found: ${bankAccount.accountName}`);
   return bankAccount;
-}// controllers/loanController.js - Update createLoan function
+}
 
 // ============================================================
 // @desc    Create a new loan
@@ -230,13 +236,29 @@ exports.createLoan = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const postingDate = disbursementDate ? new Date(disbursementDate) : new Date();
     console.log('👤 [LN] User ID:', userId);
+    console.log('🏢 [LN] Company ID:', companyId);
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     // ─── 1. Validate Lender (only if provided) ──────────────────
     let finalLenderId = null;
     if (lenderId && lenderId !== 'null' && lenderId.trim() !== '') {
       try {
-        const lender = await validateLender(lenderId, userId);
+        const lender = await validateLender(lenderId, userId, companyId);
         if (lender) {
           finalLenderId = lender.id;
           console.log(`✅ [LN] Lender found: ${lender.name}`);
@@ -252,7 +274,7 @@ exports.createLoan = async (req, res) => {
     let finalBankAccountId = null;
     if (bankAccountId && bankAccountId !== 'null' && bankAccountId.trim() !== '') {
       try {
-        const bankAccount = await validateBankAccount(bankAccountId, userId);
+        const bankAccount = await validateBankAccount(bankAccountId, userId, companyId);
         if (bankAccount) {
           finalBankAccountId = bankAccount.id;
           console.log(`✅ [LN] Bank account found: ${bankAccount.accountName}`);
@@ -278,28 +300,30 @@ exports.createLoan = async (req, res) => {
       accountNumber: accountNumber || '',
       bankAccountId: finalBankAccountId,
       notes: notes || '',
-      createdBy: userId
+      createdBy: userId,
+      companyId: companyId,
+      fiscalYearId,
     });
 
     console.log(`✅ [LN] Loan created: ${loan.loanNumber}`);
 
     // ─── 4. Create Journal Entry ──────────────────────────────
-    const loanAccount = await getOrCreateLoanAccount(userId);
-    let cashChartAccount = await getOrCreateCashAccount(userId);
+    const loanAccount = await getOrCreateLoanAccount(userId, companyId);
+    let cashChartAccount = await getOrCreateCashAccount(userId, companyId);
 
     // If bank account is selected, use its chart of account
     if (finalBankAccountId) {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: finalBankAccountId,
-          createdBy: userId
+          companyId: companyId
         }
       });
       if (bankAccount && bankAccount.chartOfAccountId) {
         const bankChartAccount = await prisma.chartOfAccount.findFirst({
           where: {
             id: bankAccount.chartOfAccountId,
-            createdBy: userId
+            companyId: companyId
           }
         });
         if (bankChartAccount) {
@@ -311,13 +335,15 @@ exports.createLoan = async (req, res) => {
     await prisma.journalEntry.create({
       data: {
         entryNumber: `JE-${Date.now()}`,
-        date: new Date(disbursementDate),
+        date: postingDate,
         description: `Loan disbursement - ${loanType} from ${lenderName}`,
         reference: loan.loanNumber,
         status: 'Posted',
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
+        fiscalYearId,
+        companyId: companyId,
         lines: {
           create: [
             {
@@ -356,6 +382,7 @@ exports.createLoan = async (req, res) => {
     });
   }
 };
+
 // ============================================================
 // @desc    Get all loans
 // @route   GET /api/loans
@@ -368,8 +395,9 @@ exports.getLoans = async (req, res) => {
   try {
     const { status, loanType, search } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    const filter = { createdBy: userId };
+    const filter = { companyId: companyId };
 
     if (status) filter.status = status;
     if (loanType) filter.loanType = loanType;
@@ -412,11 +440,12 @@ exports.getLoan = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const loan = await prisma.loan.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       },
       include: {
         lender: {
@@ -485,6 +514,7 @@ exports.updateLoan = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       loanType,
       lenderName,
@@ -501,7 +531,7 @@ exports.updateLoan = async (req, res) => {
     const existingLoan = await prisma.loan.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -513,14 +543,24 @@ exports.updateLoan = async (req, res) => {
       });
     }
 
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, existingLoan.disbursementDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
     // ─── Validate Lender ──────────────────────────────────
     if (lenderId) {
-      await validateLender(lenderId, userId);
+      await validateLender(lenderId, userId, companyId);
     }
 
     // ─── Validate Bank Account ──────────────────────────
     if (bankAccountId) {
-      await validateBankAccount(bankAccountId, userId);
+      await validateBankAccount(bankAccountId, userId, companyId);
     }
 
     // ─── Update Loan ──────────────────────────────────────────
@@ -564,13 +604,14 @@ exports.recordPayment = async (req, res) => {
   try {
     const { loanId, amount, paymentDate, reference, notes, type } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const date = paymentDate ? new Date(paymentDate) : new Date();
 
     // ─── Check if loan exists ──────────────────────────────
     const loan = await prisma.loan.findFirst({
       where: {
         id: loanId,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -599,22 +640,22 @@ exports.recordPayment = async (req, res) => {
     });
 
     // ─── Create Journal Entry ──────────────────────────────
-    const loanAccount = await getOrCreateLoanAccount(userId);
-    const interestAccount = await getOrCreateInterestExpenseAccount(userId);
+    const loanAccount = await getOrCreateLoanAccount(userId, companyId);
+    const interestAccount = await getOrCreateInterestExpenseAccount(userId, companyId);
 
-    let cashChartAccount = await getOrCreateCashAccount(userId);
+    let cashChartAccount = await getOrCreateCashAccount(userId, companyId);
     if (loan.bankAccountId) {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: loan.bankAccountId,
-          createdBy: userId
+          companyId: companyId
         }
       });
       if (bankAccount && bankAccount.chartOfAccountId) {
         const bankChartAccount = await prisma.chartOfAccount.findFirst({
           where: {
             id: bankAccount.chartOfAccountId,
-            createdBy: userId
+            companyId: companyId
           }
         });
         if (bankChartAccount) {
@@ -633,6 +674,7 @@ exports.recordPayment = async (req, res) => {
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
+        companyId: companyId,
         lines: {
           create: [
             {
@@ -742,11 +784,12 @@ exports.calculatePrepayment = async (req, res) => {
   try {
     const { loanId, prepaymentAmount } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const loan = await prisma.loan.findFirst({
       where: {
         id: loanId,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -783,12 +826,13 @@ exports.prepayLoan = async (req, res) => {
   try {
     const { loanId, prepaymentAmount, paymentDate, reference } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const date = paymentDate ? new Date(paymentDate) : new Date();
 
     const loan = await prisma.loan.findFirst({
       where: {
         id: loanId,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -826,21 +870,21 @@ exports.prepayLoan = async (req, res) => {
     });
 
     // ─── Create Journal Entry ──────────────────────────────
-    const loanAccount = await getOrCreateLoanAccount(userId);
-    let cashChartAccount = await getOrCreateCashAccount(userId);
+    const loanAccount = await getOrCreateLoanAccount(userId, companyId);
+    let cashChartAccount = await getOrCreateCashAccount(userId, companyId);
 
     if (loan.bankAccountId) {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: loan.bankAccountId,
-          createdBy: userId
+          companyId: companyId
         }
       });
       if (bankAccount && bankAccount.chartOfAccountId) {
         const bankChartAccount = await prisma.chartOfAccount.findFirst({
           where: {
             id: bankAccount.chartOfAccountId,
-            createdBy: userId
+            companyId: companyId
           }
         });
         if (bankChartAccount) {
@@ -859,6 +903,7 @@ exports.prepayLoan = async (req, res) => {
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
+        companyId: companyId,
         lines: {
           create: [
             {
@@ -917,8 +962,9 @@ exports.getSummary = async (req, res) => {
 
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    const stats = await LoanModel.getStats(userId);
+    const stats = await LoanModel.getStats(companyId);
 
     console.log('✅ [LN] Summary generated');
 
@@ -947,11 +993,12 @@ exports.getPaymentSchedule = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const loan = await prisma.loan.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -989,12 +1036,13 @@ exports.deleteLoan = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     // ─── Check if loan exists ──────────────────────────────
     const loan = await prisma.loan.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -1004,6 +1052,16 @@ exports.deleteLoan = async (req, res) => {
         success: false,
         message: 'Loan not found',
       });
+    }
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, loan.disbursementDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
     }
 
     // ─── Check if payments exist ──────────────────────────

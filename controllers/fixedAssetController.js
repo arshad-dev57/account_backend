@@ -1,24 +1,27 @@
 const prisma = require('../prisma/client');
 const FixedAssetModel = require('../models/FixedAsset');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
 
 // Helper: Get or create Fixed Asset account
-async function getOrCreateFixedAssetAccount(userId) {
+async function getOrCreateFixedAssetAccount(userId, companyId) {
   console.log('🔍 [FA] Getting/Creating Fixed Asset account');
   let assetAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1500',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!assetAccount) {
     console.log('📝 [FA] Creating new Fixed Asset account');
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1500' }
+      where: { code: '1500', companyId: companyId }
     });
     
     let newCode = '1500';
@@ -28,7 +31,7 @@ async function getOrCreateFixedAssetAccount(userId) {
       while (codeExists) {
         newCode = `15${counter}0`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -49,7 +52,8 @@ async function getOrCreateFixedAssetAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [FA] Fixed Asset account created');
@@ -58,19 +62,19 @@ async function getOrCreateFixedAssetAccount(userId) {
 }
 
 // Helper: Get or create Accumulated Depreciation account
-async function getOrCreateAccumulatedDepreciationAccount(userId) {
+async function getOrCreateAccumulatedDepreciationAccount(userId, companyId) {
   console.log('🔍 [FA] Getting/Creating Accumulated Depreciation account');
   let accDepAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1510',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!accDepAccount) {
     console.log('📝 [FA] Creating new Accumulated Depreciation account');
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1510' }
+      where: { code: '1510', companyId: companyId }
     });
     
     let newCode = '1510';
@@ -80,7 +84,7 @@ async function getOrCreateAccumulatedDepreciationAccount(userId) {
       while (codeExists) {
         newCode = `151${counter}`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -101,7 +105,8 @@ async function getOrCreateAccumulatedDepreciationAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Credit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [FA] Accumulated Depreciation account created');
@@ -110,19 +115,19 @@ async function getOrCreateAccumulatedDepreciationAccount(userId) {
 }
 
 // Helper: Get or create Depreciation Expense account
-async function getOrCreateDepreciationExpenseAccount(userId) {
+async function getOrCreateDepreciationExpenseAccount(userId, companyId) {
   console.log('🔍 [FA] Getting/Creating Depreciation Expense account');
   let depExpAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '6100',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!depExpAccount) {
     console.log('📝 [FA] Creating new Depreciation Expense account');
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '6100' }
+      where: { code: '6100', companyId: companyId }
     });
     
     let newCode = '6100';
@@ -132,7 +137,7 @@ async function getOrCreateDepreciationExpenseAccount(userId) {
       while (codeExists) {
         newCode = `61${counter}0`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -153,7 +158,8 @@ async function getOrCreateDepreciationExpenseAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [FA] Depreciation Expense account created');
@@ -162,19 +168,19 @@ async function getOrCreateDepreciationExpenseAccount(userId) {
 }
 
 // Helper: Get or create Cash account
-async function getOrCreateCashAccount(userId) {
+async function getOrCreateCashAccount(userId, companyId) {
   console.log('🔍 [FA] Getting/Creating Cash account');
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!cashAccount) {
     console.log('📝 [FA] Creating new Cash account');
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1010' }
+      where: { code: '1010', companyId: companyId }
     });
     
     let newCode = '1010';
@@ -184,7 +190,7 @@ async function getOrCreateCashAccount(userId) {
       while (codeExists) {
         newCode = `101${counter}`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -205,7 +211,8 @@ async function getOrCreateCashAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [FA] Cash account created');
@@ -214,20 +221,20 @@ async function getOrCreateCashAccount(userId) {
 }
 
 // Helper: Get or create Gain/Loss account
-async function getOrCreateGainLossAccount(userId, isGain) {
+async function getOrCreateGainLossAccount(userId, companyId, isGain) {
   const code = isGain ? '5100' : '5200';
   console.log(`🔍 [FA] Getting/Creating ${isGain ? 'Gain' : 'Loss'} account`);
   
   let account = await prisma.chartOfAccount.findFirst({
     where: {
       code: code,
-      createdBy: userId
+      companyId: companyId
     }
   });
 
   if (!account) {
     const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: code }
+      where: { code: code, companyId: companyId }
     });
     
     let newCode = code;
@@ -237,7 +244,7 @@ async function getOrCreateGainLossAccount(userId, isGain) {
       while (codeExists) {
         newCode = code.substring(0, 2) + counter + '0';
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, createdBy: userId }
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -258,7 +265,8 @@ async function getOrCreateGainLossAccount(userId, isGain) {
         taxCode: 'N/A',
         balanceType: isGain ? 'Credit' : 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log(`✅ [FA] ${isGain ? 'Gain' : 'Loss'} account created`);
@@ -267,7 +275,7 @@ async function getOrCreateGainLossAccount(userId, isGain) {
 }
 
 // Helper: Validate Supplier (returns null if not found instead of throwing)
-async function validateSupplier(supplierId, userId) {
+async function validateSupplier(supplierId, userId, companyId) {
   if (!supplierId || supplierId === 'null' || supplierId.trim() === '') {
     return null;
   }
@@ -276,7 +284,7 @@ async function validateSupplier(supplierId, userId) {
   const supplier = await prisma.supplier.findFirst({
     where: {
       id: supplierId,
-      createdBy: userId
+      companyId: companyId
     }
   });
 
@@ -313,14 +321,30 @@ exports.createFixedAsset = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const postingDate = purchaseDate ? new Date(purchaseDate) : new Date();
     console.log('👤 [FA] User ID:', userId);
+    console.log('🏢 [FA] Company ID:', companyId);
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     // ─── 1. Validate Supplier (only if provided) ──────────────────
     let supplierName = '';
     let finalSupplierId = null;
     
     if (supplierId && supplierId !== 'null' && supplierId.trim() !== '') {
-      const supplier = await validateSupplier(supplierId, userId);
+      const supplier = await validateSupplier(supplierId, userId, companyId);
       if (supplier) {
         supplierName = supplier.name;
         finalSupplierId = supplier.id;
@@ -346,27 +370,31 @@ exports.createFixedAsset = async (req, res) => {
       supplierName: supplierName,
       warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null,
       notes: notes || '',
-      createdBy: userId
+      createdBy: userId,
+      companyId: companyId,
+      fiscalYearId,
     });
 
     console.log(`✅ [FA] Fixed asset created: ${fixedAsset.assetCode}`);
 
     // ─── 3. Create Journal Entry ──────────────────────────────
-    const assetAccount = await getOrCreateFixedAssetAccount(userId);
-    const cashAccount = await getOrCreateCashAccount(userId);
+    const assetAccount = await getOrCreateFixedAssetAccount(userId, companyId);
+    const cashAccount = await getOrCreateCashAccount(userId, companyId);
 
     console.log('📝 [FA] Creating journal entry...');
 
     await prisma.journalEntry.create({
       data: {
         entryNumber: `JE-${Date.now()}`,
-        date: new Date(purchaseDate),
+        date: postingDate,
         description: `Purchase of fixed asset: ${name} (${fixedAsset.assetCode})`,
         reference: fixedAsset.assetCode,
         status: 'Posted',
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
+        fiscalYearId,
+        companyId: companyId,
         lines: {
           create: [
             {
@@ -391,6 +419,15 @@ exports.createFixedAsset = async (req, res) => {
     });
 
     console.log('✅ [FA] Journal entry created');
+
+    // Invalidate cache after successful fixed asset creation
+    try {
+      await delPattern(`fixedasset:list:${userId}:*`);
+      await delPattern(`fixedasset:summary:${userId}`);
+      console.log('🗑️ [FixedAsset] Cache invalidated after fixed asset creation');
+    } catch (cacheError) {
+      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
+    }
 
     res.status(201).json({
       success: true,
@@ -418,9 +455,23 @@ exports.getFixedAssets = async (req, res) => {
   try {
     const { category, status, search } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     console.log('👤 [FA] User ID:', userId);
 
-    const filter = { createdBy: userId };
+    // Build cache key with parameters
+    const cacheKey = `fixedasset:list:${userId}:${category || 'All'}:${status || 'All'}:${search || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
+
+    const filter = { companyId: companyId };
 
     if (category) {
       filter.category = category;
@@ -442,10 +493,18 @@ exports.getFixedAssets = async (req, res) => {
 
     console.log(`✅ [FA] Found ${assets.length} fixed assets`);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       count: assets.length,
       data: assets,
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [FA] Get fixed assets error:', error);
@@ -468,11 +527,25 @@ exports.getFixedAsset = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    
+    // Build cache key
+    const cacheKey = `fixedasset:detail:${userId}:${id}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
 
     const asset = await prisma.fixedAsset.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       },
       include: {
         supplier: {
@@ -505,9 +578,13 @@ exports.getFixedAsset = async (req, res) => {
 
     console.log(`✅ [FA] Fixed asset found: ${asset.assetCode}`);
 
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, asset, 600);
+
     res.status(200).json({
       success: true,
       data: asset,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [FA] Get fixed asset error:', error);
@@ -530,6 +607,7 @@ exports.updateFixedAsset = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       name,
       category,
@@ -547,7 +625,7 @@ exports.updateFixedAsset = async (req, res) => {
     const existingAsset = await prisma.fixedAsset.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -559,12 +637,23 @@ exports.updateFixedAsset = async (req, res) => {
       });
     }
 
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    const newDate = purchaseDate ? new Date(purchaseDate) : existingAsset.purchaseDate;
+    try {
+      await fiscalYearGuard(userId, newDate, existingAsset.purchaseDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
     // ─── Validate Supplier ──────────────────────────────────
     let supplierName = existingAsset.supplierName;
     let finalSupplierId = existingAsset.supplierId;
     
     if (supplierId && supplierId !== 'null' && supplierId.trim() !== '') {
-      const supplier = await validateSupplier(supplierId, userId);
+      const supplier = await validateSupplier(supplierId, userId, companyId);
       if (supplier) {
         supplierName = supplier.name;
         finalSupplierId = supplier.id;
@@ -590,6 +679,16 @@ exports.updateFixedAsset = async (req, res) => {
     });
 
     console.log(`✅ [FA] Fixed asset updated: ${updatedAsset.assetCode}`);
+
+    // Invalidate cache after successful fixed asset update
+    try {
+      await delPattern(`fixedasset:list:${userId}:*`);
+      await delPattern(`fixedasset:detail:${userId}:${id}`);
+      await delPattern(`fixedasset:summary:${userId}`);
+      console.log('🗑️ [FixedAsset] Cache invalidated after fixed asset update');
+    } catch (cacheError) {
+      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
+    }
 
     res.status(200).json({
       success: true,
@@ -617,13 +716,14 @@ exports.runDepreciation = async (req, res) => {
   try {
     const { assetId, depreciationDate } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const date = depreciationDate ? new Date(depreciationDate) : new Date();
 
     // ─── Check if asset exists ──────────────────────────────
     const asset = await prisma.fixedAsset.findFirst({
       where: {
         id: assetId,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -653,8 +753,8 @@ exports.runDepreciation = async (req, res) => {
     const result = await FixedAssetModel.runDepreciation(assetId, date);
 
     // ─── Create Journal Entry ──────────────────────────────
-    const depExpAccount = await getOrCreateDepreciationExpenseAccount(userId);
-    const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId);
+    const depExpAccount = await getOrCreateDepreciationExpenseAccount(userId, companyId);
+    const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
 
     await prisma.journalEntry.create({
       data: {
@@ -666,6 +766,7 @@ exports.runDepreciation = async (req, res) => {
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
+        companyId: companyId,
         lines: {
           create: [
             {
@@ -690,6 +791,16 @@ exports.runDepreciation = async (req, res) => {
     });
 
     console.log(`✅ [FA] Depreciation recorded: ${result.amount}`);
+
+    // Invalidate cache after successful depreciation
+    try {
+      await delPattern(`fixedasset:list:${userId}:*`);
+      await delPattern(`fixedasset:detail:${userId}:${assetId}`);
+      await delPattern(`fixedasset:summary:${userId}`);
+      console.log('🗑️ [FixedAsset] Cache invalidated after depreciation');
+    } catch (cacheError) {
+      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
+    }
 
     res.status(200).json({
       success: true,
@@ -726,12 +837,13 @@ exports.runMonthlyDepreciation = async (req, res) => {
   try {
     const { depreciationDate } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const date = depreciationDate ? new Date(depreciationDate) : new Date();
 
     // ─── Get active assets ──────────────────────────────────
     const assets = await prisma.fixedAsset.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         status: { in: ['Active', 'Fully Depreciated'] },
         OR: [
           { lastDepreciationDate: null },
@@ -757,6 +869,15 @@ exports.runMonthlyDepreciation = async (req, res) => {
     }
 
     console.log(`✅ [FA] Depreciation processed for ${results.length} assets`);
+
+    // Invalidate cache after successful monthly depreciation
+    try {
+      await delPattern(`fixedasset:list:${userId}:*`);
+      await delPattern(`fixedasset:summary:${userId}`);
+      console.log('🗑️ [FixedAsset] Cache invalidated after monthly depreciation');
+    } catch (cacheError) {
+      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
+    }
 
     res.status(200).json({
       success: true,
@@ -787,12 +908,13 @@ exports.disposeFixedAsset = async (req, res) => {
   try {
     const { assetId, disposalDate, disposalAmount, disposalReason } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     // ─── Check if asset exists ──────────────────────────────
     const asset = await prisma.fixedAsset.findFirst({
       where: {
         id: assetId,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -823,10 +945,10 @@ exports.disposeFixedAsset = async (req, res) => {
     });
 
     // ─── Create Journal Entry ──────────────────────────────────
-    const assetAccount = await getOrCreateFixedAssetAccount(userId);
-    const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId);
-    const cashAccount = await getOrCreateCashAccount(userId);
-    const gainLossAccount = await getOrCreateGainLossAccount(userId, gainLoss >= 0);
+    const assetAccount = await getOrCreateFixedAssetAccount(userId, companyId);
+    const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
+    const cashAccount = await getOrCreateCashAccount(userId, companyId);
+    const gainLossAccount = await getOrCreateGainLossAccount(userId, companyId, gainLoss >= 0);
 
     // ─── Build journal lines ──────────────────────────────────
     const journalLines = [
@@ -891,6 +1013,7 @@ exports.disposeFixedAsset = async (req, res) => {
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
+        companyId: companyId,
         lines: {
           create: journalLines
         }
@@ -898,6 +1021,16 @@ exports.disposeFixedAsset = async (req, res) => {
     });
 
     console.log(`✅ [FA] Asset disposed: ${asset.assetCode}`);
+
+    // Invalidate cache after successful asset disposal
+    try {
+      await delPattern(`fixedasset:list:${userId}:*`);
+      await delPattern(`fixedasset:detail:${userId}:${assetId}`);
+      await delPattern(`fixedasset:summary:${userId}`);
+      console.log('🗑️ [FixedAsset] Cache invalidated after asset disposal');
+    } catch (cacheError) {
+      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
+    }
 
     res.status(200).json({
       success: true,
@@ -933,14 +1066,32 @@ exports.getSummary = async (req, res) => {
 
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
+    
+    // Build cache key
+    const cacheKey = `fixedasset:summary:${userId}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
 
-    const stats = await FixedAssetModel.getStats(userId);
+    const stats = await FixedAssetModel.getStats(companyId);
 
     console.log('✅ [FA] Summary generated');
+
+    // Cache the result (2 minutes TTL - summary changes frequently with depreciation)
+    await set(cacheKey, stats, 120);
 
     res.status(200).json({
       success: true,
       data: stats,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ [FA] Get summary error:', error);
@@ -963,12 +1114,13 @@ exports.deleteFixedAsset = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     // ─── Check if asset exists ──────────────────────────────
     const asset = await prisma.fixedAsset.findFirst({
       where: {
         id,
-        createdBy: userId
+        companyId: companyId
       }
     });
 
@@ -978,6 +1130,16 @@ exports.deleteFixedAsset = async (req, res) => {
         success: false,
         message: 'Fixed asset not found',
       });
+    }
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, asset.purchaseDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
     }
 
     // ─── Check if can delete ──────────────────────────────────
@@ -992,6 +1154,16 @@ exports.deleteFixedAsset = async (req, res) => {
     await FixedAssetModel.delete(id);
 
     console.log(`✅ [FA] Fixed asset deleted: ${asset.assetCode}`);
+
+    // Invalidate cache after successful fixed asset deletion
+    try {
+      await delPattern(`fixedasset:list:${userId}:*`);
+      await delPattern(`fixedasset:detail:${userId}:${id}`);
+      await delPattern(`fixedasset:summary:${userId}`);
+      console.log('🗑️ [FixedAsset] Cache invalidated after fixed asset deletion');
+    } catch (cacheError) {
+      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
+    }
 
     res.status(200).json({
       success: true,

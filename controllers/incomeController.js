@@ -2,12 +2,14 @@
 
 const IncomeModel = require('../models/Income');
 const prisma = require('../prisma/client');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 
-// ─── HELPER: Get all income accounts for dropdown ──────────────
-async function getIncomeAccountsForDropdown(userId) {
+async function getIncomeAccountsForDropdown(userId, companyId) {
   let accounts = await prisma.chartOfAccount.findMany({
     where: {
-      createdBy: userId,
+      
+      companyId: companyId,
       type: { in: ['Revenue', 'Income'] },
       isActive: true
     },
@@ -23,7 +25,6 @@ async function getIncomeAccountsForDropdown(userId) {
   });
 
   if (accounts.length === 0) {
-    // Create a default income account
     const existingCode = await prisma.chartOfAccount.findFirst({
       where: { code: '4000' }
     });
@@ -54,7 +55,8 @@ async function getIncomeAccountsForDropdown(userId) {
         taxCode: 'N/A',
         balanceType: 'Credit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       },
       select: {
         id: true,
@@ -75,8 +77,7 @@ async function getOrCreateCashAccount(userId) {
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!cashAccount) {
@@ -93,8 +94,7 @@ async function getOrCreateCashAccount(userId) {
         const existing = await prisma.chartOfAccount.findFirst({
           where: {
             code: newCode,
-            createdBy: userId
-          }
+            companyId: companyId}
         });
         if (!existing) {
           codeExists = false;
@@ -161,14 +161,10 @@ async function createIncomeJournalEntry(userId, income, cashOrBankAccount, incom
   });
 }
 
-// ============================================================
-// @desc    Get income accounts for dropdown
-// @route   GET /api/income/accounts
-// @access  Private
-// ============================================================
 exports.getIncomeAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const accounts = await getIncomeAccountsForDropdown(userId);
 
     res.status(200).json({
@@ -184,11 +180,6 @@ exports.getIncomeAccounts = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Create Income - WITH INCOME ACCOUNT SELECTION
-// @route   POST /api/income
-// @access  Private
-// ============================================================
 exports.createIncome = async (req, res) => {
   try {
     const {
@@ -207,9 +198,19 @@ exports.createIncome = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    const postingDate = date ? new Date(date) : new Date();
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
     console.log("📦 Received income data:", JSON.stringify(req.body, null, 2));
 
-    // ─── ✅ VALIDATE: Check if income account exists ─────────────
     if (!incomeAccountId) {
       return res.status(400).json({
         success: false,
@@ -221,7 +222,7 @@ exports.createIncome = async (req, res) => {
     const incomeAccount = await prisma.chartOfAccount.findFirst({
       where: {
         id: incomeAccountId,
-        createdBy: userId,
+        companyId: companyId,
         type: { in: ['Revenue', 'Income'] },
         isActive: true
       }
@@ -237,7 +238,6 @@ exports.createIncome = async (req, res) => {
 
     console.log(`✅ Using income account: ${incomeAccount.name} (${incomeAccount.code})`);
 
-    // ─── Clean bankAccountId ──────────────────────────────────────
     let cleanBankAccountId = null;
     const rawValue = bankAccountId !== null && bankAccountId !== undefined 
       ? String(bankAccountId).trim() 
@@ -272,8 +272,7 @@ exports.createIncome = async (req, res) => {
       bankAccountData = await prisma.bankAccount.findFirst({
         where: {
           id: finalBankAccountId,
-          createdBy: userId
-        },
+          companyId: companyId},
         include: {
           chartOfAccount: true
         }
@@ -301,8 +300,7 @@ exports.createIncome = async (req, res) => {
       const customer = await prisma.customer.findFirst({
         where: {
           id: customerId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (customer) {
         customerName = customer.name;
@@ -348,6 +346,7 @@ exports.createIncome = async (req, res) => {
     }
 
     // ─── Create income record ──────────────────────────────────
+    const fyId = await resolveFiscalYearId(userId, postingDate);
     const income = await IncomeModel.create({
       date: formattedDate,
       incomeType,
@@ -361,6 +360,7 @@ exports.createIncome = async (req, res) => {
       reference: reference || '',
       paymentMethod: finalPaymentMethod,
       bankAccountId: finalBankAccountId,
+      fiscalYearId: fyId,
       status: 'Posted',
       postedBy: userId,
       postedAt: new Date(),
@@ -467,17 +467,14 @@ exports.createIncome = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get all incomes
-// @route   GET /api/income/list
-// @access  Private
-// ============================================================
+
 exports.getIncomes = async (req, res) => {
   try {
     const { incomeType, status, startDate, endDate, search, page = 1, limit = 10 } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    const filter = { companyId: companyId };
 
     if (incomeType && incomeType !== 'All') {
       filter.incomeType = incomeType;
@@ -540,11 +537,11 @@ exports.getIncome = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const income = await prisma.income.findFirst({
       where: {
         id,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         customer: {
           select: {
@@ -609,16 +606,12 @@ exports.getIncome = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Update income
-// @route   PUT /api/income/:id
-// @access  Private
-// ============================================================
 exports.updateIncome = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const {
       date,
       incomeType,
@@ -636,8 +629,7 @@ exports.updateIncome = async (req, res) => {
     const existing = await prisma.income.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!existing) {
@@ -645,6 +637,16 @@ exports.updateIncome = async (req, res) => {
         success: false,
         message: 'Income record not found'
       });
+    }
+
+    const newDate = req.body.date ? new Date(req.body.date) : existing.date;
+    try {
+      await fiscalYearGuard(userId, newDate, existing.date);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
     }
 
     if (existing.status === 'Posted') {
@@ -659,8 +661,7 @@ exports.updateIncome = async (req, res) => {
       const customer = await prisma.customer.findFirst({
         where: {
           id: customerId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (customer) {
         customerName = customer.name;
@@ -672,8 +673,7 @@ exports.updateIncome = async (req, res) => {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: bankAccountId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (!bankAccount) {
         return res.status(400).json({
@@ -689,7 +689,7 @@ exports.updateIncome = async (req, res) => {
       const incomeAccount = await prisma.chartOfAccount.findFirst({
         where: {
           id: incomeAccountId,
-          createdBy: userId,
+          companyId: companyId,
           type: { in: ['Revenue', 'Income'] }
         }
       });
@@ -779,11 +779,11 @@ exports.deleteIncome = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const existing = await prisma.income.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!existing) {
@@ -791,6 +791,15 @@ exports.deleteIncome = async (req, res) => {
         success: false,
         message: 'Income record not found'
       });
+    }
+
+    try {
+      await fiscalYearGuard(userId, existing.date);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
     }
 
     if (existing.status === 'Posted') {
@@ -815,18 +824,14 @@ exports.deleteIncome = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get income summary
-// @route   GET /api/income/summary
-// @access  Private
-// ============================================================
 exports.getSummary = async (req, res) => {
   try {
     const { startDate, endDate, page = 1, limit = 10 } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const filter = {
-      createdBy: userId,
+      companyId: companyId,
       status: 'Posted'
     };
 
@@ -919,11 +924,11 @@ exports.postIncome = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const income = await prisma.income.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!income) {
@@ -944,7 +949,7 @@ exports.postIncome = async (req, res) => {
     const incomeAccount = await prisma.chartOfAccount.findFirst({
       where: {
         id: income.incomeAccountId,
-        createdBy: userId,
+        companyId: companyId,
         type: 'Revenue'
       }
     });
@@ -966,8 +971,7 @@ exports.postIncome = async (req, res) => {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: income.bankAccountId,
-          createdBy: userId
-        },
+          companyId: companyId},
         include: {
           chartOfAccount: true
         }
@@ -988,8 +992,7 @@ exports.postIncome = async (req, res) => {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: income.bankAccountId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (bankAccount) {
         const newBalance = bankAccount.currentBalance + income.totalAmount;

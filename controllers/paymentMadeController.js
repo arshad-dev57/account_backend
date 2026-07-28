@@ -1,14 +1,17 @@
 // controllers/paymentMadeController.js - COMPLETE FIXED VERSION
 
 const prisma = require('../prisma/client');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 
 // ─── HELPER: Get or create Accounts Payable account ──────────────
-async function getOrCreatePayableAccount(userId) {
+async function getOrCreatePayableAccount(userId, companyId) {
   console.log('🔍 [PM] Getting/Creating Accounts Payable account');
   let apAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '2010',
-      createdBy: userId
+      
+      companyId: companyId
     }
   });
 
@@ -37,12 +40,13 @@ async function getOrCreatePayableAccount(userId) {
 }
 
 // ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId) {
+async function getOrCreateCashAccount(userId, companyId) {
   console.log('🔍 [PM] Getting/Creating Cash account');
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      createdBy: userId
+      
+      companyId: companyId
     }
   });
 
@@ -60,7 +64,8 @@ async function getOrCreateCashAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [PM] Cash account created');
@@ -76,8 +81,7 @@ async function validateSupplier(supplierId, userId) {
   const supplier = await prisma.supplier.findFirst({
     where: {
       id: supplierId,
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!supplier) {
@@ -94,8 +98,7 @@ async function validateBill(billId, userId) {
   const bill = await prisma.bill.findFirst({
     where: {
       id: billId,
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!bill) {
@@ -112,7 +115,7 @@ async function validateBankAccount(bankAccountId, userId) {
   const bankAccount = await prisma.bankAccount.findFirst({
     where: {
       id: bankAccountId,
-      createdBy: userId,
+      companyId: companyId,
       status: 'Active'
     },
     include: {
@@ -131,7 +134,7 @@ async function validateBankAccount(bankAccountId, userId) {
 // ─── HELPER: Generate payment number ─────────────────────────────
 async function generatePaymentNumber(userId) {
   const count = await prisma.paymentMade.count({
-    where: { createdBy: userId }
+    where: { companyId: companyId}
   });
   const year = new Date().getFullYear();
   return `PMT-${year}-${String(count + 1).padStart(4, '0')}`;
@@ -227,7 +230,18 @@ const recordPayment = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     console.log('👤 [PM] User ID:', userId);
+
+    const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
 
     const supplier = await validateSupplier(supplierId, userId);
 
@@ -296,6 +310,8 @@ const recordPayment = async (req, res) => {
 
     const paymentNumber = await generatePaymentNumber(userId);
 
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
     let allocationMap = {};
     let remainingAmount = amount;
 
@@ -361,7 +377,8 @@ const recordPayment = async (req, res) => {
           bankAccountName: bankAccount ? bankAccount.accountName : (paymentMethod === 'Cash' ? 'Cash in Hand' : ''),
           notes: notes || '',
           status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
-          createdBy: userId
+          createdBy: userId,
+          ...(fiscalYearId && { fiscalYearId }),
         },
         include: {
           supplier: {
@@ -487,11 +504,11 @@ const deletePayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const payment = await prisma.paymentMade.findFirst({
       where: {
         id,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         bill: true
       }
@@ -506,6 +523,15 @@ const deletePayment = async (req, res) => {
     }
 
     console.log(`✅ [PM] Payment found: ${payment.paymentNumber}`);
+
+    try {
+      await fiscalYearGuard(userId, payment.paymentDate, payment.paymentDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
 
     await prisma.$transaction(async (tx) => {
       await reverseJournalEntry(payment, userId, tx);
@@ -557,11 +583,11 @@ const clearChequePayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const payment = await prisma.paymentMade.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!payment) {
@@ -632,11 +658,12 @@ const getPayments = async (req, res) => {
     const { supplierId, billId, status, startDate, endDate, search, page = 1, limit = 20 } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    const filter = { companyId: companyId };
 
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
-        where: { id: supplierId, createdBy: userId }
+        where: { id: supplierId, companyId: companyId}
       });
       if (supplier) {
         filter.supplierId = supplierId;
@@ -645,7 +672,7 @@ const getPayments = async (req, res) => {
 
     if (billId) {
       const bill = await prisma.bill.findFirst({
-        where: { id: billId, createdBy: userId }
+        where: { id: billId, companyId: companyId}
       });
       if (bill) {
         filter.billId = billId;
@@ -727,11 +754,11 @@ const getPayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const payment = await prisma.paymentMade.findFirst({
       where: {
         id,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         supplier: {
           select: { id: true, name: true, email: true, phone: true, address: true }
@@ -790,11 +817,11 @@ const getUnpaidBills = async (req, res) => {
     const { supplierId } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!supplier) {
@@ -811,8 +838,7 @@ const getUnpaidBills = async (req, res) => {
       where: {
         vendorId: supplierId,
         status: { not: 'Paid' },
-        createdBy: userId
-      },
+        companyId: companyId},
       orderBy: { dueDate: 'asc' }
     });
 
@@ -855,7 +881,8 @@ const getSummary = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const filter = { createdBy: userId };
+    const companyId = req.user.companyId;
+    const filter = { companyId: companyId };
 
     if (startDate && endDate) {
       filter.paymentDate = {

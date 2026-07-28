@@ -6,6 +6,7 @@ const prisma = require('../prisma/client');
 exports.getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -92,13 +93,23 @@ exports.updateProfile = async (req, res) => {
       contactNo,
       websiteLink,
       organizationName,
-      logo,
       fiscalYear,
       taxRegistrationNumber,
-      signature,
       industry,
       businessType,
     } = req.body;
+
+    let logo = req.body.logo;
+    let signature = req.body.signature;
+
+    if (req.files) {
+      if (req.files.logo && req.files.logo[0]) {
+        logo = req.files.logo[0].path;
+      }
+      if (req.files.signature && req.files.signature[0]) {
+        signature = req.files.signature[0].path;
+      }
+    }
 
     // ─── CHECK IF USER EXISTS ────────────────────────────────
     const existingUser = await prisma.user.findUnique({
@@ -250,13 +261,23 @@ exports.updateBusinessDetails = async (req, res) => {
   try {
     const userId = req.user.id;
     const {
-      logo,
       fiscalYear,
       taxRegistrationNumber,
-      signature,
       industry,
       businessType,
     } = req.body;
+
+    let logo = req.body.logo;
+    let signature = req.body.signature;
+
+    if (req.files) {
+      if (req.files.logo && req.files.logo[0]) {
+        logo = req.files.logo[0].path;
+      }
+      if (req.files.signature && req.files.signature[0]) {
+        signature = req.files.signature[0].path;
+      }
+    }
 
     // ─── CHECK IF USER EXISTS ────────────────────────────────
     const existingUser = await prisma.user.findUnique({
@@ -382,11 +403,20 @@ exports.getBusinessDetails = async (req, res) => {
   }
 };
 
-// ==================== UPDATE PROFILE IMAGE ====================
 exports.updateProfileImage = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { logo, signature } = req.body;
+    let logo = req.body.logo;
+    let signature = req.body.signature;
+
+    if (req.files) {
+      if (req.files.logo && req.files.logo[0]) {
+        logo = req.files.logo[0].path;
+      }
+      if (req.files.signature && req.files.signature[0]) {
+        signature = req.files.signature[0].path;
+      }
+    }
 
     if (!logo && !signature) {
       return res.status(400).json({

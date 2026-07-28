@@ -1,19 +1,30 @@
-// warehouse/controller/salesInvoiceController.js - COMPLETE SALES INVOICE CONTROLLER
+// warehouse/controller/salesInvoiceController.js - COMPLETE CORRECTED
 
 const SalesInvoice = require('../models/SalesInvoice');
 const prisma = require('../../prisma/client');
+const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 
-// ============================================================
-// ─── SALES INVOICE CONTROLLERS ──────────────────────────────
-// ============================================================
 
-// @desc    Create Sales Invoice from Order
-// @route   POST /api/sales/invoices/from-order
-// @access  Private
 const createInvoiceFromOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { orderId, dueDate, paymentTerms } = req.body;
+    const postingDate = new Date();
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     // ─── Validation ──────────────────────────────────────
     if (!orderId) {
@@ -27,7 +38,7 @@ const createInvoiceFromOrder = async (req, res) => {
     const order = await prisma.order.findFirst({
       where: {
         id: orderId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -45,7 +56,8 @@ const createInvoiceFromOrder = async (req, res) => {
       orderId,
       userId,
       dueDate,
-      paymentTerms
+      paymentTerms,
+      fiscalYearId
     );
 
     res.status(201).json({
@@ -69,6 +81,7 @@ const createInvoiceFromOrder = async (req, res) => {
 const createManualInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       customerId,
       customerName,
@@ -79,8 +92,24 @@ const createManualInvoice = async (req, res) => {
       items,
       dueDate,
       paymentTerms,
-      notes
+      notes,
+      invoiceDate,
     } = req.body;
+
+    const postingDate = invoiceDate ? new Date(invoiceDate) : new Date();
+
+    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     // ─── Validation ──────────────────────────────────────
     if (!customerId && !customerName) {
@@ -106,7 +135,7 @@ const createManualInvoice = async (req, res) => {
         product = await prisma.product.findFirst({
           where: {
             id: item.productId,
-            userId: userId,
+            companyId: companyId,
             isActive: true
           }
         });
@@ -114,7 +143,7 @@ const createManualInvoice = async (req, res) => {
         product = await prisma.product.findFirst({
           where: {
             sku: item.sku,
-            userId: userId,
+            companyId: companyId,
             isActive: true
           }
         });
@@ -152,7 +181,9 @@ const createManualInvoice = async (req, res) => {
       paymentTerms: paymentTerms,
       notes: notes,
       userId: userId,
-      createdBy: userId
+      createdBy: userId,
+      fiscalYearId: fiscalYearId,
+      companyId: companyId,  // ✅ Added companyId
     };
 
     const invoice = await SalesInvoice.createManual(invoiceData);
@@ -178,13 +209,14 @@ const createManualInvoice = async (req, res) => {
 const postInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if invoice exists ────────────────────────
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -235,6 +267,7 @@ const postInvoice = async (req, res) => {
 const getSalesInvoices = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -248,8 +281,10 @@ const getSalesInvoices = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
+    // ✅ FIXED: Use createdBy instead of userId
     const filter = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false
     };
@@ -293,8 +328,8 @@ const getSalesInvoices = async (req, res) => {
     const [invoices, total, kpi, stats] = await Promise.all([
       SalesInvoice.findAll(filter, { skip, take: limitNum, orderBy }),
       SalesInvoice.count(filter),
-      SalesInvoice.getStatusCounts(userId),
-      SalesInvoice.getStats(userId)
+      SalesInvoice.getStatusCounts(companyId),
+      SalesInvoice.getStats(companyId)
     ]);
 
     res.status(200).json({
@@ -328,12 +363,13 @@ const getSalesInvoices = async (req, res) => {
 const getSalesInvoiceById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -404,12 +440,13 @@ const getSalesInvoiceById = async (req, res) => {
 const getSalesInvoiceByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { invoiceNumber } = req.params;
 
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         invoiceNumber: invoiceNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -466,6 +503,7 @@ const getSalesInvoiceByNumber = async (req, res) => {
 const updateSalesInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const {
       customerId,
@@ -486,7 +524,7 @@ const updateSalesInvoice = async (req, res) => {
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -539,7 +577,7 @@ const updateSalesInvoice = async (req, res) => {
           product = await prisma.product.findFirst({
             where: {
               id: item.productId,
-              userId: userId,
+              companyId: companyId,
               isActive: true
             }
           });
@@ -547,7 +585,7 @@ const updateSalesInvoice = async (req, res) => {
           product = await prisma.product.findFirst({
             where: {
               sku: item.sku,
-              userId: userId,
+              companyId: companyId,
               isActive: true
             }
           });
@@ -598,6 +636,7 @@ const updateSalesInvoice = async (req, res) => {
 const cancelSalesInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -605,7 +644,7 @@ const cancelSalesInvoice = async (req, res) => {
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -656,13 +695,14 @@ const cancelSalesInvoice = async (req, res) => {
 const deleteSalesInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if invoice exists ────────────────────────
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -705,10 +745,11 @@ const deleteSalesInvoice = async (req, res) => {
 const getInvoiceStats = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     
     const [kpi, stats] = await Promise.all([
-      SalesInvoice.getStatusCounts(userId),
-      SalesInvoice.getStats(userId)
+      SalesInvoice.getStatusCounts(companyId),
+      SalesInvoice.getStats(companyId)
     ]);
 
     res.status(200).json({
@@ -734,9 +775,10 @@ const getInvoiceStats = async (req, res) => {
 const getCustomerInvoiceSummary = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { customerId } = req.params;
 
-    const summary = await SalesInvoice.getCustomerSummary(userId, customerId);
+    const summary = await SalesInvoice.getCustomerSummary(companyId, customerId);
 
     res.status(200).json({
       success: true,
@@ -758,15 +800,18 @@ const getCustomerInvoiceSummary = async (req, res) => {
 const getAvailableOrdersForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
+    // ✅ FIXED: Use createdBy instead of userId
     const where = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false,
       orderType: 'Sales Order',
       orderStatus: {
-    notIn: ['Cancelled']  // ✅ sirf yeh line change ki
+        notIn: ['Cancelled']
       }
     };
 
@@ -833,12 +878,13 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
 const printInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -887,6 +933,7 @@ const printInvoice = async (req, res) => {
 const sendInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { email } = req.body;
 
@@ -894,7 +941,7 @@ const sendInvoice = async (req, res) => {
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }

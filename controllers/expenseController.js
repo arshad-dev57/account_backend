@@ -2,6 +2,9 @@
 
 const ExpenseModel = require('../models/Expense');
 const prisma = require('../prisma/client');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 // ─── EXPENSE TYPE TO ACCOUNT MAPPING ─────────────────────────────
 const EXPENSE_ACCOUNT_MAPPING = {
@@ -21,13 +24,14 @@ const EXPENSE_ACCOUNT_MAPPING = {
 const DEFAULT_EXPENSE_ACCOUNT = { code: '6900', name: 'Other Expenses' };
 
 // ─── HELPER: Get existing expense account (DO NOT CREATE NEW) ───
-async function getExistingExpenseAccount(userId, expenseType) {
+async function getExistingExpenseAccount(userId, companyId, expenseType) {
   const mapping = EXPENSE_ACCOUNT_MAPPING[expenseType] || DEFAULT_EXPENSE_ACCOUNT;
   
   let expenseAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: mapping.code,
-      createdBy: userId,
+      
+      companyId: companyId,
       type: 'Expense'
     }
   });
@@ -36,7 +40,8 @@ async function getExistingExpenseAccount(userId, expenseType) {
     expenseAccount = await prisma.chartOfAccount.findFirst({
       where: {
         name: mapping.name,
-        createdBy: userId,
+        
+        companyId: companyId,
         type: 'Expense'
       }
     });
@@ -46,10 +51,11 @@ async function getExistingExpenseAccount(userId, expenseType) {
 }
 
 // ─── HELPER: Get all expense accounts for dropdown ──────────────
-async function getExpenseAccountsForDropdown(userId) {
+async function getExpenseAccountsForDropdown(userId, companyId) {
   return await prisma.chartOfAccount.findMany({
     where: {
-      createdBy: userId,
+      
+      companyId: companyId,
       type: 'Expense',
       isActive: true
     },
@@ -70,8 +76,7 @@ async function getOrCreateCashAccount(userId) {
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      createdBy: userId
-    }
+      companyId: companyId}
   });
 
   if (!cashAccount) {
@@ -88,8 +93,7 @@ async function getOrCreateCashAccount(userId) {
         const existing = await prisma.chartOfAccount.findFirst({
           where: {
             code: newCode,
-            createdBy: userId
-          }
+            companyId: companyId}
         });
         if (!existing) {
           codeExists = false;
@@ -164,11 +168,30 @@ async function createExpenseJournalEntry(userId, expense, expenseAccount, cashOr
 const getExpenseAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `expense:accounts:${userId}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const accounts = await getExpenseAccountsForDropdown(userId);
+
+    // Cache the result (10 minutes TTL - accounts change infrequently)
+    await set(cacheKey, accounts, 600);
 
     res.status(200).json({
       success: true,
-      data: accounts
+      data: accounts,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get expense accounts error:', error);
@@ -202,6 +225,17 @@ const createExpense = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    const postingDate = date ? new Date(date) : new Date();
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
     console.log("📦 Received expense data:", JSON.stringify(req.body, null, 2));
 
     if (!expenseAccountId) {
@@ -215,7 +249,7 @@ const createExpense = async (req, res) => {
     const expenseAccount = await prisma.chartOfAccount.findFirst({
       where: {
         id: expenseAccountId,
-        createdBy: userId,
+        companyId: companyId,
         type: 'Expense',
         isActive: true
       }
@@ -251,8 +285,7 @@ const createExpense = async (req, res) => {
       const vendor = await prisma.vendor.findFirst({
         where: {
           id: vendorId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (vendor) {
         vendorName = vendor.name;
@@ -264,8 +297,7 @@ const createExpense = async (req, res) => {
       bankAccountData = await prisma.bankAccount.findFirst({
         where: {
           id: cleanBankAccountId,
-          createdBy: userId
-        },
+          companyId: companyId},
         include: {
           chartOfAccount: true
         }
@@ -321,6 +353,7 @@ const createExpense = async (req, res) => {
     let finalPaymentMethod = paymentMethod || 'Cash';
     let finalBankAccountId = cleanBankAccountId;
 
+    const fyId = await resolveFiscalYearId(userId, postingDate);
     const expense = await ExpenseModel.create({
       date: formattedDate,
       expenseType,
@@ -334,6 +367,7 @@ const createExpense = async (req, res) => {
       reference: reference || '',
       paymentMethod: finalPaymentMethod,
       bankAccountId: finalBankAccountId,
+      fiscalYearId: fyId,
       status: 'Posted',
       postedBy: userId,
       postedAt: new Date(),
@@ -419,6 +453,16 @@ const createExpense = async (req, res) => {
       },
       message: finalBankAccountId ? 'Expense recorded (Bank Transfer)' : 'Expense recorded (Cash)'
     });
+
+    // Invalidate cache after successful expense creation
+    try {
+      await delPattern(`expense:list:${userId}:*`);
+      await delPattern(`expense:accounts:${userId}`);
+      await delPattern(`expense:summary:${userId}:*`);
+      console.log('🗑️ [Expense] Cache invalidated after expense creation');
+    } catch (cacheError) {
+      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error("🔥 ERROR in createExpense:", error);
 
@@ -454,6 +498,20 @@ const getExpenses = async (req, res) => {
     } = req.query;
 
     const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `expense:list:${userId}:${expenseType || 'All'}:${status || 'All'}:${startDate || ''}:${endDate || ''}:${search || ''}:${page}:${limit}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
 
     const filter = { 
       creator: {
@@ -495,13 +553,21 @@ const getExpenses = async (req, res) => {
 
     const totalPages = Math.ceil(totalCount / limitNum);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       count: expenses.length,
       total: totalCount,
       page: pageNum,
       pages: totalPages,
       data: expenses
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get expenses error:', error);
@@ -521,6 +587,20 @@ const getExpense = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `expense:detail:${userId}:${id}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
 
     const expense = await prisma.expense.findFirst({
       where: {
@@ -580,9 +660,13 @@ const getExpense = async (req, res) => {
       });
     }
 
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, expense, 600);
+
     res.status(200).json({
       success: true,
-      data: expense
+      data: expense,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get expense error:', error);
@@ -603,6 +687,7 @@ const updateExpense = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const existing = await prisma.expense.findFirst({
       where: {
         id,
@@ -626,6 +711,16 @@ const updateExpense = async (req, res) => {
       });
     }
 
+    const newDate = req.body.date ? new Date(req.body.date) : existing.date;
+    try {
+      await fiscalYearGuard(userId, newDate, existing.date);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
     const {
       date,
       expenseType,
@@ -645,8 +740,7 @@ const updateExpense = async (req, res) => {
       const vendor = await prisma.vendor.findFirst({
         where: {
           id: vendorId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (vendor) {
         vendorName = vendor.name;
@@ -670,8 +764,7 @@ const updateExpense = async (req, res) => {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: cleanBankAccountId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (!bankAccount) {
         return res.status(400).json({
@@ -685,7 +778,7 @@ const updateExpense = async (req, res) => {
       const expenseAccount = await prisma.chartOfAccount.findFirst({
         where: {
           id: expenseAccountId,
-          createdBy: userId,
+          companyId: companyId,
           type: 'Expense'
         }
       });
@@ -756,6 +849,17 @@ const updateExpense = async (req, res) => {
       data: updated,
       message: 'Expense record updated successfully'
     });
+
+    // Invalidate cache after successful expense update
+    try {
+      await delPattern(`expense:list:${userId}:*`);
+      await delPattern(`expense:detail:${userId}:${id}`);
+      await delPattern(`expense:accounts:${userId}`);
+      await delPattern(`expense:summary:${userId}:*`);
+      console.log('🗑️ [Expense] Cache invalidated after expense update');
+    } catch (cacheError) {
+      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Update expense error:', error);
     res.status(500).json({
@@ -775,6 +879,7 @@ const deleteExpense = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const existing = await prisma.expense.findFirst({
       where: {
         id,
@@ -798,12 +903,32 @@ const deleteExpense = async (req, res) => {
       });
     }
 
+    try {
+      await fiscalYearGuard(userId, existing.date);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
     await ExpenseModel.delete(id);
 
     res.status(200).json({
       success: true,
       message: 'Expense record deleted successfully'
     });
+
+    // Invalidate cache after successful expense deletion
+    try {
+      await delPattern(`expense:list:${userId}:*`);
+      await delPattern(`expense:detail:${userId}:${id}`);
+      await delPattern(`expense:accounts:${userId}`);
+      await delPattern(`expense:summary:${userId}:*`);
+      console.log('🗑️ [Expense] Cache invalidated after expense deletion');
+    } catch (cacheError) {
+      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Delete expense error:', error);
     res.status(500).json({
@@ -822,6 +947,20 @@ const getSummary = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `expense:summary:${userId}:${startDate || ''}:${endDate || ''}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
 
     const filter = {
       creator: {
@@ -843,9 +982,13 @@ const getSummary = async (req, res) => {
 
     const summary = await ExpenseModel.getSummary(allExpenses);
 
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summary, 120);
+
     res.status(200).json({
       success: true,
-      data: summary
+      data: summary,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get expense summary error:', error);
@@ -866,6 +1009,7 @@ const postExpense = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const expense = await prisma.expense.findFirst({
       where: {
         id,
@@ -892,7 +1036,7 @@ const postExpense = async (req, res) => {
     const expenseAccount = await prisma.chartOfAccount.findFirst({
       where: {
         id: expense.expenseAccountId,
-        createdBy: userId,
+        companyId: companyId,
         type: 'Expense'
       }
     });
@@ -914,8 +1058,7 @@ const postExpense = async (req, res) => {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: expense.bankAccountId,
-          createdBy: userId
-        },
+          companyId: companyId},
         include: {
           chartOfAccount: true
         }
@@ -935,8 +1078,7 @@ const postExpense = async (req, res) => {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
           id: expense.bankAccountId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
       if (bankAccount) {
         const newBalance = bankAccount.currentBalance - expense.totalAmount;
@@ -967,6 +1109,17 @@ const postExpense = async (req, res) => {
       data: posted,
       message: 'Expense posted successfully'
     });
+
+    // Invalidate cache after successful expense posting
+    try {
+      await delPattern(`expense:list:${userId}:*`);
+      await delPattern(`expense:detail:${userId}:${id}`);
+      await delPattern(`expense:accounts:${userId}`);
+      await delPattern(`expense:summary:${userId}:*`);
+      console.log('🗑️ [Expense] Cache invalidated after expense posting');
+    } catch (cacheError) {
+      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Post expense error:', error);
     res.status(500).json({

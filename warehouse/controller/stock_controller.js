@@ -9,7 +9,7 @@ const prisma = require('../../prisma/client');
 // ============================================================
 const addStock = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       productId,
       stockType,
@@ -32,11 +32,11 @@ const addStock = async (req, res) => {
       });
     }
 
-    // ✅ Product must belong to user
+    // ✅ Product must belong to company
     const product = await prisma.product.findFirst({
       where: {
         id: productId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -47,12 +47,12 @@ const addStock = async (req, res) => {
       });
     }
 
-    // ✅ Supplier must belong to user
+    // ✅ Supplier must belong to company
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
         where: {
           id: supplierId,
-          userId: userId
+          companyId: companyId
         }
       });
       if (!supplier) {
@@ -103,7 +103,7 @@ const addStock = async (req, res) => {
       }
     });
 
-    // Create movement record with userId
+    // Create movement record with companyId
     const movementData = {
       productId,
       productName: product.name,
@@ -116,8 +116,8 @@ const addStock = async (req, res) => {
       reason: 'Purchase',
       reference: reference || '',
       notes: notes || '',
-      createdBy: userId,
-      userId: userId // 👈 CRITICAL
+      createdBy: req.user.id,
+      companyId: companyId // 👈 CRITICAL
     };
 
     if (supplierId) movementData.supplierId = supplierId;
@@ -129,7 +129,7 @@ const addStock = async (req, res) => {
 
     // Get updated product
     const updatedProduct = await prisma.product.findFirst({
-      where: { id: productId, userId: userId }
+      where: { id: productId, companyId: companyId }
     });
 
     res.status(201).json({
@@ -163,7 +163,7 @@ const addStock = async (req, res) => {
 // ============================================================
 const removeStock = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       productId,
       quantity,
@@ -183,11 +183,11 @@ const removeStock = async (req, res) => {
       });
     }
 
-    // ✅ Product must belong to user
+    // ✅ Product must belong to company
     const product = await prisma.product.findFirst({
       where: {
         id: productId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -229,13 +229,13 @@ const removeStock = async (req, res) => {
         customerName: customerName || '',
         reference: reference || '',
         notes: notes || '',
-        createdBy: userId,
-        userId: userId // 👈 CRITICAL
+        createdBy: req.user.id,
+        companyId: companyId // 👈 CRITICAL
       }
     });
 
     const updatedProduct = await prisma.product.findFirst({
-      where: { id: productId, userId: userId }
+      where: { id: productId, companyId: companyId }
     });
 
     res.status(201).json({
@@ -268,15 +268,15 @@ const removeStock = async (req, res) => {
 // ============================================================
 const getStockHistory = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { productId } = req.params;
     const { page = 1, limit = 20 } = req.query;
 
-    // ✅ Product must belong to user
+    // ✅ Product must belong to company
     const product = await prisma.product.findFirst({
       where: {
         id: productId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -291,12 +291,12 @@ const getStockHistory = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    // ✅ Movements must belong to user
+    // ✅ Movements must belong to company
     const [movements, total] = await Promise.all([
       prisma.stockMovement.findMany({
         where: {
           productId: productId,
-          userId: userId // 👈 CRITICAL
+          companyId: companyId // 👈 CRITICAL
         },
         skip,
         take: limitNum,
@@ -305,7 +305,7 @@ const getStockHistory = async (req, res) => {
       prisma.stockMovement.count({
         where: {
           productId: productId,
-          userId: userId
+          companyId: companyId
         }
       })
     ]);
@@ -338,12 +338,12 @@ const getStockHistory = async (req, res) => {
 // ============================================================
 const getAllStockHistory = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { page = 1, limit = 50, type, search, startDate, endDate } = req.query;
 
-    // ✅ Base filter with userId
+    // ✅ Base filter with companyId
     const filter = {
-      userId: userId // 👈 CRITICAL
+      companyId: companyId // 👈 CRITICAL
     };
 
     const pageNum = parseInt(page);
@@ -446,7 +446,7 @@ const getStockSummaryInternal = async (filter) => {
 // ============================================================
 const getTodayMovements = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { type } = req.query;
 
     const today = new Date();
@@ -455,7 +455,7 @@ const getTodayMovements = async (req, res) => {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const filter = {
-      userId: userId,
+      companyId: companyId,
       createdAt: {
         gte: today,
         lt: tomorrow
@@ -503,15 +503,15 @@ const getTodayMovements = async (req, res) => {
 // ============================================================
 const updateStockMovement = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { status, notes } = req.body;
 
-    // ✅ Movement must belong to user
+    // ✅ Movement must belong to company
     const movement = await prisma.stockMovement.findFirst({
       where: {
         id: id,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -554,14 +554,14 @@ const updateStockMovement = async (req, res) => {
 // ============================================================
 const deleteStockMovement = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    // ✅ Movement must belong to user
+    // ✅ Movement must belong to company
     const movement = await prisma.stockMovement.findFirst({
       where: {
         id: id,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -572,11 +572,11 @@ const deleteStockMovement = async (req, res) => {
       });
     }
 
-    // ✅ Product must belong to user
+    // ✅ Product must belong to company
     const product = await prisma.product.findFirst({
       where: {
         id: movement.productId,
-        userId: userId
+        companyId: companyId
       }
     });
 
@@ -627,11 +627,11 @@ const deleteStockMovement = async (req, res) => {
 // ============================================================
 const getStockStats = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { startDate, endDate } = req.query;
 
     const filter = {
-      userId: userId // 👈 CRITICAL
+      companyId: companyId // 👈 CRITICAL
     };
     
     if (startDate || endDate) {
@@ -654,7 +654,7 @@ const getStockStats = async (req, res) => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     
     const todayFilter = {
-      userId: userId,
+      companyId: companyId,
       createdAt: {
         gte: today,
         lt: tomorrow
@@ -699,14 +699,14 @@ const getStockStats = async (req, res) => {
 // ============================================================
 const getStockMovementById = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    // ✅ Movement must belong to user
+    // ✅ Movement must belong to company
     const movement = await prisma.stockMovement.findFirst({
       where: {
         id: id,
-        userId: userId
+        companyId: companyId
       },
       include: {
         product: {
@@ -747,7 +747,7 @@ const getStockMovementById = async (req, res) => {
 // ============================================================
 const bulkStockAdjust = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { adjustments, reason, notes } = req.body;
 
     if (!adjustments || !Array.isArray(adjustments) || adjustments.length === 0) {
@@ -769,11 +769,11 @@ const bulkStockAdjust = async (req, res) => {
           continue;
         }
 
-        // ✅ Product must belong to user
+        // ✅ Product must belong to company
         const product = await prisma.product.findFirst({
           where: {
             id: productId,
-            userId: userId
+            companyId: companyId
           }
         });
 
@@ -811,8 +811,8 @@ const bulkStockAdjust = async (req, res) => {
             },
             reason: reason || 'Bulk adjustment',
             notes: notes || `Adjusted from ${previousStock} to ${newStock}`,
-            createdBy: userId,
-            userId: userId // 👈 CRITICAL
+            createdBy: req.user.id,
+            companyId: companyId // 👈 CRITICAL
           }
         });
 
@@ -858,12 +858,12 @@ const bulkStockAdjust = async (req, res) => {
 // ============================================================
 const getLowStockProducts = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // ✅ Only user's products
+    // ✅ Only company's products
     const products = await prisma.product.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         currentStock: {
           lte: prisma.product.fields.minimumStock
@@ -908,12 +908,12 @@ const getLowStockProducts = async (req, res) => {
 // ============================================================
 const getStockValue = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // ✅ Only user's products
+    // ✅ Only company's products
     const products = await prisma.product.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         isActive: true
       },
       select: {

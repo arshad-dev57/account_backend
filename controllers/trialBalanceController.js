@@ -9,8 +9,9 @@ const prisma = require('../prisma/client');
 // ============================================================
 exports.getTrialBalance = async (req, res) => {
   try {
-    const { startDate, endDate, accountType, showZeroBalance } = req.query;
+    const { startDate, endDate, accountType, showZeroBalance, fiscalYearId } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     // ─── Build date filter ──────────────────────────────────────
     let dateFilter = {};
@@ -23,12 +24,22 @@ exports.getTrialBalance = async (req, res) => {
       };
     }
 
+    // ─── Build fiscal year filter ────────────────────────────────
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
+
     // ─── Get all posted journal entries within date range ──────
     const journalEntries = await prisma.journalEntry.findMany({
       where: {
-        createdBy: userId,
+        
+        companyId: companyId,
         status: 'Posted',
-        ...dateFilter
+        ...dateFilter,
+        ...fiscalYearFilter
       },
       include: {
         lines: true
@@ -37,7 +48,8 @@ exports.getTrialBalance = async (req, res) => {
 
     // ─── Get all active accounts ──────────────────────────────────
     let accountsQuery = {
-      createdBy: userId,
+      companyId: companyId,
+      companyId: companyId,
       isActive: true
     };
 
@@ -75,11 +87,20 @@ exports.getTrialBalance = async (req, res) => {
         });
       });
 
-      // Add opening balance
-      if (account.type === 'Asset' || account.type === 'Expense') {
-        debitBalance += account.openingBalance;
-      } else {
-        creditBalance += account.openingBalance;
+      // Check if this account has an opening balance entry posted in the journal
+      const hasOBEntry = journalEntries.some(entry => 
+        entry.description && 
+        entry.description.includes('Opening Balance') && 
+        entry.lines.some(line => line.accountId === account.id)
+      );
+
+      // Add opening balance ONLY if there is no posted opening balance journal entry
+      if (!hasOBEntry) {
+        if (account.type === 'Asset' || account.type === 'Expense') {
+          debitBalance += account.openingBalance;
+        } else {
+          creditBalance += account.openingBalance;
+        }
       }
 
       // Determine final balance (Debit or Credit)
@@ -169,6 +190,7 @@ exports.getTrialBalanceSummary = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // ─── Build date filter ──────────────────────────────────────
     let dateFilter = {};
     if (startDate && endDate) {
@@ -183,7 +205,7 @@ exports.getTrialBalanceSummary = async (req, res) => {
     // ─── Get all posted journal entries ────────────────────────
     const journalEntries = await prisma.journalEntry.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         status: 'Posted',
         ...dateFilter
       },
@@ -195,7 +217,7 @@ exports.getTrialBalanceSummary = async (req, res) => {
     // ─── Get all active accounts ──────────────────────────────────
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         isActive: true
       }
     });
@@ -231,11 +253,20 @@ exports.getTrialBalanceSummary = async (req, res) => {
         });
       });
 
-      // Add opening balance
-      if (account.type === 'Asset' || account.type === 'Expense') {
-        debitBalance += account.openingBalance;
-      } else {
-        creditBalance += account.openingBalance;
+      // Check if this account has an opening balance entry posted in the journal
+      const hasOBEntry = journalEntries.some(entry => 
+        entry.description && 
+        entry.description.includes('Opening Balance') && 
+        entry.lines.some(line => line.accountId === account.id)
+      );
+
+      // Add opening balance ONLY if there is no posted opening balance journal entry
+      if (!hasOBEntry) {
+        if (account.type === 'Asset' || account.type === 'Expense') {
+          debitBalance += account.openingBalance;
+        } else {
+          creditBalance += account.openingBalance;
+        }
       }
 
       const netBalance = debitBalance - creditBalance;
@@ -311,6 +342,7 @@ exports.getTrialBalanceByType = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // ─── Map frontend type to backend type ──────────────────────
     const typeMap = {
       'Assets': 'Asset',
@@ -335,7 +367,7 @@ exports.getTrialBalanceByType = async (req, res) => {
     // ─── Get journal entries ────────────────────────────────────
     const journalEntries = await prisma.journalEntry.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         status: 'Posted',
         ...dateFilter
       },
@@ -347,7 +379,7 @@ exports.getTrialBalanceByType = async (req, res) => {
     // ─── Get accounts of specific type ──────────────────────────
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         type: backendType,
         isActive: true
       },
@@ -368,10 +400,20 @@ exports.getTrialBalanceByType = async (req, res) => {
         });
       });
 
-      if (account.type === 'Asset' || account.type === 'Expense') {
-        debitBalance += account.openingBalance;
-      } else {
-        creditBalance += account.openingBalance;
+      // Check if this account has an opening balance entry posted in the journal
+      const hasOBEntry = journalEntries.some(entry => 
+        entry.description && 
+        entry.description.includes('Opening Balance') && 
+        entry.lines.some(line => line.accountId === account.id)
+      );
+
+      // Add opening balance ONLY if there is no posted opening balance journal entry
+      if (!hasOBEntry) {
+        if (account.type === 'Asset' || account.type === 'Expense') {
+          debitBalance += account.openingBalance;
+        } else {
+          creditBalance += account.openingBalance;
+        }
       }
 
       const netBalance = debitBalance - creditBalance;
@@ -445,6 +487,7 @@ exports.exportTrialBalance = async (req, res) => {
     const { startDate, endDate, accountType, showZeroBalance } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // ─── Build date filter ──────────────────────────────────────
     let dateFilter = {};
     if (startDate && endDate) {
@@ -459,7 +502,7 @@ exports.exportTrialBalance = async (req, res) => {
     // ─── Get journal entries ────────────────────────────────────
     const journalEntries = await prisma.journalEntry.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         status: 'Posted',
         ...dateFilter
       },
@@ -470,7 +513,7 @@ exports.exportTrialBalance = async (req, res) => {
 
     // ─── Get accounts ──────────────────────────────────────────
     let accountsQuery = {
-      createdBy: userId,
+      companyId: companyId,
       isActive: true
     };
 
@@ -505,10 +548,20 @@ exports.exportTrialBalance = async (req, res) => {
         });
       });
 
-      if (account.type === 'Asset' || account.type === 'Expense') {
-        debitBalance += account.openingBalance;
-      } else {
-        creditBalance += account.openingBalance;
+      // Check if this account has an opening balance entry posted in the journal
+      const hasOBEntry = journalEntries.some(entry => 
+        entry.description && 
+        entry.description.includes('Opening Balance') && 
+        entry.lines.some(line => line.accountId === account.id)
+      );
+
+      // Add opening balance ONLY if there is no posted opening balance journal entry
+      if (!hasOBEntry) {
+        if (account.type === 'Asset' || account.type === 'Expense') {
+          debitBalance += account.openingBalance;
+        } else {
+          creditBalance += account.openingBalance;
+        }
       }
 
       const netBalance = debitBalance - creditBalance;
@@ -592,6 +645,7 @@ exports.compareTrialBalance = async (req, res) => {
     } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (!startDate1 || !endDate1 || !startDate2 || !endDate2) {
       return res.status(400).json({
         success: false,
@@ -610,7 +664,7 @@ exports.compareTrialBalance = async (req, res) => {
 
       const journalEntries = await prisma.journalEntry.findMany({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           status: 'Posted',
           ...dateFilter
         },
@@ -621,7 +675,7 @@ exports.compareTrialBalance = async (req, res) => {
 
       const accounts = await prisma.chartOfAccount.findMany({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           isActive: true
         }
       });
@@ -640,10 +694,20 @@ exports.compareTrialBalance = async (req, res) => {
           });
         });
 
-        if (account.type === 'Asset' || account.type === 'Expense') {
-          debitBalance += account.openingBalance;
-        } else {
-          creditBalance += account.openingBalance;
+        // Check if this account has an opening balance entry posted in the journal
+        const hasOBEntry = journalEntries.some(entry => 
+          entry.description && 
+          entry.description.includes('Opening Balance') && 
+          entry.lines.some(line => line.accountId === account.id)
+        );
+
+        // Add opening balance ONLY if there is no posted opening balance journal entry
+        if (!hasOBEntry) {
+          if (account.type === 'Asset' || account.type === 'Expense') {
+            debitBalance += account.openingBalance;
+          } else {
+            creditBalance += account.openingBalance;
+          }
         }
 
         const netBalance = debitBalance - creditBalance;
@@ -764,6 +828,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // ─── Build date filter ──────────────────────────────────────
     let dateFilter = {};
     if (startDate && endDate) {
@@ -778,7 +843,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
     // ─── Get journal entries ────────────────────────────────────
     const journalEntries = await prisma.journalEntry.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         status: 'Posted',
         ...dateFilter
       },
@@ -790,7 +855,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
     // ─── Get accounts ──────────────────────────────────────────
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         isActive: true
       },
       orderBy: { code: 'asc' }
@@ -826,10 +891,20 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
         });
       });
 
-      if (account.type === 'Asset' || account.type === 'Expense') {
-        debitBalance += account.openingBalance;
-      } else {
-        creditBalance += account.openingBalance;
+      // Check if this account has an opening balance entry posted in the journal
+      const hasOBEntry = journalEntries.some(entry => 
+        entry.description && 
+        entry.description.includes('Opening Balance') && 
+        entry.lines.some(line => line.accountId === account.id)
+      );
+
+      // Add opening balance ONLY if there is no posted opening balance journal entry
+      if (!hasOBEntry) {
+        if (account.type === 'Asset' || account.type === 'Expense') {
+          debitBalance += account.openingBalance;
+        } else {
+          creditBalance += account.openingBalance;
+        }
       }
 
       const netBalance = debitBalance - creditBalance;

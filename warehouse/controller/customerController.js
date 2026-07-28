@@ -1,20 +1,24 @@
+// warehouse/controller/customerController.js - COMPLETE CORRECTED
+
 const prisma = require('../../prisma/client');
 
 const getCustomers = async (req, res) => {
   try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1, limit = 10, search, type, status,
       fromDate, toDate, sortBy = 'createdAt', sortOrder = 'desc'
     } = req.query;
 
-    const where = { isActive: true, isDeleted: false };
+    const where = { companyId, isActive: true, isDeleted: false };
 
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
         { phone: { contains: search, mode: 'insensitive' } },
-        { company: { contains: search, mode: 'insensitive' } },
+        { companyName: { contains: search, mode: 'insensitive' } },
         { customerNumber: { contains: search, mode: 'insensitive' } }
       ];
     }
@@ -44,7 +48,7 @@ const getCustomers = async (req, res) => {
       prisma.customer.count({ where })
     ]);
 
-    const allActive = await prisma.customer.count({ where: { isActive: true, isDeleted: false } });
+    const allActive = await prisma.customer.count({ where: { companyId, isActive: true, isDeleted: false } });
     const stats = { total: allActive };
 
     res.status(200).json({
@@ -67,7 +71,17 @@ const getCustomers = async (req, res) => {
 const getCustomerById = async (req, res) => {
   try {
     const { id } = req.params;
-    const customer = await prisma.customer.findUnique({ where: { id } });
+    const companyId = req.user.companyId;
+    
+    const customer = await prisma.customer.findFirst({
+      where: { 
+        id, 
+        companyId, 
+        isActive: true, 
+        isDeleted: false 
+      }
+    });
+    
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
     const orders = await prisma.order.findMany({
@@ -86,7 +100,17 @@ const getCustomerById = async (req, res) => {
 const getCustomerByNumber = async (req, res) => {
   try {
     const { customerNumber } = req.params;
-    const customer = await prisma.customer.findUnique({ where: { customerNumber } });
+    const companyId = req.user.companyId;
+    
+    const customer = await prisma.customer.findFirst({
+      where: { 
+        customerNumber, 
+        companyId, 
+        isActive: true, 
+        isDeleted: false 
+      }
+    });
+    
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
     res.status(200).json({ success: true, data: customer });
   } catch (error) {
@@ -103,28 +127,46 @@ const createCustomer = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     if (!name) return res.status(400).json({ success: false, message: 'Customer name is required' });
 
     if (email) {
-      const existing = await prisma.customer.findUnique({ where: { email } });
+      const existing = await prisma.customer.findFirst({
+        where: { 
+          email, 
+          companyId, 
+          isActive: true, 
+          isDeleted: false 
+        }
+      });
       if (existing) return res.status(409).json({ success: false, message: 'Customer with this email already exists' });
     }
 
     if (phone) {
-      const existing = await prisma.customer.findFirst({ where: { phone } });
+      const existing = await prisma.customer.findFirst({
+        where: { 
+          phone, 
+          companyId, 
+          isActive: true, 
+          isDeleted: false 
+        }
+      });
       if (existing) return res.status(409).json({ success: false, message: 'Customer with this phone already exists' });
     }
 
-    const count = await prisma.customer.count();
+    const count = await prisma.customer.count({ where: { companyId } });
     const customerNumber = `CUST-${String(count + 1).padStart(5, '0')}`;
 
     const customer = await prisma.customer.create({
       data: {
         customerNumber,
-        name, email, phone, company,
+        name,
+        email,
+        phone,
+        companyName: company || null,
         customerType: customerType || 'Individual',
-        taxId,
+        taxId: taxId || null,
         address: address || {},
         shippingAddress: shippingAddress || {},
         billingAddress: billingAddress || {},
@@ -134,7 +176,7 @@ const createCustomer = async (req, res) => {
         tags: tags || [],
         preferences: preferences || {},
         createdBy: userId,
-        userId
+        companyId: companyId
       }
     });
 
@@ -149,8 +191,17 @@ const updateCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    const customer = await prisma.customer.findUnique({ where: { id } });
+    const customer = await prisma.customer.findFirst({
+      where: { 
+        id, 
+        companyId, 
+        isActive: true, 
+        isDeleted: false 
+      }
+    });
+    
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
     const {
@@ -160,13 +211,29 @@ const updateCustomer = async (req, res) => {
     } = req.body;
 
     if (email && email !== customer.email) {
-      const existing = await prisma.customer.findUnique({ where: { email } });
-      if (existing && existing.id !== id) return res.status(409).json({ success: false, message: 'Email already exists' });
+      const existing = await prisma.customer.findFirst({
+        where: { 
+          email, 
+          companyId, 
+          id: { not: id },
+          isActive: true, 
+          isDeleted: false 
+        }
+      });
+      if (existing) return res.status(409).json({ success: false, message: 'Email already exists' });
     }
 
     if (phone && phone !== customer.phone) {
-      const existing = await prisma.customer.findFirst({ where: { phone } });
-      if (existing && existing.id !== id) return res.status(409).json({ success: false, message: 'Phone already exists' });
+      const existing = await prisma.customer.findFirst({
+        where: { 
+          phone, 
+          companyId, 
+          id: { not: id },
+          isActive: true, 
+          isDeleted: false 
+        }
+      });
+      if (existing) return res.status(409).json({ success: false, message: 'Phone already exists' });
     }
 
     const newTotalOrders = totalOrders !== undefined ? totalOrders : customer.totalOrders;
@@ -178,9 +245,9 @@ const updateCustomer = async (req, res) => {
         name: name || customer.name,
         email: email || customer.email,
         phone: phone || customer.phone,
-        company: company || customer.company,
+        companyName: company !== undefined ? company : customer.companyName,
         customerType: customerType || customer.customerType,
-        taxId: taxId || customer.taxId,
+        taxId: taxId !== undefined ? taxId : customer.taxId,
         address: address || customer.address,
         shippingAddress: shippingAddress || customer.shippingAddress,
         billingAddress: billingAddress || customer.billingAddress,
@@ -207,12 +274,33 @@ const deleteCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    const customer = await prisma.customer.findUnique({ where: { id } });
+    const customer = await prisma.customer.findFirst({
+      where: { 
+        id, 
+        companyId, 
+        isActive: true, 
+        isDeleted: false 
+      }
+    });
+    
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
-    const ordersCount = await prisma.order.count({ where: { customerId: id } });
-    if (ordersCount > 0) return res.status(400).json({ success: false, message: 'Cannot delete customer with existing orders.' });
+    const ordersCount = await prisma.order.count({ 
+      where: { 
+        customerId: id,
+        isActive: true,
+        isDeleted: false
+      } 
+    });
+    
+    if (ordersCount > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cannot delete customer with existing orders.' 
+      });
+    }
 
     await prisma.customer.update({
       where: { id },
@@ -230,10 +318,19 @@ const updateCustomerStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     if (!status) return res.status(400).json({ success: false, message: 'Status is required' });
 
-    const customer = await prisma.customer.findUnique({ where: { id } });
+    const customer = await prisma.customer.findFirst({
+      where: { 
+        id, 
+        companyId, 
+        isActive: true, 
+        isDeleted: false 
+      }
+    });
+    
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
     const updated = await prisma.customer.update({
@@ -249,10 +346,12 @@ const updateCustomerStatus = async (req, res) => {
 
 const getCustomerStats = async (req, res) => {
   try {
+    const companyId = req.user.companyId;
+    
     const [total, active, inactive] = await Promise.all([
-      prisma.customer.count({ where: { isDeleted: false } }),
-      prisma.customer.count({ where: { isDeleted: false, status: 'Active' } }),
-      prisma.customer.count({ where: { isDeleted: false, status: 'Inactive' } })
+      prisma.customer.count({ where: { companyId, isDeleted: false } }),
+      prisma.customer.count({ where: { companyId, isDeleted: false, status: 'Active' } }),
+      prisma.customer.count({ where: { companyId, isDeleted: false, status: 'Inactive' } })
     ]);
 
     res.status(200).json({ success: true, data: { total, active, inactive } });
@@ -261,59 +360,122 @@ const getCustomerStats = async (req, res) => {
   }
 };
 
+// ✅ FIXED: Search Customers with companyId instead of userId
 const searchCustomers = async (req, res) => {
   try {
+    const companyId = req.user.companyId;
     const { q, limit = 10 } = req.query;
-    if (!q || q.length < 2) return res.status(200).json({ success: true, data: [], count: 0 });
+    
+    if (!q || q.length < 2) {
+      return res.status(200).json({ success: true, data: [], count: 0 });
+    }
 
     const customers = await prisma.customer.findMany({
       where: {
-        isActive: true, isDeleted: false,
+        companyId: companyId,  // ✅ FIXED: Use companyId instead of userId
+        isActive: true,
+        isDeleted: false,
         OR: [
           { name: { contains: q, mode: 'insensitive' } },
           { email: { contains: q, mode: 'insensitive' } },
           { phone: { contains: q, mode: 'insensitive' } },
+          { companyName: { contains: q, mode: 'insensitive' } },
           { customerNumber: { contains: q, mode: 'insensitive' } }
         ]
       },
-      take: parseInt(limit)
+      take: parseInt(limit),
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        customerNumber: true,
+        name: true,
+        email: true,
+        phone: true,
+        companyName: true,
+        customerType: true,
+        status: true,
+        outstandingBalance: true,
+        address: true
+      }
     });
 
-    res.status(200).json({ success: true, data: customers, count: customers.length });
+    res.status(200).json({ 
+      success: true, 
+      data: customers, 
+      count: customers.length 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to search customers', error: error.message });
+    console.error('Search customers error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to search customers', 
+      error: error.message 
+    });
   }
 };
 
 const getCustomerOrders = async (req, res) => {
   try {
     const { id } = req.params;
+    const companyId = req.user.companyId;
     const { page = 1, limit = 10 } = req.query;
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    const customer = await prisma.customer.findUnique({ where: { id } });
+    const customer = await prisma.customer.findFirst({
+      where: { 
+        id, 
+        companyId, 
+        isActive: true, 
+        isDeleted: false 
+      }
+    });
+    
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
-        where: { customerId: id },
+        where: { 
+          customerId: id,
+          isActive: true,
+          isDeleted: false
+        },
         orderBy: { createdAt: 'desc' },
-        skip, take: limitNum,
+        skip, 
+        take: limitNum,
         select: {
-          id: true, orderNumber: true, orderDate: true,
-          grandTotal: true, orderStatus: true, paymentStatus: true,
-          items: { select: { productName: true, quantity: true, totalPrice: true } }
+          id: true, 
+          orderNumber: true, 
+          orderDate: true,
+          grandTotal: true, 
+          orderStatus: true, 
+          paymentStatus: true,
+          items: { 
+            select: { 
+              productName: true, 
+              quantity: true, 
+              totalPrice: true 
+            } 
+          }
         }
       }),
-      prisma.order.count({ where: { customerId: id } })
+      prisma.order.count({ 
+        where: { 
+          customerId: id,
+          isActive: true,
+          isDeleted: false
+        } 
+      })
     ]);
 
     res.status(200).json({
-      success: true, data: orders,
+      success: true, 
+      data: orders,
       pagination: {
-        page: pageNum, limit: limitNum, total,
+        page: pageNum, 
+        limit: limitNum, 
+        total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
         hasPrev: pageNum > 1
@@ -325,7 +487,14 @@ const getCustomerOrders = async (req, res) => {
 };
 
 module.exports = {
-  getCustomers, getCustomerById, getCustomerByNumber,
-  createCustomer, updateCustomer, deleteCustomer,
-  updateCustomerStatus, getCustomerStats, searchCustomers, getCustomerOrders
+  getCustomers, 
+  getCustomerById, 
+  getCustomerByNumber,
+  createCustomer, 
+  updateCustomer, 
+  deleteCustomer,
+  updateCustomerStatus, 
+  getCustomerStats, 
+  searchCustomers,  
+  getCustomerOrders
 };

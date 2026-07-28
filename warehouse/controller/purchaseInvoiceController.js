@@ -1,8 +1,9 @@
-
-// warehouse/controller/purchaseInvoiceController.js - COMPLETE
+// warehouse/controller/purchaseInvoiceController.js - COMPLETE CORRECTED
 
 const PurchaseInvoice = require('../models/PurchaseInvoice');
 const prisma = require('../../prisma/client');
+const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 
 // ============================================================
 // ─── PURCHASE INVOICE CONTROLLERS ──────────────────────────────
@@ -14,6 +15,7 @@ const prisma = require('../../prisma/client');
 const createInvoiceFromGRN = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       goodsReceivingId,
       supplierInvoiceNo,
@@ -23,7 +25,19 @@ const createInvoiceFromGRN = async (req, res) => {
       notes
     } = req.body;
 
-    // ─── Validation ──────────────────────────────────────
+    const postingDate = invoiceDate ? new Date(invoiceDate) : new Date();
+
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
     if (!goodsReceivingId) {
       return res.status(400).json({
         success: false,
@@ -31,11 +45,10 @@ const createInvoiceFromGRN = async (req, res) => {
       });
     }
 
-    // ─── Check if GRN exists ────────────────────────────
     const grn = await prisma.goodsReceiving.findFirst({
       where: {
         id: goodsReceivingId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -55,7 +68,6 @@ const createInvoiceFromGRN = async (req, res) => {
       });
     }
 
-    // ─── Check if invoice already exists ──────────────────
     const existingInvoice = await prisma.purchaseInvoice.findFirst({
       where: {
         goodsReceivingId: goodsReceivingId,
@@ -71,7 +83,6 @@ const createInvoiceFromGRN = async (req, res) => {
       });
     }
 
-    // ─── Create Invoice ──────────────────────────────────
     const invoiceData = {
       goodsReceivingId,
       supplierInvoiceNo,
@@ -80,7 +91,9 @@ const createInvoiceFromGRN = async (req, res) => {
       paymentTerms,
       notes,
       createdBy: userId,
-      userId: userId
+      userId: userId,
+      companyId: companyId,
+      fiscalYearId,
     };
 
     const invoice = await PurchaseInvoice.createFromGRN(invoiceData);
@@ -106,6 +119,7 @@ const createInvoiceFromGRN = async (req, res) => {
 const createInvoiceFromPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       purchaseOrderId,
       supplierInvoiceNo,
@@ -115,7 +129,6 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       notes
     } = req.body;
 
-    // ─── Validation ──────────────────────────────────────
     if (!purchaseOrderId) {
       return res.status(400).json({
         success: false,
@@ -123,11 +136,10 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       });
     }
 
-    // ─── Check if PO exists ─────────────────────────────
     const purchaseOrder = await prisma.purchaseOrder.findFirst({
       where: {
         id: purchaseOrderId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -140,7 +152,6 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       });
     }
 
-    // ─── Check if invoice already exists ──────────────────
     const existingInvoice = await prisma.purchaseInvoice.findFirst({
       where: {
         purchaseOrderId: purchaseOrderId,
@@ -156,7 +167,6 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       });
     }
 
-    // ─── Create Invoice ──────────────────────────────────
     const invoiceData = {
       purchaseOrderId,
       supplierInvoiceNo,
@@ -165,7 +175,9 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       paymentTerms,
       notes,
       createdBy: userId,
-      userId: userId
+      userId: userId,
+      companyId: companyId,
+      fiscalYearId: null,
     };
 
     const invoice = await PurchaseInvoice.createFromPurchaseOrder(invoiceData);
@@ -191,13 +203,13 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
 const postPurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    // ─── Check if invoice exists ────────────────────────
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -224,7 +236,6 @@ const postPurchaseInvoice = async (req, res) => {
       });
     }
 
-    // ─── Post Invoice ────────────────────────────────────
     const postedInvoice = await PurchaseInvoice.postInvoice(id, userId);
 
     res.status(200).json({
@@ -248,6 +259,7 @@ const postPurchaseInvoice = async (req, res) => {
 const getPurchaseInvoices = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -263,8 +275,10 @@ const getPurchaseInvoices = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
+    // ✅ FIXED: Use createdBy and companyId
     const filter = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy instead of userId
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false
     };
@@ -313,10 +327,11 @@ const getPurchaseInvoices = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const orderBy = { [sortBy]: sortOrder === 'asc' ? 'asc' : 'desc' };
 
+    // ✅ FIXED: Pass companyId to getStats
     const [invoices, total, stats] = await Promise.all([
       PurchaseInvoice.findAll(filter, { skip, take: limitNum, orderBy }),
       PurchaseInvoice.count(filter),
-      PurchaseInvoice.getStats(userId)
+      PurchaseInvoice.getStats(companyId)  // ✅ Pass companyId
     ]);
 
     res.status(200).json({
@@ -349,12 +364,13 @@ const getPurchaseInvoices = async (req, res) => {
 const getPurchaseInvoiceById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -429,12 +445,13 @@ const getPurchaseInvoiceById = async (req, res) => {
 const getPurchaseInvoiceByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { invoiceNumber } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         invoiceNumber: invoiceNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -491,6 +508,7 @@ const getPurchaseInvoiceByNumber = async (req, res) => {
 const updatePurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const {
       supplierInvoiceNo,
@@ -502,11 +520,10 @@ const updatePurchaseInvoice = async (req, res) => {
       status
     } = req.body;
 
-    // ─── Check if invoice exists ────────────────────────
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -533,7 +550,6 @@ const updatePurchaseInvoice = async (req, res) => {
       });
     }
 
-    // ─── Prepare update data ─────────────────────────────
     const updateData = {
       updatedBy: userId,
       ...(supplierInvoiceNo !== undefined && { supplierInvoiceNo }),
@@ -544,14 +560,13 @@ const updatePurchaseInvoice = async (req, res) => {
       ...(status && { invoiceStatus: status })
     };
 
-    // ─── Process items if provided ──────────────────────
     if (items) {
       const processedItems = [];
       for (const item of items) {
         const product = await prisma.product.findFirst({
           where: {
             id: item.productId,
-            userId: userId,
+            companyId: companyId,
             isActive: true
           }
         });
@@ -577,7 +592,6 @@ const updatePurchaseInvoice = async (req, res) => {
       updateData.items = processedItems;
     }
 
-    // ─── Update Invoice ──────────────────────────────────
     const updatedInvoice = await PurchaseInvoice.update(id, updateData);
 
     res.status(200).json({
@@ -601,14 +615,14 @@ const updatePurchaseInvoice = async (req, res) => {
 const cancelPurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
-    // ─── Check if invoice exists ────────────────────────
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -635,7 +649,6 @@ const cancelPurchaseInvoice = async (req, res) => {
       });
     }
 
-    // ─── Cancel Invoice ──────────────────────────────────
     const cancelledInvoice = await PurchaseInvoice.cancelInvoice(id, userId, reason);
 
     res.status(200).json({
@@ -659,13 +672,13 @@ const cancelPurchaseInvoice = async (req, res) => {
 const deletePurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    // ─── Check if invoice exists ────────────────────────
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -685,7 +698,6 @@ const deletePurchaseInvoice = async (req, res) => {
       });
     }
 
-    // ─── Soft Delete ─────────────────────────────────────
     await PurchaseInvoice.softDelete(id, userId);
 
     res.status(200).json({
@@ -708,7 +720,9 @@ const deletePurchaseInvoice = async (req, res) => {
 const getPurchaseInvoiceStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const stats = await PurchaseInvoice.getStats(userId);
+    const companyId = req.user.companyId;
+    // ✅ FIXED: Pass companyId
+    const stats = await PurchaseInvoice.getStats(companyId);
 
     res.status(200).json({
       success: true,
@@ -730,9 +744,11 @@ const getPurchaseInvoiceStats = async (req, res) => {
 const getSupplierPurchaseInvoiceSummary = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { supplierId } = req.params;
 
-    const summary = await PurchaseInvoice.getSupplierSummary(userId, supplierId);
+    // ✅ FIXED: Pass companyId first
+    const summary = await PurchaseInvoice.getSupplierSummary(companyId, supplierId);
 
     res.status(200).json({
       success: true,
@@ -754,12 +770,13 @@ const getSupplierPurchaseInvoiceSummary = async (req, res) => {
 const getAvailableGRNsForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
-    console.log('🔵 [getAvailableGRNsForInvoicing] Called with search:', search);
-
+    // ✅ FIXED: Use createdBy and companyId
     const where = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false,
       status: {
@@ -767,7 +784,6 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
       }
     };
 
-    // ✅ FIX: Allow search with minimum 2 characters
     if (search && search.trim().length >= 2) {
       where.OR = [
         { grnNumber: { contains: search, mode: 'insensitive' } },
@@ -776,7 +792,6 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
       ];
     }
 
-    // ✅ FIX: Don't filter by invoice existence - return ALL GRNs
     const grns = await prisma.goodsReceiving.findMany({
       where,
       include: {
@@ -807,14 +822,17 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
       }
     });
 
-    console.log('🔵 [getAvailableGRNsForInvoicing] Found GRNs:', grns.length);
-
-    // ✅ Add invoice status info
     const grnsWithStatus = grns.map(grn => ({
       ...grn,
       hasInvoice: grn.purchaseInvoices.length > 0,
       invoiceCount: grn.purchaseInvoices.length,
-      invoices: grn.purchaseInvoices
+      invoices: grn.purchaseInvoices,
+      items: grn.items.map(item => ({
+        ...item,
+        unitPrice: item.purchaseOrderItem?.unitPrice || item.product?.costPrice || 0,
+        discount: item.purchaseOrderItem?.discount || 0,
+        taxRate: item.purchaseOrderItem?.taxRate || 0
+      }))
     }));
 
     const total = grnsWithStatus.length;
@@ -839,18 +857,20 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
     });
   }
 };
+
 // @desc    Get Available Purchase Orders for Invoicing
 // @route   GET /api/purchase/invoices/available-pos
 // @access  Private
 const getAvailablePOsForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
-    console.log('🔵 [getAvailablePOsForInvoicing] Called with search:', search);
-
+    // ✅ FIXED: Use createdBy and companyId
     const where = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false,
       status: {
@@ -858,7 +878,6 @@ const getAvailablePOsForInvoicing = async (req, res) => {
       }
     };
 
-    // ✅ FIX: Allow search with minimum 2 characters
     if (search && search.trim().length >= 2) {
       where.OR = [
         { orderNumber: { contains: search, mode: 'insensitive' } },
@@ -866,7 +885,6 @@ const getAvailablePOsForInvoicing = async (req, res) => {
       ];
     }
 
-    // ✅ FIX: Don't filter by invoice existence - return ALL POs
     const pos = await prisma.purchaseOrder.findMany({
       where,
       include: {
@@ -903,9 +921,6 @@ const getAvailablePOsForInvoicing = async (req, res) => {
       }
     });
 
-    console.log('🔵 [getAvailablePOsForInvoicing] Found POs:', pos.length);
-
-    // ✅ Add invoice status info
     const posWithStatus = pos.map(po => {
       const hasReceivedItems = po.goodsReceivings.some(grn => grn.items.length > 0);
       return {
@@ -913,7 +928,13 @@ const getAvailablePOsForInvoicing = async (req, res) => {
         hasInvoice: po.purchaseInvoices.length > 0,
         invoiceCount: po.purchaseInvoices.length,
         invoices: po.purchaseInvoices,
-        hasReceivedItems: hasReceivedItems
+        hasReceivedItems: hasReceivedItems,
+        items: po.items.map(item => ({
+          ...item,
+          unitPrice: item.unitPrice || 0,
+          discount: item.discount || 0,
+          taxRate: item.taxRate || 0
+        }))
       };
     });
 
@@ -939,18 +960,20 @@ const getAvailablePOsForInvoicing = async (req, res) => {
     });
   }
 };
+
 // @desc    Print Purchase Invoice
 // @route   GET /api/purchase/invoices/:id/print
 // @access  Private
 const printPurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -978,8 +1001,6 @@ const printPurchaseInvoice = async (req, res) => {
       });
     }
 
-    // Here you would generate PDF
-    // For now, return the invoice data
     res.status(200).json({
       success: true,
       message: 'Purchase invoice data for print',

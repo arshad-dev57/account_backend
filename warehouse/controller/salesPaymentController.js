@@ -1,7 +1,9 @@
-// warehouse/controller/salesPaymentController.js - COMPLETE
+// warehouse/controller/salesPaymentController.js - COMPLETE CORRECTED
 
 const SalesPaymentReceived = require('../models/SalesPaymentReceived');
 const prisma = require('../../prisma/client');
+const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 
 // ============================================================
 // ─── SALES PAYMENT RECEIVED CONTROLLERS ──────────────────────
@@ -13,13 +15,14 @@ const prisma = require('../../prisma/client');
 const getCustomerInvoices = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { customerId } = req.params;
 
     // ─── Check if customer exists ──────────────────────────
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -32,7 +35,7 @@ const getCustomerInvoices = async (req, res) => {
       });
     }
 
-    const invoices = await SalesPaymentReceived.getCustomerInvoices(customerId, userId);
+    const invoices = await SalesPaymentReceived.getCustomerInvoices(customerId, companyId);
 
     res.status(200).json({
       success: true,
@@ -54,6 +57,7 @@ const getCustomerInvoices = async (req, res) => {
 const receivePayment = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       customerId,
       customerName,
@@ -63,10 +67,26 @@ const receivePayment = async (req, res) => {
       bankAccountName,
       reference,
       notes,
-      invoicePayments
+      invoicePayments,
+      paymentDate,
     } = req.body;
 
-    // ─── Validation ──────────────────────────────────────
+    const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+
+    // ─── Fiscal Year Guard ──────────────────────────────────
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    // ─── Resolve Fiscal Year ID ─────────────────────────────
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
+    // ─── Validation ──────────────────────────────────────────
     if (!customerId) {
       return res.status(400).json({
         success: false,
@@ -88,7 +108,7 @@ const receivePayment = async (req, res) => {
       });
     }
 
-    // ─── Process Payment ──────────────────────────────────
+    // ─── Process Payment ────────────────────────────────────
     const paymentData = {
       customerId,
       customerName,
@@ -99,8 +119,11 @@ const receivePayment = async (req, res) => {
       reference,
       notes,
       invoicePayments,
+      paymentDate: postingDate,
       userId,
-      createdBy: userId
+      createdBy: userId,
+      fiscalYearId,
+      companyId,
     };
 
     const payment = await SalesPaymentReceived.receivePayment(paymentData);
@@ -125,6 +148,7 @@ const receivePayment = async (req, res) => {
 const getPayments = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -137,16 +161,27 @@ const getPayments = async (req, res) => {
     } = req.query;
 
     const filter = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false
     };
 
+    // ✅ FIXED: Search in customer relation as well
     if (search) {
       filter.OR = [
         { paymentNumber: { contains: search, mode: 'insensitive' } },
         { customerName: { contains: search, mode: 'insensitive' } },
-        { reference: { contains: search, mode: 'insensitive' } }
+        { reference: { contains: search, mode: 'insensitive' } },
+        {
+          customer: {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+              { phone: { contains: search, mode: 'insensitive' } },
+              { customerNumber: { contains: search, mode: 'insensitive' } }
+            ]
+          }
+        }
       ];
     }
 
@@ -172,7 +207,7 @@ const getPayments = async (req, res) => {
     const [payments, total, stats] = await Promise.all([
       SalesPaymentReceived.findAll(filter, { skip, take: limitNum, orderBy }),
       SalesPaymentReceived.count(filter),
-      SalesPaymentReceived.getStats(userId)
+      SalesPaymentReceived.getStats(companyId)
     ]);
 
     res.status(200).json({
@@ -205,12 +240,13 @@ const getPayments = async (req, res) => {
 const getPaymentById = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
     const payment = await prisma.salesPaymentReceived.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -268,12 +304,13 @@ const getPaymentById = async (req, res) => {
 const getPaymentByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { paymentNumber } = req.params;
 
     const payment = await prisma.salesPaymentReceived.findFirst({
       where: {
         paymentNumber: paymentNumber,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       },
@@ -324,14 +361,14 @@ const getPaymentByNumber = async (req, res) => {
 const cancelPayment = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
-    // ─── Check if payment exists ────────────────────────
     const payment = await prisma.salesPaymentReceived.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -351,7 +388,6 @@ const cancelPayment = async (req, res) => {
       });
     }
 
-    // ─── Cancel Payment ──────────────────────────────────
     const cancelledPayment = await SalesPaymentReceived.cancelPayment(id, userId, reason);
 
     res.status(200).json({
@@ -374,7 +410,8 @@ const cancelPayment = async (req, res) => {
 const getPaymentStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const stats = await SalesPaymentReceived.getStats(userId);
+    const companyId = req.user.companyId;
+    const stats = await SalesPaymentReceived.getStats(companyId);
 
     res.status(200).json({
       success: true,
@@ -396,13 +433,13 @@ const getPaymentStats = async (req, res) => {
 const deletePayment = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
 
-    // ─── Check if payment exists ────────────────────────
     const payment = await prisma.salesPaymentReceived.findFirst({
       where: {
         id: id,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false
       }
@@ -422,7 +459,6 @@ const deletePayment = async (req, res) => {
       });
     }
 
-    // ─── Soft Delete Payment ────────────────────────────
     await prisma.salesPaymentReceived.update({
       where: { id },
       data: {

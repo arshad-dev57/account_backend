@@ -8,6 +8,8 @@ const prisma = require('../../prisma/client');
 // ============================================================
 const createInvoice = async (req, res) => {
   try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const {
       customerId,
       customerName,
@@ -70,7 +72,7 @@ const createInvoice = async (req, res) => {
 
     // ─── Customer check ──────────────────────────────────
     if (customerId) {
-      const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+      const customer = await prisma.customer.findFirst({ where: { id: customerId, companyId: companyId } });
       if (!customer) {
         return res.status(404).json({ success: false, message: 'Customer not found' });
       }
@@ -78,7 +80,7 @@ const createInvoice = async (req, res) => {
 
     // ─── Order check ─────────────────────────────────────
     if (orderId) {
-      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      const order = await prisma.order.findFirst({ where: { id: orderId, companyId: companyId } });
       if (!order) {
         return res.status(404).json({ success: false, message: 'Order not found' });
       }
@@ -103,7 +105,8 @@ const createInvoice = async (req, res) => {
       discountTotal: discountAmount,
       grandTotal,
       notes: notes || '',
-      createdBy: req.user.id,
+      createdBy: userId,
+      companyId: companyId,
     });
 
     res.status(201).json({
@@ -128,6 +131,7 @@ const createInvoice = async (req, res) => {
 // ============================================================
 const getInvoices = async (req, res) => {
   try {
+    const companyId = req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -142,7 +146,7 @@ const getInvoices = async (req, res) => {
       sortOrder = 'desc',
     } = req.query;
 
-    const filter = { isActive: true, isDeleted: false };
+    const filter = { companyId: companyId, isActive: true, isDeleted: false };
 
     if (search) {
       filter.OR = [

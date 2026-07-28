@@ -75,27 +75,40 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('\n========== PROFIT & LOSS STATEMENT ==========');
     console.log('🔍 User ID:', req.user.id);
 
-    const { startDate, endDate, period } = req.query;
+    const { startDate, endDate, period, fiscalYearId } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
+    // ─── Build fiscal year filter ────────────────────────────────
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
+
     // ─── GET INCOMES (User-specific) ──────────────────────────────
     const incomes = await prisma.income.findMany({
       where: {
-        userId: userId,
+        
+        companyId: companyId,
         date: { gte: start, lte: end },
-        status: 'Posted'
+        status: 'Posted',
+        ...fiscalYearFilter
       }
     });
 
     // ─── GET EXPENSES (User-specific) ──────────────────────────────
     const expenses = await prisma.expense.findMany({
       where: {
-        userId: userId,
+        
+        companyId: companyId,
         date: { gte: start, lte: end },
-        status: 'Posted'
+        status: 'Posted',
+        ...fiscalYearFilter
       }
     });
 
@@ -200,9 +213,10 @@ exports.getBalanceSheet = async (req, res) => {
     console.log('\n========== BALANCE SHEET ==========');
     console.log('🔍 User ID:', req.user.id);
 
-    const { period, asOfDate } = req.query;
+    const { period, asOfDate, fiscalYearId } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     let reportDate;
     let startDate, endDate;
     const now = new Date();
@@ -236,9 +250,16 @@ exports.getBalanceSheet = async (req, res) => {
         endDate = reportDate;
     }
 
-    // ─── GET CHART OF ACCOUNTS (User-specific) ──────────────────
+    // ─── Build fiscal year filter ────────────────────────────────
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
+
     const accounts = await prisma.chartOfAccount.findMany({
-      where: { userId: userId, isActive: true }
+      where: { companyId: companyId, isActive: true }
     });
 
     console.log('📊 Chart of Accounts found:', accounts.length);
@@ -281,7 +302,7 @@ exports.getBalanceSheet = async (req, res) => {
 
     // ─── GET BANK ACCOUNT BALANCES (User-specific) ──────────────
     const bankAccounts = await prisma.bankAccount.findMany({
-      where: { userId: userId, status: 'Active' }
+      where: { companyId: companyId, status: 'Active' }
     });
 
     let totalBankBalance = 0;
@@ -300,7 +321,7 @@ exports.getBalanceSheet = async (req, res) => {
     // ─── GET ACCOUNTS RECEIVABLE (User-specific) ──────────────
     const unpaidInvoices = await prisma.warehouseInvoice.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         paymentStatus: { in: ['Unpaid', 'Partial'] },
         outstanding: { gt: 0 }
       }
@@ -322,7 +343,7 @@ exports.getBalanceSheet = async (req, res) => {
     // ─── GET ACCOUNTS PAYABLE (User-specific) ──────────────────
     const unpaidBills = await prisma.bill.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         status: { in: ['Unpaid', 'Partial'] },
         outstanding: { gt: 0 }
       }
@@ -343,7 +364,7 @@ exports.getBalanceSheet = async (req, res) => {
 
     // ─── GET LOAN BALANCES (User-specific) ──────────────────────
     const loans = await prisma.loan.findMany({
-      where: { userId: userId, status: { not: 'Fully Paid' } }
+      where: { companyId: companyId, status: { not: 'Fully Paid' } }
     });
 
     for (const loan of loans) {
@@ -365,7 +386,7 @@ exports.getBalanceSheet = async (req, res) => {
     // ─── GET RETAINED EARNINGS (User-specific) ──────────────────
     const incomes = await prisma.income.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         date: { gte: startDate, lte: endDate },
         status: 'Posted'
       }
@@ -373,7 +394,7 @@ exports.getBalanceSheet = async (req, res) => {
 
     const expenses = await prisma.expense.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         date: { gte: startDate, lte: endDate },
         status: 'Posted'
       }
@@ -447,26 +468,37 @@ exports.getCashFlowStatement = async (req, res) => {
     console.log('\n========== CASH FLOW STATEMENT ==========');
     console.log('🔍 User ID:', req.user.id);
 
-    const { startDate, endDate, period } = req.query;
+    const { startDate, endDate, period, fiscalYearId } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
+    // ─── Build fiscal year filter ────────────────────────────────
+    let fiscalYearFilter = {};
+    if (fiscalYearId) {
+      fiscalYearFilter = {
+        fiscalYearId: fiscalYearId
+      };
+    }
+
     // ─── OPERATING ACTIVITIES (User-specific) ──────────────────
     const incomes = await prisma.income.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         date: { gte: start, lte: end },
-        status: 'Posted'
+        status: 'Posted',
+        ...fiscalYearFilter
       }
     });
 
     const expenses = await prisma.expense.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         date: { gte: start, lte: end },
-        status: 'Posted'
+        status: 'Posted',
+        ...fiscalYearFilter
       }
     });
 
@@ -491,7 +523,7 @@ exports.getCashFlowStatement = async (req, res) => {
     // ─── INVESTING ACTIVITIES (User-specific) ──────────────────
     const assetPayments = await prisma.paymentMade.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         paymentDate: { gte: start, lte: end },
         reference: { contains: 'asset', mode: 'insensitive' }
       }
@@ -499,7 +531,7 @@ exports.getCashFlowStatement = async (req, res) => {
 
     const assetSales = await prisma.paymentReceived.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         paymentDate: { gte: start, lte: end },
         reference: { contains: 'asset sale', mode: 'insensitive' }
       }
@@ -512,14 +544,14 @@ exports.getCashFlowStatement = async (req, res) => {
     // ─── FINANCING ACTIVITIES (User-specific) ──────────────────
     const loans = await prisma.loan.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         disbursementDate: { gte: start, lte: end }
       }
     });
 
     const loanPayments = await prisma.paymentMade.findMany({
       where: {
-        userId: userId,
+        companyId: companyId,
         paymentDate: { gte: start, lte: end },
         reference: { contains: 'loan', mode: 'insensitive' }
       }
@@ -534,7 +566,7 @@ exports.getCashFlowStatement = async (req, res) => {
 
     // ─── GET CLOSING BALANCE (User-specific) ──────────────────
     const bankAccounts = await prisma.bankAccount.findMany({
-      where: { userId: userId, status: 'Active' }
+      where: { companyId: companyId, status: 'Active' }
     });
 
     let closingCashBalance = 0;
@@ -617,10 +649,11 @@ exports.getJournalEntries = async (req, res) => {
     } = req.query;
 
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // ─── BUILD WHERE CLAUSE (User-specific) ──────────────────────
-    const where = { userId: userId };
+    const where = { companyId: companyId };
 
     if (status && status !== 'All') {
       where.status = status;
@@ -740,11 +773,11 @@ exports.getJournalEntry = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const journalEntry = await prisma.journalEntry.findFirst({
       where: {
         id,
-        userId: userId
-      },
+        companyId: companyId},
       include: {
         creator: {
           select: {

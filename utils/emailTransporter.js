@@ -1,8 +1,5 @@
-/**
- * Email Transporter Singleton
- * Creates a single reusable transporter instance for all emails
- * Prevents creating new connections on every email send
- */
+
+ 
 const nodemailer = require('nodemailer');
 
 let transporter = null;

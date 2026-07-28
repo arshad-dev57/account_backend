@@ -1,10 +1,10 @@
-// models/Subscription.js - Prisma Version
+// models/Subscription.js - Prisma Version (Fixed)
 const prisma = require('../prisma/client');
 
 // ─── Calculate end date based on plan ──────────────────────
 function calculateEndDate(startDate, plan) {
   const endDate = new Date(startDate);
-  
+
   if (plan === 'trial') {
     endDate.setDate(endDate.getDate() + 30);
   } else if (plan === 'monthly') {
@@ -12,7 +12,7 @@ function calculateEndDate(startDate, plan) {
   } else if (plan === 'yearly') {
     endDate.setFullYear(endDate.getFullYear() + 1);
   }
-  
+
   return endDate;
 }
 
@@ -23,7 +23,7 @@ class SubscriptionModel {
   static async create(data) {
     const startDate = data.startDate || new Date();
     const endDate = data.endDate || calculateEndDate(startDate, data.plan);
-    
+
     return await prisma.subscription.create({
       data: {
         userId: data.userId,
@@ -32,7 +32,7 @@ class SubscriptionModel {
         startDate,
         endDate,
         amount: data.amount,
-        currency: data.currency || 'PKR',
+        currency: data.currency || 'SAR',
         paymentMethod: data.paymentMethod || 'free_trial',
         transactionId: data.transactionId || '',
         paymentDetails: data.paymentDetails || {},
@@ -77,15 +77,22 @@ class SubscriptionModel {
 
   // ============================================================
   // GET ACTIVE SUBSCRIPTION BY USER ID
+  // Fixed: trial subscriptions have endDate set from trialEndDate,
+  // so we query by status = 'active' only and rely on application-level
+  // expiry checks to keep data consistent.
   // ============================================================
   static async findActiveByUserId(userId) {
+    const now = new Date();
     return await prisma.subscription.findFirst({
       where: {
         userId,
         status: 'active',
-        endDate: {
-          gt: new Date()
-        }
+        // ✅ Fixed: Include subscriptions where endDate hasn't passed yet
+        // OR where endDate is null (shouldn't happen in practice but safe guard)
+        OR: [
+          { endDate: { gt: now } },
+          { endDate: null },
+        ],
       },
       orderBy: {
         createdAt: 'desc'

@@ -11,6 +11,72 @@ datasource db {
 }
 
 // ============================================================
+// COMPANY MODEL (Multi-tenant)
+// ============================================================
+
+model Company {
+  id                    String   @id @default(uuid())
+  name                  String
+  email                 String?  @unique
+  phone                 String?
+  address               String?
+  businessType          String?  @map("business_type")
+  taxRegistrationNumber String?  @map("tax_registration_number")
+  logo                  String?
+  website               String?
+  isActive              Boolean  @default(true) @map("is_active")
+  subscriptionPlan      String   @default("trial") @map("subscription_plan")
+  subscriptionStatus    String   @default("active") @map("subscription_status")
+  trialStartDate        DateTime? @map("trial_start_date")
+  trialEndDate          DateTime? @map("trial_end_date")
+  subscriptionStartDate DateTime? @map("subscription_start_date")
+  subscriptionEndDate   DateTime? @map("subscription_end_date")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  users User[]
+  categories Category[] @relation("CategoryCompany")
+  suppliers Supplier[] @relation("SupplierCompany")
+  settings Setting[] @relation("SettingCompany")
+  stockMovements StockMovement[] @relation("StockMovementCompany")
+  orders Order[] @relation("OrderCompany")
+  returns Return[] @relation("ReturnCompany")
+  refunds Refund[] @relation("RefundCompany")
+  warehousePurchases WarehousePurchase[] @relation("WarehousePurchaseCompany")
+  warehouseInvoices WarehouseInvoice[] @relation("WarehouseInvoiceCompany")
+  chartOfAccounts ChartOfAccount[] @relation("ChartOfAccountCompany")
+  customers Customer[] @relation("CustomerCompany")
+  products Product[] @relation("ProductCompany")
+  fiscalYears FiscalYear[] @relation("FiscalYearCompany")
+  bankAccounts BankAccount[] @relation("BankAccountCompany")
+  journalEntries JournalEntry[] @relation("JournalEntryCompany")
+  bills Bill[] @relation("BillCompany")
+  incomes Income[] @relation("IncomeCompany")
+  expenses Expense[] @relation("ExpenseCompany")
+  trialBalanceViews TrialBalanceView[] @relation("TrialBalanceViewCompany")
+  paymentsMade PaymentMade[] @relation("PaymentMadeCompany")
+  purchasePayments PurchasePaymentMake[] @relation("PurchasePaymentMakeCompany")
+  purchaseReturns PurchaseReturn[] @relation("PurchaseReturnCompany")
+  creditNotes CreditNote[] @relation("CreditNoteCompany")
+  fixedAssets FixedAsset[] @relation("FixedAssetCompany")
+  loans Loan[] @relation("LoanCompany")
+  equityAccounts EquityAccount[] @relation("EquityAccountCompany")
+  deliveries Delivery[] @relation("DeliveryCompany")
+  quotations Quotation[] @relation("QuotationCompany")
+  purchaseOrders PurchaseOrder[] @relation("PurchaseOrderCompany")
+  goodsReceivings GoodsReceiving[] @relation("GoodsReceivingCompany")
+  purchaseInvoices PurchaseInvoice[] @relation("PurchaseInvoiceCompany")
+  salesInvoices SalesInvoice[] @relation("SalesInvoiceCompany")
+  salesPayments SalesPaymentReceived[] @relation("SalesPaymentCompany")
+  paymentsReceived PaymentReceived[] @relation("PaymentReceivedCompany")
+  transactions Transaction[] @relation("TransactionCompany")
+
+  @@index([email])
+  @@index([isActive])
+  @@map("companies")
+}
+
+// ============================================================
 // USER & AUTH MODELS
 // ============================================================
 
@@ -23,6 +89,10 @@ model User {
   phone     String  @default("")
   country   String  @default("Pakistan")
   role      String  @default("user")
+  roleId    String? @map("role_id")
+  managerId String? @map("manager_id")
+  createdBy String?  @map("created_by")
+  companyId String?  @map("company_id")
   isActive  Boolean @default(true) @map("is_active")
 
   resetOtp       String?   @map("reset_otp")
@@ -94,68 +164,212 @@ model User {
   paymentMadeCreators     PaymentMade[]     @relation("PaymentMadeCreator")
   fixedAssetCreators      FixedAsset[]      @relation("FixedAssetCreator")
   loanCreators            Loan[]            @relation("LoanCreator")
+  equityAccountCreators   EquityAccount[]  @relation("EquityAccountCreator")
 
-  userProducts             Product[]              @relation("UserProducts")
-  userCategories           Category[]             @relation("UserCategories")
-  userSuppliers            Supplier[]             @relation("UserSuppliers")
-  userCustomers            Customer[]             @relation("UserCustomers")
-  userOrders               Order[]                @relation("UserOrders")
-  userReturns              Return[]               @relation("UserReturns")
-  userRefunds              Refund[]               @relation("UserRefunds")
-  userPurchases            WarehousePurchase[]    @relation("UserPurchases")
-  userInvoices             WarehouseInvoice[]     @relation("UserInvoices")
-  userStockMovements       StockMovement[]        @relation("UserStockMovements")
-  userSettings             Setting[]              @relation("UserSettings")
-  userChartOfAccounts      ChartOfAccount[]       @relation("UserChartOfAccounts")
-  userBankAccounts         BankAccount[]          @relation("UserBankAccounts")
-  userJournalEntries       JournalEntry[]         @relation("UserJournalEntries")
-  userBills                Bill[]                 @relation("UserBills")
-  userIncomes              Income[]               @relation("UserIncomes")
-  userExpenses             Expense[]              @relation("UserExpenses")
-  userPaymentsReceived     PaymentReceived[]      @relation("UserPaymentsReceived")
-  userPaymentsMade         PaymentMade[]          @relation("UserPaymentsMade")
-  userCreditNotes          CreditNote[]           @relation("UserCreditNotes")
-  userFixedAssets          FixedAsset[]           @relation("UserFixedAssets")
-  userLoans                Loan[]                 @relation("UserLoans")
   deliveryCreators         Delivery[]             @relation("DeliveryCreator")
   deliveryUpdaters         Delivery[]             @relation("DeliveryUpdater")
   deliveryConfirmers       Delivery[]             @relation("DeliveryConfirmer")
-  userDeliveries           Delivery[]             @relation("UserDeliveries")
   quotationCreators        Quotation[]            @relation("QuotationCreator")
   quotationUpdaters        Quotation[]            @relation("QuotationUpdater")
-  userQuotations           Quotation[]            @relation("UserQuotations")
   salesInvoiceCreators     SalesInvoice[]         @relation("SalesInvoiceCreator")
   salesInvoiceUpdaters     SalesInvoice[]         @relation("SalesInvoiceUpdater")
-  userSalesInvoices        SalesInvoice[]         @relation("UserSalesInvoices")
   salesPaymentCreators     SalesPaymentReceived[] @relation("SalesPaymentCreator")
   salesPaymentUpdaters     SalesPaymentReceived[] @relation("SalesPaymentUpdater")
-  userSalesPayments        SalesPaymentReceived[] @relation("UserSalesPayments")
   purchaseOrderCreators    PurchaseOrder[]        @relation("PurchaseOrderCreator")
   purchaseOrderUpdaters    PurchaseOrder[]        @relation("PurchaseOrderUpdater")
-  userPurchaseOrders       PurchaseOrder[]        @relation("UserPurchaseOrders")
   goodsReceivingCreators   GoodsReceiving[]       @relation("GoodsReceivingCreator")
   goodsReceivingUpdaters   GoodsReceiving[]       @relation("GoodsReceivingUpdater")
   goodsReceivingConfirmers GoodsReceiving[]       @relation("GoodsReceivingConfirmer")
-  userGoodsReceivings      GoodsReceiving[]       @relation("UserGoodsReceivings")
   purchaseInvoiceCreators  PurchaseInvoice[]      @relation("PurchaseInvoiceCreator")
   purchaseInvoiceUpdaters  PurchaseInvoice[]      @relation("PurchaseInvoiceUpdater")
-  userPurchaseInvoices     PurchaseInvoice[]      @relation("UserPurchaseInvoices")
-
   purchasePaymentMakeCreators PurchasePaymentMake[] @relation("PurchasePaymentMakeCreator")
   purchasePaymentMakeUpdaters PurchasePaymentMake[] @relation("PurchasePaymentMakeUpdater")
-  userPurchasePayments        PurchasePaymentMake[] @relation("UserPurchasePayments")
-
   purchaseReturnCreators   PurchaseReturn[] @relation("PurchaseReturnCreator")
   purchaseReturnUpdaters   PurchaseReturn[] @relation("PurchaseReturnUpdater")
   purchaseReturnProcessors PurchaseReturn[] @relation("PurchaseReturnProcessor")
   purchaseReturnCancellers PurchaseReturn[] @relation("PurchaseReturnCanceller")
-  userPurchaseReturns      PurchaseReturn[] @relation("UserPurchaseReturns")
-
   transactionCreators Transaction[] @relation("TransactionCreator")
   transactionPosters  Transaction[] @relation("TransactionPoster")
 
+  fiscalYearAuditLogs FiscalYearAuditLog[]
+  notifications      Notification[]
+  managedUsers       User[]              @relation("ManagedUsers")
+  manager            User?               @relation("ManagedUsers", fields: [managerId], references: [id])
+  createdUsers       User[]              @relation("CreatedUsers")
+  creator            User?               @relation("CreatedUsers", fields: [createdBy], references: [id])
+  userRole           Role?               @relation(fields: [roleId], references: [id])
+  permissions        UserPermission[]
+  company            Company?            @relation(fields: [companyId], references: [id])
+
   @@index([email])
+  @@index([roleId])
+  @@index([managerId])
+  @@index([createdBy])
+  @@index([companyId])
   @@map("users")
+}
+
+// ============================================================
+// NOTIFICATION MODEL
+// ============================================================
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  title       String
+  message     String
+  type        String   @default("info") // info, success, warning, error
+  category    String   @default("System") // System, Finance, Alert, etc.
+  isRead      Boolean  @default(false) @map("is_read")
+  data        Json?    @map("data") // Additional data like screen to navigate to
+  createdAt   DateTime @default(now()) @map("created_at")
+  readAt      DateTime? @map("read_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================================
+// ROLE & PERMISSION MODELS
+// ============================================================
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique // admin, manager, staff, viewer
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  users       User[]
+  permissions RolePermission[]
+
+  @@index([name])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., "dashboard.view", "products.create"
+  description String?
+  module      String   // e.g., "dashboard", "products", "reports"
+  action      String   // e.g., "view", "create", "edit", "delete"
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@index([action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id        String   @id @default(uuid())
+  roleId    String   @map("role_id")
+  permissionId String @map("permission_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ============================================================
+// USER PERMISSION MODEL (for custom page-level access)
+// ============================================================
+
+model UserPermission {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  page      String   // e.g., "/warehouse/dashboard", "/warehouse/products"
+  canView   Boolean  @default(true) @map("can_view")
+  canCreate Boolean  @default(false) @map("can_create")
+  canEdit   Boolean  @default(false) @map("can_edit")
+  canDelete Boolean  @default(false) @map("can_delete")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, page])
+  @@index([userId])
+  @@index([page])
+  @@map("user_permissions")
+}
+
+// ============================================================
+// FISCAL YEAR MODELS
+// ============================================================
+
+model FiscalYear {
+  id         String    @id @default(uuid())
+  companyId  String?   @map("company_id")
+  name       String    @db.VarChar(100)
+  startDate  DateTime  @map("start_date")
+  endDate    DateTime  @map("end_date")
+  status     String    @default("Open")
+  closedAt   DateTime? @map("closed_at")
+  closedBy   String?   @map("closed_by")
+  periodType String?   @map("period_type")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  company           Company?             @relation("FiscalYearCompany", fields: [companyId], references: [id])
+  auditLogs         FiscalYearAuditLog[]
+  journalEntries    JournalEntry[]       @relation("JournalEntryFiscalYear")
+  expenses          Expense[]            @relation("ExpenseFiscalYear")
+  incomes           Income[]             @relation("IncomeFiscalYear")
+  paymentsReceived  PaymentReceived[]    @relation("PaymentReceivedFiscalYear")
+  paymentsMade      PaymentMade[]        @relation("PaymentMadeFiscalYear")
+  salesInvoices     SalesInvoice[]       @relation("SalesInvoiceFiscalYear")
+  purchaseInvoices  PurchaseInvoice[]    @relation("PurchaseInvoiceFiscalYear")
+  creditNotes       CreditNote[]         @relation("CreditNoteFiscalYear")
+  purchaseReturns   PurchaseReturn[]     @relation("PurchaseReturnFiscalYear")
+  transactions      Transaction[]        @relation("TransactionFiscalYear")
+  fixedAssets       FixedAsset[]         @relation("FixedAssetFiscalYear")
+  loans             Loan[]               @relation("LoanFiscalYear")
+  salesPayments     SalesPaymentReceived[] @relation("SalesPaymentFiscalYear")
+  purchasePayments  PurchasePaymentMake[]  @relation("PurchasePaymentFiscalYear")
+  accountsReceivable AccountsReceivable[] @relation("ARFiscalYear")
+  accountsPayable   AccountsPayable[]    @relation("APFiscalYear")
+  equityAccounts    EquityAccount[]      @relation("EquityAccountFiscalYear")
+
+  @@unique([companyId, name])
+  @@index([companyId, startDate, endDate])
+  @@map("fiscal_years")
+}
+
+model FiscalYearAuditLog {
+  id           String   @id @default(uuid())
+  fiscalYearId String   @map("fiscal_year_id")
+  userId       String   @map("user_id")
+  action       String
+  details      Json?
+  ipAddress    String?  @map("ip_address")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  fiscalYear FiscalYear @relation(fields: [fiscalYearId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
+
+  @@index([fiscalYearId])
+  @@index([userId])
+  @@map("fiscal_year_audit_logs")
 }
 
 model Subscription {
@@ -190,7 +404,7 @@ model Customer {
   name         String
   email        String? @unique
   phone        String?
-  company      String?
+  companyName  String? @map("company_name")
   customerType String  @default("Individual") @map("customer_type")
   taxId        String? @map("tax_id")
 
@@ -217,7 +431,7 @@ model Customer {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -225,7 +439,7 @@ model Customer {
   // Relations
   creator            User?                  @relation("CustomerCreator", fields: [createdBy], references: [id])
   updater            User?                  @relation("CustomerUpdater", fields: [updatedBy], references: [id])
-  user               User?                  @relation("UserCustomers", fields: [userId], references: [id])
+  company            Company?               @relation("CustomerCompany", fields: [companyId], references: [id])
   orders             Order[]
   warehouseInvoices  WarehouseInvoice[]
   creditNotes        CreditNote[]
@@ -245,7 +459,7 @@ model Customer {
   @@index([status])
   @@index([isActive])
   @@index([name])
-  @@index([userId])
+  @@index([companyId])
   @@map("customers")
 }
 
@@ -398,7 +612,7 @@ model Product {
   attributes   Json?
   customFields Json? @map("custom_fields")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -415,7 +629,7 @@ model Product {
   returnItems          ReturnItem[]
   purchaseItems        WarehousePurchaseItem[]
   invoiceItems         WarehouseInvoiceItem[]
-  user                 User?                   @relation("UserProducts", fields: [userId], references: [id])
+  company              Company?                @relation("ProductCompany", fields: [companyId], references: [id])
   deliveryItems        DeliveryItem[]
   quotationItems       QuotationItem[]
   salesInvoiceItems    SalesInvoiceItem[]
@@ -424,7 +638,7 @@ model Product {
   purchaseInvoiceItems PurchaseInvoiceItem[]
   purchaseReturnItems  PurchaseReturnItem[]
 
-  @@unique([sku, userId])
+  @@unique([sku, companyId])
   @@index([sku])
   @@index([productId])
   @@index([categoryId])
@@ -433,13 +647,9 @@ model Product {
   @@index([isActive])
   @@index([status])
   @@index([barcodeNumber])
-  @@index([userId])
+  @@index([companyId])
   @@map("products")
 }
-
-// ============================================================
-// CATEGORY MODEL
-// ============================================================
 
 model Category {
   id          String  @id @default(uuid())
@@ -461,7 +671,7 @@ model Category {
   createdBy String  @map("created_by")
   updatedBy String? @map("updated_by")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -472,17 +682,17 @@ model Category {
   creator  User?      @relation("CategoryCreator", fields: [createdBy], references: [id])
   updater  User?      @relation("CategoryUpdater", fields: [updatedBy], references: [id])
   products Product[]
-  user     User?      @relation("UserCategories", fields: [userId], references: [id])
+  company  Company?   @relation("CategoryCompany", fields: [companyId], references: [id])
 
-  @@unique([name, userId])
-  @@unique([code, userId])
-  @@unique([slug, userId])
+  @@unique([name, companyId])
+  @@unique([code, companyId])
+  @@unique([slug, companyId])
   @@index([parentId])
   @@index([level])
   @@index([slug])
   @@index([code])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("categories")
 }
 
@@ -513,14 +723,14 @@ model Supplier {
   createdBy     String  @map("created_by")
   notes         String?
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
   creator          User?                 @relation("SupplierCreator", fields: [createdBy], references: [id])
-  user             User?                 @relation("UserSuppliers", fields: [userId], references: [id])
+  company          Company?              @relation("SupplierCompany", fields: [companyId], references: [id])
   products         Product[]
   stockMovements   StockMovement[]
   purchases        WarehousePurchase[]
@@ -539,16 +749,16 @@ model Supplier {
   purchaseReturns  PurchaseReturn[]
   transactions     Transaction[]         @relation("SupplierTransactions")
 
-  @@unique([code, userId])
-  @@unique([email, userId])
-  @@unique([phone, userId])
+  @@unique([code, companyId])
+  @@unique([email, companyId])
+  @@unique([phone, companyId])
   @@index([code])
   @@index([status])
   @@index([email])
   @@index([phone])
   @@index([createdAt])
   @@index([name])
-  @@index([userId])
+  @@index([companyId])
   @@map("suppliers")
 }
 
@@ -567,21 +777,21 @@ model Setting {
   createdBy    String  @map("created_by")
   updatedBy    String? @map("updated_by")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  creator User? @relation("SettingCreator", fields: [createdBy], references: [id])
-  updater User? @relation("SettingUpdater", fields: [updatedBy], references: [id])
-  user    User? @relation("UserSettings", fields: [userId], references: [id])
+  creator User?    @relation("SettingCreator", fields: [createdBy], references: [id])
+  updater User?    @relation("SettingUpdater", fields: [updatedBy], references: [id])
+  company Company? @relation("SettingCompany", fields: [companyId], references: [id])
 
-  @@unique([category, name, userId])
+  @@unique([category, name, companyId])
   @@index([category])
   @@index([category, isDefault])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("settings")
 }
 
@@ -612,7 +822,7 @@ model StockMovement {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -622,7 +832,7 @@ model StockMovement {
   supplier Supplier?          @relation(fields: [supplierId], references: [id])
   purchase WarehousePurchase? @relation(fields: [purchaseId], references: [id])
   creator  User?              @relation("StockMovementCreator", fields: [createdBy], references: [id])
-  user     User?              @relation("UserStockMovements", fields: [userId], references: [id])
+  company  Company?           @relation("StockMovementCompany", fields: [companyId], references: [id])
 
   @@index([productId])
   @@index([type])
@@ -630,7 +840,7 @@ model StockMovement {
   @@index([status])
   @@index([supplierId])
   @@index([purchaseId])
-  @@index([userId])
+  @@index([companyId])
   @@map("stock_movements")
 }
 
@@ -741,7 +951,7 @@ model Order {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -757,7 +967,7 @@ model Order {
   picker             User?              @relation("OrderPicker", fields: [pickedBy], references: [id])
   packer             User?              @relation("OrderPacker", fields: [packedBy], references: [id])
   shipper            User?              @relation("OrderShipper", fields: [shippedBy], references: [id])
-  user               User?              @relation("UserOrders", fields: [userId], references: [id])
+  company            Company?           @relation("OrderCompany", fields: [companyId], references: [id])
   deliveries         Delivery[]         @relation("SalesOrderDeliveries")
   convertedQuotation Quotation?         @relation("ConvertedQuotation")
   salesInvoices      SalesInvoice[]
@@ -770,7 +980,7 @@ model Order {
   @@index([orderType])
   @@index([priority])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("orders")
 }
 
@@ -870,7 +1080,7 @@ model Return {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -883,7 +1093,7 @@ model Return {
   creator  User?              @relation("ReturnCreator", fields: [createdBy], references: [id])
   updater  User?              @relation("ReturnUpdater", fields: [updatedBy], references: [id])
   approver User?              @relation("ReturnApprover", fields: [approvedBy], references: [id])
-  user     User?              @relation("UserReturns", fields: [userId], references: [id])
+  company  Company?           @relation("ReturnCompany", fields: [companyId], references: [id])
   purchase WarehousePurchase? @relation("PurchaseReturns", fields: [purchaseId], references: [id])
   refunds  Refund[]           @relation("ReturnRefunds")
 
@@ -896,7 +1106,7 @@ model Return {
   @@index([returnType])
   @@index([returnDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("returns")
 }
 
@@ -953,7 +1163,7 @@ model Refund {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -966,7 +1176,7 @@ model Refund {
   creator   User?              @relation("RefundCreator", fields: [createdBy], references: [id])
   updater   User?              @relation("RefundUpdater", fields: [updatedBy], references: [id])
   processor User?              @relation("RefundProcessor", fields: [processedBy], references: [id])
-  user      User?              @relation("UserRefunds", fields: [userId], references: [id])
+  company   Company?          @relation("RefundCompany", fields: [companyId], references: [id])
   return    Return?            @relation("ReturnRefunds", fields: [returnId], references: [id])
 
   @@index([refundNumber])
@@ -979,7 +1189,7 @@ model Refund {
   @@index([refundType])
   @@index([refundDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("refunds")
 }
 
@@ -1040,7 +1250,7 @@ model WarehousePurchase {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1053,7 +1263,7 @@ model WarehousePurchase {
   supplier       Supplier                @relation(fields: [supplierId], references: [id])
   creator        User?                   @relation("WarehousePurchaseCreator", fields: [createdBy], references: [id])
   updater        User?                   @relation("WarehousePurchaseUpdater", fields: [updatedBy], references: [id])
-  user           User?                   @relation("UserPurchases", fields: [userId], references: [id])
+  company        Company?                @relation("WarehousePurchaseCompany", fields: [companyId], references: [id])
 
   @@index([purchaseNumber])
   @@index([supplierId])
@@ -1061,7 +1271,7 @@ model WarehousePurchase {
   @@index([paymentStatus])
   @@index([purchaseDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("warehouse_purchases")
 }
 
@@ -1124,7 +1334,7 @@ model WarehouseInvoice {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1139,7 +1349,7 @@ model WarehouseInvoice {
   taxLiabilityAccount   ChartOfAccount?        @relation("TaxLiabilityAccount", fields: [taxLiabilityAccountId], references: [id])
   payments              PaymentReceived[]
   creditNotes           CreditNote[]
-  user                  User?                  @relation("UserInvoices", fields: [userId], references: [id])
+  company               Company?               @relation("WarehouseInvoiceCompany", fields: [companyId], references: [id])
 
   @@index([invoiceNumber])
   @@index([orderId])
@@ -1148,7 +1358,7 @@ model WarehouseInvoice {
   @@index([paymentStatus])
   @@index([invoiceDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("warehouse_invoices")
 }
 
@@ -1170,14 +1380,14 @@ model ChartOfAccount {
   isActive       Boolean @default(true) @map("is_active")
   createdBy      String  @map("created_by")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
   creator              User?                @relation("ChartOfAccountCreator", fields: [createdBy], references: [id])
-  user                 User?                @relation("UserChartOfAccounts", fields: [userId], references: [id])
+  company              Company?             @relation("ChartOfAccountCompany", fields: [companyId], references: [id])
   bankAccounts         BankAccount[]
   journalLines         JournalLine[]
   taxLiabilityInvoices WarehouseInvoice[]   @relation("TaxLiabilityAccount")
@@ -1190,12 +1400,12 @@ model ChartOfAccount {
   accountsPayable      AccountsPayable[]    @relation("APAccount")
   purchaseInvoices     PurchaseInvoice[]    @relation("APAccount")
 
-  @@unique([code, userId])
+  @@unique([code, companyId])
   @@index([code])
   @@index([type])
   @@index([isActive])
   @@index([createdBy])
-  @@index([userId])
+  @@index([companyId])
   @@map("chart_of_accounts")
 }
 
@@ -1221,6 +1431,9 @@ model AccountsReceivable {
 
   accountId String? @map("account_id")
 
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1230,10 +1443,13 @@ model AccountsReceivable {
   account       ChartOfAccount?        @relation("ARAccount", fields: [accountId], references: [id])
   payments      PaymentReceived[]
   salesPayments SalesPaymentReceived[]
+  fiscalYear    FiscalYear?            @relation("ARFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([customerId])
   @@index([status])
   @@index([dueDate])
+  @@index([fiscalYearId])
+  @@index([companyId])
   @@map("accounts_receivable")
 }
 
@@ -1259,6 +1475,9 @@ model AccountsPayable {
 
   accountId String? @map("account_id")
 
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1269,10 +1488,13 @@ model AccountsPayable {
   payments         PaymentMade[]
   purchasePayments PurchasePaymentMake[] @relation("PaymentMakeAPRecords")
   PurchaseReturn   PurchaseReturn[]
+  fiscalYear       FiscalYear?           @relation("APFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([supplierId])
   @@index([status])
   @@index([dueDate])
+  @@index([fiscalYearId])
+  @@index([companyId])
   @@map("accounts_payable")
 }
 
@@ -1301,29 +1523,32 @@ model SalesPaymentReceived {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  customer        Customer              @relation(fields: [customerId], references: [id])
+  customer        Customer?              @relation(fields: [customerId], references: [id])
   bankAccount     BankAccount?          @relation(fields: [bankAccountId], references: [id])
   creator         User?                 @relation("SalesPaymentCreator", fields: [createdBy], references: [id])
   updater         User?                 @relation("SalesPaymentUpdater", fields: [updatedBy], references: [id])
-  user            User?                 @relation("UserSalesPayments", fields: [userId], references: [id])
+  company         Company?              @relation("SalesPaymentCompany", fields: [companyId], references: [id])
   invoicePayments SalesInvoicePayment[]
   journalEntry    JournalEntry?         @relation(fields: [journalEntryId], references: [id])
   journalEntryId  String?               @unique @map("journal_entry_id")
   arRecord        AccountsReceivable?   @relation(fields: [arRecordId], references: [id])
   arRecordId      String?               @map("ar_record_id")
+  fiscalYear      FiscalYear?           @relation("SalesPaymentFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([paymentNumber])
   @@index([customerId])
   @@index([paymentDate])
   @@index([status])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("sales_payments_received")
 }
 
@@ -1380,7 +1605,8 @@ model PaymentReceived {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1389,10 +1615,11 @@ model PaymentReceived {
   customer    Customer            @relation(fields: [customerId], references: [id])
   creator     User?               @relation("PaymentReceivedCreator", fields: [createdBy], references: [id])
   invoice     WarehouseInvoice?   @relation(fields: [invoiceId], references: [id])
-  user        User?               @relation("UserPaymentsReceived", fields: [userId], references: [id])
+  company     Company?            @relation("PaymentReceivedCompany", fields: [companyId], references: [id])
   arRecord    AccountsReceivable? @relation(fields: [arRecordId], references: [id])
   arRecordId  String?             @map("ar_record_id")
   BankAccount BankAccount?        @relation(fields: [bankAccountId], references: [id])
+  fiscalYear  FiscalYear?         @relation("PaymentReceivedFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([paymentNumber])
   @@index([customerId])
@@ -1400,7 +1627,8 @@ model PaymentReceived {
   @@index([paymentMethod])
   @@index([status])
   @@index([paymentDate])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("payments_received")
 }
 
@@ -1423,7 +1651,7 @@ model BankAccount {
   lastReconciled   DateTime @default(now()) @map("last_reconciled")
   chartOfAccountId String   @map("chart_of_account_id")
   createdBy        String   @map("created_by")
-  userId           String?  @map("user_id")
+  companyId        String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1431,7 +1659,7 @@ model BankAccount {
   // Relations
   chartOfAccount        ChartOfAccount         @relation(fields: [chartOfAccountId], references: [id])
   creator               User?                  @relation("BankAccountCreator", fields: [createdBy], references: [id])
-  user                  User?                  @relation("UserBankAccounts", fields: [userId], references: [id])
+  company              Company?               @relation("BankAccountCompany", fields: [companyId], references: [id])
   incomes               Income[]
   Expense               Expense[]
   paymentsMade          PaymentMade[]
@@ -1441,12 +1669,12 @@ model BankAccount {
   purchasePayments      PurchasePaymentMake[]
   transactions          Transaction[]          @relation("BankAccountTransactions")
 
-  @@unique([accountNumber, userId])
+  @@unique([accountNumber, companyId])
   @@index([accountNumber])
   @@index([bankName])
   @@index([status])
   @@index([createdBy])
-  @@index([userId])
+  @@index([companyId])
   @@map("bank_accounts")
 }
 
@@ -1480,11 +1708,13 @@ model JournalEntry {
   description String    @default("")
   reference   String    @default("")
   status      String    @default("Draft")
+  type        String    @default("Normal")
   createdBy   String    @map("created_by")
   postedBy    String?   @map("posted_by")
   postedAt    DateTime? @map("posted_at")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1493,7 +1723,8 @@ model JournalEntry {
   lines             JournalLine[]
   creator           User?                 @relation("JournalEntryCreator", fields: [createdBy], references: [id])
   poster            User?                 @relation("JournalEntryPoster", fields: [postedBy], references: [id])
-  user              User?                 @relation("UserJournalEntries", fields: [userId], references: [id])
+  company           Company?              @relation("JournalEntryCompany", fields: [companyId], references: [id])
+  fiscalYear        FiscalYear?           @relation("JournalEntryFiscalYear", fields: [fiscalYearId], references: [id])
   salesPayment      SalesPaymentReceived?
   salesInvoice      SalesInvoice?
   PurchaseInvoice   PurchaseInvoice?
@@ -1508,7 +1739,8 @@ model JournalEntry {
   @@index([date])
   @@index([status])
   @@index([createdBy])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("journal_entries")
 }
 
@@ -1551,7 +1783,7 @@ model Bill {
   posted    Boolean   @default(false)
   postedAt  DateTime? @map("posted_at")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1559,17 +1791,17 @@ model Bill {
   // Relations
   vendor       Supplier      @relation(fields: [vendorId], references: [id])
   creator      User?         @relation("BillCreator", fields: [createdBy], references: [id])
-  user         User?         @relation("UserBills", fields: [userId], references: [id])
+  company      Company?      @relation("BillCompany", fields: [companyId], references: [id])
   paymentsMade PaymentMade[]
   billItems    BillItem[]    @relation("BillItems")
 
-  @@unique([billNumber, userId])
+  @@unique([billNumber, companyId])
   @@index([billNumber])
   @@index([vendorId])
   @@index([status])
   @@index([date])
   @@index([createdBy])
-  @@index([userId])
+  @@index([companyId])
   @@map("bills")
 }
 
@@ -1607,7 +1839,8 @@ model Income {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1618,7 +1851,8 @@ model Income {
   incomeAccount ChartOfAccount? @relation("IncomeToAccount", fields: [incomeAccountId], references: [id])
   creator       User?           @relation("IncomeCreator", fields: [createdBy], references: [id])
   poster        User?           @relation("IncomePoster", fields: [postedBy], references: [id])
-  user          User?           @relation("UserIncomes", fields: [userId], references: [id])
+  company       Company?        @relation("IncomeCompany", fields: [companyId], references: [id])
+  fiscalYear    FiscalYear?     @relation("IncomeFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([incomeNumber])
   @@index([incomeType])
@@ -1628,7 +1862,8 @@ model Income {
   @@index([status])
   @@index([createdBy])
   @@index([paymentMethod])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("incomes")
 }
 
@@ -1668,7 +1903,8 @@ model Expense {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1679,7 +1915,8 @@ model Expense {
   expenseAccount ChartOfAccount? @relation("ExpenseToAccount", fields: [expenseAccountId], references: [id])
   creator        User?           @relation("ExpenseCreator", fields: [createdBy], references: [id])
   poster         User?           @relation("ExpensePoster", fields: [postedBy], references: [id])
-  user           User?           @relation("UserExpenses", fields: [userId], references: [id])
+  company        Company?        @relation("ExpenseCompany", fields: [companyId], references: [id])
+  fiscalYear     FiscalYear?     @relation("ExpenseFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([expenseNumber])
   @@index([expenseType])
@@ -1689,7 +1926,8 @@ model Expense {
   @@index([status])
   @@index([createdBy])
   @@index([paymentMethod])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("expenses")
 }
 
@@ -1712,12 +1950,15 @@ model TrialBalanceView {
   periodEnd      DateTime @map("period_end")
   createdBy      String   @map("created_by")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@unique([accountId, periodStart, periodEnd, userId])
-  @@index([userId])
+  // Relations
+  company Company? @relation("TrialBalanceViewCompany", fields: [companyId], references: [id])
+
+  @@unique([accountId, periodStart, periodEnd, companyId])
+  @@index([companyId])
   @@map("trial_balance_view")
 }
 
@@ -1749,7 +1990,8 @@ model PaymentMade {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1759,9 +2001,10 @@ model PaymentMade {
   bill        Bill             @relation(fields: [billId], references: [id])
   bankAccount BankAccount?     @relation(fields: [bankAccountId], references: [id])
   creator     User?            @relation("PaymentMadeCreator", fields: [createdBy], references: [id])
-  user        User?            @relation("UserPaymentsMade", fields: [userId], references: [id])
+  company     Company?         @relation("PaymentMadeCompany", fields: [companyId], references: [id])
   apRecord    AccountsPayable? @relation(fields: [apRecordId], references: [id])
   apRecordId  String?          @map("ap_record_id")
+  fiscalYear  FiscalYear?      @relation("PaymentMadeFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([paymentNumber])
   @@index([supplierId])
@@ -1770,7 +2013,8 @@ model PaymentMade {
   @@index([status])
   @@index([createdBy])
   @@index([paymentMethod])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("payments_made")
 }
 
@@ -1822,7 +2066,8 @@ model PurchasePaymentMake {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1832,11 +2077,11 @@ model PurchasePaymentMake {
   bankAccount     BankAccount?             @relation(fields: [bankAccountId], references: [id])
   creator         User?                    @relation("PurchasePaymentMakeCreator", fields: [createdBy], references: [id])
   updater         User?                    @relation("PurchasePaymentMakeUpdater", fields: [updatedBy], references: [id])
-  user            User?                    @relation("UserPurchasePayments", fields: [userId], references: [id])
+  company         Company?                 @relation("PurchasePaymentMakeCompany", fields: [companyId], references: [id])
   invoicePayments PurchasePaymentInvoice[]
   journalEntry    JournalEntry?            @relation("PaymentJournalEntry", fields: [journalEntryId], references: [id])
-
-  accountsPayable AccountsPayable[] @relation("PaymentMakeAPRecords")
+  accountsPayable AccountsPayable[]        @relation("PaymentMakeAPRecords")
+  fiscalYear      FiscalYear?              @relation("PurchasePaymentFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([paymentNumber])
   @@index([supplierId])
@@ -1844,7 +2089,8 @@ model PurchasePaymentMake {
   @@index([status])
   @@index([createdBy])
   @@index([paymentMethod])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("purchase_payments_make")
 }
 
@@ -1924,22 +2170,24 @@ model PurchaseReturn {
   isActive    Boolean   @default(true) @map("is_active")
   isDeleted   Boolean   @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
   items           PurchaseReturnItem[]
-  supplier        Supplier             @relation(fields: [supplierId], references: [id])
+  supplier        Supplier?             @relation(fields: [supplierId], references: [id])
   purchaseInvoice PurchaseInvoice      @relation(fields: [purchaseInvoiceId], references: [id])
   creator         User?                @relation("PurchaseReturnCreator", fields: [createdBy], references: [id])
   updater         User?                @relation("PurchaseReturnUpdater", fields: [updatedBy], references: [id])
   processor       User?                @relation("PurchaseReturnProcessor", fields: [processedBy], references: [id])
   canceller       User?                @relation("PurchaseReturnCanceller", fields: [cancelledBy], references: [id])
-  user            User?                @relation("UserPurchaseReturns", fields: [userId], references: [id])
+  company         Company?             @relation("PurchaseReturnCompany", fields: [companyId], references: [id])
   journalEntry    JournalEntry?        @relation("PurchaseReturnJournalEntry", fields: [journalEntryId], references: [id])
   apRecord        AccountsPayable?     @relation(fields: [apRecordId], references: [id])
+  fiscalYear      FiscalYear?          @relation("PurchaseReturnFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([returnNumber])
   @@index([supplierId])
@@ -1947,7 +2195,8 @@ model PurchaseReturn {
   @@index([status])
   @@index([returnDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("purchase_returns")
 }
 
@@ -1984,7 +2233,8 @@ model CreditNote {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1993,7 +2243,8 @@ model CreditNote {
   customer        Customer         @relation(fields: [customerId], references: [id])
   originalInvoice WarehouseInvoice @relation(fields: [originalInvoiceId], references: [id])
   creator         User?            @relation("CreditNoteCreator", fields: [createdBy], references: [id])
-  user            User?            @relation("UserCreditNotes", fields: [userId], references: [id])
+  company         Company?         @relation("CreditNoteCompany", fields: [companyId], references: [id])
+  fiscalYear      FiscalYear?      @relation("CreditNoteFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([creditNumber])
   @@index([customerId])
@@ -2001,7 +2252,8 @@ model CreditNote {
   @@index([status])
   @@index([date])
   @@index([createdBy])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("credit_notes")
 }
 
@@ -2041,22 +2293,25 @@ model FixedAsset {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  supplier Supplier? @relation(fields: [supplierId], references: [id])
-  creator  User?     @relation("FixedAssetCreator", fields: [createdBy], references: [id])
-  user     User?     @relation("UserFixedAssets", fields: [userId], references: [id])
+  supplier   Supplier?   @relation(fields: [supplierId], references: [id])
+  creator    User?       @relation("FixedAssetCreator", fields: [createdBy], references: [id])
+  company    Company?    @relation("FixedAssetCompany", fields: [companyId], references: [id])
+  fiscalYear FiscalYear? @relation("FixedAssetFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([assetCode])
   @@index([category])
   @@index([status])
   @@index([createdBy])
   @@index([purchaseDate])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("fixed_assets")
 }
 
@@ -2112,7 +2367,8 @@ model Loan {
 
   createdBy String @map("created_by")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2121,8 +2377,9 @@ model Loan {
   lender      Supplier?     @relation(fields: [lenderId], references: [id])
   bankAccount BankAccount?  @relation(fields: [bankAccountId], references: [id])
   creator     User?         @relation("LoanCreator", fields: [createdBy], references: [id])
-  user        User?         @relation("UserLoans", fields: [userId], references: [id])
+  company     Company?      @relation("LoanCompany", fields: [companyId], references: [id])
   payments    LoanPayment[]
+  fiscalYear  FiscalYear?   @relation("LoanFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([loanNumber])
   @@index([lenderId])
@@ -2130,8 +2387,46 @@ model Loan {
   @@index([status])
   @@index([loanType])
   @@index([createdBy])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("loans")
+}
+
+// ============================================================
+// EQUITY ACCOUNT MODEL
+// ============================================================
+
+model EquityAccount {
+  id             String @id @default(uuid())
+  accountName    String @map("account_name")
+  accountCode    String @map("account_code")
+  accountType    String @map("account_type")
+  openingBalance Float  @default(0) @map("opening_balance")
+  currentBalance Float  @default(0) @map("current_balance")
+  additions      Float  @default(0)
+  withdrawals    Float  @default(0)
+  notes          String  @default("")
+
+  createdBy String @map("created_by")
+
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creator    User?       @relation("EquityAccountCreator", fields: [createdBy], references: [id])
+  company    Company?    @relation("EquityAccountCompany", fields: [companyId], references: [id])
+  fiscalYear FiscalYear? @relation("EquityAccountFiscalYear", fields: [fiscalYearId], references: [id])
+
+  @@unique([accountCode, companyId])
+  @@index([accountCode])
+  @@index([accountType])
+  @@index([createdBy])
+  @@index([companyId])
+  @@index([fiscalYearId])
+  @@map("equity_accounts")
 }
 
 // ============================================================
@@ -2184,7 +2479,7 @@ model Delivery {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2196,7 +2491,7 @@ model Delivery {
   creator       User?          @relation("DeliveryCreator", fields: [createdBy], references: [id])
   updater       User?          @relation("DeliveryUpdater", fields: [updatedBy], references: [id])
   confirmer     User?          @relation("DeliveryConfirmer", fields: [confirmedBy], references: [id])
-  user          User?          @relation("UserDeliveries", fields: [userId], references: [id])
+  company       Company?       @relation("DeliveryCompany", fields: [companyId], references: [id])
   salesInvoices SalesInvoice[]
 
   @@index([deliveryNumber])
@@ -2205,7 +2500,7 @@ model Delivery {
   @@index([deliveryStatus])
   @@index([deliveryDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("deliveries")
 }
 
@@ -2273,7 +2568,7 @@ model Quotation {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2283,7 +2578,7 @@ model Quotation {
   customer       Customer?       @relation(fields: [customerId], references: [id])
   creator        User?           @relation("QuotationCreator", fields: [createdBy], references: [id])
   updater        User?           @relation("QuotationUpdater", fields: [updatedBy], references: [id])
-  user           User?           @relation("UserQuotations", fields: [userId], references: [id])
+  company        Company?        @relation("QuotationCompany", fields: [companyId], references: [id])
   convertedOrder Order?          @relation("ConvertedQuotation", fields: [convertedOrderId], references: [id])
 
   @@unique([convertedOrderId])
@@ -2293,7 +2588,7 @@ model Quotation {
   @@index([quotationDate])
   @@index([validUntil])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("quotations")
 }
 
@@ -2360,7 +2655,7 @@ model PurchaseOrder {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2370,7 +2665,7 @@ model PurchaseOrder {
   supplier         Supplier?           @relation(fields: [supplierId], references: [id])
   creator          User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
   updater          User?               @relation("PurchaseOrderUpdater", fields: [updatedBy], references: [id])
-  user             User?               @relation("UserPurchaseOrders", fields: [userId], references: [id])
+  company          Company?            @relation("PurchaseOrderCompany", fields: [companyId], references: [id])
   goodsReceivings  GoodsReceiving[]
   purchaseInvoices PurchaseInvoice[]
 
@@ -2379,7 +2674,7 @@ model PurchaseOrder {
   @@index([status])
   @@index([orderDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("purchase_orders")
 }
 
@@ -2436,7 +2731,7 @@ model GoodsReceiving {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  companyId String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2448,7 +2743,7 @@ model GoodsReceiving {
   creator          User?                @relation("GoodsReceivingCreator", fields: [createdBy], references: [id])
   updater          User?                @relation("GoodsReceivingUpdater", fields: [updatedBy], references: [id])
   confirmer        User?                @relation("GoodsReceivingConfirmer", fields: [confirmedBy], references: [id])
-  user             User?                @relation("UserGoodsReceivings", fields: [userId], references: [id])
+  company          Company?             @relation("GoodsReceivingCompany", fields: [companyId], references: [id])
   purchaseInvoices PurchaseInvoice[]
 
   @@index([grnNumber])
@@ -2457,7 +2752,7 @@ model GoodsReceiving {
   @@index([status])
   @@index([receivingDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
   @@map("goods_receivings")
 }
 
@@ -2538,7 +2833,8 @@ model PurchaseInvoice {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2550,7 +2846,7 @@ model PurchaseInvoice {
   goodsReceiving     GoodsReceiving?          @relation(fields: [goodsReceivingId], references: [id])
   creator            User?                    @relation("PurchaseInvoiceCreator", fields: [createdBy], references: [id])
   updater            User?                    @relation("PurchaseInvoiceUpdater", fields: [updatedBy], references: [id])
-  user               User?                    @relation("UserPurchaseInvoices", fields: [userId], references: [id])
+  company            Company?                 @relation("PurchaseInvoiceCompany", fields: [companyId], references: [id])
   journalEntry       JournalEntry?            @relation(fields: [journalEntryId], references: [id])
   accountsPayable    AccountsPayable[]
   inventoryAccount   ChartOfAccount?          @relation("InventoryAccount", fields: [inventoryAccountId], references: [id])
@@ -2558,6 +2854,7 @@ model PurchaseInvoice {
   purchasePayments   PurchasePaymentInvoice[]
   purchaseReturns    PurchaseReturn[]
   PurchaseReturnItem PurchaseReturnItem[]
+  fiscalYear         FiscalYear?              @relation("PurchaseInvoiceFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([invoiceNumber])
   @@index([supplierId])
@@ -2568,7 +2865,8 @@ model PurchaseInvoice {
   @@index([invoiceDate])
   @@index([dueDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("purchase_invoices")
 }
 
@@ -2646,7 +2944,8 @@ model SalesInvoice {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  userId String? @map("user_id")
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2658,12 +2957,13 @@ model SalesInvoice {
   customer            Customer?             @relation(fields: [customerId], references: [id])
   creator             User?                 @relation("SalesInvoiceCreator", fields: [createdBy], references: [id])
   updater             User?                 @relation("SalesInvoiceUpdater", fields: [updatedBy], references: [id])
-  user                User?                 @relation("UserSalesInvoices", fields: [userId], references: [id])
+  company             Company?              @relation("SalesInvoiceCompany", fields: [companyId], references: [id])
   journalEntry        JournalEntry?         @relation(fields: [journalEntryId], references: [id])
   accountsReceivable  AccountsReceivable[]
   salesRevenueAccount ChartOfAccount?       @relation("SalesRevenueAccount", fields: [salesRevenueAccountId], references: [id])
   arAccount           ChartOfAccount?       @relation("ARAccount", fields: [arAccountId], references: [id])
   invoicePayments     SalesInvoicePayment[]
+  fiscalYear          FiscalYear?           @relation("SalesInvoiceFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([invoiceNumber])
   @@index([orderId])
@@ -2674,7 +2974,8 @@ model SalesInvoice {
   @@index([invoiceDate])
   @@index([dueDate])
   @@index([isActive])
-  @@index([userId])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("sales_invoices")
 }
 
@@ -2709,6 +3010,9 @@ model Transaction {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
+  fiscalYearId String? @map("fiscal_year_id")
+  companyId   String?  @map("company_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2718,8 +3022,10 @@ model Transaction {
   bankAccount    BankAccount?  @relation("BankAccountTransactions", fields: [bankAccountId], references: [id])
   creator        User?         @relation("TransactionCreator", fields: [createdBy], references: [id])
   poster         User?         @relation("TransactionPoster", fields: [postedBy], references: [id])
+  company        Company?      @relation("TransactionCompany", fields: [companyId], references: [id])
   journalEntry   JournalEntry? @relation("TransactionJournalEntry", fields: [journalEntryId], references: [id])
   journalEntryId String?       @unique @map("journal_entry_id")
+  fiscalYear     FiscalYear?   @relation("TransactionFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([transactionNumber])
   @@index([type])
@@ -2731,5 +3037,7 @@ model Transaction {
   @@index([bankAccountId])
   @@index([createdBy])
   @@index([isActive])
+  @@index([companyId])
+  @@index([fiscalYearId])
   @@map("transactions")
 }

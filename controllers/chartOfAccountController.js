@@ -1,6 +1,7 @@
 // controllers/chartOfAccountController.js - COMPLETE FIXED VERSION (No Helpers)
 
 const prisma = require('../prisma/client');
+const { get, set, del, delPattern } = require('../utils/redisClient');
 
 // ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
@@ -21,13 +22,13 @@ const TYPE_MAP = {
 /**
  * Get or create Opening Balance Equity account
  */
-async function getOrCreateOpeningBalanceEquity(userId) {
+async function getOrCreateOpeningBalanceEquity(userId, companyId) {
   let equityAccount = await prisma.chartOfAccount.findFirst({
     where: {
       OR: [
-        { code: '3010', createdBy: userId },
-        { name: 'Opening Balance Equity', createdBy: userId },
-        { name: "Owner's Capital", createdBy: userId }
+        { code: '3010', companyId: companyId, companyId: companyId },
+        { name: 'Opening Balance Equity', companyId: companyId, companyId: companyId },
+        { name: "Owner's Capital", companyId: companyId, companyId: companyId }
       ]
     }
   });
@@ -45,7 +46,8 @@ async function getOrCreateOpeningBalanceEquity(userId) {
         taxCode: 'N/A',
         balanceType: 'Credit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
   }
@@ -56,10 +58,11 @@ async function getOrCreateOpeningBalanceEquity(userId) {
 /**
  * Check if opening balance journal entry exists
  */
-async function getOpeningBalanceEntry(userId) {
+async function getOpeningBalanceEntry(userId, companyId) {
   return await prisma.journalEntry.findFirst({
     where: {
-      createdBy: userId,
+      
+      companyId: companyId,
       description: {
         contains: 'Opening Balance'
       },
@@ -301,6 +304,7 @@ const createAccount = async (req, res) => {
 
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     // ─── Validation ──────────────────────────────────────────────
     if (!code || !name || !type) {
       return res.status(400).json({
@@ -325,8 +329,7 @@ const createAccount = async (req, res) => {
     const existingAccount = await prisma.chartOfAccount.findFirst({
       where: {
         code: code,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (existingAccount) {
@@ -393,6 +396,21 @@ const createAccount = async (req, res) => {
         } : null
       }
     });
+
+    // Invalidate cache after successful account creation
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:account:${userId}:*`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:search:${userId}:*`);
+      await delPattern(`coa:by-type:${userId}:*`);
+      await delPattern(`coa:stats:${userId}`);
+      await delPattern(`coa:ob-status:${userId}`);
+      await delPattern(`coa:ob-summary:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after account creation');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Create account error:', error);
     res.status(500).json({
@@ -409,6 +427,20 @@ const createAccount = async (req, res) => {
 const getOpeningBalanceStatus = async (req, res) => {
   try {
     const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `coa:ob-status:${userId}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
 
     const entry = await getOpeningBalanceEntry(userId);
     const equityAccount = await getOrCreateOpeningBalanceEquity(userId);
@@ -471,9 +503,13 @@ const getOpeningBalanceStatus = async (req, res) => {
       status.description = entry.description;
     }
 
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, status, 120);
+
     res.status(200).json({
       success: true,
-      data: status
+      data: status,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get opening balance status error:', error);
@@ -492,15 +528,35 @@ const getOpeningBalanceSummary = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `coa:ob-summary:${userId}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const entry = await getOpeningBalanceEntry(userId);
     
     if (!entry) {
+      const noDataResponse = {
+        hasOpeningBalance: false,
+        message: 'No opening balance entry found'
+      };
+
+      // Cache the result (2 minutes TTL)
+      await set(cacheKey, noDataResponse, 120);
+
       return res.status(200).json({
         success: true,
-        data: {
-          hasOpeningBalance: false,
-          message: 'No opening balance entry found'
-        }
+        data: noDataResponse,
+        cached: false,
       });
     }
 
@@ -540,23 +596,29 @@ const getOpeningBalanceSummary = async (req, res) => {
       totalCredit += line.credit;
     });
 
+    const summaryData = {
+      hasOpeningBalance: true,
+      isBalanced: Math.abs(totalDebit - totalCredit) < 0.001,
+      totalDebit,
+      totalCredit,
+      difference: totalDebit - totalCredit,
+      summary,
+      entries: lines.map(line => ({
+        accountCode: line.account.code,
+        accountName: line.account.name,
+        accountType: line.account.type,
+        debit: line.debit,
+        credit: line.credit
+      }))
+    };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summaryData, 120);
+
     res.status(200).json({
       success: true,
-      data: {
-        hasOpeningBalance: true,
-        isBalanced: Math.abs(totalDebit - totalCredit) < 0.001,
-        totalDebit,
-        totalCredit,
-        difference: totalDebit - totalCredit,
-        summary,
-        entries: lines.map(line => ({
-          accountCode: line.account.code,
-          accountName: line.account.name,
-          accountType: line.account.type,
-          debit: line.debit,
-          credit: line.credit
-        }))
-      }
+      data: summaryData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get opening balance summary error:', error);
@@ -574,6 +636,7 @@ const getOpeningBalanceSummary = async (req, res) => {
 const validateOpeningBalance = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { entries } = req.body;
 
     if (!entries || !Array.isArray(entries)) {
@@ -593,8 +656,7 @@ const validateOpeningBalance = async (req, res) => {
       const account = await prisma.chartOfAccount.findFirst({
         where: {
           id: accountId,
-          createdBy: userId
-        }
+          companyId: companyId}
       });
 
       if (!account) {
@@ -662,8 +724,23 @@ const getAccounts = async (req, res) => {
     } = req.query;
 
     const userId = req.user.id;
+
+    const companyId = req.user.companyId;
+    // Build cache key with parameters
+    const cacheKey = `coa:accounts:${userId}:${type || 'All'}:${search || ''}:${page}:${limit}:${sortBy}:${sortOrder}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
+
     const filter = { 
-      createdBy: userId,
+      companyId: companyId,
       isActive: true
     };
 
@@ -722,8 +799,7 @@ const getAccounts = async (req, res) => {
 
     const totalPages = Math.ceil(totalCount / limitNum);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       count: accounts.length,
       totalCount: totalCount,
       data: accounts,
@@ -740,6 +816,15 @@ const getAccounts = async (req, res) => {
         startIndex: skip + 1,
         endIndex: Math.min(skip + limitNum, totalCount)
       }
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get accounts error:', error);
@@ -759,11 +844,24 @@ const getAccount = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `coa:account:${userId}:${id}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
-        createdBy: userId
-      },
+        companyId: companyId},
       include: {
         creator: {
           select: { id: true, firstName: true, lastName: true, email: true }
@@ -778,9 +876,13 @@ const getAccount = async (req, res) => {
       });
     }
 
+    // Cache the result (10 minutes TTL)
+    await set(cacheKey, account, 600);
+
     res.status(200).json({
       success: true,
-      data: account
+      data: account,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get account error:', error);
@@ -800,6 +902,7 @@ const updateAccount = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     let {
       code,
       name,
@@ -814,8 +917,7 @@ const updateAccount = async (req, res) => {
     const existing = await prisma.chartOfAccount.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!existing) {
@@ -871,7 +973,7 @@ const updateAccount = async (req, res) => {
       const duplicate = await prisma.chartOfAccount.findFirst({
         where: {
           code: code,
-          createdBy: userId,
+          companyId: companyId,
           id: { not: id }
         }
       });
@@ -911,6 +1013,19 @@ const updateAccount = async (req, res) => {
       message: 'Account updated successfully',
       data: updated
     });
+
+    // Invalidate cache after successful account update
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:account:${userId}:${id}`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:search:${userId}:*`);
+      await delPattern(`coa:by-type:${userId}:*`);
+      await delPattern(`coa:stats:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after account update');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Update account error:', error);
     res.status(500).json({
@@ -929,11 +1044,11 @@ const deleteAccount = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!account) {
@@ -970,6 +1085,19 @@ const deleteAccount = async (req, res) => {
       success: true,
       message: `Account "${account.name}" deleted successfully`
     });
+
+    // Invalidate cache after successful account deletion
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:account:${userId}:${id}`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:search:${userId}:*`);
+      await delPattern(`coa:by-type:${userId}:*`);
+      await delPattern(`coa:stats:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after account deletion');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Delete account error:', error);
     res.status(500).json({
@@ -989,11 +1117,11 @@ const archiveAccount = async (req, res) => {
     const { isActive } = req.body;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!account) {
@@ -1022,6 +1150,19 @@ const archiveAccount = async (req, res) => {
       message: updated.isActive ? 'Account activated successfully' : 'Account archived successfully',
       data: updated
     });
+
+    // Invalidate cache after successful account archive/activate
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:account:${userId}:${id}`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:search:${userId}:*`);
+      await delPattern(`coa:by-type:${userId}:*`);
+      await delPattern(`coa:stats:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after account archive');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Archive account error:', error);
     res.status(500).json({
@@ -1039,9 +1180,23 @@ const getAccountSummary = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `coa:summary:${userId}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         isActive: true
       }
     });
@@ -1063,12 +1218,18 @@ const getAccountSummary = async (req, res) => {
       summary.totalBalance += account.currentBalance;
     });
 
+    const summaryData = {
+      accounts,
+      summary
+    };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, summaryData, 120);
+
     res.status(200).json({
       success: true,
-      data: {
-        accounts,
-        summary
-      }
+      data: summaryData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get account summary error:', error);
@@ -1088,6 +1249,7 @@ const searchAccounts = async (req, res) => {
     const { q, limit = 20 } = req.query;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (!q || q.length < 1) {
       return res.status(400).json({
         success: false,
@@ -1095,9 +1257,22 @@ const searchAccounts = async (req, res) => {
       });
     }
 
+    // Build cache key with parameters
+    const cacheKey = `coa:search:${userId}:${q}:${limit}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
+
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         isActive: true,
         OR: [
           { code: { contains: q, mode: 'insensitive' } },
@@ -1108,10 +1283,18 @@ const searchAccounts = async (req, res) => {
       orderBy: { code: 'asc' }
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       count: accounts.length,
       data: accounts
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Search accounts error:', error);
@@ -1132,6 +1315,7 @@ const updateAccountBalance = async (req, res) => {
     const { amount, type = 'add' } = req.body;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (amount === undefined || amount === null) {
       return res.status(400).json({
         success: false,
@@ -1142,8 +1326,7 @@ const updateAccountBalance = async (req, res) => {
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!account) {
@@ -1183,6 +1366,17 @@ const updateAccountBalance = async (req, res) => {
         change: newBalance - account.currentBalance
       }
     });
+
+    // Invalidate cache after successful balance update
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:account:${userId}:${id}`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:stats:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after balance update');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Update balance error:', error);
     res.status(500).json({
@@ -1201,6 +1395,7 @@ const getAccountsByType = async (req, res) => {
     let { type } = req.params;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (TYPE_MAP[type]) {
       type = TYPE_MAP[type];
     }
@@ -1212,19 +1407,40 @@ const getAccountsByType = async (req, res) => {
       });
     }
 
+    // Build cache key
+    const cacheKey = `coa:by-type:${userId}:${type}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
+
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
         type,
-        createdBy: userId,
+        companyId: companyId,
         isActive: true
       },
       orderBy: { code: 'asc' }
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       count: accounts.length,
       data: accounts
+    };
+
+    // Cache the result (5 minutes TTL)
+    await set(cacheKey, responseData, 300);
+
+    res.status(200).json({
+      success: true,
+      ...responseData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get accounts by type error:', error);
@@ -1245,6 +1461,7 @@ const fixAccountType = async (req, res) => {
     let { type } = req.body;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (!type) {
       return res.status(400).json({
         success: false,
@@ -1266,8 +1483,7 @@ const fixAccountType = async (req, res) => {
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
-        createdBy: userId
-      }
+        companyId: companyId}
     });
 
     if (!account) {
@@ -1291,6 +1507,19 @@ const fixAccountType = async (req, res) => {
       data: updated,
       warning: '⚠️ This is a force update. Please verify the balance is now correct.'
     });
+
+    // Invalidate cache after successful account type fix
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:account:${userId}:${id}`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:search:${userId}:*`);
+      await delPattern(`coa:by-type:${userId}:*`);
+      await delPattern(`coa:stats:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after account type fix');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Fix account type error:', error);
     res.status(500).json({
@@ -1308,9 +1537,10 @@ const fixCashAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         OR: [
           { name: { contains: 'cash', mode: 'insensitive' } },
           { name: { contains: 'bank', mode: 'insensitive' } },
@@ -1359,6 +1589,18 @@ const fixCashAccounts = async (req, res) => {
       count: results.length,
       data: results
     });
+
+    // Invalidate cache after successful cash accounts fix
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:search:${userId}:*`);
+      await delPattern(`coa:by-type:${userId}:*`);
+      await delPattern(`coa:stats:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after cash accounts fix');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Fix cash accounts error:', error);
     res.status(500).json({
@@ -1376,11 +1618,25 @@ const getAccountTypeStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
+    // Build cache key
+    const cacheKey = `coa:stats:${userId}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        data: cached,
+        cached: true,
+      });
+    }
+
     const stats = {};
     for (const type of VALID_ACCOUNT_TYPES) {
       const count = await prisma.chartOfAccount.count({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           type: type,
           isActive: true
         }
@@ -1388,7 +1644,7 @@ const getAccountTypeStats = async (req, res) => {
       
       const balance = await prisma.chartOfAccount.aggregate({
         where: {
-          createdBy: userId,
+          companyId: companyId,
           type: type,
           isActive: true
         },
@@ -1406,7 +1662,7 @@ const getAccountTypeStats = async (req, res) => {
 
     const incorrectCashAccounts = await prisma.chartOfAccount.count({
       where: {
-        createdBy: userId,
+        companyId: companyId,
         OR: [
           { name: { contains: 'cash', mode: 'insensitive' } },
           { name: { contains: 'bank', mode: 'insensitive' } },
@@ -1416,18 +1672,24 @@ const getAccountTypeStats = async (req, res) => {
       }
     });
 
+    const statsData = {
+      stats,
+      issues: {
+        incorrectCashAccounts,
+        hasIssues: incorrectCashAccounts > 0,
+        message: incorrectCashAccounts > 0 
+          ? `${incorrectCashAccounts} cash/bank account(s) have incorrect type` 
+          : 'All cash/bank accounts are correctly typed'
+      }
+    };
+
+    // Cache the result (2 minutes TTL)
+    await set(cacheKey, statsData, 120);
+
     res.status(200).json({
       success: true,
-      data: {
-        stats,
-        issues: {
-          incorrectCashAccounts,
-          hasIssues: incorrectCashAccounts > 0,
-          message: incorrectCashAccounts > 0 
-            ? `${incorrectCashAccounts} cash/bank account(s) have incorrect type` 
-            : 'All cash/bank accounts are correctly typed'
-        }
-      }
+      data: statsData,
+      cached: false,
     });
   } catch (error) {
     console.error('❌ Get account type stats error:', error);
@@ -1447,6 +1709,7 @@ const bulkImportAccounts = async (req, res) => {
     const { accounts } = req.body;
     const userId = req.user.id;
 
+    const companyId = req.user.companyId;
     if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
       return res.status(400).json({
         success: false,
@@ -1478,8 +1741,7 @@ const bulkImportAccounts = async (req, res) => {
         const existing = await prisma.chartOfAccount.findFirst({
           where: {
             code: code,
-            createdBy: userId
-          }
+            companyId: companyId}
         });
 
         if (existing) {
@@ -1514,6 +1776,19 @@ const bulkImportAccounts = async (req, res) => {
       message: `Successfully imported ${results.success.length} of ${results.total} accounts`,
       data: results
     });
+
+    // Invalidate cache after successful bulk import
+    try {
+      await delPattern(`coa:accounts:${userId}:*`);
+      await delPattern(`coa:account:${userId}:*`);
+      await delPattern(`coa:summary:${userId}`);
+      await delPattern(`coa:search:${userId}:*`);
+      await delPattern(`coa:by-type:${userId}:*`);
+      await delPattern(`coa:stats:${userId}`);
+      console.log('🗑️ [COA] Cache invalidated after bulk import');
+    } catch (cacheError) {
+      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
+    }
   } catch (error) {
     console.error('❌ Bulk import error:', error);
     res.status(500).json({
