@@ -1,3 +1,4 @@
+// controllers/journalEntryController.js - COMPLETE CORRECTED
 
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
@@ -20,7 +21,7 @@ async function generateEntryNumber() {
   return `JE-${year}-${String(count + 1).padStart(4, '0')}`;
 }
 
-async function validateAccount(accountId, userId, companyId) {
+async function validateAccount(accountId, companyId) {
   if (!accountId) {
     throw new Error('Account ID is required for each journal line');
   }
@@ -28,7 +29,6 @@ async function validateAccount(accountId, userId, companyId) {
   const account = await prisma.chartOfAccount.findFirst({
     where: {
       id: accountId,
-      
       companyId: companyId,
       isActive: true
     }
@@ -73,11 +73,13 @@ function calculateBalanceChange(accountType, debit, credit) {
   return change;
 }
 
-async function checkAccountBalance(accountId, debit, credit, userId) {
+// ✅ FIXED: Added companyId parameter
+async function checkAccountBalance(accountId, debit, credit, companyId) {
   const account = await prisma.chartOfAccount.findFirst({
     where: {
       id: accountId,
-      companyId: companyId}
+      companyId: companyId
+    }
   });
 
   if (!account) return null;
@@ -118,13 +120,14 @@ async function checkAccountBalance(accountId, debit, credit, userId) {
   };
 }
 
-// ─── ✅ NEW HELPER: Update Bank Account balance ──────────────────
-async function updateBankAccountBalance(accountId, userId) {
+// ✅ FIXED: Added companyId parameter
+async function updateBankAccountBalance(accountId, companyId) {
   // Check if this account is linked to a bank account
   const bankAccount = await prisma.bankAccount.findFirst({
     where: {
       chartOfAccountId: accountId,
-      companyId: companyId},
+      companyId: companyId
+    },
     include: {
       chartOfAccount: true
     }
@@ -137,7 +140,8 @@ async function updateBankAccountBalance(accountId, userId) {
   const chartAccount = await prisma.chartOfAccount.findFirst({
     where: {
       id: accountId,
-      companyId: companyId}
+      companyId: companyId
+    }
   });
 
   if (!chartAccount) {
@@ -152,7 +156,8 @@ async function updateBankAccountBalance(accountId, userId) {
   return updatedBankAccount;
 }
 
-async function updateBankAccountsForJournalEntry(journalEntryId, userId) {
+// ✅ FIXED: Added companyId parameter
+async function updateBankAccountsForJournalEntry(journalEntryId, companyId) {
   // Get all journal lines for this entry
   const journalLines = await prisma.journalLine.findMany({
     where: {
@@ -165,7 +170,8 @@ async function updateBankAccountsForJournalEntry(journalEntryId, userId) {
 
   const updatedBankAccounts = [];
   for (const line of journalLines) {
-    const result = await updateBankAccountBalance(line.accountId, userId);
+    // ✅ FIXED: Pass companyId to updateBankAccountBalance
+    const result = await updateBankAccountBalance(line.accountId, companyId);
     if (result) {
       updatedBankAccounts.push(result);
     }
@@ -174,6 +180,9 @@ async function updateBankAccountsForJournalEntry(journalEntryId, userId) {
   return updatedBankAccounts;
 }
 
+// ============================================================
+// CREATE JOURNAL ENTRY
+// ============================================================
 const createJournalEntry = async (req, res) => {
   try {
     const { date, description, reference, lines } = req.body;
@@ -210,7 +219,8 @@ const createJournalEntry = async (req, res) => {
           message: `Account ID is required for line ${i + 1}`,
         });
       }
-      const account = await validateAccount(line.accountId, userId);
+      // ✅ FIXED: Pass companyId to validateAccount
+      const account = await validateAccount(line.accountId, companyId);
       validatedLines.push({
         accountId: line.accountId,
         accountName: account.name,
@@ -235,7 +245,8 @@ const createJournalEntry = async (req, res) => {
     const balanceErrors = [];
     for (const line of validatedLines) {
       if (line.debit > 0 || line.credit > 0) {
-        const result = await checkAccountBalance(line.accountId, line.debit, line.credit, userId);
+        // ✅ FIXED: Pass companyId to checkAccountBalance
+        const result = await checkAccountBalance(line.accountId, line.debit, line.credit, companyId);
         if (result && result.insufficient) {
           balanceErrors.push(result.message);
         }
@@ -263,6 +274,7 @@ const createJournalEntry = async (req, res) => {
           postedBy: userId,
           postedAt: new Date(),
           createdBy: userId,
+          companyId: companyId,
           fiscalYearId,
           lines: {
             create: validatedLines.map(line => ({
@@ -320,7 +332,8 @@ const createJournalEntry = async (req, res) => {
       return { entry, balanceUpdates };
     });
 
-    const bankAccountUpdates = await updateBankAccountsForJournalEntry(result.entry.id, userId);
+    // ✅ FIXED: Pass companyId to updateBankAccountsForJournalEntry
+    const bankAccountUpdates = await updateBankAccountsForJournalEntry(result.entry.id, companyId);
     
     if (bankAccountUpdates.length > 0) {
       console.log(`🏦 Updated ${bankAccountUpdates.length} bank account(s)`);
@@ -363,6 +376,9 @@ const createJournalEntry = async (req, res) => {
   }
 };
 
+// ============================================================
+// GET JOURNAL ENTRIES
+// ============================================================
 const getJournalEntries = async (req, res) => {
   try {
     const {
@@ -370,15 +386,24 @@ const getJournalEntries = async (req, res) => {
       startDate,
       endDate,
       page = 1,
-      limit = 10
+      limit = 10,
+      status
     } = req.query;
+
+    console.log('getJournalEntries called with params:', { search, startDate, endDate, page, limit, status });
 
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const filter = { 
-      companyId: companyId,
-      status: 'Posted'
+    const filter = {
+      companyId: companyId
     };
+
+    // Only filter by status if provided
+    if (status) {
+      filter.status = status;
+    } else {
+      filter.status = 'Posted'; // Default to Posted if no status specified
+    }
 
     if (startDate && endDate) {
       filter.date = {
@@ -398,6 +423,8 @@ const getJournalEntries = async (req, res) => {
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(limit) || 10;
     const skip = (pageNum - 1) * limitNum;
+
+    console.log('Pagination values:', { pageNum, limitNum, skip });
 
     const [journalEntries, total] = await Promise.all([
       prisma.journalEntry.findMany({
@@ -465,16 +492,20 @@ const getJournalEntries = async (req, res) => {
   }
 };
 
+// ============================================================
+// GET JOURNAL ENTRY BY ID
+// ============================================================
 const getJournalEntry = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+    
     const journalEntry = await prisma.journalEntry.findFirst({
       where: {
         id,
-        companyId: companyId},
+        companyId: companyId
+      },
       include: {
         creator: {
           select: { id: true, firstName: true, lastName: true, email: true }
@@ -514,20 +545,19 @@ const getJournalEntry = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Delete journal entry (Reverse Post)
-// @route   DELETE /api/journal-entries/:id
-// @access  Private
+// DELETE JOURNAL ENTRY (Reverse Post)
 // ============================================================
 const deleteJournalEntry = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+    
     const existing = await prisma.journalEntry.findFirst({
       where: {
         id,
-        companyId: companyId},
+        companyId: companyId
+      },
       include: {
         lines: {
           include: {
@@ -584,7 +614,8 @@ const deleteJournalEntry = async (req, res) => {
       });
     });
 
-    const bankAccountUpdates = await updateBankAccountsForJournalEntry(id, userId);
+    // ✅ FIXED: Pass companyId to updateBankAccountsForJournalEntry
+    const bankAccountUpdates = await updateBankAccountsForJournalEntry(id, companyId);
     
     if (bankAccountUpdates.length > 0) {
       console.log(`🏦 Updated ${bankAccountUpdates.length} bank account(s) after deletion`);
@@ -606,17 +637,15 @@ const deleteJournalEntry = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Get journal entry stats
-// @route   GET /api/journal-entries/stats
-// @access  Private
+// GET JOURNAL ENTRY STATS
 // ============================================================
 const getJournalEntryStats = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+    
     const [total, posted] = await Promise.all([
-      prisma.journalEntry.count({ where: { companyId: companyId} }),
+      prisma.journalEntry.count({ where: { companyId: companyId } }),
       prisma.journalEntry.count({ where: { companyId: companyId, status: 'Posted' } })
     ]);
 
@@ -652,12 +681,15 @@ const getJournalEntryStats = async (req, res) => {
   }
 };
 
+// ============================================================
+// GET JOURNAL ENTRIES BY ACCOUNT
+// ============================================================
 const getJournalEntriesByAccount = async (req, res) => {
   try {
     const { accountId } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+    
     const entries = await prisma.journalEntry.findMany({
       where: {
         companyId: companyId,
@@ -693,11 +725,75 @@ const getJournalEntriesByAccount = async (req, res) => {
   }
 };
 
+// ============================================================
+// POST JOURNAL ENTRY (Draft to Posted)
+// ============================================================
+const postJournalEntry = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+
+    const existing = await prisma.journalEntry.findFirst({
+      where: {
+        id,
+        companyId: companyId,
+        status: 'Draft'
+      }
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Journal entry not found or already posted',
+      });
+    }
+
+    const updated = await prisma.journalEntry.update({
+      where: { id },
+      data: {
+        status: 'Posted',
+        postedBy: userId,
+        postedAt: new Date()
+      },
+      include: {
+        creator: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        poster: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        lines: {
+          include: {
+            account: {
+              select: { id: true, code: true, name: true, type: true, currentBalance: true }
+            }
+          }
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Journal entry posted successfully',
+      data: updated
+    });
+  } catch (error) {
+    console.error('❌ Post journal entry error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createJournalEntry,
   getJournalEntries,
   getJournalEntry,
   deleteJournalEntry,
   getJournalEntryStats,
-  getJournalEntriesByAccount
+  getJournalEntriesByAccount,
+  postJournalEntry
 };

@@ -1,383 +1,734 @@
-// warehouse/models/Product.js - Prisma Version (COMPLETE)
 const prisma = require('../../prisma/client');
 
 class ProductModel {
-  // ============================================================
-  // GET ALL PRODUCTS with filters, pagination, sorting
-  // ============================================================
-  static async findMany(filter = {}, options = {}) {
-    const { skip, take, orderBy, include } = options;
-    
+  static async findAll(filter = {}, options = {}) {
+    const { skip, take, orderBy = { name: 'asc' } } = options;
+
+    const cleanFilter = { ...filter };
+    delete cleanFilter.userId;
+    delete cleanFilter.isDeleted;
+
     return await prisma.product.findMany({
-      where: filter,
+      where: {
+        ...cleanFilter,
+        isActive: true
+      },
       skip,
       take,
       orderBy,
-      include: include || {
-        category: {
-          select: { id: true, name: true, code: true }
-        },
-        supplier: {
-          select: { id: true, name: true, email: true, phone: true }
-        },
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        }
-      }
-    });
-  }
-
-  // ============================================================
-  // COUNT PRODUCTS
-  // ============================================================
-  static async count(filter = {}) {
-    return await prisma.product.count({ where: filter });
-  }
-
-  // ============================================================
-  // FIND PRODUCT BY ID
-  // ============================================================
-  static async findById(id) {
-    return await prisma.product.findUnique({
-      where: { id },
       include: {
         category: {
-          select: { id: true, name: true, code: true }
+          select: { id: true, name: true }
         },
         supplier: {
-          select: { id: true, name: true, email: true, phone: true }
+          select: { id: true, name: true }
         },
         creator: {
           select: { id: true, firstName: true, lastName: true, email: true }
         },
-        variants: {
-          select: { id: true, name: true, sku: true, sellingPrice: true, currentStock: true }
-        }
-      }
-    });
-  }
-
-  // ============================================================
-  // FIND PRODUCT BY SKU
-  // ============================================================
-  static async findBySku(sku, companyId) {
-    return await prisma.product.findFirst({
-      where: { 
-        sku: sku.toUpperCase(),
-        companyId: companyId
-      }
-    });
-  }
-
-  // ============================================================
-  // FIND PRODUCT BY BARCODE
-  // ============================================================
-  static async findByBarcode(barcodeNumber, companyId) {
-    return await prisma.product.findFirst({
-      where: { 
-        barcodeNumber: barcodeNumber,
-        companyId: companyId
-      }
-    });
-  }
-
-  // ============================================================
-  // FIND LOW STOCK PRODUCTS
-  // ============================================================
-  static async findLowStock(companyId) {
-    return await prisma.product.findMany({
-      where: {
-        companyId: companyId,
-        isActive: true,
-        currentStock: {
-          lte: prisma.product.fields.minimumStock
-        }
-      },
-      include: {
-        category: {
+        updater: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        company: {
           select: { id: true, name: true }
         }
       }
     });
   }
 
-  // ============================================================
-  // CREATE PRODUCT
-  // ============================================================
-  static async create(data) {
-    // Auto-generate productId if not provided
-    if (!data.productId) {
-      const timestamp = Date.now().toString(36).toUpperCase();
-      const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-      data.productId = `PRD-${timestamp}-${random}`;
-    }
+  static async count(filter = {}) {
+    const cleanFilter = { ...filter };
+    delete cleanFilter.userId;
+    delete cleanFilter.isDeleted;
 
-    // Calculate total value
-    data.totalValue = (data.currentStock || 0) * (data.costPrice || 0);
-
-    // Calculate available stock
-    data.availableStock = Math.max(0, (data.currentStock || 0) - (data.reservedStock || 0));
-
-    // Calculate margin
-    if (data.costPrice && data.sellingPrice) {
-      data.margin = data.sellingPrice - data.costPrice;
-      data.marginPercentage = data.costPrice > 0 ? (data.margin / data.costPrice) * 100 : 0;
-    }
-
-    // Calculate volume
-    if (data.length && data.width && data.height) {
-      data.volume = data.length * data.width * data.height;
-    }
-
-    // Handle arrays
-    if (data.tags && typeof data.tags === 'string') {
-      data.tags = data.tags.split(',').map(t => t.trim());
-    }
-    if (data.colors && typeof data.colors === 'string') {
-      data.colors = data.colors.split(',').map(c => c.trim());
-    }
-    if (data.sizes && typeof data.sizes === 'string') {
-      data.sizes = data.sizes.split(',').map(s => s.trim());
-    }
-
-    // ✅ FIXED: Handle relations
-    const { categoryId, supplierId, ...restData } = data;
-    
-    const createData = { ...restData };
-    
-    if (categoryId) {
-      createData.category = { connect: { id: categoryId } };
-    }
-    if (supplierId) {
-      createData.supplier = { connect: { id: supplierId } };
-    }
-
-    return await prisma.product.create({
-      data: createData,
-      include: {
-        category: true,
-        supplier: true
+    return await prisma.product.count({
+      where: {
+        ...cleanFilter,
+        isActive: true
       }
     });
   }
 
-  // ============================================================
-  // UPDATE PRODUCT
-  // ============================================================
+  static async findById(id, companyId) {
+    return await prisma.product.findFirst({
+      where: {
+        id,
+        companyId,
+        isActive: true
+      },
+      include: {
+        category: {
+          select: { id: true, name: true }
+        },
+        supplier: {
+          select: { id: true, name: true }
+        },
+        creator: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        updater: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        company: {
+          select: { id: true, name: true }
+        },
+        variants: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            sellingPrice: true,
+            currentStock: true
+          }
+        },
+        stockMovements: {
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            type: true,
+            quantity: true,
+            previousStock: true,
+            newStock: true,
+            reason: true,
+            createdAt: true
+          }
+        }
+      }
+    });
+  }
+
+  static async findBySku(sku, companyId) {
+    return await prisma.product.findFirst({
+      where: {
+        sku: sku.toUpperCase(),
+        companyId,
+        isActive: true
+      },
+      include: {
+        category: {
+          select: { id: true, name: true }
+        },
+        supplier: {
+          select: { id: true, name: true }
+        }
+      }
+    });
+  }
+
+  static async findByBarcode(barcode, companyId) {
+    return await prisma.product.findFirst({
+      where: {
+        barcodeNumber: barcode,
+        companyId,
+        isActive: true
+      },
+      include: {
+        category: {
+          select: { id: true, name: true }
+        },
+        supplier: {
+          select: { id: true, name: true }
+        }
+      }
+    });
+  }
+
+  static async checkSkuExists(sku, companyId, excludeId = null) {
+    const where = {
+      sku: sku.toUpperCase(),
+      companyId: companyId,
+      isActive: true
+    };
+    
+    if (excludeId) {
+      where.NOT = {
+        id: excludeId
+      };
+    }
+    
+    return await prisma.product.findFirst({ where });
+  }
+
+  static async checkBarcodeExists(barcode, companyId, excludeId = null) {
+    const where = {
+      barcodeNumber: barcode,
+      companyId: companyId,
+      isActive: true
+    };
+    
+    if (excludeId) {
+      where.NOT = {
+        id: excludeId
+      };
+    }
+    
+    return await prisma.product.findFirst({ where });
+  }
+
+  static async create(data) {
+    const {
+      name,
+      sku,
+      barcodeNumber,
+      categoryId,
+      supplierId,
+      costPrice,
+      sellingPrice,
+      currentStock,
+      minimumStock,
+      maximumStock,
+      description,
+      rackLocationName,
+      weight,
+      weightUnitName,
+      length,
+      width,
+      height,
+      dimensionUnit,
+      color,
+      size,
+      material,
+      finish,
+      expiryDate,
+      hasExpiry,
+      isBatchManaged,
+      isSerialManaged,
+      isExpiryManaged,
+      taxRate,
+      taxType,
+      currencyCode,
+      productType,
+      brandName,
+      modelNumber,
+      tags,
+      colors,
+      sizes,
+      stockUnitName,
+      zoneName,
+      storageConditionName,
+      hsCode,
+      countryOfOriginName,
+      shippingClass,
+      freightClass,
+      palletNumber,
+      shelfNumber,
+      temperatureMin,
+      temperatureMax,
+      dangerousGoods,
+      unNumber,
+      handlingInstructions,
+      warrantyPeriod,
+      warrantyUnit,
+      isReturnable,
+      returnDays,
+      isBulkManaged,
+      hasIndividualTracking,
+      bulkUnit,
+      defaultQuantityPerBatch,
+      videoUrl,
+      leadTimeDays,
+      reorderPoint,
+      supplierSku,
+      landingCost,
+      createdBy,
+      companyId
+    } = data;
+
+    const totalValue = (currentStock || 0) * (costPrice || 0);
+    const availableStock = currentStock || 0;
+
+    const createData = {
+      name,
+      sku: sku.toUpperCase(),
+      barcodeNumber: barcodeNumber || null,
+      costPrice: costPrice || 0,
+      sellingPrice: sellingPrice || 0,
+      currentStock: currentStock || 0,
+      minimumStock: minimumStock || 5,
+      maximumStock: maximumStock || 100,
+      description: description || '',
+      rackLocationName: rackLocationName || null,
+      weight: weight || 0,
+      weightUnitName: weightUnitName || 'KG',
+      length: length || 0,
+      width: width || 0,
+      height: height || 0,
+      dimensionUnit: dimensionUnit || 'cm',
+      color: color || null,
+      size: size || null,
+      material: material || null,
+      finish: finish || null,
+      expiryDate: expiryDate ? new Date(expiryDate) : null,
+      hasExpiry: hasExpiry || false,
+      isBatchManaged: isBatchManaged || false,
+      isSerialManaged: isSerialManaged || false,
+      isExpiryManaged: isExpiryManaged || false,
+      taxRate: taxRate || 0,
+      taxType: taxType || 'Exclusive',
+      currencyCode: currencyCode || 'PKR',
+      productType: productType || 'Physical',
+      brandName: brandName || null,
+      modelNumber: modelNumber || null,
+      tags: tags || [],
+      colors: colors || [],
+      sizes: sizes || [],
+      stockUnitName: stockUnitName || 'Pcs',
+      zoneName: zoneName || null,
+      storageConditionName: storageConditionName || null,
+      hsCode: hsCode || null,
+      countryOfOriginName: countryOfOriginName || 'Pakistan',
+      shippingClass: shippingClass || null,
+      freightClass: freightClass || null,
+      palletNumber: palletNumber || null,
+      shelfNumber: shelfNumber || null,
+      temperatureMin: temperatureMin ? parseFloat(temperatureMin) : null,
+      temperatureMax: temperatureMax ? parseFloat(temperatureMax) : null,
+      dangerousGoods: dangerousGoods || false,
+      unNumber: unNumber || null,
+      handlingInstructions: handlingInstructions || null,
+      warrantyPeriod: warrantyPeriod ? parseInt(warrantyPeriod) : null,
+      warrantyUnit: warrantyUnit || 'Months',
+      isReturnable: isReturnable !== undefined ? isReturnable : true,
+      returnDays: returnDays ? parseInt(returnDays) : 7,
+      isBulkManaged: isBulkManaged || false,
+      hasIndividualTracking: hasIndividualTracking || false,
+      bulkUnit: bulkUnit || 'Bale',
+      defaultQuantityPerBatch: defaultQuantityPerBatch ? parseInt(defaultQuantityPerBatch) : null,
+      videoUrl: videoUrl || null,
+      leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : null,
+      reorderPoint: reorderPoint ? parseInt(reorderPoint) : null,
+      supplierSku: supplierSku || null,
+      landingCost: landingCost ? parseFloat(landingCost) : null,
+      totalValue,
+      availableStock,
+      createdBy,
+      companyId,
+      // Relations
+      category: categoryId ? { connect: { id: categoryId } } : undefined,
+      supplier: supplierId ? { connect: { id: supplierId } } : undefined
+    };
+
+    // Remove undefined values
+    Object.keys(createData).forEach(key => {
+      if (createData[key] === undefined) {
+        delete createData[key];
+      }
+    });
+
+    return await prisma.product.create({
+      data: createData,
+      include: {
+        category: {
+          select: { id: true, name: true }
+        },
+        supplier: {
+          select: { id: true, name: true }
+        },
+        creator: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        company: {
+          select: { id: true, name: true }
+        }
+      }
+    });
+  }
+
   static async update(id, data) {
-    // Get existing product for calculations
-    const existing = await prisma.product.findUnique({ where: { id } });
-    if (!existing) return null;
+    // First get current product
+    const existing = await prisma.product.findUnique({
+      where: { id }
+    });
 
-    // Calculate total value
-    const currentStock = data.currentStock !== undefined ? data.currentStock : existing.currentStock;
-    const costPrice = data.costPrice !== undefined ? data.costPrice : existing.costPrice;
-    data.totalValue = currentStock * costPrice;
-
-    // Calculate available stock
-    const reservedStock = data.reservedStock !== undefined ? data.reservedStock : existing.reservedStock;
-    data.availableStock = Math.max(0, currentStock - reservedStock);
-
-    // Calculate margin
-    const sellingPrice = data.sellingPrice !== undefined ? data.sellingPrice : existing.sellingPrice;
-    if (costPrice && sellingPrice) {
-      data.margin = sellingPrice - costPrice;
-      data.marginPercentage = costPrice > 0 ? (data.margin / costPrice) * 100 : 0;
+    if (!existing) {
+      throw new Error('Product not found');
     }
 
-    // Calculate volume
-    const length = data.length !== undefined ? data.length : existing.length;
-    const width = data.width !== undefined ? data.width : existing.width;
-    const height = data.height !== undefined ? data.height : existing.height;
-    if (length && width && height) {
-      data.volume = length * width * height;
+    if (data.sku && data.sku !== existing.sku) {
+      const duplicate = await prisma.product.findFirst({
+        where: {
+          sku: data.sku.toUpperCase(),
+          companyId: existing.companyId,
+          isActive: true,
+          id: {
+            not: id
+          }
+        }
+      });
+      
+      if (duplicate) {
+        throw new Error('Product with this SKU already exists');
+      }
     }
 
-    // Handle arrays
-    if (data.tags && typeof data.tags === 'string') {
-      data.tags = data.tags.split(',').map(t => t.trim());
-    }
-    if (data.colors && typeof data.colors === 'string') {
-      data.colors = data.colors.split(',').map(c => c.trim());
-    }
-    if (data.sizes && typeof data.sizes === 'string') {
-      data.sizes = data.sizes.split(',').map(s => s.trim());
+    // ─── BARCODE CHECK ─────────────────────────────────────────
+    if (data.barcodeNumber && data.barcodeNumber !== existing.barcodeNumber) {
+      const duplicate = await prisma.product.findFirst({
+        where: {
+          barcodeNumber: data.barcodeNumber,
+          companyId: existing.companyId,
+          isActive: true,
+          id: {
+            not: id
+          }
+        }
+      });
+      
+      if (duplicate) {
+        throw new Error('Product with this barcode already exists');
+      }
     }
 
-    // ✅ FIXED: Handle relations
-    const { categoryId, supplierId, ...restData } = data;
-    
-    const updateData = { ...restData };
-    
-    if (categoryId) {
-      updateData.category = { connect: { id: categoryId } };
-    }
-    if (supplierId) {
-      updateData.supplier = { connect: { id: supplierId } };
-    }
+    // ─── Calculate stock values ────────────────────────────────
+    const newStock = data.currentStock !== undefined ? data.currentStock : existing.currentStock;
+    const newCost = data.costPrice !== undefined ? data.costPrice : existing.costPrice;
+    const totalValue = newStock * newCost;
+    const availableStock = newStock - (existing.reservedStock || 0);
+
+    const updateData = {
+      name: data.name !== undefined ? data.name : undefined,
+      sku: data.sku ? data.sku.toUpperCase() : undefined,
+      barcodeNumber: data.barcodeNumber !== undefined ? data.barcodeNumber : undefined,
+      costPrice: data.costPrice !== undefined ? data.costPrice : undefined,
+      sellingPrice: data.sellingPrice !== undefined ? data.sellingPrice : undefined,
+      currentStock: data.currentStock !== undefined ? data.currentStock : undefined,
+      minimumStock: data.minimumStock !== undefined ? data.minimumStock : undefined,
+      maximumStock: data.maximumStock !== undefined ? data.maximumStock : undefined,
+      description: data.description !== undefined ? data.description : undefined,
+      rackLocationName: data.rackLocationName !== undefined ? data.rackLocationName : undefined,
+      weight: data.weight !== undefined ? data.weight : undefined,
+      weightUnitName: data.weightUnitName !== undefined ? data.weightUnitName : undefined,
+      length: data.length !== undefined ? data.length : undefined,
+      width: data.width !== undefined ? data.width : undefined,
+      height: data.height !== undefined ? data.height : undefined,
+      dimensionUnit: data.dimensionUnit !== undefined ? data.dimensionUnit : undefined,
+      color: data.color !== undefined ? data.color : undefined,
+      size: data.size !== undefined ? data.size : undefined,
+      material: data.material !== undefined ? data.material : undefined,
+      finish: data.finish !== undefined ? data.finish : undefined,
+      expiryDate: data.expiryDate !== undefined ? (data.expiryDate ? new Date(data.expiryDate) : null) : undefined,
+      hasExpiry: data.hasExpiry !== undefined ? data.hasExpiry : undefined,
+      isBatchManaged: data.isBatchManaged !== undefined ? data.isBatchManaged : undefined,
+      isSerialManaged: data.isSerialManaged !== undefined ? data.isSerialManaged : undefined,
+      isExpiryManaged: data.isExpiryManaged !== undefined ? data.isExpiryManaged : undefined,
+      taxRate: data.taxRate !== undefined ? data.taxRate : undefined,
+      taxType: data.taxType !== undefined ? data.taxType : undefined,
+      currencyCode: data.currencyCode !== undefined ? data.currencyCode : undefined,
+      productType: data.productType !== undefined ? data.productType : undefined,
+      brandName: data.brandName !== undefined ? data.brandName : undefined,
+      modelNumber: data.modelNumber !== undefined ? data.modelNumber : undefined,
+      tags: data.tags !== undefined ? data.tags : undefined,
+      colors: data.colors !== undefined ? data.colors : undefined,
+      sizes: data.sizes !== undefined ? data.sizes : undefined,
+      stockUnitName: data.stockUnitName !== undefined ? data.stockUnitName : undefined,
+      zoneName: data.zoneName !== undefined ? data.zoneName : undefined,
+      storageConditionName: data.storageConditionName !== undefined ? data.storageConditionName : undefined,
+      hsCode: data.hsCode !== undefined ? data.hsCode : undefined,
+      countryOfOriginName: data.countryOfOrigin !== undefined ? data.countryOfOrigin : undefined,
+      shippingClass: data.shippingClass !== undefined ? data.shippingClass : undefined,
+      freightClass: data.freightClass !== undefined ? data.freightClass : undefined,
+      palletNumber: data.palletNumber !== undefined ? data.palletNumber : undefined,
+      shelfNumber: data.shelfNumber !== undefined ? data.shelfNumber : undefined,
+      temperatureMin: data.tempMin !== undefined ? (data.tempMin ? parseFloat(data.tempMin) : null) : undefined,
+      temperatureMax: data.tempMax !== undefined ? (data.tempMax ? parseFloat(data.tempMax) : null) : undefined,
+      dangerousGoods: data.dangerousGoods !== undefined ? data.dangerousGoods : undefined,
+      unNumber: data.unNumber !== undefined ? data.unNumber : undefined,
+      handlingInstructions: data.handlingInstructions !== undefined ? data.handlingInstructions : undefined,
+      warrantyPeriod: data.warrantyPeriod !== undefined ? (data.warrantyPeriod ? parseInt(data.warrantyPeriod) : null) : undefined,
+      warrantyUnit: data.warrantyUnit !== undefined ? data.warrantyUnit : undefined,
+      isReturnable: data.isReturnable !== undefined ? data.isReturnable : undefined,
+      returnDays: data.returnDays !== undefined ? (data.returnDays ? parseInt(data.returnDays) : null) : undefined,
+      isBulkManaged: data.isBulkManaged !== undefined ? data.isBulkManaged : undefined,
+      hasIndividualTracking: data.hasIndividualTracking !== undefined ? data.hasIndividualTracking : undefined,
+      bulkUnit: data.bulkUnit !== undefined ? data.bulkUnit : undefined,
+      defaultQuantityPerBatch: data.defaultBatchQuantity !== undefined ? (data.defaultBatchQuantity ? parseInt(data.defaultBatchQuantity) : null) : undefined,
+      videoUrl: data.videoUrl !== undefined ? data.videoUrl : undefined,
+      leadTimeDays: data.leadTime !== undefined ? (data.leadTime ? parseInt(data.leadTime) : null) : undefined,
+      reorderPoint: data.reorderPoint !== undefined ? (data.reorderPoint ? parseInt(data.reorderPoint) : null) : undefined,
+      supplierSku: data.supplierSku !== undefined ? data.supplierSku : undefined,
+      landingCost: data.landingCost !== undefined ? parseFloat(data.landingCost) : undefined,
+      totalValue,
+      availableStock,
+      updatedBy: data.updatedBy,
+      updatedAt: new Date(),
+      // Relations - using category and supplier (NOT categoryId or supplierId)
+      category: data.categoryId ? { connect: { id: data.categoryId } } : undefined,
+      supplier: data.supplierId ? { connect: { id: data.supplierId } } : undefined
+    };
+
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
 
     return await prisma.product.update({
       where: { id },
       data: updateData,
       include: {
-        category: true,
-        supplier: true
+        category: {
+          select: { id: true, name: true }
+        },
+        supplier: {
+          select: { id: true, name: true }
+        },
+        creator: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        updater: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        company: {
+          select: { id: true, name: true }
+        }
       }
     });
   }
 
-  // ============================================================
-  // DELETE PRODUCT (Hard Delete)
-  // ============================================================
-  static async delete(id) {
-    return await prisma.product.delete({
+  static async delete(id, userId) {
+    console.log('🔵 [ProductModel.delete] Starting delete for product ID:', id);
+    console.log('🔵 [ProductModel.delete] User ID:', userId);
+
+    const existing = await prisma.product.findUnique({
       where: { id }
     });
-  }
 
-  // ============================================================
-  // SOFT DELETE (Deactivate)
-  // ============================================================
-  static async deactivate(id) {
-    return await prisma.product.update({
-      where: { id },
-      data: { isActive: false }
-    });
-  }
-
-  // ============================================================
-  // UPDATE STOCK - ADD/SUBTRACT/SET
-  // ============================================================
-  static async updateStock(id, quantity, type = 'add') {
-    const product = await prisma.product.findUnique({ where: { id } });
-    if (!product) return null;
-
-    let newStock = product.currentStock;
-    if (type === 'add') {
-      newStock += quantity;
-    } else if (type === 'subtract') {
-      newStock = Math.max(0, newStock - quantity);
-    } else if (type === 'set') {
-      newStock = Math.max(0, quantity);
+    if (!existing) {
+      console.log('❌ [ProductModel.delete] Product not found with ID:', id);
+      throw new Error('Product not found');
     }
 
-    return await prisma.product.update({
+    console.log('✅ [ProductModel.delete] Existing product found:', existing.id, existing.name);
+
+    const deletedProduct = await prisma.product.update({
       where: { id },
       data: {
-        currentStock: newStock,
-        availableStock: Math.max(0, newStock - product.reservedStock),
-        totalValue: newStock * product.costPrice
+        isActive: false,
+        updatedBy: userId,
+        updatedAt: new Date()
+      }
+    });
+
+    console.log('✅ [ProductModel.delete] Product soft deleted successfully:', deletedProduct.id, deletedProduct.name);
+    return deletedProduct;
+  }
+
+  static async getLowStockProducts(companyId) {
+    return await prisma.product.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        currentStock: {
+          lte: prisma.product.fields.minimumStock
+        }
+      },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        currentStock: true,
+        minimumStock: true,
+        maximumStock: true,
+        categoryName: true,
+        supplierName: true,
+        sellingPrice: true,
+        totalValue: true
+      },
+      orderBy: {
+        currentStock: 'asc'
       }
     });
   }
 
-  // ============================================================
-  // UPDATE STOCK WITH PREVIOUS VALUE (for stock movements)
-  // ============================================================
-  static async updateStockWithPrevious(id, newStock) {
-    const product = await prisma.product.findUnique({ where: { id } });
-    if (!product) return null;
+  static async getStats(companyId) {
+    const [total, lowStock, outOfStock, aggregate] = await Promise.all([
+      prisma.product.count({
+        where: { companyId, isActive: true }
+      }),
+      prisma.product.count({
+        where: {
+          companyId,
+          isActive: true,
+          currentStock: { lte: prisma.product.fields.minimumStock }
+        }
+      }),
+      prisma.product.count({
+        where: {
+          companyId,
+          isActive: true,
+          currentStock: 0
+        }
+      }),
+      prisma.product.aggregate({
+        where: { companyId, isActive: true },
+        _sum: {
+          currentStock: true,
+          totalValue: true
+        }
+      })
+    ]);
 
-    return await prisma.product.update({
+    return {
+      total,
+      lowStock,
+      outOfStock,
+      totalStock: aggregate._sum.currentStock || 0,
+      totalInventoryValue: aggregate._sum.totalValue || 0
+    };
+  }
+
+  static async updateStock(id, quantity, type, reason, userId) {
+    const product = await prisma.product.findUnique({
+      where: { id }
+    });
+
+    if (!product) {
+      throw new Error('Product not found');
+    }
+
+    const qty = parseInt(quantity);
+    let newStock = product.currentStock;
+
+    if (type === 'add') {
+      newStock = product.currentStock + qty;
+    } else if (type === 'subtract') {
+      newStock = product.currentStock - qty;
+      if (newStock < 0) {
+        throw new Error('Insufficient stock');
+      }
+    } else if (type === 'set') {
+      newStock = qty;
+    } else {
+      throw new Error('Invalid stock update type');
+    }
+
+    const updatedProduct = await prisma.product.update({
       where: { id },
       data: {
         currentStock: newStock,
-        availableStock: Math.max(0, newStock - product.reservedStock),
-        totalValue: newStock * product.costPrice
+        availableStock: newStock - (product.reservedStock || 0),
+        totalValue: newStock * product.costPrice,
+        updatedBy: userId,
+        updatedAt: new Date()
       }
     });
+
+    await prisma.stockMovement.create({
+      data: {
+        productId: product.id,
+        productName: product.name,
+        type: type,
+        quantity: qty,
+        previousStock: product.currentStock,
+        newStock: newStock,
+        reason: reason || 'Manual update',
+        supplierId: product.supplierId,
+        supplierName: product.supplierName,
+        companyId: product.companyId,
+        createdBy: userId
+      }
+    });
+
+    return updatedProduct;
   }
 
-  // ============================================================
-  // SEARCH PRODUCTS
-  // ============================================================
   static async search(query, companyId, options = {}) {
-    const { skip, take } = options;
-    
-    const filter = {
-      companyId: companyId,
+    const { skip = 0, take = 20 } = options;
+
+    const where = {
+      companyId,
       isActive: true,
       OR: [
         { name: { contains: query, mode: 'insensitive' } },
         { sku: { contains: query, mode: 'insensitive' } },
         { barcodeNumber: { contains: query, mode: 'insensitive' } },
-        { description: { contains: query, mode: 'insensitive' } }
+        { description: { contains: query, mode: 'insensitive' } },
+        { categoryName: { contains: query, mode: 'insensitive' } },
+        { supplierName: { contains: query, mode: 'insensitive' } }
       ]
     };
 
-    const products = await prisma.product.findMany({
-      where: filter,
-      skip,
-      take,
-      include: {
-        category: {
-          select: { id: true, name: true }
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        skip,
+        take,
+        include: {
+          category: { select: { name: true } },
+          supplier: { select: { name: true } }
         }
-      }
-    });
-
-    const total = await prisma.product.count({ where: filter });
+      }),
+      prisma.product.count({ where })
+    ]);
 
     return { products, total };
   }
 
-  // ============================================================
-  // GET BY CATEGORY
-  // ============================================================
-  static async findByCategory(categoryId, companyId) {
+  static async getByCategory(categoryId, companyId) {
     return await prisma.product.findMany({
       where: {
-        categoryId: categoryId,
-        companyId: companyId,
+        category: {
+          id: categoryId
+        },
+        companyId,
         isActive: true
       },
-      include: {
-        supplier: {
-          select: { id: true, name: true }
-        }
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        sellingPrice: true,
+        currentStock: true,
+        minimumStock: true,
+        barcodeNumber: true
+      },
+      orderBy: {
+        name: 'asc'
       }
     });
   }
 
-  // ============================================================
-  // GET BY SUPPLIER
-  // ============================================================
-  static async findBySupplier(supplierId, companyId) {
-    return await prisma.product.findMany({
+  static async generateSku(companyId, productName, categoryId) {
+    const prefix = productName.substring(0, 3).toUpperCase();
+    let categoryPrefix = '';
+    
+    if (categoryId) {
+      const category = await prisma.category.findUnique({
+        where: { id: categoryId }
+      });
+      if (category) {
+        categoryPrefix = category.name.substring(0, 2).toUpperCase();
+      }
+    }
+
+    const baseSku = categoryPrefix ? `${categoryPrefix}-${prefix}` : prefix;
+    
+    const lastProduct = await prisma.product.findFirst({
       where: {
-        supplierId: supplierId,
-        companyId: companyId,
-        isActive: true
+        companyId,
+        sku: {
+          startsWith: baseSku
+        }
+      },
+      orderBy: {
+        sku: 'desc'
+      },
+      select: {
+        sku: true
       }
     });
-  }
 
-  // ============================================================
-  // GET PRODUCT STATS
-  // ============================================================
-  static async getStats(companyId) {
-    const [total, active, lowStock, outOfStock] = await Promise.all([
-      prisma.product.count({ where: { companyId: companyId } }),
-      prisma.product.count({ where: { companyId: companyId, isActive: true } }),
-      prisma.product.count({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          currentStock: {
-            lte: prisma.product.fields.minimumStock
-          }
-        }
-      }),
-      prisma.product.count({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          currentStock: 0
-        }
-      })
-    ]);
+    let sequence = 1;
+    if (lastProduct && lastProduct.sku) {
+      const parts = lastProduct.sku.split('-');
+      const lastSeq = parseInt(parts[parts.length - 1]);
+      if (!isNaN(lastSeq)) {
+        sequence = lastSeq + 1;
+      }
+    }
 
-    return { total, active, lowStock, outOfStock };
+    return `${baseSku}-${String(sequence).padStart(3, '0')}`;
   }
 }
 

@@ -52,7 +52,10 @@ router.post(
 // Update product (with image upload)
 router.put(
   '/:id',
-  upload.array('images', 5),
+  upload.fields([
+    { name: 'images', maxCount: 5 },
+    { name: 'barcodeImage', maxCount: 1 }
+  ]),
   updateProduct
 );
 

@@ -1,9 +1,7 @@
-// warehouse/controller/settingController.js - COMPLETE CORRECTED
 
 const Setting = require('../models/Setting');
 const prisma = require('../../prisma/client');
 
-// ─── HELPERS ──────────────────────────────────────────
 const formatMetadata = (category, body) => {
   const metadata = {};
   

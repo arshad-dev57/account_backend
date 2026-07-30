@@ -1,10 +1,6 @@
-// models/JournalEntry.js - Prisma Helper Version
 const prisma = require('../prisma/client');
 
 class JournalEntryModel {
-  // ============================================================
-  // CREATE JOURNAL ENTRY
-  // ============================================================
   static async create(data) {
     // Generate entry number
     const count = await prisma.journalEntry.count();

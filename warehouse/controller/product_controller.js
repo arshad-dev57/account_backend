@@ -1,10 +1,6 @@
+const ProductModel = require('../models/Product');
 const prisma = require('../../prisma/client');
 
-// ============================================================
-// @desc    Get all products (Company-specific)
-// @route   GET /api/warehouse/products
-// @access  Private
-// ============================================================
 const getProducts = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -27,10 +23,9 @@ const getProducts = async (req, res) => {
     const searchQuery = search || q;
 
     const filter = {
+      companyId: companyId,
       isActive: true,
-      company: {
-        id: companyId
-      }
+      isDeleted: false
     };
 
     if (searchQuery) {
@@ -74,28 +69,14 @@ const getProducts = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where: filter,
-        skip,
-        take: limitNum,
-        orderBy,
-        include: {
-          category: {
-            select: { id: true, name: true }
-          },
-          supplier: {
-            select: { id: true, name: true }
-          },
-          creator: {
-            select: { id: true, firstName: true, lastName: true, email: true }
-          },
-          company: {
-            select: { id: true, name: true }
-          }
-        }
-      }),
-      prisma.product.count({ where: filter })
+      ProductModel.findAll(filter, { skip, take: limitNum, orderBy }),
+      ProductModel.count(filter)
     ]);
+
+    console.log('🔵 [getProducts] Returning', products.length, 'products');
+    if (products.length > 0) {
+      console.log('🔵 [getProducts] First product ID:', products[0].id);
+    }
 
     res.status(200).json({
       success: true,
@@ -115,53 +96,22 @@ const getProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Get single product (Company-specific)
+// @desc    Get single product by ID
 // @route   GET /api/warehouse/products/:id
 // @access  Private
 // ============================================================
 const getProductById = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    const productId = req.params.id;
+    const { id } = req.params;
 
-    const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        company: {
-          id: companyId
-        }
-      },
-      include: {
-        category: {
-          select: { id: true, name: true }
-        },
-        supplier: {
-          select: { id: true, name: true }
-        },
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        company: {
-          select: { id: true, name: true }
-        },
-        variants: {
-          select: {
-            id: true,
-            name: true,
-            sku: true,
-            sellingPrice: true,
-            currentStock: true
-          }
-        }
-      }
-    });
+    const product = await ProductModel.findById(id, companyId);
 
     if (!product) {
       return res.status(404).json({
@@ -179,13 +129,133 @@ const getProductById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Create product (Company-specific)
+// @desc    Get product by SKU
+// @route   GET /api/warehouse/products/sku/:sku
+// @access  Private
+// ============================================================
+const getProductBySku = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { sku } = req.params;
+
+    const product = await ProductModel.findBySku(sku, companyId);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: product
+    });
+  } catch (error) {
+    console.error('Get product by SKU error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ============================================================
+// @desc    Get product by barcode
+// @route   GET /api/warehouse/products/barcode/:barcode
+// @access  Private
+// ============================================================
+const getProductByBarcode = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { barcode } = req.params;
+
+    const product = await ProductModel.findByBarcode(barcode, companyId);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found with this barcode'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: product
+    });
+  } catch (error) {
+    console.error('Get product by barcode error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ============================================================
+// @desc    Check if SKU exists
+// @route   GET /api/warehouse/products/check-sku/:sku
+// @access  Private
+// ============================================================
+const checkSkuExists = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { sku } = req.params;
+    const { excludeId } = req.query;
+
+    const product = await ProductModel.checkSkuExists(sku, companyId, excludeId);
+
+    res.status(200).json({
+      success: true,
+      exists: !!product
+    });
+  } catch (error) {
+    console.error('Check SKU error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ============================================================
+// @desc    Check if barcode exists
+// @route   GET /api/warehouse/products/check-barcode/:barcode
+// @access  Private
+// ============================================================
+const checkBarcodeExists = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { barcode } = req.params;
+    const { excludeId } = req.query;
+
+    const product = await ProductModel.checkBarcodeExists(barcode, companyId, excludeId);
+
+    res.status(200).json({
+      success: true,
+      exists: !!product
+    });
+  } catch (error) {
+    console.error('Check barcode error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ============================================================
+// @desc    Create product
 // @route   POST /api/warehouse/products
 // @access  Private
 // ============================================================
@@ -194,79 +264,33 @@ const createProduct = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     
-    const {
-      name,
-      sku,
-      barcodeNumber,
-      categoryId,
-      supplierId,
-      costPrice,
-      sellingPrice,
-      currentStock,
-      minimumStock,
-      maximumStock,
-      description,
-      rackLocationName,
-      weight,
-      weightUnitName,
-      length,
-      width,
-      height,
-      dimensionUnit,
-      color,
-      size,
-      material,
-      expiryDate,
-      hasExpiry,
-      isBatchManaged,
-      isSerialManaged,
-      taxRate,
-      taxType,
-      currencyCode,
-      productType,
-      brandName,
-      modelNumber,
-      tags,
-      colors,
-      sizes,
-    } = req.body;
+    let data = req.body;
 
-    // Validation
-    if (!name || !sku) {
+    // Handle FormData
+    if (req.body && typeof req.body === 'object') {
+      data = { ...req.body };
+    }
+
+    // ─── Validation ──────────────────────────────────────────
+    if (!data.name || !data.sku) {
       return res.status(400).json({
         success: false,
         message: 'Name and SKU are required'
       });
     }
 
-    // Check duplicate SKU for this company
-    const existingProduct = await prisma.product.findFirst({
-      where: {
-        sku: sku.toUpperCase(),
-        company: {
-          id: companyId
-        }
-      }
-    });
-    
-    if (existingProduct) {
+    // ─── Check duplicate SKU ──────────────────────────────
+    const existingSku = await ProductModel.checkSkuExists(data.sku, companyId);
+    if (existingSku) {
       return res.status(400).json({
         success: false,
         message: 'Product with this SKU already exists'
       });
     }
 
-    // Check duplicate barcode for this company
-    if (barcodeNumber) {
-      const existingBarcode = await prisma.product.findFirst({
-        where: {
-          barcodeNumber: barcodeNumber,
-          company: {
-            id: companyId
-          }
-        }
-      });
-      
+    // ─── Check duplicate barcode ──────────────────────────
+    if (data.barcodeNumber) {
+      const existingBarcode = await ProductModel.checkBarcodeExists(data.barcodeNumber, companyId);
       if (existingBarcode) {
         return res.status(400).json({
           success: false,
@@ -275,110 +299,64 @@ const createProduct = async (req, res) => {
       }
     }
 
-    // Get category and connect using relation
-    let categoryConnect = undefined;
-    let categoryName = '';
-    if (categoryId) {
-      const category = await prisma.category.findFirst({
-        where: {
-          id: categoryId,
-          company: {
-            id: companyId
-          }
-        }
-      });
-      if (category) {
-        categoryConnect = { connect: { id: categoryId } };
-        categoryName = category.name;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Category not found or does not belong to your company'
-        });
-      }
-    }
-
-    // Get supplier and connect using relation
-    let supplierConnect = undefined;
-    let supplierName = '';
-    if (supplierId) {
-      const supplier = await prisma.supplier.findFirst({
-        where: {
-          id: supplierId,
-          company: {
-            id: companyId
-          }
-        }
-      });
-      if (supplier) {
-        supplierConnect = { connect: { id: supplierId } };
-        supplierName = supplier.name;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Supplier not found or does not belong to your company'
-        });
-      }
-    }
-
-    // ✅ FIXED: Use company relation instead of companyId
-    const productData = {
-      name,
-      sku: sku.toUpperCase(),
-      barcodeNumber: barcodeNumber || null,
-      categoryName: categoryName,
-      supplierName: supplierName,
-      costPrice: parseFloat(costPrice) || 0,
-      sellingPrice: parseFloat(sellingPrice) || 0,
-      currentStock: parseInt(currentStock) || 0,
-      minimumStock: parseInt(minimumStock) || 5,
-      maximumStock: parseInt(maximumStock) || 100,
-      description: description || '',
-      rackLocationName: rackLocationName || 'A-1-B1',
-      weight: weight ? parseFloat(weight) : 0,
-      weightUnitName: weightUnitName || 'KG',
-      length: length ? parseFloat(length) : 0,
-      width: width ? parseFloat(width) : 0,
-      height: height ? parseFloat(height) : 0,
-      dimensionUnit: dimensionUnit || 'cm',
-      color: color || null,
-      size: size || null,
-      material: material || null,
-      expiryDate: expiryDate ? new Date(expiryDate) : null,
-      hasExpiry: hasExpiry === 'true' || hasExpiry === true,
-      isBatchManaged: isBatchManaged === 'true' || isBatchManaged === true,
-      isSerialManaged: isSerialManaged === 'true' || isSerialManaged === true,
-      taxRate: taxRate ? parseFloat(taxRate) : 0,
-      taxType: taxType || 'Exclusive',
-      currencyCode: currencyCode || 'PKR',
-      productType: productType || 'Physical',
-      brandName: brandName || null,
-      modelNumber: modelNumber || null,
-      tags: tags ? (typeof tags === 'string' ? tags.split(',').map(t => t.trim()) : tags) : [],
-      colors: colors ? (typeof colors === 'string' ? colors.split(',').map(c => c.trim()) : colors) : [],
-      sizes: sizes ? (typeof sizes === 'string' ? sizes.split(',').map(s => s.trim()) : sizes) : [],
-      totalValue: (parseInt(currentStock) || 0) * (parseFloat(costPrice) || 0),
-      availableStock: parseInt(currentStock) || 0,
-      // ✅ FIXED: Use relations instead of direct IDs
-      creator: { connect: { id: userId } },
-      company: { connect: { id: companyId } },
-      ...(categoryConnect && { category: categoryConnect }),
-      ...(supplierConnect && { supplier: supplierConnect })
-    };
-
-    const product = await prisma.product.create({
-      data: productData,
-      include: {
-        category: true,
-        supplier: true,
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        company: {
-          select: { id: true, name: true }
+    // ─── Convert numeric fields ────────────────────────────
+    const numericFields = ['costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock', 
+      'weight', 'length', 'width', 'height', 'taxRate', 'warrantyPeriod', 'returnDays', 'shelfLife',
+      'defaultBatchQuantity', 'leadTime', 'reorderPoint', 'stackingLimit', 'tempMin', 'tempMax'];
+    
+    numericFields.forEach(field => {
+      if (data[field] !== undefined && data[field] !== null && data[field] !== '') {
+        if (field === 'currentStock' || field === 'minimumStock' || field === 'maximumStock' ||
+            field === 'warrantyPeriod' || field === 'returnDays' || field === 'shelfLife' ||
+            field === 'defaultBatchQuantity' || field === 'leadTime' || field === 'reorderPoint' ||
+            field === 'stackingLimit') {
+          data[field] = parseInt(data[field]);
+        } else {
+          data[field] = parseFloat(data[field]);
         }
       }
     });
+
+    // ─── Convert boolean fields ────────────────────────────
+    const booleanFields = ['hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
+      'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods'];
+    
+    booleanFields.forEach(field => {
+      if (data[field] !== undefined) {
+        data[field] = data[field] === 'true' || data[field] === true;
+      }
+    });
+
+    // ─── Handle arrays ─────────────────────────────────────
+    const arrayFields = ['tags', 'colors', 'sizes'];
+    arrayFields.forEach(field => {
+      if (data[field] !== undefined && typeof data[field] === 'string') {
+        if (data[field] === '') {
+          data[field] = [];
+        } else {
+          try {
+            data[field] = JSON.parse(data[field]);
+          } catch {
+            data[field] = data[field].split(',').map(t => t.trim());
+          }
+        }
+      }
+    });
+
+    if (data.expiryDate) {
+      data.expiryDate = new Date(data.expiryDate);
+    }
+    if (data.manufacturingDate) {
+      data.manufacturingDate = new Date(data.manufacturingDate);
+    }
+
+    const productData = {
+      ...data,
+      createdBy: userId,
+      companyId: companyId
+    };
+
+    const product = await ProductModel.create(productData);
 
     res.status(201).json({
       success: true,
@@ -387,24 +365,16 @@ const createProduct = async (req, res) => {
     });
   } catch (error) {
     console.error('Create product error:', error);
-
-    if (error.code === 'P2002') {
-      return res.status(400).json({
-        success: false,
-        message: 'Duplicate SKU or barcode number'
-      });
-    }
-
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Update product (Company-specific)
+// @desc    Update product
 // @route   PUT /api/warehouse/products/:id
 // @access  Private
 // ============================================================
@@ -412,160 +382,122 @@ const updateProduct = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const productId = req.params.id;
-    
-    const existing = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        company: {
-          id: companyId
-        }
-      }
-    });
-    
+    const { id } = req.params;
+
+    console.log('🔵 [updateProduct] Starting update for product ID:', id);
+    console.log('🔵 [updateProduct] User ID:', userId);
+    console.log('🔵 [updateProduct] Company ID:', companyId);
+
+    // ─── Check if product exists ──────────────────────────
+    const existing = await ProductModel.findById(id, companyId);
     if (!existing) {
+      console.log('❌ [updateProduct] Product not found with ID:', id);
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
 
-    // Check duplicate SKU
-    if (req.body.sku && req.body.sku !== existing.sku) {
-      const duplicate = await prisma.product.findFirst({
-        where: {
-          sku: req.body.sku.toUpperCase(),
-          company: {
-            id: companyId
-          },
-          NOT: { id: productId }
-        }
-      });
-      
-      if (duplicate) {
+    let data = req.body;
+    console.log('🔵 [updateProduct] Request body:', JSON.stringify(data, null, 2));
+
+    // Handle FormData
+    if (req.body && typeof req.body === 'object') {
+      data = { ...req.body };
+    }
+
+    // ─── Check duplicate SKU ──────────────────────────────
+    if (data.sku && data.sku.toUpperCase () !== existing.sku) {
+      console.log('🔵 [updateProduct] SKU changed from', existing.sku, 'to', data.sku);
+      const duplicateSku = await ProductModel.checkSkuExists(data.sku, companyId, id);
+      if (duplicateSku) {
+        console.log('❌ [updateProduct] Duplicate SKU found:', duplicateSku.sku);
         return res.status(400).json({
           success: false,
           message: 'Product with this SKU already exists'
         });
       }
+      console.log('✅ [updateProduct] SKU is unique');
     }
 
-    // Check duplicate barcode
-    if (req.body.barcodeNumber && req.body.barcodeNumber !== existing.barcodeNumber) {
-      const duplicate = await prisma.product.findFirst({
-        where: {
-          barcodeNumber: req.body.barcodeNumber,
-          company: {
-            id: companyId
-          },
-          NOT: { id: productId }
-        }
-      });
-      
-      if (duplicate) {
+    // ─── Check duplicate barcode ──────────────────────────
+    if (data.barcodeNumber && data.barcodeNumber.toUpperCase() !== existing.barcodeNumber) {
+      console.log('🔵 [updateProduct] Barcode changed from', existing.barcodeNumber, 'to', data.barcodeNumber);
+      const duplicateBarcode = await ProductModel.checkBarcodeExists(data.barcodeNumber, companyId, id);
+      if (duplicateBarcode) {
+        console.log('❌ [updateProduct] Duplicate barcode found:', duplicateBarcode.barcodeNumber);
         return res.status(400).json({
           success: false,
           message: 'Product with this barcode already exists'
         });
       }
+      console.log('✅ [updateProduct] Barcode is unique');
     }
 
-    // Handle category update with relation
-    let categoryConnect = undefined;
-    if (req.body.categoryId && req.body.categoryId !== existing.categoryId) {
-      const category = await prisma.category.findFirst({
-        where: {
-          id: req.body.categoryId,
-          company: {
-            id: companyId
-          }
-        }
-      });
-      if (category) {
-        categoryConnect = { connect: { id: req.body.categoryId } };
-        req.body.categoryName = category.name;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Category not found or does not belong to your company'
-        });
-      }
-      delete req.body.categoryId;
-    }
-
-    // Handle supplier update with relation
-    let supplierConnect = undefined;
-    if (req.body.supplierId && req.body.supplierId !== existing.supplierId) {
-      const supplier = await prisma.supplier.findFirst({
-        where: {
-          id: req.body.supplierId,
-          company: {
-            id: companyId
-          }
-        }
-      });
-      if (supplier) {
-        supplierConnect = { connect: { id: req.body.supplierId } };
-        req.body.supplierName = supplier.name;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Supplier not found or does not belong to your company'
-        });
-      }
-      delete req.body.supplierId;
-    }
-
-    // Handle arrays
-    if (req.body.tags && typeof req.body.tags === 'string') {
-      req.body.tags = req.body.tags.split(',').map(t => t.trim());
-    }
-    if (req.body.colors && typeof req.body.colors === 'string') {
-      req.body.colors = req.body.colors.split(',').map(c => c.trim());
-    }
-    if (req.body.sizes && typeof req.body.sizes === 'string') {
-      req.body.sizes = req.body.sizes.split(',').map(s => s.trim());
-    }
-
-    // ✅ FIXED: Use updater relation instead of updatedBy
-    const updateData = {
-      ...req.body,
-      updater: { connect: { id: userId } }
-    };
-
-    // Update totalValue if stock or cost changes
-    if (req.body.currentStock !== undefined || req.body.costPrice !== undefined) {
-      const newStock = req.body.currentStock !== undefined ? parseInt(req.body.currentStock) : existing.currentStock;
-      const newCost = req.body.costPrice !== undefined ? parseFloat(req.body.costPrice) : existing.costPrice;
-      updateData.totalValue = newStock * newCost;
-      updateData.availableStock = newStock - (existing.reservedStock || 0);
-    }
-
-    // Add relations to update data
-    if (categoryConnect) {
-      updateData.category = categoryConnect;
-    }
-    if (supplierConnect) {
-      updateData.supplier = supplierConnect;
-    }
-
-    const product = await prisma.product.update({
-      where: { id: productId },
-      data: updateData,
-      include: {
-        category: true,
-        supplier: true,
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        updater: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        company: {
-          select: { id: true, name: true }
+    // ─── Convert numeric fields ────────────────────────────
+    const numericFields = ['costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock', 
+      'weight', 'length', 'width', 'height', 'taxRate', 'warrantyPeriod', 'returnDays', 'shelfLife',
+      'defaultBatchQuantity', 'leadTime', 'reorderPoint', 'stackingLimit', 'tempMin', 'tempMax', 'landingCost'];
+    
+    numericFields.forEach(field => {
+      if (data[field] !== undefined && data[field] !== null && data[field] !== '') {
+        if (field === 'currentStock' || field === 'minimumStock' || field === 'maximumStock' ||
+            field === 'warrantyPeriod' || field === 'returnDays' || field === 'shelfLife' ||
+            field === 'defaultBatchQuantity' || field === 'leadTime' || field === 'reorderPoint' ||
+            field === 'stackingLimit') {
+          data[field] = parseInt(data[field]);
+        } else {
+          data[field] = parseFloat(data[field]);
         }
       }
     });
+
+    // ─── Convert boolean fields ────────────────────────────
+    const booleanFields = ['hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
+      'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods'];
+    
+    booleanFields.forEach(field => {
+      if (data[field] !== undefined) {
+        data[field] = data[field] === 'true' || data[field] === true;
+      }
+    });
+
+    // ─── Handle arrays ─────────────────────────────────────
+    const arrayFields = ['tags', 'colors', 'sizes'];
+    arrayFields.forEach(field => {
+      if (data[field] !== undefined && typeof data[field] === 'string') {
+        if (data[field] === '') {
+          data[field] = [];
+        } else {
+          try {
+            data[field] = JSON.parse(data[field]);
+          } catch {
+            data[field] = data[field].split(',').map(t => t.trim());
+          }
+        }
+      }
+    });
+
+    // ─── Handle dates ──────────────────────────────────────
+    if (data.expiryDate) {
+      data.expiryDate = new Date(data.expiryDate);
+    }
+    if (data.manufacturingDate) {
+      data.manufacturingDate = new Date(data.manufacturingDate);
+    }
+
+    // ─── Prepare update data ──────────────────────────────
+    const productData = {
+      ...data,
+      updatedBy: userId
+    };
+
+    console.log('🔵 [updateProduct] Final product data:', JSON.stringify(productData, null, 2));
+
+    // ─── Update product ─────────────────────────────────────
+    const product = await ProductModel.update(id, productData);
+
+    console.log('✅ [updateProduct] Product updated successfully:', product.id);
 
     res.status(200).json({
       success: true,
@@ -573,15 +505,14 @@ const updateProduct = async (req, res) => {
       data: product
     });
   } catch (error) {
-    console.error('Update product error:', error);
+    console.error('❌ [updateProduct] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: error.message || 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
-
 // ============================================================
 // @desc    Delete product (Soft delete)
 // @route   DELETE /api/warehouse/products/:id
@@ -591,101 +522,47 @@ const deleteProduct = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const productId = req.params.id;
-    
-    const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        company: {
-          id: companyId
-        }
-      }
-    });
-    
-    if (!product) {
+    const { id } = req.params;
+
+    console.log('🔵 [deleteProduct] Starting delete for product ID:', id);
+    console.log('🔵 [deleteProduct] User ID:', userId);
+    console.log('🔵 [deleteProduct] Company ID:', companyId);
+
+    // ─── Check if product exists ──────────────────────────
+    const existing = await ProductModel.findById(id, companyId);
+    if (!existing) {
+      console.log('❌ [deleteProduct] Product not found with ID:', id);
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
 
-    await prisma.product.update({
-      where: { id: productId },
-      data: {
-        isActive: false,
-        updater: { connect: { id: userId } }
-      }
-    });
+    console.log('✅ [deleteProduct] Product found:', existing.id, existing.name);
+
+    // ─── Soft delete ──────────────────────────────────────
+    await ProductModel.delete(id, userId);
+
+    console.log('✅ [deleteProduct] Product deleted successfully');
 
     res.status(200).json({
       success: true,
       message: 'Product deleted successfully'
     });
   } catch (error) {
-    console.error('Delete product error:', error);
+    console.error('❌ [deleteProduct] Error:', error);
+    console.error('❌ [deleteProduct] Error stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: error.message || 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Hard delete product (Admin only)
-// @route   DELETE /api/warehouse/products/:id/hard
-// @access  Private (Admin only)
-// ============================================================
-const hardDeleteProduct = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const companyId = req.user.companyId;
-    const productId = req.params.id;
-    
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only admin can hard delete products'
-      });
-    }
-
-    const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        company: {
-          id: companyId
-        }
-      }
-    });
-    
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
-    }
-
-    await prisma.product.delete({
-      where: { id: productId }
-    });
-
-    res.status(200).json({
-      success: true,
-      message: 'Product permanently deleted'
-    });
-  } catch (error) {
-    console.error('Hard delete product error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// ============================================================
-// @desc    Search products (Company-specific)
-// @route   GET /api/warehouse/products/search?q=...
+// @desc    Search products
+// @route   GET /api/warehouse/products/search
 // @access  Private
 // ============================================================
 const searchProducts = async (req, res) => {
@@ -704,34 +581,7 @@ const searchProducts = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    const where = {
-      company: {
-        id: companyId
-      },
-      isActive: true,
-      OR: [
-        { name: { contains: q, mode: 'insensitive' } },
-        { sku: { contains: q, mode: 'insensitive' } },
-        { barcodeNumber: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
-        { categoryName: { contains: q, mode: 'insensitive' } },
-        { supplierName: { contains: q, mode: 'insensitive' } }
-      ]
-    };
-
-    const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        skip,
-        take: limitNum,
-        include: {
-          category: { select: { name: true } },
-          supplier: { select: { name: true } },
-          company: { select: { name: true } }
-        }
-      }),
-      prisma.product.count({ where })
-    ]);
+    const { products, total } = await ProductModel.search(q, companyId, { skip, take: limitNum });
 
     res.status(200).json({
       success: true,
@@ -749,13 +599,13 @@ const searchProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Get low stock products (Company-specific)
+// @desc    Get low stock products
 // @route   GET /api/warehouse/products/low-stock
 // @access  Private
 // ============================================================
@@ -763,32 +613,7 @@ const getLowStockProducts = async (req, res) => {
   try {
     const companyId = req.user.companyId;
 
-    const products = await prisma.product.findMany({
-      where: {
-        company: {
-          id: companyId
-        },
-        isActive: true,
-        currentStock: {
-          lte: prisma.product.fields.minimumStock
-        }
-      },
-      select: {
-        id: true,
-        name: true,
-        sku: true,
-        currentStock: true,
-        minimumStock: true,
-        maximumStock: true,
-        categoryName: true,
-        supplierName: true,
-        sellingPrice: true,
-        totalValue: true
-      },
-      orderBy: {
-        currentStock: 'asc'
-      }
-    });
+    const products = await ProductModel.getLowStockProducts(companyId);
 
     res.status(200).json({
       success: true,
@@ -800,157 +625,38 @@ const getLowStockProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Get product by barcode (Company-specific)
-// @route   GET /api/warehouse/products/barcode/:barcode
+// @desc    Get product stats
+// @route   GET /api/warehouse/products/stats
 // @access  Private
 // ============================================================
-const getProductByBarcode = async (req, res) => {
+const getProductStats = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { barcode } = req.params;
 
-    const product = await prisma.product.findFirst({
-      where: {
-        barcodeNumber: barcode,
-        company: {
-          id: companyId
-        },
-        isActive: true
-      },
-      include: {
-        category: { select: { name: true } },
-        supplier: { select: { name: true } }
-      }
-    });
-
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found with this barcode'
-      });
-    }
+    const stats = await ProductModel.getStats(companyId);
 
     res.status(200).json({
       success: true,
-      data: product
+      data: stats
     });
   } catch (error) {
-    console.error('Get product by barcode error:', error);
+    console.error('Get product stats error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Check if barcode exists (Company-specific)
-// @route   GET /api/warehouse/products/check-barcode/:barcode
-// @access  Private
-// ============================================================
-const checkBarcodeExists = async (req, res) => {
-  try {
-    const companyId = req.user.companyId;
-    const { barcode } = req.params;
-
-    const product = await prisma.product.findFirst({
-      where: {
-        barcodeNumber: barcode,
-        company: {
-          id: companyId
-        },
-        isActive: true
-      },
-      select: { id: true }
-    });
-
-    res.status(200).json({
-      success: true,
-      exists: !!product
-    });
-  } catch (error) {
-    console.error('Check barcode error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// ============================================================
-// @desc    Get products by category (Company-specific)
-// @route   GET /api/warehouse/products/category/:categoryId
-// @access  Private
-// ============================================================
-const getProductsByCategory = async (req, res) => {
-  try {
-    const companyId = req.user.companyId;
-    const { categoryId } = req.params;
-
-    const category = await prisma.category.findFirst({
-      where: {
-        id: categoryId,
-        company: {
-          id: companyId
-        }
-      },
-      select: { id: true, name: true }
-    });
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: 'Category not found'
-      });
-    }
-
-    const products = await prisma.product.findMany({
-      where: {
-        categoryId: categoryId,
-        company: {
-          id: companyId
-        },
-        isActive: true
-      },
-      select: {
-        id: true,
-        name: true,
-        sku: true,
-        sellingPrice: true,
-        currentStock: true,
-        minimumStock: true,
-        barcodeNumber: true
-      },
-      orderBy: {
-        name: 'asc'
-      }
-    });
-
-    res.status(200).json({
-      success: true,
-      count: products.length,
-      data: products
-    });
-  } catch (error) {
-    console.error('Get products by category error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// ============================================================
-// @desc    Update stock (Company-specific)
+// @desc    Update stock
 // @route   PUT /api/warehouse/products/:id/stock
 // @access  Private
 // ============================================================
@@ -968,80 +674,17 @@ const updateStock = async (req, res) => {
       });
     }
 
-    const product = await prisma.product.findFirst({
-      where: {
-        id: id,
-        company: {
-          id: companyId
-        }
-      }
-    });
-
-    if (!product) {
+    // ─── Check if product exists ──────────────────────────
+    const existing = await ProductModel.findById(id, companyId);
+    if (!existing) {
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
 
-    const qty = parseInt(quantity);
-    let newStock = product.currentStock;
-    let stockType = 'add';
-
-    if (type === 'add') {
-      newStock = product.currentStock + qty;
-      stockType = 'add';
-    } else if (type === 'subtract') {
-      newStock = product.currentStock - qty;
-      stockType = 'subtract';
-      if (newStock < 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Insufficient stock'
-        });
-      }
-    } else if (type === 'set') {
-      newStock = qty;
-      stockType = 'set';
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid stock update type. Use add, subtract, or set'
-      });
-    }
-
-    await prisma.stockMovement.create({
-      data: {
-        productId: product.id,
-        productName: product.name,
-        type: stockType,
-        quantity: qty,
-        previousStock: product.currentStock,
-        newStock: newStock,
-        reason: reason,
-        supplierId: product.supplierId,
-        supplierName: product.supplierName,
-        company: { connect: { id: companyId } }
-      }
-    });
-
-    const updatedProduct = await prisma.product.update({
-      where: { id: id },
-      data: {
-        currentStock: newStock,
-        availableStock: newStock - (product.reservedStock || 0),
-        totalValue: newStock * product.costPrice,
-        updater: { connect: { id: userId } }
-      },
-      select: {
-        id: true,
-        name: true,
-        sku: true,
-        currentStock: true,
-        availableStock: true,
-        totalValue: true
-      }
-    });
+    // ─── Update stock ──────────────────────────────────────
+    const updatedProduct = await ProductModel.updateStock(id, quantity, type, reason, userId);
 
     res.status(200).json({
       success: true,
@@ -1052,69 +695,74 @@ const updateStock = async (req, res) => {
     console.error('Update stock error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: error.message || 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Get product stats (Company-specific)
-// @route   GET /api/warehouse/products/stats
+// @desc    Get products by category
+// @route   GET /api/warehouse/products/category/:categoryId
 // @access  Private
 // ============================================================
-const getProductStats = async (req, res) => {
+const getProductsByCategory = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const stats = await prisma.$transaction([
-      prisma.product.count({
-        where: { company: { id: companyId }, isActive: true }
-      }),
-      prisma.product.count({
-        where: { 
-          company: { id: companyId },
-          isActive: true,
-          currentStock: { lte: prisma.product.fields.minimumStock }
-        }
-      }),
-      prisma.product.count({
-        where: { 
-          company: { id: companyId },
-          isActive: true,
-          currentStock: 0
-        }
-      }),
-      prisma.product.aggregate({
-        where: { company: { id: companyId }, isActive: true },
-        _sum: {
-          currentStock: true,
-          totalValue: true
-        }
-      })
-    ]);
+    const { categoryId } = req.params;
+
+    const products = await ProductModel.getByCategory(categoryId, companyId);
 
     res.status(200).json({
       success: true,
-      data: {
-        totalProducts: stats[0],
-        lowStockProducts: stats[1],
-        outOfStockProducts: stats[2],
-        totalStock: stats[3]._sum.currentStock || 0,
-        totalInventoryValue: stats[3]._sum.totalValue || 0
-      }
+      count: products.length,
+      data: products
     });
   } catch (error) {
-    console.error('Get product stats error:', error);
+    console.error('Get products by category error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ============================================================
-// @desc    Bulk create products (Company-specific)
+// @desc    Generate SKU
+// @route   POST /api/warehouse/products/generate-sku
+// @access  Private
+// ============================================================
+const generateSku = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { productName, categoryId } = req.body;
+
+    if (!productName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product name is required'
+      });
+    }
+
+    const sku = await ProductModel.generateSku(companyId, productName, categoryId);
+
+    res.status(200).json({
+      success: true,
+      data: { sku }
+    });
+  } catch (error) {
+    console.error('Generate SKU error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ============================================================
+// @desc    Bulk create products
 // @route   POST /api/warehouse/products/bulk
 // @access  Private
 // ============================================================
@@ -1131,28 +779,23 @@ const bulkCreateProducts = async (req, res) => {
       });
     }
 
-    const productsWithCompany = products.map(product => ({
-      ...product,
-      sku: product.sku.toUpperCase(),
-      isActive: true,
-      totalValue: (parseInt(product.currentStock) || 0) * (parseFloat(product.costPrice) || 0),
-      availableStock: parseInt(product.currentStock) || 0,
-      company: { connect: { id: companyId } },
-      creator: { connect: { id: userId } }
-    }));
-
-    // For createMany, we need to use nested creates differently
-    const created = await prisma.$transaction(
-      productsWithCompany.map(productData => 
-        prisma.product.create({ data: productData })
-      )
-    );
+    const created = [];
+    for (const productData of products) {
+      const data = {
+        ...productData,
+        createdBy: userId,
+        companyId
+      };
+      const product = await ProductModel.create(data);
+      created.push(product);
+    }
 
     res.status(201).json({
       success: true,
       message: `${created.length} products created successfully`,
       data: {
-        count: created.length
+        count: created.length,
+        products: created
       }
     });
   } catch (error) {
@@ -1160,27 +803,28 @@ const bulkCreateProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// ============================================================
-// EXPORT
-// ============================================================
+// ─── EXPORT CONTROLLERS ──────────────────────────────────────
+
 module.exports = {
   getProducts,
   getProductById,
+  getProductBySku,
+  getProductByBarcode,
+  checkSkuExists,
+  checkBarcodeExists,
   createProduct,
   updateProduct,
   deleteProduct,
-  hardDeleteProduct,
   searchProducts,
   getLowStockProducts,
-  getProductByBarcode,
-  checkBarcodeExists,
-  getProductsByCategory,
-  updateStock,
   getProductStats,
+  updateStock,
+  getProductsByCategory,
+  generateSku,
   bulkCreateProducts
 };

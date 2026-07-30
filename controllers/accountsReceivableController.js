@@ -308,22 +308,34 @@ const getCustomers = async (req, res) => {
   console.log('📦 [AR] getCustomers called');
   
   try {
-    const { search, status } = req.query;
+    const { search, status, refresh } = req.query;
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
     // Build cache key with parameters
     const cacheKey = `ar:customers:${userId}:${search || ''}:${status || ''}`;
     
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        count: cached.length,
-        data: cached,
-        cached: true,
-      });
+    // Try to get from cache (unless refresh is requested)
+    if (refresh !== 'true') {
+      const cached = await get(cacheKey);
+      if (cached) {
+        console.log('📦 [AR] Returning cached customers data');
+        return res.status(200).json({
+          success: true,
+          count: cached.length,
+          data: cached,
+          cached: true,
+        });
+      }
+    } else {
+      console.log('🔄 [AR] Cache refresh requested, bypassing cache');
+      // Clear the cache
+      try {
+        await delPattern(`ar:customers:${userId}:*`);
+        console.log('🗑️ [AR] Cache cleared for refresh');
+      } catch (cacheError) {
+        console.log('⚠️ [AR] Cache clear error:', cacheError.message);
+      }
     }
 
     const filter = { companyId: companyId };

@@ -72,12 +72,14 @@ exports.createEquityAccount = async (req, res) => {
       openingBalance,
       notes,
     } = req.body;
+    const companyId = req.user.companyId;
 
     // Check if account code already exists for this user
     const existingAccount = await prisma.equityAccount.findFirst({
       where: {
         accountCode,
-        companyId: companyId}
+        companyId: companyId
+      }
     });
 
     if (existingAccount) {
@@ -335,7 +337,7 @@ exports.updateEquityAccount = async (req, res) => {
 exports.addCapital = async (req, res) => {
   try {
     const { accountId, amount, description, reference } = req.body;
-
+    const companyId = req.user.companyId;
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id: accountId,
@@ -410,11 +412,13 @@ exports.addCapital = async (req, res) => {
 exports.recordDrawings = async (req, res) => {
   try {
     const { accountId, amount, description, reference } = req.body;
+    const companyId = req.user.companyId;
 
     const account = await prisma.equityAccount.findFirst({
       where: {
         id: accountId,
-        companyId: companyId}
+        companyId: companyId
+      }
     });
 
     if (!account) {
@@ -509,6 +513,7 @@ exports.transferToRetainedEarnings = async (req, res) => {
     console.log('📦 [Equity] Request body:', JSON.stringify(req.body, null, 2));
     
     const { amount, description, reference } = req.body;
+    const companyId = req.user.companyId;
     console.log('💰 [Equity] Amount:', amount);
     console.log('👤 [Equity] User ID:', req.user.id);
 
@@ -789,6 +794,7 @@ exports.getAllTransactions = async (req, res) => {
 // ==================== DELETE EQUITY ACCOUNT ====================
 exports.deleteEquityAccount = async (req, res) => {
   try {
+    const companyId = req.user.companyId;
     const account = await prisma.equityAccount.findFirst({
       where: {
         id: req.params.id,
@@ -838,3 +844,12 @@ exports.deleteEquityAccount = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+

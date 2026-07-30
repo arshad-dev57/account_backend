@@ -506,6 +506,22 @@ exports.verifyLoginOTP = async (req, res) => {
 
     console.log('📦 [verifyLoginOTP] Updated User Business Details:', JSON.stringify(updatedUser.businessDetails, null, 2));
 
+    // Fetch user permissions
+    console.log('🔄 [verifyLoginOTP] Fetching user permissions...');
+    const userPermissions = await prisma.userPermission.findMany({
+      where: { userId: updatedUser._id.toString() },
+      select: {
+        id: true,
+        page: true,
+        canView: true,
+        canCreate: true,
+        canEdit: true,
+        canDelete: true
+      }
+    });
+    console.log('📊 [verifyLoginOTP] User permissions count:', userPermissions.length);
+    console.log('📊 [verifyLoginOTP] User permissions:', userPermissions);
+
     const token = generateToken(updatedUser._id);
     const refreshToken = generateRefreshToken(updatedUser._id);
 
@@ -522,6 +538,14 @@ exports.verifyLoginOTP = async (req, res) => {
       contactNo: updatedUser.contactNo,
       businessDetails: updatedUser.businessDetails || {},
       role: updatedUser.role,
+      permissions: userPermissions.map(p => ({
+        id: p.id,
+        page: p.page,
+        canView: p.canView,
+        canCreate: p.canCreate,
+        canEdit: p.canEdit,
+        canDelete: p.canDelete
+      })),
       subscription: {
         plan: updatedUser.subscription.plan,
         status: updatedUser.subscription.status,

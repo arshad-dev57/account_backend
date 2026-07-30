@@ -1,4 +1,4 @@
-// warehouse/models/PurchaseReturn.js - COMPLETE
+// warehouse/models/PurchaseReturn.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 
@@ -13,10 +13,10 @@ function generateReturnNumber() {
 }
 
 // ─── Helper: Find AP Account ──────────────────────────────
-async function findAPAccount(tx, userId) {
+async function findAPAccount(tx, companyId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '2000' },
@@ -25,27 +25,14 @@ async function findAPAccount(tx, userId) {
     }
   });
 
-  if (!account) {
-    account = await tx.chartOfAccount.findFirst({
-      where: {
-        createdBy: userId,
-        isActive: true,
-        OR: [
-          { code: '2000' },
-          { name: { contains: 'Accounts Payable', mode: 'insensitive' } }
-        ]
-      }
-    });
-  }
-
   return account;
 }
 
 // ─── Helper: Find Inventory Account ──────────────────────
-async function findInventoryAccount(tx, userId) {
+async function findInventoryAccount(tx, companyId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '1200' },
@@ -54,27 +41,14 @@ async function findInventoryAccount(tx, userId) {
     }
   });
 
-  if (!account) {
-    account = await tx.chartOfAccount.findFirst({
-      where: {
-        createdBy: userId,
-        isActive: true,
-        OR: [
-          { code: '1200' },
-          { name: { contains: 'Inventory', mode: 'insensitive' } }
-        ]
-      }
-    });
-  }
-
   return account;
 }
 
 // ─── Helper: Get or create Purchase Returns account ──────
-async function getOrCreatePurchaseReturnsAccount(tx, userId) {
+async function getOrCreatePurchaseReturnsAccount(tx, companyId, userId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       OR: [
         { code: '5100' },
@@ -84,21 +58,8 @@ async function getOrCreatePurchaseReturnsAccount(tx, userId) {
   });
 
   if (!account) {
-    account = await tx.chartOfAccount.findFirst({
-      where: {
-        createdBy: userId,
-        isActive: true,
-        OR: [
-          { code: '5100' },
-          { name: { contains: 'Purchase Returns', mode: 'insensitive' } }
-        ]
-      }
-    });
-  }
-
-  if (!account) {
     const maxCode = await tx.chartOfAccount.aggregate({
-      where: { createdBy: userId },
+      where: { companyId: companyId },
       _max: { code: true }
     });
     
@@ -120,8 +81,8 @@ async function getOrCreatePurchaseReturnsAccount(tx, userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId,
-        userId: userId
+        createdBy: userId || 'SYSTEM',
+        companyId: companyId
       }
     });
   }
@@ -131,13 +92,14 @@ async function getOrCreatePurchaseReturnsAccount(tx, userId) {
 
 class PurchaseReturnModel {
   // ============================================================
-  // GET INVOICE PRODUCTS FOR RETURN
+  // GET INVOICE PRODUCTS FOR RETURN - ✅ FIXED
   // ============================================================
-  static async getInvoiceProducts(invoiceId, userId) {
+  static async getInvoiceProducts(invoiceId, companyId) {
+    // ✅ FIXED: Use companyId instead of userId
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: invoiceId,
-        userId: userId,
+        companyId: companyId,
         isActive: true,
         isDeleted: false,
         invoiceStatus: {
@@ -157,7 +119,6 @@ class PurchaseReturnModel {
       throw new Error('Purchase invoice not found');
     }
 
-    // Get previously returned quantities for each product
     const previousReturns = await prisma.purchaseReturnItem.groupBy({
       by: ['productId', 'purchaseInvoiceId'],
       where: {
@@ -180,7 +141,6 @@ class PurchaseReturnModel {
       returnMap[item.productId] = item._sum.returnQuantity || 0;
     });
 
-    // Calculate available quantities
     const products = invoice.items.map(item => {
       const previouslyReturned = returnMap[item.productId] || 0;
       const availableQuantity = item.quantity - previouslyReturned;
@@ -203,7 +163,7 @@ class PurchaseReturnModel {
   }
 
   // ============================================================
-  // CREATE PURCHASE RETURN (DRAFT)
+  // CREATE PURCHASE RETURN (DRAFT) - ✅ FIXED
   // ============================================================
   static async createDraft(data) {
     const returnNumber = generateReturnNumber();
@@ -218,7 +178,9 @@ class PurchaseReturnModel {
         notes,
         items,
         userId,
-        createdBy
+        createdBy,
+        companyId,
+        fiscalYearId
       } = data;
 
       // ─── Validation ──────────────────────────────────────────
@@ -238,7 +200,7 @@ class PurchaseReturnModel {
       const supplier = await tx.supplier.findFirst({
         where: {
           id: supplierId,
-          userId: userId,
+          companyId: companyId,
           status: 'active'
         }
       });
@@ -251,7 +213,7 @@ class PurchaseReturnModel {
       const invoice = await tx.purchaseInvoice.findFirst({
         where: {
           id: purchaseInvoiceId,
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false
         },
@@ -277,7 +239,6 @@ class PurchaseReturnModel {
           throw new Error(`Product ${item.productName} not found in invoice`);
         }
 
-        // Check available quantity
         const previousReturns = await tx.purchaseReturnItem.aggregate({
           where: {
             purchaseInvoiceId: purchaseInvoiceId,
@@ -289,7 +250,7 @@ class PurchaseReturnModel {
               isActive: true,
               isDeleted: false,
               NOT: {
-                id: item.returnId || '' // Exclude current return if updating
+                id: item.returnId || ''
               }
             }
           },
@@ -342,8 +303,9 @@ class PurchaseReturnModel {
           totalReturnQty,
           returnAmount,
           grandTotal,
-          createdBy,
-          userId,
+          createdBy: createdBy || userId,
+          companyId: companyId,
+          fiscalYearId: fiscalYearId,
           items: {
             create: validatedItems.map(item => ({
               productId: item.productId,
@@ -382,14 +344,14 @@ class PurchaseReturnModel {
   }
 
   // ============================================================
-  // PROCESS PURCHASE RETURN
+  // PROCESS PURCHASE RETURN - ✅ FIXED
   // ============================================================
-  static async processReturn(id, userId) {
+  static async processReturn(id, userId, companyId) {
     return await prisma.$transaction(async (tx) => {
       const purchaseReturn = await tx.purchaseReturn.findFirst({
         where: {
           id,
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false
         },
@@ -421,17 +383,17 @@ class PurchaseReturnModel {
       }
 
       // ─── Get Accounts ────────────────────────────────────────
-      const apAccount = await findAPAccount(tx, userId);
+      const apAccount = await findAPAccount(tx, companyId);
       if (!apAccount) {
         throw new Error('Accounts Payable account not found');
       }
 
-      const inventoryAccount = await findInventoryAccount(tx, userId);
+      const inventoryAccount = await findInventoryAccount(tx, companyId);
       if (!inventoryAccount) {
         throw new Error('Inventory account not found');
       }
 
-      const purchaseReturnsAccount = await getOrCreatePurchaseReturnsAccount(tx, userId);
+      const purchaseReturnsAccount = await getOrCreatePurchaseReturnsAccount(tx, companyId, userId);
 
       // ─── Create Journal Entry ────────────────────────────────
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -446,10 +408,10 @@ class PurchaseReturnModel {
           createdBy: userId,
           postedBy: userId,
           postedAt: new Date(),
-          userId: userId,
+          companyId: companyId,
+          fiscalYearId: purchaseReturn.fiscalYearId,
           lines: {
             create: [
-              // Debit: Accounts Payable
               {
                 accountId: apAccount.id,
                 accountName: apAccount.name,
@@ -457,7 +419,6 @@ class PurchaseReturnModel {
                 debit: purchaseReturn.grandTotal,
                 credit: 0
               },
-              // Credit: Purchase Returns (or Inventory)
               {
                 accountId: purchaseReturnsAccount.id,
                 accountName: purchaseReturnsAccount.name,
@@ -525,12 +486,11 @@ class PurchaseReturnModel {
           }
         });
 
-        // ─── Create Stock Movement ─────────────────────────────
         await tx.stockMovement.create({
           data: {
             productId: item.productId,
             productName: item.productName,
-            type: 'Return',
+            type: 'Purchase Return',
             quantity: item.returnQuantity,
             previousStock: product.currentStock,
             newStock: newStock,
@@ -542,7 +502,7 @@ class PurchaseReturnModel {
             status: 'Completed',
             notes: `Returned ${item.returnQuantity} ${item.productName} - ${purchaseReturn.returnReason}`,
             createdBy: userId,
-            userId: userId
+            companyId: companyId
           }
         });
       }
@@ -551,7 +511,6 @@ class PurchaseReturnModel {
       const invoice = purchaseReturn.purchaseInvoice;
       
       if (invoice.paymentStatus === 'Unpaid' || invoice.paymentStatus === 'Partial') {
-        // Reduce outstanding amount
         const newOutstanding = invoice.outstanding - purchaseReturn.grandTotal;
         const newPaidAmount = invoice.paidAmount;
         
@@ -575,7 +534,6 @@ class PurchaseReturnModel {
           }
         });
 
-        // Update Accounts Payable
         await tx.accountsPayable.updateMany({
           where: { invoiceId: invoice.id },
           data: {
@@ -583,32 +541,7 @@ class PurchaseReturnModel {
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
-      } else if (invoice.paymentStatus === 'Paid') {
-        // Invoice is fully paid - create Supplier Credit/Refund
-        // This will be handled by creating a credit note or refund
-        // For now, we'll mark it for manual processing
-        console.log(`Invoice ${invoice.invoiceNumber} is fully paid. Supplier credit/refund required.`);
       }
-
-      // ─── Update Supplier Outstanding Balance ──────────────────
-      const totalOutstanding = await tx.purchaseInvoice.aggregate({
-        where: {
-          supplierId: purchaseReturn.supplierId,
-          userId: userId,
-          isActive: true,
-          isDeleted: false,
-          invoiceStatus: {
-            in: ['Posted', 'Partially Paid']
-          }
-        },
-        _sum: {
-          outstanding: true
-        }
-      });
-
-      // Note: If supplier has outstanding balance field, update it here
-      // Currently Supplier model doesn't have outstanding balance field
-      // You can add it if needed
 
       return updatedReturn;
     });
@@ -617,12 +550,12 @@ class PurchaseReturnModel {
   // ============================================================
   // CANCEL PURCHASE RETURN
   // ============================================================
-  static async cancelReturn(id, userId, reason = '') {
+  static async cancelReturn(id, userId, companyId, reason = '') {
     return await prisma.$transaction(async (tx) => {
       const purchaseReturn = await tx.purchaseReturn.findFirst({
         where: {
           id,
-          userId: userId,
+          companyId: companyId,
           isActive: true,
           isDeleted: false
         },
@@ -647,7 +580,6 @@ class PurchaseReturnModel {
         throw new Error('Cannot cancel a processed return. Please reverse the transaction.');
       }
 
-      // ─── Update Purchase Return ──────────────────────────────
       const cancelledReturn = await tx.purchaseReturn.update({
         where: { id },
         data: {
@@ -748,14 +680,21 @@ class PurchaseReturnModel {
   }
 
   // ============================================================
-  // GET ALL RETURNS WITH FILTERS
+  // GET ALL RETURNS WITH FILTERS - ✅ FIXED
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { createdAt: 'desc' } } = options;
 
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+
     return await prisma.purchaseReturn.findMany({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       },
@@ -781,12 +720,19 @@ class PurchaseReturnModel {
   }
 
   // ============================================================
-  // COUNT RETURNS
+  // COUNT RETURNS - ✅ FIXED
   // ============================================================
   static async count(filter = {}) {
+    // ✅ FIXED: Map userId to createdBy if present
+    const cleanFilter = { ...filter };
+    if (cleanFilter.userId) {
+      cleanFilter.createdBy = cleanFilter.userId;
+      delete cleanFilter.userId;
+    }
+
     return await prisma.purchaseReturn.count({
       where: {
-        ...filter,
+        ...cleanFilter,
         isActive: true,
         isDeleted: false
       }
@@ -794,9 +740,10 @@ class PurchaseReturnModel {
   }
 
   // ============================================================
-  // GET RETURN STATS
+  // GET RETURN STATS - ✅ FIXED
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId) {
+    // ✅ FIXED: Use companyId instead of userId
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -804,7 +751,7 @@ class PurchaseReturnModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId
     };
 
     const todayReturns = await prisma.purchaseReturn.count({

@@ -1,4 +1,4 @@
-// warehouse/controller/purchaseReturnController.js - COMPLETE
+// warehouse/controller/purchaseReturnController.js - COMPLETE CORRECTED
 
 const PurchaseReturnModel = require('../models/PurchaseReturn');
 const prisma = require('../../prisma/client');
@@ -9,7 +9,7 @@ const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 // ─── PURCHASE RETURN CONTROLLERS ──────────────────────────────
 // ============================================================
 
-// @desc    Get Invoice Products for Return
+// @desc    Get Invoice Products for Return - ✅ FIXED
 // @route   GET /api/purchase/returns/invoice/:invoiceId/products
 // @access  Private
 const getInvoiceProducts = async (req, res) => {
@@ -20,9 +20,7 @@ const getInvoiceProducts = async (req, res) => {
 
     console.log('🔵 [getInvoiceProducts] Called');
     console.log('🔵 [getInvoiceProducts] Invoice ID:', invoiceId);
-    console.log('🔵 [getInvoiceProducts] User ID:', userId);
 
-    // ─── Check if invoice exists ──────────────────────────────
     const invoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: invoiceId,
@@ -48,9 +46,8 @@ const getInvoiceProducts = async (req, res) => {
       });
     }
 
-    console.log(`✅ [getInvoiceProducts] Invoice found: ${invoice.invoiceNumber}`);
-
-    const result = await PurchaseReturnModel.getInvoiceProducts(invoiceId, userId);
+    // ✅ FIXED: Pass companyId instead of userId
+    const result = await PurchaseReturnModel.getInvoiceProducts(invoiceId, companyId);
 
     res.status(200).json({
       success: true,
@@ -80,7 +77,6 @@ const getSupplierInvoices = async (req, res) => {
     console.log('🔵 [getSupplierInvoices] Called');
     console.log('🔵 [getSupplierInvoices] Supplier ID:', supplierId);
 
-    // ─── Check if supplier exists ──────────────────────────────
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
@@ -136,7 +132,7 @@ const getSupplierInvoices = async (req, res) => {
   }
 };
 
-// @desc    Create Draft Purchase Return
+// @desc    Create Draft Purchase Return - ✅ FIXED
 // @route   POST /api/purchase/returns/draft
 // @access  Private
 const createDraftReturn = async (req, res) => {
@@ -156,7 +152,6 @@ const createDraftReturn = async (req, res) => {
 
     const postingDate = returnDate ? new Date(returnDate) : new Date();
 
-    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
     try {
       await fiscalYearGuard(userId, postingDate);
     } catch (err) {
@@ -166,7 +161,6 @@ const createDraftReturn = async (req, res) => {
       throw err;
     }
 
-    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
     const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     console.log('═══════════════════════════════════════════════════');
@@ -175,7 +169,6 @@ const createDraftReturn = async (req, res) => {
     console.log('🔵 [createDraftReturn] Invoice ID:', purchaseInvoiceId);
     console.log('🔵 [createDraftReturn] Items:', items?.length);
 
-    // ─── Validation ──────────────────────────────────────────
     if (!supplierId) {
       console.log('❌ [createDraftReturn] Supplier is required');
       return res.status(400).json({
@@ -200,7 +193,6 @@ const createDraftReturn = async (req, res) => {
       });
     }
 
-    // ─── Validate items ──────────────────────────────────────
     for (const item of items) {
       if (!item.productId) {
         return res.status(400).json({
@@ -232,6 +224,7 @@ const createDraftReturn = async (req, res) => {
       }
     }
 
+    // ✅ FIXED: Include companyId
     const returnData = {
       supplierId,
       supplierName,
@@ -243,6 +236,7 @@ const createDraftReturn = async (req, res) => {
       returnDate: postingDate,
       userId,
       createdBy: userId,
+      companyId: companyId,
       fiscalYearId,
     };
 
@@ -269,7 +263,7 @@ const createDraftReturn = async (req, res) => {
   }
 };
 
-// @desc    Process Purchase Return
+// @desc    Process Purchase Return - ✅ FIXED
 // @route   POST /api/purchase/returns/:id/process
 // @access  Private
 const processReturn = async (req, res) => {
@@ -281,9 +275,7 @@ const processReturn = async (req, res) => {
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [processReturn] Called');
     console.log('🔵 [processReturn] Return ID:', id);
-    console.log('🔵 [processReturn] User ID:', userId);
 
-    // ─── Check if return exists ──────────────────────────────
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
@@ -319,7 +311,8 @@ const processReturn = async (req, res) => {
 
     console.log('🔵 [processReturn] Processing return...');
 
-    const processedReturn = await PurchaseReturnModel.processReturn(id, userId);
+    // ✅ FIXED: Pass companyId
+    const processedReturn = await PurchaseReturnModel.processReturn(id, userId, companyId);
 
     console.log('✅ [processReturn] Return processed successfully');
     console.log(`✅ [processReturn] Return Number: ${processedReturn.returnNumber}`);
@@ -340,7 +333,7 @@ const processReturn = async (req, res) => {
   }
 };
 
-// @desc    Cancel Purchase Return
+// @desc    Cancel Purchase Return - ✅ FIXED
 // @route   POST /api/purchase/returns/:id/cancel
 // @access  Private
 const cancelReturn = async (req, res) => {
@@ -353,9 +346,7 @@ const cancelReturn = async (req, res) => {
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [cancelReturn] Called');
     console.log('🔵 [cancelReturn] Return ID:', id);
-    console.log('🔵 [cancelReturn] Reason:', reason);
 
-    // ─── Check if return exists ──────────────────────────────
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
@@ -391,7 +382,8 @@ const cancelReturn = async (req, res) => {
 
     console.log('🔵 [cancelReturn] Cancelling return...');
 
-    const cancelledReturn = await PurchaseReturnModel.cancelReturn(id, userId, reason || '');
+    // ✅ FIXED: Pass companyId
+    const cancelledReturn = await PurchaseReturnModel.cancelReturn(id, userId, companyId, reason || '');
 
     console.log('✅ [cancelReturn] Return cancelled successfully');
     console.log('═══════════════════════════════════════════════════');
@@ -411,7 +403,7 @@ const cancelReturn = async (req, res) => {
   }
 };
 
-// @desc    Get All Returns with Filters
+// @desc    Get All Returns with Filters - ✅ FIXED
 // @route   GET /api/purchase/returns
 // @access  Private
 const getReturns = async (req, res) => {
@@ -434,8 +426,10 @@ const getReturns = async (req, res) => {
     console.log('🔵 [getReturns] Called');
     console.log('🔵 [getReturns] Filters:', { page, limit, search, status });
 
+    // ✅ FIXED: Use createdBy and companyId
     const filter = {
-      userId: userId,
+      createdBy: userId,      // ✅ Use createdBy instead of userId
+      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false
     };
@@ -475,10 +469,11 @@ const getReturns = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     const orderBy = { [sortBy]: sortOrder === 'asc' ? 'asc' : 'desc' };
 
+    // ✅ FIXED: Pass companyId to getStats
     const [returns, total, stats] = await Promise.all([
       PurchaseReturnModel.findAll(filter, { skip, take: limitNum, orderBy }),
       PurchaseReturnModel.count(filter),
-      PurchaseReturnModel.getStats(userId)
+      PurchaseReturnModel.getStats(companyId)  // ✅ Pass companyId
     ]);
 
     console.log(`✅ [getReturns] Found ${returns.length} returns`);
@@ -652,17 +647,17 @@ const getReturnByNumber = async (req, res) => {
   }
 };
 
-// @desc    Get Return Stats
+// @desc    Get Return Stats - ✅ FIXED
 // @route   GET /api/purchase/returns/stats
 // @access  Private
 const getReturnStats = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
     console.log('🔵 [getReturnStats] Called');
 
-    const stats = await PurchaseReturnModel.getStats(userId);
+    // ✅ FIXED: Pass companyId
+    const stats = await PurchaseReturnModel.getStats(companyId);
 
     console.log('✅ [getReturnStats] Stats fetched successfully');
 
@@ -738,7 +733,6 @@ const deleteReturn = async (req, res) => {
     console.log('🔵 [deleteReturn] Called');
     console.log('🔵 [deleteReturn] Return ID:', id);
 
-    // ─── Check if return exists ──────────────────────────────
     const purchaseReturn = await prisma.purchaseReturn.findFirst({
       where: {
         id: id,
@@ -764,7 +758,6 @@ const deleteReturn = async (req, res) => {
       });
     }
 
-    // ─── Soft Delete Return ──────────────────────────────────
     await prisma.purchaseReturn.update({
       where: { id },
       data: {
