@@ -77,6 +77,8 @@ const purchaseDashboardRoutes = require('./warehouse/routes/purchase_dashboard_r
 const expiryReportRoutes = require('./warehouse/routes/expiry_report_routes');
 const lowStockReportRoutes = require('./warehouse/routes/low_stock_report_routes');
 const emailRoutes = require('./routes/emailRoutes');
+const posRoutes   = require('./pos/routes/posRoutes');
+const taxRoutes   = require('./tax/routes/taxRoutes');
 
 app.use('/api/purchase/dashboard', purchaseDashboardRoutes);
 app.use('/api/purchase/returns', purchaseReturnRoutes);
@@ -121,8 +123,10 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/warehouse/reports', plReportRoutes);
 
 app.use('/api/warehouse/inventory', inventoryRoutes);
-app.use('/api/warehouse/invoices', warehouseinvoiceRoutes);
+// Merged sales+purchase list (invoiceType filter) must register first —
+// the legacy invoiceRoutes also mounts GET / and would otherwise win.
 app.use('/api/warehouse/invoices', warehouseInvoiceRoutes);
+app.use('/api/warehouse/invoices', warehouseinvoiceRoutes);
 app.use('/api/warehouse/purchases', warehousePurchaseRoutes);
 app.use('/api/warehouse/sales', warehouseSalesRoutes);
 app.use('/api/warehouse/customers', customerRoutes);
@@ -134,6 +138,8 @@ app.use('/api/warehouse/stock', StockRoutes);
 app.use('/api/warehouse/reports/expiry', expiryReportRoutes);
 app.use('/api/warehouse/reports/low-stock', lowStockReportRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/pos',   posRoutes);
+app.use('/api/tax',   taxRoutes);
 
 app.use('/api/orders', OrderRoutes);
 

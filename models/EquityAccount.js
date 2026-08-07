@@ -90,14 +90,12 @@ const EquityAccountSchema = new mongoose.Schema(
   }
 );
 
-// Update balance before save
 EquityAccountSchema.pre('save', function(next) {
   this.currentBalance = this.openingBalance + this.additions - this.withdrawals;
   this.lastUpdated = new Date();
   next();
 });
 
-// Method to add capital
 EquityAccountSchema.methods.addCapital = async function(amount, description, reference, userId) {
   this.additions += amount;
   this.currentBalance = this.openingBalance + this.additions - this.withdrawals;

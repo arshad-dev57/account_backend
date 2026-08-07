@@ -71,19 +71,19 @@ class EmailService {
 
     const isLoginOTP = type === 'login';
     const subject = isLoginOTP 
-      ? '🔐 Your Login Verification Code — LedgerPro' 
-      : '🔑 Password Reset OTP — LedgerPro';
+      ? '🔐 Your Login Verification Code — BisonsTechs' 
+      : '🔑 Password Reset OTP — BisonsTechs';
     
     const headerTitle = isLoginOTP ? 'Login Verification' : 'Password Reset';
     const headerSubtitle = isLoginOTP 
       ? `One-Time Password for ${firstName ? firstName + "'s" : 'your'} Login`
       : `One-Time Password for ${firstName ? firstName + "'s" : 'your'} Password Reset`;
     const securityNotice = isLoginOTP
-      ? 'LedgerPro will never ask for your OTP via phone or chat. If you did not attempt to login, please secure your account immediately.'
+      ? 'BisonsTechs will never ask for your OTP via phone or chat. If you did not attempt to login, please secure your account immediately.'
       : 'If you did not request a password reset, please ignore this email.';
 
     const mailOptions = {
-      from: `"LedgerPro" <${process.env.EMAIL_USER}>`,
+      from: `"BisonsTechs" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: subject,
       html: `
@@ -127,7 +127,7 @@ class EmailService {
           <td style="background:#ffffff;padding:36px 40px 28px;">
             <p style="font-size:15px;color:#374151;line-height:1.8;margin:0 0 28px 0;">
               Hello <strong style="color:#111827;">${firstName || 'there'}</strong>,<br/>
-              Use the code below to complete your <strong style="color:#111827;">LedgerPro</strong> ${isLoginOTP ? 'login' : 'password reset'}.
+              Use the code below to complete your <strong style="color:#111827;">BisonsTechs</strong> ${isLoginOTP ? 'login' : 'password reset'}.
               This code expires in <strong style="color:#ef4444;">10 minutes</strong>.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#f8faff,#eef2ff);border:1.5px solid #e0e7ff;border-radius:16px;margin-bottom:28px;overflow:hidden;">
@@ -153,14 +153,14 @@ class EmailService {
             </table>
             <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:0;">
               Sent to <span style="color:#6366f1;">${email}</span><br/>
-              Questions? <span style="color:#6366f1;">support@ledgerpro.com</span>
+              Questions? <span style="color:#6366f1;">support@BisonsTechs.com</span>
             </p>
           </td>
         </tr>
         <tr>
           <td style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:22px 40px;">
             <p style="font-size:12px;color:#9ca3af;line-height:1.7;margin:0 0 12px 0;">
-              © 2025 LedgerPro. All rights reserved.<br/>Secure Financial Management Platform
+              © 2025 BisonsTechs. All rights reserved.<br/>Secure Financial Management Platform
             </p>
           </td>
         </tr>
@@ -196,9 +196,9 @@ class EmailService {
     }
 
     const mailOptions = {
-      from: `"LedgerPro" <${process.env.EMAIL_USER}>`,
+      from: `"BisonsTechs" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: '🎉 Welcome to LedgerPro — Your Financial Journey Starts Here!',
+      subject: '🎉 Welcome to BisonsTechs — Your Financial Journey Starts Here!',
       html: `
 <!DOCTYPE html>
 <html lang="en">
@@ -221,7 +221,7 @@ class EmailService {
               </td></tr>
             </table>
             <div style="font-size:36px;margin-bottom:8px;">🎉</div>
-            <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;line-height:1.2;">Welcome to LedgerPro</div>
+            <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;line-height:1.2;">Welcome to BisonsTechs</div>
             <div style="margin-top:8px;font-size:15px;color:rgba(255,255,255,0.7);font-weight:300;">
               Your 30-day free trial has started
             </div>
@@ -238,7 +238,7 @@ class EmailService {
           <td style="background:#ffffff;padding:36px 40px 28px;">
             <p style="font-size:15px;color:#374151;line-height:1.8;margin:0 0 28px 0;">
               Hello <strong style="color:#111827;">${firstName || 'there'}</strong>,<br/>
-              Welcome to <strong style="color:#111827;">LedgerPro</strong>! We're thrilled to have you on board.
+              Welcome to <strong style="color:#111827;">BisonsTechs</strong>! We're thrilled to have you on board.
               Your 30-day free trial is now active — explore all the features and take control of your finances.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
@@ -262,7 +262,7 @@ class EmailService {
               </td></tr>
             </table>
             <div style="text-align:center;margin:32px 0 24px;">
-              <a href="${process.env.FRONTEND_URL || 'https://app.ledgerpro.com'}/dashboard" 
+              <a href="${process.env.FRONTEND_URL || 'https://app.BisonsTechs.com'}/dashboard" 
                  style="display:inline-block;background:linear-gradient(135deg,#1AB4F5,#6366f1);color:#ffffff;text-decoration:none;padding:14px 44px;border-radius:50px;font-weight:600;font-size:16px;box-shadow:0 8px 24px rgba(99,102,241,0.35);">
                 Go to Dashboard →
               </a>
@@ -271,14 +271,14 @@ class EmailService {
               <tr><td style="height:1px;background:linear-gradient(90deg,transparent,#e5e7eb,transparent);"></td></tr>
             </table>
             <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:0;">
-              Questions? <span style="color:#6366f1;">support@ledgerpro.com</span>
+              Questions? <span style="color:#6366f1;">support@BisonsTechs.com</span>
             </p>
           </td>
         </tr>
         <tr>
           <td style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:22px 40px;">
             <p style="font-size:12px;color:#9ca3af;line-height:1.7;margin:0 0 12px 0;">
-              © 2025 LedgerPro. All rights reserved.<br/>Secure Financial Management Platform
+              © 2025 BisonsTechs. All rights reserved.<br/>Secure Financial Management Platform
             </p>
           </td>
         </tr>

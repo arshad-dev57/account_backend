@@ -1,4 +1,3 @@
-// controllers/journalEntryController.js - COMPLETE CORRECTED
 
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
@@ -180,9 +179,6 @@ async function updateBankAccountsForJournalEntry(journalEntryId, companyId) {
   return updatedBankAccounts;
 }
 
-// ============================================================
-// CREATE JOURNAL ENTRY
-// ============================================================
 const createJournalEntry = async (req, res) => {
   try {
     const { date, description, reference, lines } = req.body;
@@ -398,11 +394,9 @@ const getJournalEntries = async (req, res) => {
       companyId: companyId
     };
 
-    // Only filter by status if provided
-    if (status) {
+    // Only filter by status if explicitly provided
+    if (status && status !== 'All') {
       filter.status = status;
-    } else {
-      filter.status = 'Posted'; // Default to Posted if no status specified
     }
 
     if (startDate && endDate) {
@@ -468,6 +462,9 @@ const getJournalEntries = async (req, res) => {
 
     const totalPages = Math.ceil(total / limitNum);
 
+    const postedCount = allEntries.filter(e => e.status === 'Posted').length;
+    const draftCount = allEntries.filter(e => e.status === 'Draft').length;
+
     res.status(200).json({
       success: true,
       count: journalEntries.length,
@@ -479,7 +476,8 @@ const getJournalEntries = async (req, res) => {
         totalDebit,
         totalCredit,
         difference: Math.abs(totalDebit - totalCredit),
-        postedCount: total
+        postedCount,
+        draftCount,
       }
     });
   } catch (error) {
@@ -492,9 +490,6 @@ const getJournalEntries = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET JOURNAL ENTRY BY ID
-// ============================================================
 const getJournalEntry = async (req, res) => {
   try {
     const { id } = req.params;
@@ -583,7 +578,6 @@ const deleteJournalEntry = async (req, res) => {
       throw err;
     }
 
-    // ─── Reverse balance changes ──────────────────────────────
     await prisma.$transaction(async (tx) => {
       for (const line of existing.lines) {
         const reverseChange = calculateBalanceChange(
@@ -614,7 +608,6 @@ const deleteJournalEntry = async (req, res) => {
       });
     });
 
-    // ✅ FIXED: Pass companyId to updateBankAccountsForJournalEntry
     const bankAccountUpdates = await updateBankAccountsForJournalEntry(id, companyId);
     
     if (bankAccountUpdates.length > 0) {
@@ -636,9 +629,6 @@ const deleteJournalEntry = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET JOURNAL ENTRY STATS
-// ============================================================
 const getJournalEntryStats = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -681,9 +671,6 @@ const getJournalEntryStats = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET JOURNAL ENTRIES BY ACCOUNT
-// ============================================================
 const getJournalEntriesByAccount = async (req, res) => {
   try {
     const { accountId } = req.params;
@@ -725,9 +712,6 @@ const getJournalEntriesByAccount = async (req, res) => {
   }
 };
 
-// ============================================================
-// POST JOURNAL ENTRY (Draft to Posted)
-// ============================================================
 const postJournalEntry = async (req, res) => {
   try {
     const { id } = req.params;

@@ -123,7 +123,8 @@ exports.createFiscalYear = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 exports.listFiscalYears = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId    = req.user.id;
+    const companyId = req.user.companyId;
 
     // Build cache key
     const cacheKey = `fiscal:list:${userId}`;

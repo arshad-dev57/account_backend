@@ -2,6 +2,7 @@ const prisma = require('../prisma/client');
 const LoanModel = require('../models/Loan');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { delPattern } = require('../utils/redisClient');
 
 // ============================================================
 // HELPER FUNCTIONS
@@ -198,7 +199,10 @@ async function validateBankAccount(bankAccountId, userId, companyId) {
   const bankAccount = await prisma.bankAccount.findFirst({
     where: {
       id: bankAccountId,
-      companyId: companyId
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId },
+      ],
     }
   });
 
@@ -208,6 +212,70 @@ async function validateBankAccount(bankAccountId, userId, companyId) {
   }
   console.log(`✅ [LN] Bank account found: ${bankAccount.accountName}`);
   return bankAccount;
+}
+
+async function resolveCashOrBankChartAccount(userId, companyId, bankAccountId) {
+  let cashChartAccount = await getOrCreateCashAccount(userId, companyId);
+
+  if (!bankAccountId) {
+    return { cashChartAccount, bankAccount: null };
+  }
+
+  const bankAccount = await prisma.bankAccount.findFirst({
+    where: {
+      id: bankAccountId,
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId },
+      ],
+    },
+  });
+
+  if (bankAccount?.chartOfAccountId) {
+    const bankChartAccount = await prisma.chartOfAccount.findFirst({
+      where: {
+        id: bankAccount.chartOfAccountId,
+        OR: [
+          { companyId: companyId },
+          { companyId: null, createdBy: userId },
+        ],
+      },
+    });
+    if (bankChartAccount) {
+      cashChartAccount = bankChartAccount;
+    }
+  }
+
+  return { cashChartAccount, bankAccount };
+}
+
+async function syncCashMovement({ bankAccount, chartAccountId, amount, direction }) {
+  const delta = direction === 'increment'
+    ? { increment: amount }
+    : { decrement: amount };
+
+  if (bankAccount?.id) {
+    await prisma.bankAccount.update({
+      where: { id: bankAccount.id },
+      data: { currentBalance: delta },
+    });
+  }
+
+  if (chartAccountId) {
+    await prisma.chartOfAccount.update({
+      where: { id: chartAccountId },
+      data: { currentBalance: delta },
+    });
+  }
+}
+
+async function invalidateBankCache(companyId) {
+  if (!companyId) return;
+  try {
+    await delPattern(`bank:accounts:${companyId}:*`);
+  } catch (e) {
+    console.log('⚠️ [LN] Bank cache invalidation error:', e.message);
+  }
 }
 
 // ============================================================
@@ -307,30 +375,15 @@ exports.createLoan = async (req, res) => {
 
     console.log(`✅ [LN] Loan created: ${loan.loanNumber}`);
 
-    // ─── 4. Create Journal Entry ──────────────────────────────
+    // ─── 4. Create Journal Entry + sync balances ───────────────
     const loanAccount = await getOrCreateLoanAccount(userId, companyId);
-    let cashChartAccount = await getOrCreateCashAccount(userId, companyId);
+    const loanAmountParsed = parseFloat(loanAmount);
 
-    // If bank account is selected, use its chart of account
-    if (finalBankAccountId) {
-      const bankAccount = await prisma.bankAccount.findFirst({
-        where: {
-          id: finalBankAccountId,
-          companyId: companyId
-        }
-      });
-      if (bankAccount && bankAccount.chartOfAccountId) {
-        const bankChartAccount = await prisma.chartOfAccount.findFirst({
-          where: {
-            id: bankAccount.chartOfAccountId,
-            companyId: companyId
-          }
-        });
-        if (bankChartAccount) {
-          cashChartAccount = bankChartAccount;
-        }
-      }
-    }
+    const { cashChartAccount, bankAccount } = await resolveCashOrBankChartAccount(
+      userId,
+      companyId,
+      finalBankAccountId,
+    );
 
     await prisma.journalEntry.create({
       data: {
@@ -350,7 +403,7 @@ exports.createLoan = async (req, res) => {
               accountId: cashChartAccount.id,
               accountName: cashChartAccount.name,
               accountCode: cashChartAccount.code,
-              debit: parseFloat(loanAmount),
+              debit: loanAmountParsed,
               credit: 0,
               isReconciled: false
             },
@@ -359,7 +412,7 @@ exports.createLoan = async (req, res) => {
               accountName: loanAccount.name,
               accountCode: loanAccount.code,
               debit: 0,
-              credit: parseFloat(loanAmount),
+              credit: loanAmountParsed,
               isReconciled: false
             }
           ]
@@ -367,7 +420,22 @@ exports.createLoan = async (req, res) => {
       }
     });
 
-    console.log('✅ [LN] Journal entry created');
+    // Loan proceeds increase bank/cash; liability increases
+    await syncCashMovement({
+      bankAccount,
+      chartAccountId: cashChartAccount.id,
+      amount: loanAmountParsed,
+      direction: 'increment',
+    });
+
+    await prisma.chartOfAccount.update({
+      where: { id: loanAccount.id },
+      data: { currentBalance: { increment: loanAmountParsed } },
+    });
+
+    await invalidateBankCache(companyId);
+
+    console.log('✅ [LN] Journal entry created and bank balance updated');
 
     res.status(201).json({
       success: true,
@@ -607,12 +675,22 @@ exports.recordPayment = async (req, res) => {
     const companyId = req.user.companyId;
     const date = paymentDate ? new Date(paymentDate) : new Date();
 
+    if (!loanId || String(loanId).trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Loan ID is required',
+      });
+    }
+
     // ─── Check if loan exists ──────────────────────────────
     const loan = await prisma.loan.findFirst({
       where: {
         id: loanId,
-        companyId: companyId
-      }
+        OR: [
+          { companyId: companyId },
+          { companyId: null, createdBy: userId },
+        ],
+      },
     });
 
     if (!loan) {
@@ -639,30 +717,16 @@ exports.recordPayment = async (req, res) => {
       type: type || 'EMI'
     });
 
-    // ─── Create Journal Entry ──────────────────────────────
+    // ─── Create Journal Entry + sync balances ────────────────
     const loanAccount = await getOrCreateLoanAccount(userId, companyId);
     const interestAccount = await getOrCreateInterestExpenseAccount(userId, companyId);
+    const paymentAmount = parseFloat(amount);
 
-    let cashChartAccount = await getOrCreateCashAccount(userId, companyId);
-    if (loan.bankAccountId) {
-      const bankAccount = await prisma.bankAccount.findFirst({
-        where: {
-          id: loan.bankAccountId,
-          companyId: companyId
-        }
-      });
-      if (bankAccount && bankAccount.chartOfAccountId) {
-        const bankChartAccount = await prisma.chartOfAccount.findFirst({
-          where: {
-            id: bankAccount.chartOfAccountId,
-            companyId: companyId
-          }
-        });
-        if (bankChartAccount) {
-          cashChartAccount = bankChartAccount;
-        }
-      }
-    }
+    const { cashChartAccount, bankAccount } = await resolveCashOrBankChartAccount(
+      userId,
+      companyId,
+      loan.bankAccountId,
+    );
 
     await prisma.journalEntry.create({
       data: {
@@ -698,7 +762,7 @@ exports.recordPayment = async (req, res) => {
               accountName: cashChartAccount.name,
               accountCode: cashChartAccount.code,
               debit: 0,
-              credit: parseFloat(amount),
+              credit: paymentAmount,
               isReconciled: false
             }
           ]
@@ -706,7 +770,30 @@ exports.recordPayment = async (req, res) => {
       }
     });
 
-    console.log(`✅ [LN] Payment recorded: ${amount}`);
+    await syncCashMovement({
+      bankAccount,
+      chartAccountId: cashChartAccount.id,
+      amount: paymentAmount,
+      direction: 'decrement',
+    });
+
+    if (result.principal > 0) {
+      await prisma.chartOfAccount.update({
+        where: { id: loanAccount.id },
+        data: { currentBalance: { decrement: result.principal } },
+      });
+    }
+
+    if (result.interest > 0) {
+      await prisma.chartOfAccount.update({
+        where: { id: interestAccount.id },
+        data: { currentBalance: { increment: result.interest } },
+      });
+    }
+
+    await invalidateBankCache(companyId);
+
+    console.log(`✅ [LN] Payment recorded and bank balance updated: ${amount}`);
 
     res.status(200).json({
       success: true,
@@ -869,29 +956,14 @@ exports.prepayLoan = async (req, res) => {
       type: 'Prepayment'
     });
 
-    // ─── Create Journal Entry ──────────────────────────────
+    // ─── Create Journal Entry + sync balances ────────────────
     const loanAccount = await getOrCreateLoanAccount(userId, companyId);
-    let cashChartAccount = await getOrCreateCashAccount(userId, companyId);
 
-    if (loan.bankAccountId) {
-      const bankAccount = await prisma.bankAccount.findFirst({
-        where: {
-          id: loan.bankAccountId,
-          companyId: companyId
-        }
-      });
-      if (bankAccount && bankAccount.chartOfAccountId) {
-        const bankChartAccount = await prisma.chartOfAccount.findFirst({
-          where: {
-            id: bankAccount.chartOfAccountId,
-            companyId: companyId
-          }
-        });
-        if (bankChartAccount) {
-          cashChartAccount = bankChartAccount;
-        }
-      }
-    }
+    const { cashChartAccount, bankAccount } = await resolveCashOrBankChartAccount(
+      userId,
+      companyId,
+      loan.bankAccountId,
+    );
 
     await prisma.journalEntry.create({
       data: {
@@ -927,7 +999,21 @@ exports.prepayLoan = async (req, res) => {
       }
     });
 
-    console.log(`✅ [LN] Prepayment recorded: ${amount}`);
+    await syncCashMovement({
+      bankAccount,
+      chartAccountId: cashChartAccount.id,
+      amount,
+      direction: 'decrement',
+    });
+
+    await prisma.chartOfAccount.update({
+      where: { id: loanAccount.id },
+      data: { currentBalance: { decrement: amount } },
+    });
+
+    await invalidateBankCache(companyId);
+
+    console.log(`✅ [LN] Prepayment recorded and bank balance updated: ${amount}`);
 
     res.status(200).json({
       success: true,

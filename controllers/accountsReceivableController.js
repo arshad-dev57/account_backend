@@ -1041,7 +1041,7 @@ const getUnpaidInvoices = async (req, res) => {
 };
 
 // ─── HELPER: Generate next payment number ───────────────────────
-async function generatePaymentNumber(userId, tx) {
+async function generatePaymentNumber(companyId, tx) {
   const year = new Date().getFullYear();
   const prefix = `PMT-${year}-`;
 
@@ -1058,8 +1058,6 @@ async function generatePaymentNumber(userId, tx) {
 }
 
 const recordPayment = async (req, res) => {
-  console.log('📦 [AR] recordPayment called');
-
   try {
     const {
       invoiceId,
@@ -1072,8 +1070,22 @@ const recordPayment = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📦 [AR] recordPayment called');
+    console.log('  userId    :', userId);
+    console.log('  companyId :', companyId);
+    console.log('  invoiceId :', invoiceId);
+    console.log('  amount    :', amount);
+    console.log('  method    :', paymentMethod);
+    console.log('  bankAccId :', bankAccountId);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    if (!companyId) {
+      console.error('❌ [AR] companyId is missing from req.user — token may be stale');
+      return res.status(400).json({ success: false, message: 'Company ID not found. Please re-login.' });
+    }
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -1127,7 +1139,7 @@ const recordPayment = async (req, res) => {
                 code: '1110', name: 'Accounts Receivable', type: 'Asset',
                 parentAccount: 'Current Assets', openingBalance: 0, currentBalance: 0,
                 description: 'Amount due from customers', taxCode: 'N/A',
-                balanceType: 'Debit', isActive: true, createdBy: userId
+                balanceType: 'Debit', isActive: true, createdBy: userId, companyId: companyId
               }
             });
           }
@@ -1139,7 +1151,7 @@ const recordPayment = async (req, res) => {
                 code: '1010', name: 'Cash in Hand', type: 'Asset',
                 parentAccount: 'Current Assets', openingBalance: 0, currentBalance: 0,
                 description: 'Physical cash in office', taxCode: 'N/A',
-                balanceType: 'Debit', isActive: true, createdBy: userId
+                balanceType: 'Debit', isActive: true, createdBy: userId, companyId: companyId
               }
             });
           }
@@ -1161,7 +1173,7 @@ const recordPayment = async (req, res) => {
           }
 
           // ✅ THE MISSING PIECE: create the PaymentReceived record
-          const paymentNumber = await generatePaymentNumber(userId, tx);
+          const paymentNumber = await generatePaymentNumber(companyId, tx);
 
           const payment = await tx.paymentReceived.create({
             data: {
@@ -1181,6 +1193,7 @@ const recordPayment = async (req, res) => {
               status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
               clearedDate: paymentMethod === 'Cheque' ? null : new Date(),
               createdBy: userId,
+              companyId: companyId,
             }
           });
           console.log('✅ [AR] Payment record created:', payment.paymentNumber);
@@ -1196,6 +1209,7 @@ const recordPayment = async (req, res) => {
               createdBy: userId,
               postedBy: userId,
               postedAt: new Date(),
+              companyId: companyId,
               lines: {
                 create: [
                   {

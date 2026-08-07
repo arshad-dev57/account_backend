@@ -37,7 +37,6 @@ const createNotification = async (req, res) => {
   }
 };
 
-// ─── Get User Notifications ───────────────────────────────────
 
 const getUserNotifications = async (req, res) => {
   try {
@@ -176,7 +175,6 @@ const deleteNotification = async (req, res) => {
   }
 };
 
-// ─── Get Unread Count ─────────────────────────────────────────
 
 const getUnreadCount = async (req, res) => {
   try {

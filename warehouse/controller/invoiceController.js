@@ -182,7 +182,7 @@ const getInvoices = async (req, res) => {
       WarehouseInvoice.count(filter),
     ]);
 
-    const stats = await WarehouseInvoice.getStats();
+    const stats = await WarehouseInvoice.getStats(req.query.period || 'month', companyId);
 
     res.status(200).json({
       success: true,
@@ -462,7 +462,8 @@ const deleteInvoice = async (req, res) => {
 const getInvoiceStats = async (req, res) => {
   try {
     const { period = 'month' } = req.query;
-    const stats = await WarehouseInvoice.getStats(period);
+    const companyId = req.user.companyId;
+    const stats = await WarehouseInvoice.getStats(period, companyId);
     const trend = await WarehouseInvoice.getDailyTrend(30);
 
     res.status(200).json({ success: true, data: { ...stats, trend } });

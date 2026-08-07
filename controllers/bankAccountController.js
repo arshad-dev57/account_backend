@@ -1,82 +1,13 @@
-// controllers/bankAccountController.js - FIXED VERSION
+// controllers/bankAccountController.js
 
 const BankAccountModel = require('../models/BankAccount');
 const prisma = require('../prisma/client');
 const { get, set, del, delPattern } = require('../utils/redisClient');
-
-// ─── HELPER: Get or create Opening Balance Equity ────────────────
-async function getOrCreateOpeningBalanceEquity(userId, companyId) {
-  let equityAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      OR: [
-        { code: '3010', companyId: companyId },
-        { name: 'Opening Balance Equity', companyId: companyId }
-      ]
-    }
-  });
-
-  if (!equityAccount) {
-    const maxCode = await prisma.chartOfAccount.aggregate({
-      where: { companyId: companyId },
-      _max: { code: true }
-    });
-    
-    let newCode = '3010';
-    if (maxCode._max.code) {
-      const num = parseInt(maxCode._max.code) + 1;
-      newCode = num.toString();
-    }
-
-    equityAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: newCode,
-        name: 'Opening Balance Equity',
-        type: 'Equity',
-        parentAccount: 'Equity',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Opening balance equity account - DO NOT DELETE',
-        taxCode: 'N/A',
-        balanceType: 'Credit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-  }
-
-  return equityAccount;
-}
-
-// ─── HELPER: Get or create opening balance entry ──────────────────
-async function getOrCreateOpeningBalanceEntry(userId, companyId) {
-  let openingEntry = await prisma.journalEntry.findFirst({
-    where: {
-      companyId: companyId,
-      description: {
-        contains: 'Opening Balance'
-      },
-      status: 'Posted'
-    }
-  });
-
-  if (!openingEntry) {
-    openingEntry = await prisma.journalEntry.create({
-      data: {
-        entryNumber: `OB-${Date.now()}`,
-        date: new Date(),
-        description: 'Opening Balance Initialization',
-        reference: 'SYSTEM-OB',
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        postedAt: new Date()
-      }
-    });
-  }
-
-  return openingEntry;
-}
+const {
+  upsertBankOpeningBalance,
+  createBankDeposit,
+  repairCompanyBankOpeningBalances,
+} = require('../services/bankAccountingService');
 
 // ─── HELPER: Generate unique account code ─────────────────────────
 async function generateUniqueAccountCode(companyId) {
@@ -133,11 +64,19 @@ exports.createBankAccount = async (req, res) => {
 
     const userId = req.user.id;
     const companyId = req.user.companyId;
+    const opening = Number(openingBalance) || 0;
 
     if (!accountName || !accountNumber || !bankName) {
       return res.status(400).json({
         success: false,
         message: 'Account name, account number and bank name are required'
+      });
+    }
+
+    if (opening < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Opening balance cannot be negative',
       });
     }
 
@@ -151,14 +90,16 @@ exports.createBankAccount = async (req, res) => {
 
     const accountCode = await generateUniqueAccountCode(companyId);
 
+    // currentBalance starts at 0; opening JE (if any) increments it atomically.
+    // openingBalance field stores the original opening amount for display/metadata.
     const chartAccount = await prisma.chartOfAccount.create({
       data: {
         code: accountCode,
         name: accountName,
         type: 'Asset',
         parentAccount: 'Current Assets',
-        openingBalance: openingBalance || 0,
-        currentBalance: openingBalance || 0,
+        openingBalance: opening,
+        currentBalance: 0,
         description: `${bankName} bank account - ${accountNumber}`,
         taxCode: 'N/A',
         balanceType: 'Debit',
@@ -168,7 +109,6 @@ exports.createBankAccount = async (req, res) => {
       }
     });
 
-    // FIXED: Set companyId
     const bankAccount = await BankAccountModel.create({
       accountName,
       accountNumber,
@@ -176,102 +116,62 @@ exports.createBankAccount = async (req, res) => {
       branchCode: branchCode || '',
       accountType: accountType || 'Current',
       currency: currency || 'PKR',
-      openingBalance: openingBalance || 0,
+      openingBalance: opening,
       status: status || 'Active',
       chartOfAccountId: chartAccount.id,
       createdBy: userId,
       companyId: companyId
     });
 
-    if (openingBalance && openingBalance > 0) {
-      const openingEntry = await getOrCreateOpeningBalanceEntry(userId, companyId);
-      const equityAccount = await getOrCreateOpeningBalanceEquity(userId, companyId);
+    // Force currentBalance 0 before JE posts (model may copy opening → current)
+    await prisma.bankAccount.update({
+      where: { id: bankAccount.id },
+      data: { currentBalance: 0, openingBalance: opening },
+    });
 
-      const existingLine = await prisma.journalLine.findFirst({
-        where: {
-          journalId: openingEntry.id,
-          accountId: chartAccount.id
-        }
-      });
-
-      if (!existingLine) {
-        await prisma.journalLine.create({
-          data: {
-            journalId: openingEntry.id,
-            accountId: chartAccount.id,
-            accountName: chartAccount.name,
-            accountCode: chartAccount.code,
-            debit: openingBalance,
-            credit: 0,
-            isReconciled: false
-          }
+    let journalEntry = null;
+    if (opening > 0) {
+      try {
+        const result = await upsertBankOpeningBalance({
+          userId,
+          companyId,
+          bankAccountId: bankAccount.id,
+          amount: opening,
+          postingDate: new Date(),
+          balancesAlreadySet: false,
         });
-
-        const allLines = await prisma.journalLine.findMany({
-          where: { journalId: openingEntry.id }
-        });
-
-        let totalDebit = allLines.reduce((sum, l) => sum + l.debit, 0);
-        let totalCredit = allLines.reduce((sum, l) => sum + l.credit, 0);
-        const difference = totalDebit - totalCredit;
-
-        let equityLine = allLines.find(l => l.accountId === equityAccount.id);
-        
-        if (!equityLine) {
-          equityLine = await prisma.journalLine.create({
-            data: {
-              journalId: openingEntry.id,
-              accountId: equityAccount.id,
-              accountName: equityAccount.name,
-              accountCode: equityAccount.code,
-              debit: 0,
-              credit: 0,
-              isReconciled: false
-            }
-          });
-        }
-
-        if (difference > 0) {
-          await prisma.journalLine.update({
-            where: { id: equityLine.id },
-            data: { debit: 0, credit: difference }
-          });
-        } else if (difference < 0) {
-          await prisma.journalLine.update({
-            where: { id: equityLine.id },
-            data: { debit: Math.abs(difference), credit: 0 }
-          });
-        }
-
-        const updatedLines = await prisma.journalLine.findMany({
-          where: { journalId: openingEntry.id }
-        });
-
-        const equityBalance = updatedLines.reduce((sum, l) => {
-          if (l.accountId === equityAccount.id) {
-            return sum + l.credit - l.debit;
-          }
-          return sum;
-        }, 0);
-
-        await prisma.chartOfAccount.update({
-          where: { id: equityAccount.id },
-          data: { currentBalance: equityBalance }
+        journalEntry = result.journalEntry;
+      } catch (jeErr) {
+        // Roll back bank + COA so we never leave an unbalanced half-create
+        await prisma.bankAccount.delete({ where: { id: bankAccount.id } }).catch(() => {});
+        await prisma.chartOfAccount.delete({ where: { id: chartAccount.id } }).catch(() => {});
+        const statusCode = jeErr.statusCode || (jeErr.code === 'FISCAL_YEAR_CLOSED' ? 400 : 500);
+        return res.status(statusCode).json({
+          success: false,
+          message: jeErr.message || 'Failed to post opening balance journal entry',
         });
       }
     }
 
-    res.status(201).json({
-      success: true,
-      data: bankAccount,
-      message: 'Bank account created successfully'
+    const refreshed = await prisma.bankAccount.findFirst({
+      where: { id: bankAccount.id },
+      include: { chartOfAccount: true },
     });
 
-    // Invalidate cache after successful bank account creation
+    res.status(201).json({
+      success: true,
+      data: refreshed,
+      journalEntry: journalEntry
+        ? { id: journalEntry.id, entryNumber: journalEntry.entryNumber, reference: journalEntry.reference }
+        : null,
+      message: opening > 0
+        ? 'Bank account created with opening balance journal entry'
+        : 'Bank account created successfully'
+    });
+
     try {
       await delPattern(`bank:accounts:${companyId}:*`);
       await delPattern(`bank:summary:${companyId}`);
-      console.log('🗑️ [Bank] Cache invalidated after bank account creation');
     } catch (cacheError) {
       console.log('⚠️ [Bank] Cache invalidation error:', cacheError.message);
     }
@@ -302,6 +202,27 @@ exports.getBankAccounts = async (req, res) => {
     const { status, search, page = 1, limit = 10 } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+
+    // One-time soft repair: orphan OB JEs missing companyId break Trial Balance
+    try {
+      const orphan = await prisma.journalLine.findFirst({
+        where: {
+          debit: { gt: 0 },
+          journal: {
+            companyId: null,
+            description: { contains: 'Opening Balance', mode: 'insensitive' },
+            status: 'Posted',
+            createdBy: userId,
+          },
+          account: { companyId },
+        },
+      });
+      if (orphan) {
+        await repairCompanyBankOpeningBalances(userId, companyId);
+      }
+    } catch (repairErr) {
+      console.log('⚠️ [Bank] Opening balance auto-repair skipped:', repairErr.message);
+    }
 
     // Build cache key with parameters
     const cacheKey = `bank:accounts:${companyId}:${status || 'All'}:${search || ''}:${page}:${limit}`;
@@ -495,7 +416,8 @@ exports.updateBankAccount = async (req, res) => {
       branchCode,
       accountType,
       currency,
-      status
+      status,
+      openingBalance,
     } = req.body;
     const userId = req.user.id;
     const companyId = req.user.companyId;
@@ -551,18 +473,48 @@ exports.updateBankAccount = async (req, res) => {
       });
     }
 
+    // Opening balance edit: reverse/repost via dedicated JE (no duplicate entries)
+    if (openingBalance !== undefined && openingBalance !== null) {
+      const newOpening = Number(openingBalance);
+      if (Number.isNaN(newOpening) || newOpening < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Opening balance must be a non-negative number',
+        });
+      }
+      try {
+        await upsertBankOpeningBalance({
+          userId,
+          companyId,
+          bankAccountId: id,
+          amount: newOpening,
+          postingDate: new Date(),
+          balancesAlreadySet: false,
+        });
+      } catch (jeErr) {
+        const statusCode = jeErr.statusCode || (jeErr.code === 'FISCAL_YEAR_CLOSED' ? 400 : 500);
+        return res.status(statusCode).json({
+          success: false,
+          message: jeErr.message || 'Failed to update opening balance journal entry',
+        });
+      }
+    }
+
+    const refreshed = await prisma.bankAccount.findFirst({
+      where: { id, companyId },
+      include: { chartOfAccount: true },
+    });
+
     res.status(200).json({
       success: true,
-      data: updated,
+      data: refreshed || updated,
       message: 'Bank account updated successfully'
     });
 
-    // Invalidate cache after successful bank account update
     try {
       await delPattern(`bank:accounts:${companyId}:*`);
       await delPattern(`bank:account:${companyId}:${id}`);
       await delPattern(`bank:summary:${companyId}`);
-      console.log('🗑️ [Bank] Cache invalidated after bank account update');
     } catch (cacheError) {
       console.log('⚠️ [Bank] Cache invalidation error:', cacheError.message);
     }
@@ -1033,6 +985,94 @@ exports.getBankAccountWithTransactions = async (req, res) => {
       success: false,
       message: 'Server Error',
       error: error.message
+    });
+  }
+};
+// ============================================================
+// @desc    Deposit / Add Money into a bank account
+// @route   POST /api/bank-accounts/:id/deposit
+// @access  Private
+// ============================================================
+exports.depositToBankAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      amount,
+      sourceAccountId,
+      date,
+      description,
+      reference,
+      notes,
+    } = req.body;
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+
+    const result = await createBankDeposit({
+      userId,
+      companyId,
+      bankAccountId: id,
+      sourceAccountId,
+      amount,
+      postingDate: date ? new Date(date) : new Date(),
+      description,
+      reference,
+      notes,
+    });
+
+    try {
+      await delPattern(`bank:accounts:${companyId}:*`);
+      await delPattern(`bank:account:${companyId}:${id}`);
+      await delPattern(`bank:summary:${companyId}`);
+    } catch (_) {}
+
+    return res.status(result.duplicate ? 200 : 201).json({
+      success: true,
+      data: {
+        bankAccount: result.bankAccount,
+        journalEntry: result.journalEntry,
+      },
+      duplicate: !!result.duplicate,
+      message: result.duplicate
+        ? 'Deposit already recorded (duplicate reference)'
+        : 'Deposit posted successfully',
+    });
+  } catch (error) {
+    console.error('❌ Deposit error:', error);
+    const statusCode =
+      error.statusCode || (error.code === 'FISCAL_YEAR_CLOSED' ? 400 : 500);
+    return res.status(statusCode).json({
+      success: false,
+      message: error.message || 'Server Error',
+    });
+  }
+};
+
+// ============================================================
+// @desc    Repair missing/orphan opening-balance journal entries
+// @route   POST /api/bank-accounts/repair-opening-balances
+// @access  Private
+// ============================================================
+exports.repairOpeningBalances = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const results = await repairCompanyBankOpeningBalances(userId, companyId);
+
+    try {
+      await delPattern(`bank:accounts:${companyId}:*`);
+      await delPattern(`bank:summary:${companyId}`);
+    } catch (_) {}
+
+    return res.status(200).json({
+      success: true,
+      data: results,
+      message: 'Opening balance repair completed',
+    });
+  } catch (error) {
+    console.error('❌ Repair opening balances error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server Error',
     });
   }
 };

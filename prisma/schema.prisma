@@ -15,61 +15,74 @@ datasource db {
 // ============================================================
 
 model Company {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   name                  String
-  email                 String?  @unique
+  email                 String?   @unique
   phone                 String?
   address               String?
-  businessType          String?  @map("business_type")
-  taxRegistrationNumber String?  @map("tax_registration_number")
+  businessType          String?   @map("business_type")
+  taxRegistrationNumber String?   @map("tax_registration_number")
   logo                  String?
   website               String?
-  isActive              Boolean  @default(true) @map("is_active")
-  subscriptionPlan      String   @default("trial") @map("subscription_plan")
-  subscriptionStatus    String   @default("active") @map("subscription_status")
+  isActive              Boolean   @default(true) @map("is_active")
+  subscriptionPlan      String    @default("trial") @map("subscription_plan")
+  subscriptionStatus    String    @default("active") @map("subscription_status")
   trialStartDate        DateTime? @map("trial_start_date")
   trialEndDate          DateTime? @map("trial_end_date")
   subscriptionStartDate DateTime? @map("subscription_start_date")
   subscriptionEndDate   DateTime? @map("subscription_end_date")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  users User[]
-  categories Category[] @relation("CategoryCompany")
-  suppliers Supplier[] @relation("SupplierCompany")
-  settings Setting[] @relation("SettingCompany")
-  stockMovements StockMovement[] @relation("StockMovementCompany")
-  orders Order[] @relation("OrderCompany")
-  returns Return[] @relation("ReturnCompany")
-  refunds Refund[] @relation("RefundCompany")
-  warehousePurchases WarehousePurchase[] @relation("WarehousePurchaseCompany")
-  warehouseInvoices WarehouseInvoice[] @relation("WarehouseInvoiceCompany")
-  chartOfAccounts ChartOfAccount[] @relation("ChartOfAccountCompany")
-  customers Customer[] @relation("CustomerCompany")
-  products Product[] @relation("ProductCompany")
-  fiscalYears FiscalYear[] @relation("FiscalYearCompany")
-  bankAccounts BankAccount[] @relation("BankAccountCompany")
-  journalEntries JournalEntry[] @relation("JournalEntryCompany")
-  bills Bill[] @relation("BillCompany")
-  incomes Income[] @relation("IncomeCompany")
-  expenses Expense[] @relation("ExpenseCompany")
-  trialBalanceViews TrialBalanceView[] @relation("TrialBalanceViewCompany")
-  paymentsMade PaymentMade[] @relation("PaymentMadeCompany")
-  purchasePayments PurchasePaymentMake[] @relation("PurchasePaymentMakeCompany")
-  purchaseReturns PurchaseReturn[] @relation("PurchaseReturnCompany")
-  creditNotes CreditNote[] @relation("CreditNoteCompany")
-  fixedAssets FixedAsset[] @relation("FixedAssetCompany")
-  loans Loan[] @relation("LoanCompany")
-  equityAccounts EquityAccount[] @relation("EquityAccountCompany")
-  deliveries Delivery[] @relation("DeliveryCompany")
-  quotations Quotation[] @relation("QuotationCompany")
-  purchaseOrders PurchaseOrder[] @relation("PurchaseOrderCompany")
-  goodsReceivings GoodsReceiving[] @relation("GoodsReceivingCompany")
-  purchaseInvoices PurchaseInvoice[] @relation("PurchaseInvoiceCompany")
-  salesInvoices SalesInvoice[] @relation("SalesInvoiceCompany")
-  salesPayments SalesPaymentReceived[] @relation("SalesPaymentCompany")
-  paymentsReceived PaymentReceived[] @relation("PaymentReceivedCompany")
-  transactions Transaction[] @relation("TransactionCompany")
+  users              User[]
+  categories         Category[]             @relation("CategoryCompany")
+  suppliers          Supplier[]             @relation("SupplierCompany")
+  settings           Setting[]              @relation("SettingCompany")
+  stockMovements     StockMovement[]        @relation("StockMovementCompany")
+  orders             Order[]                @relation("OrderCompany")
+  returns            Return[]               @relation("ReturnCompany")
+  refunds            Refund[]               @relation("RefundCompany")
+  warehousePurchases WarehousePurchase[]    @relation("WarehousePurchaseCompany")
+  warehouseInvoices  WarehouseInvoice[]     @relation("WarehouseInvoiceCompany")
+  chartOfAccounts    ChartOfAccount[]       @relation("ChartOfAccountCompany")
+  customers          Customer[]             @relation("CustomerCompany")
+  products           Product[]              @relation("ProductCompany")
+  fiscalYears        FiscalYear[]           @relation("FiscalYearCompany")
+  bankAccounts       BankAccount[]          @relation("BankAccountCompany")
+  journalEntries     JournalEntry[]         @relation("JournalEntryCompany")
+  bills              Bill[]                 @relation("BillCompany")
+  incomes            Income[]               @relation("IncomeCompany")
+  expenses           Expense[]              @relation("ExpenseCompany")
+  trialBalanceViews  TrialBalanceView[]     @relation("TrialBalanceViewCompany")
+  paymentsMade       PaymentMade[]          @relation("PaymentMadeCompany")
+  purchasePayments   PurchasePaymentMake[]  @relation("PurchasePaymentMakeCompany")
+  purchaseReturns    PurchaseReturn[]       @relation("PurchaseReturnCompany")
+  creditNotes        CreditNote[]           @relation("CreditNoteCompany")
+  fixedAssets        FixedAsset[]           @relation("FixedAssetCompany")
+  loans              Loan[]                 @relation("LoanCompany")
+  equityAccounts     EquityAccount[]        @relation("EquityAccountCompany")
+  equityTransactions EquityTransaction[]    @relation("EquityTransactionCompany")
+  deliveries         Delivery[]             @relation("DeliveryCompany")
+  quotations         Quotation[]            @relation("QuotationCompany")
+  purchaseOrders     PurchaseOrder[]        @relation("PurchaseOrderCompany")
+  taxJurisdictions   TaxJurisdiction[]      @relation("TaxJurisdictionCompany")
+  taxTypes           TaxType[]              @relation("TaxTypeCompany")
+  taxRates           TaxRate[]              @relation("TaxRateCompany")
+  taxRules           TaxRule[]              @relation("TaxRuleCompany")
+  taxExemptionTypes  TaxExemptionType[]     @relation("TaxExemptionTypeCompany")
+  taxExemptions      TaxExemption[]         @relation("TaxExemptionCompany")
+  taxTransactions    TaxTransaction[]       @relation("TaxTransactionCompany")
+  goodsReceivings    GoodsReceiving[]       @relation("GoodsReceivingCompany")
+  purchaseInvoices   PurchaseInvoice[]      @relation("PurchaseInvoiceCompany")
+  salesInvoices      SalesInvoice[]         @relation("SalesInvoiceCompany")
+  salesPayments      SalesPaymentReceived[] @relation("SalesPaymentCompany")
+  paymentsReceived   PaymentReceived[]      @relation("PaymentReceivedCompany")
+  transactions       Transaction[]          @relation("TransactionCompany")
+  posTerminals       POSTerminal[]
+  posShifts          POSShift[]
+  posSales           POSSale[]
+  posReturns         POSReturn[]
+  posAuditLogs       POSAuditLog[]
 
   @@index([email])
   @@index([isActive])
@@ -91,8 +104,8 @@ model User {
   role      String  @default("user")
   roleId    String? @map("role_id")
   managerId String? @map("manager_id")
-  createdBy String?  @map("created_by")
-  companyId String?  @map("company_id")
+  createdBy String? @map("created_by")
+  companyId String? @map("company_id")
   isActive  Boolean @default(true) @map("is_active")
 
   resetOtp       String?   @map("reset_otp")
@@ -164,42 +177,48 @@ model User {
   paymentMadeCreators     PaymentMade[]     @relation("PaymentMadeCreator")
   fixedAssetCreators      FixedAsset[]      @relation("FixedAssetCreator")
   loanCreators            Loan[]            @relation("LoanCreator")
-  equityAccountCreators   EquityAccount[]  @relation("EquityAccountCreator")
+  equityAccountCreators   EquityAccount[]   @relation("EquityAccountCreator")
 
-  deliveryCreators         Delivery[]             @relation("DeliveryCreator")
-  deliveryUpdaters         Delivery[]             @relation("DeliveryUpdater")
-  deliveryConfirmers       Delivery[]             @relation("DeliveryConfirmer")
-  quotationCreators        Quotation[]            @relation("QuotationCreator")
-  quotationUpdaters        Quotation[]            @relation("QuotationUpdater")
-  salesInvoiceCreators     SalesInvoice[]         @relation("SalesInvoiceCreator")
-  salesInvoiceUpdaters     SalesInvoice[]         @relation("SalesInvoiceUpdater")
-  salesPaymentCreators     SalesPaymentReceived[] @relation("SalesPaymentCreator")
-  salesPaymentUpdaters     SalesPaymentReceived[] @relation("SalesPaymentUpdater")
-  purchaseOrderCreators    PurchaseOrder[]        @relation("PurchaseOrderCreator")
-  purchaseOrderUpdaters    PurchaseOrder[]        @relation("PurchaseOrderUpdater")
-  goodsReceivingCreators   GoodsReceiving[]       @relation("GoodsReceivingCreator")
-  goodsReceivingUpdaters   GoodsReceiving[]       @relation("GoodsReceivingUpdater")
-  goodsReceivingConfirmers GoodsReceiving[]       @relation("GoodsReceivingConfirmer")
-  purchaseInvoiceCreators  PurchaseInvoice[]      @relation("PurchaseInvoiceCreator")
-  purchaseInvoiceUpdaters  PurchaseInvoice[]      @relation("PurchaseInvoiceUpdater")
-  purchasePaymentMakeCreators PurchasePaymentMake[] @relation("PurchasePaymentMakeCreator")
-  purchasePaymentMakeUpdaters PurchasePaymentMake[] @relation("PurchasePaymentMakeUpdater")
-  purchaseReturnCreators   PurchaseReturn[] @relation("PurchaseReturnCreator")
-  purchaseReturnUpdaters   PurchaseReturn[] @relation("PurchaseReturnUpdater")
-  purchaseReturnProcessors PurchaseReturn[] @relation("PurchaseReturnProcessor")
-  purchaseReturnCancellers PurchaseReturn[] @relation("PurchaseReturnCanceller")
-  transactionCreators Transaction[] @relation("TransactionCreator")
-  transactionPosters  Transaction[] @relation("TransactionPoster")
+  deliveryCreators            Delivery[]             @relation("DeliveryCreator")
+  deliveryUpdaters            Delivery[]             @relation("DeliveryUpdater")
+  deliveryConfirmers          Delivery[]             @relation("DeliveryConfirmer")
+  quotationCreators           Quotation[]            @relation("QuotationCreator")
+  quotationUpdaters           Quotation[]            @relation("QuotationUpdater")
+  salesInvoiceCreators        SalesInvoice[]         @relation("SalesInvoiceCreator")
+  salesInvoiceUpdaters        SalesInvoice[]         @relation("SalesInvoiceUpdater")
+  salesPaymentCreators        SalesPaymentReceived[] @relation("SalesPaymentCreator")
+  salesPaymentUpdaters        SalesPaymentReceived[] @relation("SalesPaymentUpdater")
+  purchaseOrderCreators       PurchaseOrder[]        @relation("PurchaseOrderCreator")
+  purchaseOrderUpdaters       PurchaseOrder[]        @relation("PurchaseOrderUpdater")
+  goodsReceivingCreators      GoodsReceiving[]       @relation("GoodsReceivingCreator")
+  goodsReceivingUpdaters      GoodsReceiving[]       @relation("GoodsReceivingUpdater")
+  goodsReceivingConfirmers    GoodsReceiving[]       @relation("GoodsReceivingConfirmer")
+  purchaseInvoiceCreators     PurchaseInvoice[]      @relation("PurchaseInvoiceCreator")
+  purchaseInvoiceUpdaters     PurchaseInvoice[]      @relation("PurchaseInvoiceUpdater")
+  purchasePaymentMakeCreators PurchasePaymentMake[]  @relation("PurchasePaymentMakeCreator")
+  purchasePaymentMakeUpdaters PurchasePaymentMake[]  @relation("PurchasePaymentMakeUpdater")
+  purchaseReturnCreators      PurchaseReturn[]       @relation("PurchaseReturnCreator")
+  purchaseReturnUpdaters      PurchaseReturn[]       @relation("PurchaseReturnUpdater")
+  purchaseReturnProcessors    PurchaseReturn[]       @relation("PurchaseReturnProcessor")
+  purchaseReturnCancellers    PurchaseReturn[]       @relation("PurchaseReturnCanceller")
+  transactionCreators         Transaction[]          @relation("TransactionCreator")
+  transactionPosters          Transaction[]          @relation("TransactionPoster")
 
   fiscalYearAuditLogs FiscalYearAuditLog[]
-  notifications      Notification[]
-  managedUsers       User[]              @relation("ManagedUsers")
-  manager            User?               @relation("ManagedUsers", fields: [managerId], references: [id])
-  createdUsers       User[]              @relation("CreatedUsers")
-  creator            User?               @relation("CreatedUsers", fields: [createdBy], references: [id])
-  userRole           Role?               @relation(fields: [roleId], references: [id])
-  permissions        UserPermission[]
-  company            Company?            @relation(fields: [companyId], references: [id])
+  notifications       Notification[]
+  managedUsers        User[]               @relation("ManagedUsers")
+  manager             User?                @relation("ManagedUsers", fields: [managerId], references: [id])
+  createdUsers        User[]               @relation("CreatedUsers")
+  creator             User?                @relation("CreatedUsers", fields: [createdBy], references: [id])
+  userRole            Role?                @relation(fields: [roleId], references: [id])
+  permissions         UserPermission[]
+  company             Company?             @relation(fields: [companyId], references: [id])
+  createdTerminals    POSTerminal[]        @relation("TerminalCreator")
+  shifts              POSShift[]           @relation("CashierShift")
+  createdSales        POSSale[]            @relation("SaleCreator")
+  createdReturns      POSReturn[]          @relation("ReturnCreator")
+  createdAuditLogs    POSAuditLog[]        @relation("AuditCreator")
+  approvedExemptions  TaxExemption[]       @relation("ExemptionApprover")
 
   @@index([email])
   @@index([roleId])
@@ -214,16 +233,16 @@ model User {
 // ============================================================
 
 model Notification {
-  id          String   @id @default(uuid())
-  userId      String   @map("user_id")
-  title       String
-  message     String
-  type        String   @default("info") // info, success, warning, error
-  category    String   @default("System") // System, Finance, Alert, etc.
-  isRead      Boolean  @default(false) @map("is_read")
-  data        Json?    @map("data") // Additional data like screen to navigate to
-  createdAt   DateTime @default(now()) @map("created_at")
-  readAt      DateTime? @map("read_at")
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  title     String
+  message   String
+  type      String    @default("info") // info, success, warning, error
+  category  String    @default("System") // System, Finance, Alert, etc.
+  isRead    Boolean   @default(false) @map("is_read")
+  data      Json?     @map("data") // Additional data like screen to navigate to
+  createdAt DateTime  @default(now()) @map("created_at")
+  readAt    DateTime? @map("read_at")
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -258,8 +277,8 @@ model Permission {
   id          String   @id @default(uuid())
   name        String   @unique // e.g., "dashboard.view", "products.create"
   description String?
-  module      String   // e.g., "dashboard", "products", "reports"
-  action      String   // e.g., "view", "create", "edit", "delete"
+  module      String // e.g., "dashboard", "products", "reports"
+  action      String // e.g., "view", "create", "edit", "delete"
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -272,10 +291,10 @@ model Permission {
 }
 
 model RolePermission {
-  id        String   @id @default(uuid())
-  roleId    String   @map("role_id")
-  permissionId String @map("permission_id")
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  roleId       String   @map("role_id")
+  permissionId String   @map("permission_id")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   // Relations
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
@@ -294,7 +313,7 @@ model RolePermission {
 model UserPermission {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  page      String   // e.g., "/warehouse/dashboard", "/warehouse/products"
+  page      String // e.g., "/warehouse/dashboard", "/warehouse/products"
   canView   Boolean  @default(true) @map("can_view")
   canCreate Boolean  @default(false) @map("can_create")
   canEdit   Boolean  @default(false) @map("can_edit")
@@ -329,25 +348,27 @@ model FiscalYear {
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  company           Company?             @relation("FiscalYearCompany", fields: [companyId], references: [id])
-  auditLogs         FiscalYearAuditLog[]
-  journalEntries    JournalEntry[]       @relation("JournalEntryFiscalYear")
-  expenses          Expense[]            @relation("ExpenseFiscalYear")
-  incomes           Income[]             @relation("IncomeFiscalYear")
-  paymentsReceived  PaymentReceived[]    @relation("PaymentReceivedFiscalYear")
-  paymentsMade      PaymentMade[]        @relation("PaymentMadeFiscalYear")
-  salesInvoices     SalesInvoice[]       @relation("SalesInvoiceFiscalYear")
-  purchaseInvoices  PurchaseInvoice[]    @relation("PurchaseInvoiceFiscalYear")
-  creditNotes       CreditNote[]         @relation("CreditNoteFiscalYear")
-  purchaseReturns   PurchaseReturn[]     @relation("PurchaseReturnFiscalYear")
-  transactions      Transaction[]        @relation("TransactionFiscalYear")
-  fixedAssets       FixedAsset[]         @relation("FixedAssetFiscalYear")
-  loans             Loan[]               @relation("LoanFiscalYear")
-  salesPayments     SalesPaymentReceived[] @relation("SalesPaymentFiscalYear")
-  purchasePayments  PurchasePaymentMake[]  @relation("PurchasePaymentFiscalYear")
-  accountsReceivable AccountsReceivable[] @relation("ARFiscalYear")
-  accountsPayable   AccountsPayable[]    @relation("APFiscalYear")
-  equityAccounts    EquityAccount[]      @relation("EquityAccountFiscalYear")
+  company            Company?               @relation("FiscalYearCompany", fields: [companyId], references: [id])
+  auditLogs          FiscalYearAuditLog[]
+  journalEntries     JournalEntry[]         @relation("JournalEntryFiscalYear")
+  expenses           Expense[]              @relation("ExpenseFiscalYear")
+  incomes            Income[]               @relation("IncomeFiscalYear")
+  paymentsReceived   PaymentReceived[]      @relation("PaymentReceivedFiscalYear")
+  paymentsMade       PaymentMade[]          @relation("PaymentMadeFiscalYear")
+  salesInvoices      SalesInvoice[]         @relation("SalesInvoiceFiscalYear")
+  purchaseInvoices   PurchaseInvoice[]      @relation("PurchaseInvoiceFiscalYear")
+  creditNotes        CreditNote[]           @relation("CreditNoteFiscalYear")
+  purchaseReturns    PurchaseReturn[]       @relation("PurchaseReturnFiscalYear")
+  transactions       Transaction[]          @relation("TransactionFiscalYear")
+  fixedAssets        FixedAsset[]           @relation("FixedAssetFiscalYear")
+  loans              Loan[]                 @relation("LoanFiscalYear")
+  salesPayments      SalesPaymentReceived[] @relation("SalesPaymentFiscalYear")
+  purchasePayments   PurchasePaymentMake[]  @relation("PurchasePaymentFiscalYear")
+  accountsReceivable AccountsReceivable[]   @relation("ARFiscalYear")
+  accountsPayable    AccountsPayable[]      @relation("APFiscalYear")
+  equityAccounts     EquityAccount[]        @relation("EquityAccountFiscalYear")
+  posSales           POSSale[]              @relation("POSSaleFiscalYear")
+  posReturns         POSReturn[]            @relation("POSReturnFiscalYear")
 
   @@unique([companyId, name])
   @@index([companyId, startDate, endDate])
@@ -420,6 +441,8 @@ model Customer {
   averageOrderValue  Float     @default(0) @map("average_order_value")
   lastOrderDate      DateTime? @map("last_order_date")
   outstandingBalance Float     @default(0) @map("outstanding_balance")
+  creditLimit        Float     @default(0) @map("credit_limit")
+  creditTerms        String    @default("Net 30") @map("credit_terms")
 
   notes String?
   tags  String[] @default([])
@@ -445,9 +468,11 @@ model Customer {
   creditNotes        CreditNote[]
   payments           PaymentReceived[]
   incomes            Income[]
+  posSales           POSSale[]              @relation("CustomerPOSSales")
+  salesInvoices      SalesInvoice[]
+  taxExemptions      TaxExemption[]         @relation("CustomerTaxExemptions")
   deliveries         Delivery[]
   quotations         Quotation[]
-  salesInvoices      SalesInvoice[]
   accountsReceivable AccountsReceivable[]
   salesPayments      SalesPaymentReceived[]
   transactions       Transaction[]          @relation("CustomerTransactions")
@@ -637,6 +662,9 @@ model Product {
   goodsReceivingItems  GoodsReceivingItem[]
   purchaseInvoiceItems PurchaseInvoiceItem[]
   purchaseReturnItems  PurchaseReturnItem[]
+  posSaleItems         POSSaleItem[]
+  posReturnItems       POSReturnItem[]
+  taxExemptions        TaxExemption[]          @relation("ProductTaxExemptions")
 
   @@unique([sku, companyId])
   @@index([sku])
@@ -1176,7 +1204,7 @@ model Refund {
   creator   User?              @relation("RefundCreator", fields: [createdBy], references: [id])
   updater   User?              @relation("RefundUpdater", fields: [updatedBy], references: [id])
   processor User?              @relation("RefundProcessor", fields: [processedBy], references: [id])
-  company   Company?          @relation("RefundCompany", fields: [companyId], references: [id])
+  company   Company?           @relation("RefundCompany", fields: [companyId], references: [id])
   return    Return?            @relation("ReturnRefunds", fields: [returnId], references: [id])
 
   @@index([refundNumber])
@@ -1193,9 +1221,6 @@ model Refund {
   @@map("refunds")
 }
 
-// ============================================================
-// WAREHOUSE PURCHASE MODELS
-// ============================================================
 
 model WarehousePurchaseItem {
   id          String   @id @default(uuid())
@@ -1432,7 +1457,7 @@ model AccountsReceivable {
   accountId String? @map("account_id")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1476,7 +1501,7 @@ model AccountsPayable {
   accountId String? @map("account_id")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1524,13 +1549,13 @@ model SalesPaymentReceived {
   isDeleted Boolean @default(false) @map("is_deleted")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  customer        Customer?              @relation(fields: [customerId], references: [id])
+  customer        Customer?             @relation(fields: [customerId], references: [id])
   bankAccount     BankAccount?          @relation(fields: [bankAccountId], references: [id])
   creator         User?                 @relation("SalesPaymentCreator", fields: [createdBy], references: [id])
   updater         User?                 @relation("SalesPaymentUpdater", fields: [updatedBy], references: [id])
@@ -1606,7 +1631,7 @@ model PaymentReceived {
   createdBy String @map("created_by")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1659,7 +1684,7 @@ model BankAccount {
   // Relations
   chartOfAccount        ChartOfAccount         @relation(fields: [chartOfAccountId], references: [id])
   creator               User?                  @relation("BankAccountCreator", fields: [createdBy], references: [id])
-  company              Company?               @relation("BankAccountCompany", fields: [companyId], references: [id])
+  company               Company?               @relation("BankAccountCompany", fields: [companyId], references: [id])
   incomes               Income[]
   Expense               Expense[]
   paymentsMade          PaymentMade[]
@@ -1714,7 +1739,7 @@ model JournalEntry {
   postedAt    DateTime? @map("posted_at")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1734,6 +1759,8 @@ model JournalEntry {
   purchaseReturnId  String?               @unique @map("purchase_return_id")
   transaction       Transaction?          @relation("TransactionJournalEntry")
   transactionId     String?               @unique @map("transaction_id")
+  posSale           POSSale?              @relation("POSSaleJournalEntry")
+  posReturn         POSReturn?            @relation("POSReturnJournalEntry")
 
   @@index([entryNumber])
   @@index([date])
@@ -1840,7 +1867,7 @@ model Income {
   createdBy String @map("created_by")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1904,7 +1931,7 @@ model Expense {
   createdBy String @map("created_by")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1965,7 +1992,6 @@ model TrialBalanceView {
 // ============================================================
 // PAYMENT MADE MODEL
 // ============================================================
-
 model PaymentMade {
   id            String   @id @default(uuid())
   paymentNumber String   @unique @map("payment_number")
@@ -1974,7 +2000,7 @@ model PaymentMade {
   supplierId   String @map("supplier_id")
   supplierName String @map("supplier_name")
 
-  billId     String @map("bill_id")
+  billId     String? @map("bill_id")  // ✅ Optional
   billNumber String @map("bill_number")
   billAmount Float  @map("bill_amount")
 
@@ -1991,14 +2017,14 @@ model PaymentMade {
   createdBy String @map("created_by")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
   supplier    Supplier         @relation(fields: [supplierId], references: [id])
-  bill        Bill             @relation(fields: [billId], references: [id])
+  bill        Bill?            @relation(fields: [billId], references: [id])  // ✅ Optional
   bankAccount BankAccount?     @relation(fields: [bankAccountId], references: [id])
   creator     User?            @relation("PaymentMadeCreator", fields: [createdBy], references: [id])
   company     Company?         @relation("PaymentMadeCompany", fields: [companyId], references: [id])
@@ -2016,9 +2042,7 @@ model PaymentMade {
   @@index([companyId])
   @@index([fiscalYearId])
   @@map("payments_made")
-}
-
-// ============================================================
+}// ============================================================
 // PURCHASE PAYMENT MAKE MODELS
 // ============================================================
 
@@ -2067,7 +2091,7 @@ model PurchasePaymentMake {
   isDeleted Boolean @default(false) @map("is_deleted")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2171,14 +2195,14 @@ model PurchaseReturn {
   isDeleted   Boolean   @default(false) @map("is_deleted")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
   items           PurchaseReturnItem[]
-  supplier        Supplier?             @relation(fields: [supplierId], references: [id])
+  supplier        Supplier?            @relation(fields: [supplierId], references: [id])
   purchaseInvoice PurchaseInvoice      @relation(fields: [purchaseInvoiceId], references: [id])
   creator         User?                @relation("PurchaseReturnCreator", fields: [createdBy], references: [id])
   updater         User?                @relation("PurchaseReturnUpdater", fields: [updatedBy], references: [id])
@@ -2234,7 +2258,7 @@ model CreditNote {
   createdBy String @map("created_by")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2294,7 +2318,7 @@ model FixedAsset {
   createdBy String @map("created_by")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2368,7 +2392,7 @@ model Loan {
   createdBy String @map("created_by")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2396,29 +2420,50 @@ model Loan {
 // EQUITY ACCOUNT MODEL
 // ============================================================
 
-model EquityAccount {
-  id             String @id @default(uuid())
-  accountName    String @map("account_name")
-  accountCode    String @map("account_code")
-  accountType    String @map("account_type")
-  openingBalance Float  @default(0) @map("opening_balance")
-  currentBalance Float  @default(0) @map("current_balance")
-  additions      Float  @default(0)
-  withdrawals    Float  @default(0)
-  notes          String  @default("")
-
-  createdBy String @map("created_by")
-
-  fiscalYearId String? @map("fiscal_year_id")
+model EquityTransaction {
+  id          String   @id @default(uuid())
+  accountId   String   @map("account_id")
+  date        DateTime @default(now())
+  type        String
+  amount      Float
+  description String
+  reference   String   @default("")
+  status      String   @default("Posted")
+  createdBy   String   @map("created_by")
   companyId   String?  @map("company_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  account EquityAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  company Company?      @relation("EquityTransactionCompany", fields: [companyId], references: [id])
 
-  // Relations
-  creator    User?       @relation("EquityAccountCreator", fields: [createdBy], references: [id])
-  company    Company?    @relation("EquityAccountCompany", fields: [companyId], references: [id])
-  fiscalYear FiscalYear? @relation("EquityAccountFiscalYear", fields: [fiscalYearId], references: [id])
+  @@index([accountId])
+  @@index([type])
+  @@index([companyId])
+  @@map("equity_transactions")
+}
+
+model EquityAccount {
+  id             String   @id @default(uuid())
+  accountName    String   @map("account_name")
+  accountCode    String   @map("account_code")
+  accountType    String   @map("account_type")
+  openingBalance Float    @default(0) @map("opening_balance")
+  currentBalance Float    @default(0) @map("current_balance")
+  additions      Float    @default(0)
+  withdrawals    Float    @default(0)
+  lastUpdated    DateTime @default(now()) @map("last_updated")
+  notes          String   @default("")
+  createdBy      String   @map("created_by")
+  fiscalYearId   String?  @map("fiscal_year_id")
+  companyId      String?  @map("company_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  creator      User?               @relation("EquityAccountCreator", fields: [createdBy], references: [id])
+  company      Company?            @relation("EquityAccountCompany", fields: [companyId], references: [id])
+  fiscalYear   FiscalYear?         @relation("EquityAccountFiscalYear", fields: [fiscalYearId], references: [id])
+  transactions EquityTransaction[]
 
   @@unique([accountCode, companyId])
   @@index([accountCode])
@@ -2834,7 +2879,7 @@ model PurchaseInvoice {
   isDeleted Boolean @default(false) @map("is_deleted")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2905,6 +2950,7 @@ model SalesInvoice {
   invoiceNumber   String  @unique @map("invoice_number")
   orderId         String? @map("order_id")
   orderNumber     String? @map("order_number")
+  posSaleId       String? @map("pos_sale_id")
   deliveryId      String? @map("delivery_id")
   deliveryNumber  String? @map("delivery_number")
   customerId      String  @map("customer_id")
@@ -2945,7 +2991,7 @@ model SalesInvoice {
   isDeleted Boolean @default(false) @map("is_deleted")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3011,7 +3057,7 @@ model Transaction {
   isDeleted Boolean @default(false) @map("is_deleted")
 
   fiscalYearId String? @map("fiscal_year_id")
-  companyId   String?  @map("company_id")
+  companyId    String? @map("company_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3040,4 +3086,430 @@ model Transaction {
   @@index([companyId])
   @@index([fiscalYearId])
   @@map("transactions")
+}
+
+// ============================================================
+// POS MODULE MODELS
+// ============================================================
+
+model POSTerminal {
+  id         String    @id @default(uuid()) @map("id")
+  name       String
+  code       String // Counter identifier, e.g. "TERM-01"
+  status     String    @default("Active") // Active, Inactive, Disabled
+  isActive   Boolean   @default(true) @map("is_active")
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deviceInfo Json?     @map("device_info")
+  lastSyncAt DateTime? @map("last_sync_at")
+  companyId  String    @map("company_id")
+  createdBy  String    @map("created_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company Company    @relation(fields: [companyId], references: [id])
+  creator User       @relation("TerminalCreator", fields: [createdBy], references: [id])
+  shifts  POSShift[]
+  sales   POSSale[]
+
+  @@unique([code, companyId])
+  @@index([companyId])
+  @@map("pos_terminals")
+}
+
+model POSShift {
+  id           String    @id @default(uuid())
+  terminalId   String    @map("terminal_id")
+  cashierId    String    @map("cashier_id")
+  companyId    String    @map("company_id")
+  status       String    @default("Open") // Open, Closed, Suspended
+  openingCash  Float     @map("opening_cash")
+  closingCash  Float?    @map("closing_cash")
+  expectedCash Float?    @map("expected_cash")
+  actualCash   Float?    @map("actual_cash")
+  difference   Float?    @map("difference")
+  openedAt     DateTime  @default(now()) @map("opened_at")
+  closedAt     DateTime? @map("closed_at")
+  suspendedAt  DateTime? @map("suspended_at")
+  resumedAt    DateTime? @map("resumed_at")
+  notes        String?
+  approvedBy   String?   @map("approved_by") // Manager who approved difference/reopening
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  terminal         POSTerminal          @relation(fields: [terminalId], references: [id])
+  cashier          User                 @relation("CashierShift", fields: [cashierId], references: [id])
+  company          Company              @relation(fields: [companyId], references: [id])
+  sales            POSSale[]
+  cashTransactions POSCashTransaction[]
+  returns          POSReturn[]
+
+  @@index([terminalId])
+  @@index([cashierId])
+  @@index([companyId])
+  @@map("pos_shifts")
+}
+
+model POSCashTransaction {
+  id         String   @id @default(uuid())
+  shiftId    String   @map("shift_id")
+  type       String // CASH_IN, CASH_OUT
+  amount     Float
+  reason     String
+  approvedBy String?  @map("approved_by")
+  companyId  String   @map("company_id")
+  createdBy  String   @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  shift POSShift @relation(fields: [shiftId], references: [id])
+
+  @@index([shiftId])
+  @@index([companyId])
+  @@map("pos_cash_transactions")
+}
+
+model POSSale {
+  id               String    @id @map("id") // Client-generated UUID for offline compatibility
+  invoiceNumber    String    @map("invoice_number")
+  shiftId          String    @map("shift_id")
+  terminalId       String    @map("terminal_id")
+  customerId       String?   @map("customer_id")
+  customerName     String    @map("customer_name")
+  customerEmail    String?   @map("customer_email")
+  customerPhone    String?   @map("customer_phone")
+  subtotal         Float
+  discountTotal    Float     @map("discount_total")
+  taxTotal         Float     @default(0) @map("tax_total")
+  grandTotal       Float     @map("grand_total")
+  paidAmount       Float     @map("paid_amount")
+  changeAmount     Float     @map("change_amount")
+  notes            String?
+  status           String    @default("Completed") // Completed, Held, Cancelled, Returned
+  fiscalYearId     String?   @map("fiscal_year_id")
+  journalEntryId   String?   @unique @map("journal_entry_id")
+  invoiceId        String?   @map("invoice_id")
+  orderId          String?   @map("order_id")
+  deviceInfo       Json?     @map("device_info")
+  syncStatus       String    @default("Completed") // Completed, Pending, Failed, Uploading
+  syncFailedReason String?   @map("sync_failed_reason")
+  isOffline        Boolean   @default(false) @map("is_offline")
+  offlineCreatedAt DateTime? @map("offline_created_at")
+  companyId        String    @map("company_id")
+  createdBy        String    @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  shift        POSShift         @relation(fields: [shiftId], references: [id])
+  terminal     POSTerminal      @relation(fields: [terminalId], references: [id])
+  customer     Customer?        @relation("CustomerPOSSales", fields: [customerId], references: [id])
+  fiscalYear   FiscalYear?      @relation("POSSaleFiscalYear", fields: [fiscalYearId], references: [id])
+  journalEntry JournalEntry?    @relation("POSSaleJournalEntry", fields: [journalEntryId], references: [id])
+  creator      User             @relation("SaleCreator", fields: [createdBy], references: [id])
+  company      Company          @relation(fields: [companyId], references: [id])
+  items        POSSaleItem[]
+  payments     POSSalePayment[]
+  returns      POSReturn[]
+
+  @@unique([invoiceNumber, companyId])
+  @@index([shiftId])
+  @@index([terminalId])
+  @@index([companyId])
+  @@map("pos_sales")
+}
+
+model POSSaleItem {
+  id          String  @id @default(uuid())
+  posSaleId   String  @map("pos_sale_id")
+  productId   String  @map("product_id")
+  productName String  @map("product_name")
+  sku         String
+  quantity    Float
+  unitPrice   Float   @map("unit_price")
+  discount    Float   @default(0) // line discount percentage or fixed
+  taxRate     Float   @default(0) @map("tax_rate")
+  taxAmount   Float   @default(0) @map("tax_amount")
+  lineTotal   Float   @map("line_total")
+  notes       String?
+
+  // Relations
+  posSale POSSale @relation(fields: [posSaleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([posSaleId])
+  @@index([productId])
+  @@map("pos_sale_items")
+}
+
+model POSSalePayment {
+  id            String   @id @default(uuid())
+  posSaleId     String   @map("pos_sale_id")
+  paymentMethod String   @map("payment_method") // Cash, Card, Bank, Mobile Wallet, Cheque
+  amount        Float
+  reference     String?  @default("")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  posSale POSSale @relation(fields: [posSaleId], references: [id], onDelete: Cascade)
+
+  @@index([posSaleId])
+  @@map("pos_sale_payments")
+}
+
+model POSReturn {
+  id             String   @id @map("id")
+  originalSaleId String   @map("original_sale_id")
+  returnNumber   String   @map("return_number")
+  shiftId        String   @map("shift_id")
+  subtotal       Float
+  discountTotal  Float    @map("discount_total")
+  taxTotal       Float    @map("tax_total")
+  grandTotal     Float    @map("grand_total")
+  refundedAmount Float    @map("refunded_amount")
+  refundMethod   String   @map("refund_method")
+  reason         String
+  approvedBy     String   @map("approved_by")
+  fiscalYearId   String?  @map("fiscal_year_id")
+  journalEntryId String?  @unique @map("journal_entry_id")
+  companyId      String   @map("company_id")
+  createdBy      String   @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relations
+  originalSale POSSale         @relation(fields: [originalSaleId], references: [id])
+  shift        POSShift        @relation(fields: [shiftId], references: [id])
+  journalEntry JournalEntry?   @relation("POSReturnJournalEntry", fields: [journalEntryId], references: [id])
+  fiscalYear   FiscalYear?     @relation("POSReturnFiscalYear", fields: [fiscalYearId], references: [id])
+  creator      User            @relation("ReturnCreator", fields: [createdBy], references: [id])
+  company      Company         @relation(fields: [companyId], references: [id])
+  items        POSReturnItem[]
+
+  @@unique([returnNumber, companyId])
+  @@index([originalSaleId])
+  @@index([shiftId])
+  @@index([companyId])
+  @@map("pos_returns")
+}
+
+model POSReturnItem {
+  id          String @id @default(uuid())
+  posReturnId String @map("pos_return_id")
+  productId   String @map("product_id")
+  quantity    Float
+  unitPrice   Float  @map("unit_price")
+  lineTotal   Float  @map("line_total")
+
+  // Relations
+  posReturn POSReturn @relation(fields: [posReturnId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([posReturnId])
+  @@index([productId])
+  @@map("pos_return_items")
+}
+
+model POSAuditLog {
+  id        String   @id @default(uuid())
+  action    String // Sale, Return, Refund, Void, Discount Approval, Shift Open, Shift Close, Cash Adjustment
+  details   String   @default("")
+  companyId String   @map("company_id")
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  creator User    @relation("AuditCreator", fields: [createdBy], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([createdBy])
+  @@map("pos_audit_logs")
+}
+
+// ============================================================
+// INTERNATIONAL TAX MANAGEMENT
+// ============================================================
+
+model TaxJurisdiction {
+  id          String   @id @default(uuid())
+  code        String   @unique // ISO country code or custom code
+  name        String
+  level       String // Country, State, County, City, SpecialZone
+  parentId    String?  @map("parent_id")
+  countryCode String   @map("country_code") // ISO 3166-1 alpha-2
+  isActive    Boolean  @default(true) @map("is_active")
+  companyId   String   @map("company_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  parent          TaxJurisdiction?  @relation("JurisdictionHierarchy", fields: [parentId], references: [id])
+  children        TaxJurisdiction[] @relation("JurisdictionHierarchy")
+  company         Company           @relation("TaxJurisdictionCompany", fields: [companyId], references: [id])
+  taxRates        TaxRate[]
+  taxTransactions TaxTransaction[]  @relation("TaxTransactionJurisdiction")
+
+  @@index([parentId])
+  @@index([countryCode])
+  @@index([companyId])
+  @@map("tax_jurisdictions")
+}
+
+model TaxType {
+  id              String   @id @default(uuid())
+  code            String   @unique // VAT, GST, SALES_TAX, EXCISE, etc.
+  name            String
+  description     String?
+  calculationType String   @default("percentage") // percentage, flat, tiered
+  isCompound      Boolean  @default(false) @map("is_compound")
+  isActive        Boolean  @default(true) @map("is_active")
+  companyId       String   @map("company_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company         Company          @relation("TaxTypeCompany", fields: [companyId], references: [id])
+  taxRates        TaxRate[]
+  taxTransactions TaxTransaction[] @relation("TaxTransactionType")
+
+  @@index([companyId])
+  @@map("tax_types")
+}
+
+model TaxRate {
+  id             String    @id @default(uuid())
+  jurisdictionId String    @map("jurisdiction_id")
+  taxTypeId      String    @map("tax_type_id")
+  rate           Float
+  effectiveFrom  DateTime  @map("effective_from")
+  effectiveTo    DateTime? @map("effective_to")
+  isDefault      Boolean   @default(false) @map("is_default")
+  isActive       Boolean   @default(true) @map("is_active")
+  companyId      String    @map("company_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  jurisdiction    TaxJurisdiction  @relation(fields: [jurisdictionId], references: [id])
+  taxType         TaxType          @relation(fields: [taxTypeId], references: [id])
+  company         Company          @relation("TaxRateCompany", fields: [companyId], references: [id])
+  taxRules        TaxRule[]
+  taxTransactions TaxTransaction[] @relation("TaxTransactionTaxRate")
+
+  @@index([jurisdictionId])
+  @@index([taxTypeId])
+  @@index([companyId])
+  @@map("tax_rates")
+}
+
+model TaxRule {
+  id                String   @id @default(uuid())
+  name              String
+  taxRateId         String   @map("tax_rate_id")
+  productCategoryId String?  @map("product_category_id")
+  productId         String?  @map("product_id")
+  customerGroupId   String?  @map("customer_group_id")
+  pricingModel      String   @default("exclusive") // exclusive, inclusive, mixed
+  exemptionAllowed  Boolean  @default(true) @map("exemption_allowed")
+  compoundOn        String?  @map("compound_on") // tax rate code to compound on
+  priority          Int      @default(0)
+  isActive          Boolean  @default(true) @map("is_active")
+  companyId         String   @map("company_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  taxRate TaxRate @relation(fields: [taxRateId], references: [id])
+  company Company @relation("TaxRuleCompany", fields: [companyId], references: [id])
+
+  @@index([taxRateId])
+  @@index([productCategoryId])
+  @@index([productId])
+  @@index([companyId])
+  @@map("tax_rules")
+}
+
+model TaxExemptionType {
+  id                  String   @id @default(uuid())
+  code                String   @unique // RESALE, NON_PROFIT, EXPORT, etc.
+  name                String
+  description         String?
+  percentage          Float    @default(100) // 100% = full exemption
+  requiresCertificate Boolean  @default(false) @map("requires_certificate")
+  isActive            Boolean  @default(true) @map("is_active")
+  companyId           String   @map("company_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company    Company        @relation("TaxExemptionTypeCompany", fields: [companyId], references: [id])
+  exemptions TaxExemption[]
+
+  @@index([companyId])
+  @@map("tax_exemption_types")
+}
+
+model TaxExemption {
+  id                   String    @id @default(uuid())
+  exemptionTypeId      String    @map("exemption_type_id")
+  customerId           String?   @map("customer_id")
+  productId            String?   @map("product_id")
+  productCategoryId    String?   @map("product_category_id")
+  certificateNumber    String?   @map("certificate_number")
+  certificateIssuedAt  DateTime? @map("certificate_issued_at")
+  certificateExpiresAt DateTime? @map("certificate_expires_at")
+  approvedBy           String?   @map("approved_by")
+  approvedAt           DateTime? @map("approved_at")
+  isActive             Boolean   @default(true) @map("is_active")
+  companyId            String    @map("company_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  exemptionType TaxExemptionType @relation(fields: [exemptionTypeId], references: [id])
+  customer      Customer?        @relation("CustomerTaxExemptions", fields: [customerId], references: [id])
+  product       Product?         @relation("ProductTaxExemptions", fields: [productId], references: [id])
+  approver      User?            @relation("ExemptionApprover", fields: [approvedBy], references: [id])
+  company       Company          @relation("TaxExemptionCompany", fields: [companyId], references: [id])
+
+  @@index([exemptionTypeId])
+  @@index([customerId])
+  @@index([productId])
+  @@index([companyId])
+  @@map("tax_exemptions")
+}
+
+model TaxTransaction {
+  id              String   @id @default(uuid())
+  transactionId   String   @map("transaction_id")
+  transactionType String   @map("transaction_type") // POSSale, SalesInvoice, Order
+  jurisdictionId  String   @map("jurisdiction_id")
+  taxTypeId       String   @map("tax_type_id")
+  taxRateId       String   @map("tax_rate_id")
+  taxableAmount   Float    @map("taxable_amount")
+  taxRate         Float    @map("tax_rate")
+  taxAmount       Float    @map("tax_amount")
+  exemptionAmount Float    @map("exemption_amount")
+  isCompound      Boolean  @default(false) @map("is_compound")
+  compoundOnId    String?  @map("compound_on_id")
+  currency        String   @default("USD")
+  exchangeRate    Float?   @map("exchange_rate")
+  companyId       String   @map("company_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  jurisdiction    TaxJurisdiction @relation("TaxTransactionJurisdiction", fields: [jurisdictionId], references: [id])
+  taxType         TaxType         @relation("TaxTransactionType", fields: [taxTypeId], references: [id])
+  taxRateRelation TaxRate         @relation("TaxTransactionTaxRate", fields: [taxRateId], references: [id])
+  company         Company         @relation("TaxTransactionCompany", fields: [companyId], references: [id])
+
+  @@index([transactionId])
+  @@index([transactionType])
+  @@index([jurisdictionId])
+  @@index([taxTypeId])
+  @@index([companyId])
+  @@map("tax_transactions")
 }

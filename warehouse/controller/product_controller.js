@@ -1,3 +1,5 @@
+// warehouse/controller/product_controller.js - COMPLETE FIXED
+
 const ProductModel = require('../models/Product');
 const prisma = require('../../prisma/client');
 
@@ -255,7 +257,7 @@ const checkBarcodeExists = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Create product
+// @desc    Create product - ✅ FIXED
 // @route   POST /api/warehouse/products
 // @access  Private
 // ============================================================
@@ -299,21 +301,41 @@ const createProduct = async (req, res) => {
       }
     }
 
+    // ─── Normalize field names (Flutter short names → Prisma names) ────
+    const fieldAliases = {
+      currency: 'currencyCode',
+      leadTime: 'leadTimeDays',
+      shelfLife: 'shelfLifeDays',
+      defaultBatchQuantity: 'defaultQuantityPerBatch',
+      tempMin: 'temperatureMin',
+      tempMax: 'temperatureMax',
+      zone: 'zoneName',
+      storageCondition: 'storageConditionName',
+      countryOfOrigin: 'countryOfOriginName',
+      stockUnit: 'stockUnitName',
+    };
+    Object.entries(fieldAliases).forEach(([alias, canonical]) => {
+      if (data[alias] !== undefined) {
+        data[canonical] = data[canonical] !== undefined ? data[canonical] : data[alias];
+        delete data[alias];
+      }
+    });
+
     // ─── Convert numeric fields ────────────────────────────
-    const numericFields = ['costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock', 
-      'weight', 'length', 'width', 'height', 'taxRate', 'warrantyPeriod', 'returnDays', 'shelfLife',
-      'defaultBatchQuantity', 'leadTime', 'reorderPoint', 'stackingLimit', 'tempMin', 'tempMax'];
+    const numericFields = [
+      'costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock',
+      'weight', 'length', 'width', 'height', 'taxRate',
+      'warrantyPeriod', 'returnDays', 'shelfLifeDays',
+      'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit',
+      'temperatureMin', 'temperatureMax', 'landingCost',
+    ];
     
     numericFields.forEach(field => {
       if (data[field] !== undefined && data[field] !== null && data[field] !== '') {
-        if (field === 'currentStock' || field === 'minimumStock' || field === 'maximumStock' ||
-            field === 'warrantyPeriod' || field === 'returnDays' || field === 'shelfLife' ||
-            field === 'defaultBatchQuantity' || field === 'leadTime' || field === 'reorderPoint' ||
-            field === 'stackingLimit') {
-          data[field] = parseInt(data[field]);
-        } else {
-          data[field] = parseFloat(data[field]);
-        }
+        const intFields = ['currentStock', 'minimumStock', 'maximumStock',
+          'warrantyPeriod', 'returnDays', 'shelfLifeDays',
+          'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit'];
+        data[field] = intFields.includes(field) ? parseInt(data[field]) : parseFloat(data[field]);
       }
     });
 
@@ -350,11 +372,33 @@ const createProduct = async (req, res) => {
       data.manufacturingDate = new Date(data.manufacturingDate);
     }
 
+    // ✅ FIXED: Ensure rackLocationName has a value
     const productData = {
       ...data,
+      // Set default values for required fields if not provided
+      rackLocationName: data.rackLocationName || 'A-1-B1',
+      rackLocationId: data.rackLocationId || null,
+      storageConditionName: data.storageConditionName || 'Normal',
+      shippingClass: data.shippingClass || 'Normal',
+      countryOfOriginName: data.countryOfOriginName || 'Pakistan',
+      warrantyUnit: data.warrantyUnit || 'Months',
+      bulkUnit: data.bulkUnit || 'Bale',
+      stockUnitName: data.stockUnitName || 'Pcs',
+      dimensionUnit: data.dimensionUnit || 'cm',
+      weightUnitName: data.weightUnitName || 'KG',
+      taxType: data.taxType || 'Exclusive',
+      currencyCode: data.currencyCode || 'PKR',
+      productType: data.productType || 'Physical',
+      isReturnable: data.isReturnable !== undefined ? data.isReturnable : true,
+      returnDays: data.returnDays || 7,
+      // Calculate total value
+      totalValue: (data.costPrice || 0) * (data.currentStock || 0),
+      availableStock: data.availableStock || data.currentStock || 0,
       createdBy: userId,
       companyId: companyId
     };
+
+    console.log('🔵 [createProduct] Final product data:', JSON.stringify(productData, null, 2));
 
     const product = await ProductModel.create(productData);
 
@@ -364,10 +408,11 @@ const createProduct = async (req, res) => {
       data: product
     });
   } catch (error) {
-    console.error('Create product error:', error);
+    console.error('❌ [createProduct] Error:', error);
+    console.error('❌ [createProduct] Error stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -407,7 +452,7 @@ const updateProduct = async (req, res) => {
     }
 
     // ─── Check duplicate SKU ──────────────────────────────
-    if (data.sku && data.sku.toUpperCase () !== existing.sku) {
+    if (data.sku && data.sku.toUpperCase() !== existing.sku) {
       console.log('🔵 [updateProduct] SKU changed from', existing.sku, 'to', data.sku);
       const duplicateSku = await ProductModel.checkSkuExists(data.sku, companyId, id);
       if (duplicateSku) {
@@ -434,21 +479,41 @@ const updateProduct = async (req, res) => {
       console.log('✅ [updateProduct] Barcode is unique');
     }
 
+    // ─── Normalize field names (Flutter short names → Prisma names) ────
+    const fieldAliasesUpdate = {
+      currency: 'currencyCode',
+      leadTime: 'leadTimeDays',
+      shelfLife: 'shelfLifeDays',
+      defaultBatchQuantity: 'defaultQuantityPerBatch',
+      tempMin: 'temperatureMin',
+      tempMax: 'temperatureMax',
+      zone: 'zoneName',
+      storageCondition: 'storageConditionName',
+      countryOfOrigin: 'countryOfOriginName',
+      stockUnit: 'stockUnitName',
+    };
+    Object.entries(fieldAliasesUpdate).forEach(([alias, canonical]) => {
+      if (data[alias] !== undefined) {
+        data[canonical] = data[canonical] !== undefined ? data[canonical] : data[alias];
+        delete data[alias];
+      }
+    });
+
     // ─── Convert numeric fields ────────────────────────────
-    const numericFields = ['costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock', 
-      'weight', 'length', 'width', 'height', 'taxRate', 'warrantyPeriod', 'returnDays', 'shelfLife',
-      'defaultBatchQuantity', 'leadTime', 'reorderPoint', 'stackingLimit', 'tempMin', 'tempMax', 'landingCost'];
+    const numericFields = [
+      'costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock',
+      'weight', 'length', 'width', 'height', 'taxRate',
+      'warrantyPeriod', 'returnDays', 'shelfLifeDays',
+      'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit',
+      'temperatureMin', 'temperatureMax', 'landingCost',
+    ];
     
     numericFields.forEach(field => {
       if (data[field] !== undefined && data[field] !== null && data[field] !== '') {
-        if (field === 'currentStock' || field === 'minimumStock' || field === 'maximumStock' ||
-            field === 'warrantyPeriod' || field === 'returnDays' || field === 'shelfLife' ||
-            field === 'defaultBatchQuantity' || field === 'leadTime' || field === 'reorderPoint' ||
-            field === 'stackingLimit') {
-          data[field] = parseInt(data[field]);
-        } else {
-          data[field] = parseFloat(data[field]);
-        }
+        const intFields = ['currentStock', 'minimumStock', 'maximumStock',
+          'warrantyPeriod', 'returnDays', 'shelfLifeDays',
+          'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit'];
+        data[field] = intFields.includes(field) ? parseInt(data[field]) : parseFloat(data[field]);
       }
     });
 
@@ -486,9 +551,26 @@ const updateProduct = async (req, res) => {
       data.manufacturingDate = new Date(data.manufacturingDate);
     }
 
-    // ─── Prepare update data ──────────────────────────────
+    // ✅ FIXED: Ensure rackLocationName has a value
     const productData = {
       ...data,
+      // Set default values for required fields if not provided
+      rackLocationName: data.rackLocationName || existing.rackLocationName || 'A-1-B1',
+      storageConditionName: data.storageConditionName || existing.storageConditionName || 'Normal',
+      shippingClass: data.shippingClass || existing.shippingClass || 'Normal',
+      countryOfOriginName: data.countryOfOriginName || existing.countryOfOriginName || 'Pakistan',
+      warrantyUnit: data.warrantyUnit || existing.warrantyUnit || 'Months',
+      bulkUnit: data.bulkUnit || existing.bulkUnit || 'Bale',
+      stockUnitName: data.stockUnitName || existing.stockUnitName || 'Pcs',
+      dimensionUnit: data.dimensionUnit || existing.dimensionUnit || 'cm',
+      weightUnitName: data.weightUnitName || existing.weightUnitName || 'KG',
+      taxType: data.taxType || existing.taxType || 'Exclusive',
+      currencyCode: data.currencyCode || existing.currencyCode || 'PKR',
+      productType: data.productType || existing.productType || 'Physical',
+      isReturnable: data.isReturnable !== undefined ? data.isReturnable : (existing.isReturnable || true),
+      returnDays: data.returnDays || existing.returnDays || 7,
+      totalValue: (data.costPrice || existing.costPrice || 0) * (data.currentStock || existing.currentStock || 0),
+      availableStock: data.availableStock || data.currentStock || existing.currentStock || 0,
       updatedBy: userId
     };
 
@@ -513,6 +595,7 @@ const updateProduct = async (req, res) => {
     });
   }
 };
+
 // ============================================================
 // @desc    Delete product (Soft delete)
 // @route   DELETE /api/warehouse/products/:id
@@ -783,8 +866,24 @@ const bulkCreateProducts = async (req, res) => {
     for (const productData of products) {
       const data = {
         ...productData,
+        rackLocationName: productData.rackLocationName || 'A-1-B1',
+        storageConditionName: productData.storageConditionName || 'Normal',
+        shippingClass: productData.shippingClass || 'Normal',
+        countryOfOriginName: productData.countryOfOriginName || 'Pakistan',
+        warrantyUnit: productData.warrantyUnit || 'Months',
+        bulkUnit: productData.bulkUnit || 'Bale',
+        stockUnitName: productData.stockUnitName || 'Pcs',
+        dimensionUnit: productData.dimensionUnit || 'cm',
+        weightUnitName: productData.weightUnitName || 'KG',
+        taxType: productData.taxType || 'Exclusive',
+        currencyCode: productData.currencyCode || 'PKR',
+        productType: productData.productType || 'Physical',
+        isReturnable: productData.isReturnable !== undefined ? productData.isReturnable : true,
+        returnDays: productData.returnDays || 7,
+        totalValue: (productData.costPrice || 0) * (productData.currentStock || 0),
+        availableStock: productData.availableStock || productData.currentStock || 0,
         createdBy: userId,
-        companyId
+        companyId: companyId
       };
       const product = await ProductModel.create(data);
       created.push(product);

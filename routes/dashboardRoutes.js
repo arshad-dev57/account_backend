@@ -1,5 +1,6 @@
 const express = require('express');
 const {
+  getDashboardOverview,
   getDashboardSummary,
   getChartData,
   getExpenseCategories,
@@ -13,19 +14,14 @@ const router = express.Router();
 // Protect all routes
 router.use(protect);
 
-// Dashboard summary
+// Unified period-scoped dashboard (KPIs + charts + categories + recent txns)
+router.get('/overview', getDashboardOverview);
+
+// Legacy endpoints (same calculation engine as /overview)
 router.get('/summary', getDashboardSummary);
-
-// Chart data
 router.get('/chart-data', getChartData);
-
-// Expense categories
 router.get('/expense-categories', getExpenseCategories);
-
-// Recent transactions
 router.get('/recent-transactions', getRecentTransactions);
-
-// Quick actions
 router.get('/quick-actions', getQuickActions);
 
 module.exports = router;

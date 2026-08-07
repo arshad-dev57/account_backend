@@ -2,7 +2,6 @@
 
 const prisma = require('../prisma/client');
 
-// ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_EXPENSE_TYPES = [
   'Rent', 'Utilities', 'Salaries', 'Marketing',
   'Office Supplies', 'Travel', 'Meals', 'Insurance',
@@ -173,6 +172,12 @@ class ExpenseModel {
     createData.creator = {
       connect: { id: data.createdBy }
     };
+
+    if (data.companyId) {
+      createData.company = {
+        connect: { id: data.companyId }
+      };
+    }
 
     const posterId = data.postedBy || data.createdBy;
     createData.poster = {

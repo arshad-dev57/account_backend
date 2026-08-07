@@ -108,11 +108,12 @@ async function getOrCreateContraRevenueAccount(userId, companyId, reasonType) {
   return account;
 }
 
-async function getOrCreateReceivableAccount(userId) {
+async function getOrCreateReceivableAccount(userId, companyId) {
   let arAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1110',
-      companyId: companyId}
+      companyId: companyId
+    }
   });
 
   if (!arAccount) {
@@ -127,7 +128,7 @@ async function getOrCreateReceivableAccount(userId) {
       while (codeExists) {
         newCode = `111${counter}`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, companyId: companyId}
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -148,18 +149,20 @@ async function getOrCreateReceivableAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
   }
   return arAccount;
 }
 
-async function getOrCreateTaxPayableAccount(userId) {
+async function getOrCreateTaxPayableAccount(userId, companyId) {
   let taxAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '2200',
-      companyId: companyId}
+      companyId: companyId
+    }
   });
 
   if (!taxAccount) {
@@ -174,7 +177,7 @@ async function getOrCreateTaxPayableAccount(userId) {
       while (codeExists) {
         newCode = `22${counter}0`;
         const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, companyId: companyId}
+          where: { code: newCode, companyId: companyId }
         });
         if (!existing) {
           codeExists = false;
@@ -195,18 +198,23 @@ async function getOrCreateTaxPayableAccount(userId) {
         taxCode: 'N/A',
         balanceType: 'Credit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
   }
   return taxAccount;
 }
 
-async function validateCustomer(customerId, userId) {
+async function validateCustomer(customerId, userId, companyId) {
   const customer = await prisma.customer.findFirst({
     where: {
       id: customerId,
-      companyId: companyId}
+      OR: [
+        { companyId: companyId },
+        { createdBy: userId },
+      ],
+    }
   });
 
   if (!customer) {
@@ -215,11 +223,15 @@ async function validateCustomer(customerId, userId) {
   return customer;
 }
 
-async function validateWarehouseInvoice(invoiceId, userId) {
+async function validateWarehouseInvoice(invoiceId, userId, companyId) {
   const invoice = await prisma.warehouseInvoice.findFirst({
     where: {
       id: invoiceId,
-      companyId: companyId},
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId },
+      ],
+    },
     select: {
       id: true,
       invoiceNumber: true,
@@ -232,15 +244,73 @@ async function validateWarehouseInvoice(invoiceId, userId) {
       customerName: true,
       invoiceDate: true,
       dueDate: true,
-      taxRate: true,
-      taxAmount: true
+      taxTotal: true,
     }
   });
 
   if (!invoice) {
     throw new Error('Warehouse invoice not found. Please select a valid invoice.');
   }
+
+  // Normalize outstanding for old records where it was never set
+  invoice.outstanding = invoice.outstanding > 0
+    ? invoice.outstanding
+    : Math.max(0, (invoice.grandTotal || 0) - (invoice.paidAmount || 0));
+
   return invoice;
+}
+
+async function getOrCreateCustomerCreditAccount(userId, companyId) {
+  let account = await prisma.chartOfAccount.findFirst({
+    where: { code: '2130', companyId: companyId },
+  });
+
+  if (!account) {
+    account = await prisma.chartOfAccount.create({
+      data: {
+        code: '2130',
+        name: 'Customer Credit Balance',
+        type: 'Liabilities',
+        parentAccount: 'Current Liabilities',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Unapplied customer credits from credit notes',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId,
+        companyId: companyId,
+      },
+    });
+  }
+  return account;
+}
+
+async function generateCreditNoteNumber(tx, userId) {
+  const count = await tx.creditNote.count({ where: { createdBy: userId } });
+  const year = new Date().getFullYear();
+  return `CN-${year}-${String(count + 1).padStart(4, '0')}`;
+}
+
+function computeInvoiceOutstanding(invoice) {
+  if (invoice.outstanding != null && invoice.outstanding !== 0) {
+    return invoice.outstanding;
+  }
+  return Math.max(0, (invoice.grandTotal || 0) - (invoice.paidAmount || 0));
+}
+
+function deriveInvoiceStatusAfterCredit(grandTotal, paidAmount, totalCredited) {
+  const netOutstanding = grandTotal - paidAmount - totalCredited;
+  if (netOutstanding < 0) {
+    return { outstanding: netOutstanding, paymentStatus: 'Credit Balance', invoiceStatus: 'Credit Balance' };
+  }
+  if (netOutstanding === 0) {
+    return { outstanding: 0, paymentStatus: 'Paid', invoiceStatus: 'Paid' };
+  }
+  if (paidAmount > 0 || totalCredited > 0) {
+    return { outstanding: netOutstanding, paymentStatus: 'Partial', invoiceStatus: 'Partial' };
+  }
+  return { outstanding: netOutstanding, paymentStatus: 'Unpaid', invoiceStatus: 'Unpaid' };
 }
 
 async function updateAccountBalances(accountId, amount, isDebit) {
@@ -250,10 +320,10 @@ async function updateAccountBalances(accountId, amount, isDebit) {
 
   if (!account) return;
 
-  const journalEntries = await prisma.journalEntryLine.findMany({
+  const journalEntries = await prisma.journalLine.findMany({
     where: {
       accountId: accountId,
-      journalEntry: {
+      journal: {
         status: 'Posted'
       }
     }
@@ -290,7 +360,7 @@ exports.createCreditNote = async (req, res) => {
       amount,
       reason,
       reasonType,
-      items,
+      items,          // line items for Return/Damaged Goods
       notes,
       expiryDays,
       taxRate = 0,
@@ -300,7 +370,11 @@ exports.createCreditNote = async (req, res) => {
     const companyId = req.user.companyId;
     const postingDate = new Date();
 
-    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+
+    // ─── Fiscal Year Guard ────────────────────────────────────────
     try {
       await fiscalYearGuard(userId, postingDate);
     } catch (err) {
@@ -310,44 +384,34 @@ exports.createCreditNote = async (req, res) => {
       throw err;
     }
 
-    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
     const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
-    const customer = await validateCustomer(customerId, userId);
-    const invoice = await validateWarehouseInvoice(originalInvoiceId, userId);
+    const customer = await validateCustomer(customerId, userId, companyId);
+    const invoice  = await validateWarehouseInvoice(originalInvoiceId, userId, companyId);
 
-    if (invoice.outstanding <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invoice is already fully paid. Cannot issue credit note.',
-      });
-    }
-
-    const existingCN = await prisma.creditNote.findFirst({
+    // ─── ELIGIBLE CREDIT = InvoiceTotal − Sum of all previous Credit Notes ───
+    // This is the correct ERP rule: paid invoices CAN have credit notes (e.g., returns after full payment)
+    const previousCreditsAgg = await prisma.creditNote.aggregate({
       where: {
         originalInvoiceId: invoice.id,
-        status: { in: ['Issued', 'PartiallyApplied'] },
-        companyId: companyId}
+        status: { notIn: ['Cancelled', 'Voided'] },
+      },
+      _sum: { amount: true },
     });
+    const previousCredits = previousCreditsAgg._sum.amount || 0;
+    const eligibleCredit  = Math.max(0, invoice.grandTotal - previousCredits);
 
-    if (existingCN) {
+    if (eligibleCredit <= 0) {
       return res.status(400).json({
         success: false,
-        message: `A credit note (${existingCN.creditNumber}) already exists for this invoice.`,
+        message: `Invoice ${invoice.invoiceNumber} has already been fully credited. Total invoice: ${invoice.grandTotal}, already credited: ${previousCredits}.`,
       });
     }
 
-    if (amount > invoice.outstanding) {
+    if (amount > eligibleCredit) {
       return res.status(400).json({
         success: false,
-        message: `Credit note amount cannot exceed invoice outstanding balance of ${invoice.outstanding}`,
-      });
-    }
-
-    if (amount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Amount must be greater than 0',
+        message: `Credit note amount (${amount}) exceeds eligible credit amount (${eligibleCredit}). Invoice total: ${invoice.grandTotal}, already credited: ${previousCredits}.`,
       });
     }
 
@@ -357,156 +421,184 @@ exports.createCreditNote = async (req, res) => {
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + (expiryDays || 30));
 
-    const contraRevenueAccount = await getOrCreateContraRevenueAccount(userId, reasonType || 'Return');
-    const arAccount = await getOrCreateReceivableAccount(userId);
-    const taxAccount = await getOrCreateTaxPayableAccount(userId);
+    const contraRevenueAccount = await getOrCreateContraRevenueAccount(userId, companyId, reasonType || 'Return');
+    const arAccount            = await getOrCreateReceivableAccount(userId, companyId);
+    const taxAccount           = await getOrCreateTaxPayableAccount(userId, companyId);
 
-    const creditNote = await CreditNoteModel.create({
-      date: new Date(),
-      customerId: customer.id,
-      customerName: customer.name,
-      originalInvoiceId: invoice.id,
-      originalInvoiceNumber: invoice.invoiceNumber,
-      originalInvoiceAmount: invoice.grandTotal || 0,
-      amount: amount,
-      reason: reason || '',
-      reasonType: reasonType || 'Adjustment',
-      items: items || [
-        {
-          description: reason || 'Credit Note',
-          quantity: 1,
-          unitPrice: amount,
-          amount: amount,
-        }
-      ],
-      expiryDate: expiryDate,
-      notes: notes || '',
-      createdBy: userId,
-      taxRate: taxRate,
-      taxAmount: taxAmount,
-      netAmount: netAmount,
-      fiscalYearId,
-    });
+    // ─── Use Prisma transaction for atomicity ─────────────────────
+    const creditNote = await prisma.$transaction(async (tx) => {
+      const creditNumber = await generateCreditNoteNumber(tx, userId);
 
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: `JE-CN-${Date.now()}`,
-        date: postingDate,
-        description: `Credit note ${creditNote.creditNumber} issued to ${customer.name} for ${reason || 'Adjustment'}`,
-        reference: creditNote.creditNumber,
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        fiscalYearId,
-        postedAt: new Date(),
-        lines: {
-          create: [
-            {
-              accountId: contraRevenueAccount.id,
-              accountName: contraRevenueAccount.name,
-              accountCode: contraRevenueAccount.code,
-              debit: netAmount,
-              credit: 0,
-              isReconciled: false,
-              description: `Credit note ${creditNote.creditNumber}`
+      // 1. Create Credit Note (inside transaction)
+      const cn = await tx.creditNote.create({
+        data: {
+          creditNumber,
+          date: postingDate,
+          customerId: customer.id,
+          customerName: customer.name,
+          originalInvoiceId: invoice.id,
+          originalInvoiceNumber: invoice.invoiceNumber,
+          originalInvoiceAmount: invoice.grandTotal || 0,
+          amount,
+          reason: reason || '',
+          reasonType: reasonType || 'Return',
+          items: items || [],
+          status: 'Issued',
+          appliedAmount: 0,
+          remainingAmount: amount,
+          expiryDate,
+          notes: notes || '',
+          createdBy: userId,
+          companyId: companyId || null,
+          fiscalYearId: fiscalYearId || null,
+        },
+        include: {
+          customer: { select: { id: true, name: true, email: true, phone: true } },
+          originalInvoice: {
+            select: {
+              id: true, invoiceNumber: true, grandTotal: true,
+              paidAmount: true, outstanding: true, invoiceStatus: true, paymentStatus: true,
             },
-            ...(taxAmount > 0 ? [{
-              accountId: taxAccount.id,
-              accountName: taxAccount.name,
-              accountCode: taxAccount.code,
-              debit: taxAmount,
-              credit: 0,
-              isReconciled: false,
-              description: `Tax on credit note ${creditNote.creditNumber}`
-            }] : []),
-            {
-              accountId: arAccount.id,
-              accountName: arAccount.name,
-              accountCode: arAccount.code,
-              debit: 0,
-              credit: amount,
-              isReconciled: false,
-              description: `Credit note ${creditNote.creditNumber}`
-            }
-          ]
+          },
+        },
+      });
+
+      // 2. Journal Entry: Dr Contra-Revenue / Dr Tax  Cr AR
+      await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-CN-${Date.now()}`,
+          date: postingDate,
+          description: `Credit note ${cn.creditNumber} — ${customer.name} — ${reasonType || 'Return'}`,
+          reference: cn.creditNumber,
+          status: 'Posted',
+          createdBy: userId,
+          postedBy: userId,
+          fiscalYearId,
+          companyId,
+          postedAt: new Date(),
+          lines: {
+            create: [
+              // Dr Contra-Revenue (net amount)
+              {
+                accountId: contraRevenueAccount.id,
+                accountName: contraRevenueAccount.name,
+                accountCode: contraRevenueAccount.code,
+                debit: netAmount,
+                credit: 0,
+                isReconciled: false,
+              },
+              // Dr Tax reversal (if applicable)
+              ...(taxAmount > 0 ? [{
+                accountId: taxAccount.id,
+                accountName: taxAccount.name,
+                accountCode: taxAccount.code,
+                debit: taxAmount,
+                credit: 0,
+                isReconciled: false,
+              }] : []),
+              // Cr Accounts Receivable (full credit amount)
+              {
+                accountId: arAccount.id,
+                accountName: arAccount.name,
+                accountCode: arAccount.code,
+                debit: 0,
+                credit: amount,
+                isReconciled: false,
+              },
+            ],
+          },
+        },
+      });
+
+      // 3. Inventory stock return for Return/Damaged Goods
+      const isStockReturn = ['Return', 'Damaged Goods'].includes(reasonType);
+      if (isStockReturn && Array.isArray(items) && items.length > 0) {
+        for (const item of items) {
+          if (!item.productId || !item.quantity || item.quantity <= 0) continue;
+
+          const product = await tx.product.findUnique({
+            where: { id: item.productId },
+            select: { id: true, name: true, currentStock: true },
+          });
+          if (!product) continue;
+
+          const prevStock = product.currentStock || 0;
+          const newStock  = prevStock + item.quantity;
+
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { currentStock: newStock },
+          });
+
+          await tx.stockMovement.create({
+            data: {
+              productId:    item.productId,
+              productName:  item.productName || product.name,
+              type:         'Return',
+              quantity:     item.quantity,
+              previousStock: prevStock,
+              newStock,
+              stockType:    'bulk',
+              reason:       `Credit note ${cn.creditNumber} — ${reasonType}`,
+              customerName: customer.name,
+              reference:    cn.creditNumber,
+              status:       'Completed',
+              notes:        notes || '',
+              createdBy:    userId,
+              companyId:    companyId || null,
+            },
+          });
         }
       }
+
+      // 4. Reduce customer AR balance
+      await tx.customer.update({
+        where: { id: customer.id },
+        data: { outstandingBalance: { decrement: amount } },
+      });
+
+      // 5. Recompute invoice balances — CN is NOT a cash payment
+      const totalCreditedNow = previousCredits + amount;
+      const statusUpdate = deriveInvoiceStatusAfterCredit(
+        invoice.grandTotal || 0,
+        invoice.paidAmount || 0,
+        totalCreditedNow,
+      );
+
+      await tx.warehouseInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          outstanding: statusUpdate.outstanding,
+          invoiceStatus: statusUpdate.invoiceStatus,
+          paymentStatus: statusUpdate.paymentStatus,
+        },
+      });
+
+      return cn;
     });
 
+    // Update account balances outside transaction
     await updateAccountBalances(contraRevenueAccount.id, netAmount, true);
-    if (taxAmount > 0) {
-      await updateAccountBalances(taxAccount.id, taxAmount, true);
-    }
+    if (taxAmount > 0) await updateAccountBalances(taxAccount.id, taxAmount, true);
     await updateAccountBalances(arAccount.id, amount, false);
-
-    // Update Customer - Remove balance field if not exists
-    await prisma.customer.update({
-      where: { id: customer.id },
-      data: {
-        totalCreditNotes: { increment: amount }
-      }
-    });
-
-    await prisma.customerTransaction.create({
-      data: {
-        customerId: customer.id,
-        transactionType: 'CreditNote',
-        reference: creditNote.creditNumber,
-        amount: amount,
-        type: 'Credit',
-        date: new Date(),
-        description: `Credit note issued for invoice ${invoice.invoiceNumber}`,
-        createdBy: userId,
-        status: 'Posted'
-      }
-    });
-
-    const newOutstanding = invoice.outstanding - amount;
-    const newPaidAmount = invoice.paidAmount + amount;
-    
-    let invoiceStatus = 'Partial';
-    let paymentStatus = 'Partial';
-    
-    if (newOutstanding === 0) {
-      invoiceStatus = 'Paid';
-      paymentStatus = 'Paid';
-    }
-
-    const creditNoteReferences = invoice.creditNoteReferences || [];
-    creditNoteReferences.push({
-      creditNoteId: creditNote.id,
-      creditNoteNumber: creditNote.creditNumber,
-      amount: amount,
-      appliedAt: new Date()
-    });
-
-    await prisma.warehouseInvoice.update({
-      where: { id: invoice.id },
-      data: {
-        outstanding: newOutstanding,
-        paidAmount: newPaidAmount,
-        invoiceStatus: invoiceStatus,
-        paymentStatus: paymentStatus,
-        creditNoteReferences: creditNoteReferences
-      }
-    });
 
     res.status(201).json({
       success: true,
       data: creditNote,
-      message: 'Credit note created successfully with proper accounting entries',
+      message: 'Credit note created successfully',
     });
 
-    // Invalidate cache after successful credit note creation
+    // Invalidate cache
     try {
       await delPattern(`cn:list:${userId}:*`);
       await delPattern(`cn:detail:${userId}:*`);
       await delPattern(`cn:summary:${userId}:*`);
       await delPattern(`cn:unpaid-invoices:${userId}:*`);
+      await delPattern(`cn:invoices:${userId}:*`);
       await delPattern(`cn:by-number:${userId}:*`);
       console.log('🗑️ [CN] Cache invalidated after credit note creation');
-    } catch (cacheError) {
-      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
+    } catch (e) {
+      console.log('⚠️ [CN] Cache invalidation error:', e.message);
     }
   } catch (error) {
     console.error('❌ [CN] Create credit note error:', error);
@@ -541,7 +633,12 @@ exports.getCreditNotes = async (req, res) => {
       });
     }
 
-    const filter = { companyId: companyId };
+    const filter = {
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId },
+      ],
+    };
 
     if (customerId) filter.customerId = customerId;
     if (status) filter.status = status;
@@ -552,10 +649,14 @@ exports.getCreditNotes = async (req, res) => {
       };
     }
     if (search) {
-      filter.OR = [
-        { creditNumber: { contains: search, mode: 'insensitive' } },
-        { customerName: { contains: search, mode: 'insensitive' } },
-        { originalInvoiceNumber: { contains: search, mode: 'insensitive' } }
+      filter.AND = [
+        {
+          OR: [
+            { creditNumber: { contains: search, mode: 'insensitive' } },
+            { customerName: { contains: search, mode: 'insensitive' } },
+            { originalInvoiceNumber: { contains: search, mode: 'insensitive' } }
+          ]
+        }
       ];
     }
 
@@ -634,7 +735,11 @@ exports.getCreditNote = async (req, res) => {
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id,
-        companyId: companyId},
+        OR: [
+          { companyId: companyId },
+          { companyId: null, createdBy: userId },
+        ],
+      },
       include: {
         customer: {
           select: {
@@ -653,7 +758,6 @@ exports.getCreditNote = async (req, res) => {
             outstanding: true,
             invoiceStatus: true,
             paymentStatus: true,
-            creditNoteReferences: true
           }
         }
       }
@@ -707,7 +811,12 @@ exports.getSummary = async (req, res) => {
       });
     }
 
-    const filter = { companyId: companyId };
+    const filter = {
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId },
+      ],
+    };
 
     if (startDate && endDate) {
       filter.date = {
@@ -788,125 +897,112 @@ exports.getSummary = async (req, res) => {
 // @access  Private
 // ============================================================
 exports.getUnpaidInvoices = async (req, res) => {
-  console.log('📦 [CN] getUnpaidInvoices called');
+  console.log('📦 [CN] getInvoicesForCreditNote called');
   console.log('🔍 [CN] Customer ID:', req.params.customerId);
 
   try {
     const { customerId } = req.params;
-    const userId = req.user.id;
-
+    const userId    = req.user.id;
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `cn:unpaid-invoices:${userId}:${customerId}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
+
+    const cacheKey = `cn:invoices:${userId}:${customerId}`;
+    const cached   = await get(cacheKey);
     if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
+      return res.status(200).json({ success: true, ...cached, cached: true });
     }
 
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
-        companyId: companyId}
+        OR: [
+          { companyId: companyId },
+          { createdBy: userId },
+        ],
+      },
     });
 
     if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: 'Customer not found',
-      });
+      return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
+    // ─── Fetch ALL invoices for this customer (paid AND unpaid) ───────────
+    // ERP rule: credit notes can be issued on paid invoices (e.g., returns after payment)
     const invoices = await prisma.warehouseInvoice.findMany({
       where: {
-        customerId: customerId,
-        companyId: companyId,
-        paymentStatus: {
-          not: 'Paid'
-        },
-        outstanding: {
-          gt: 0
-        }
+        customerId,
+        isDeleted: false,
+        invoiceStatus: { not: 'Cancelled' },
+        OR: [
+          { companyId: companyId },
+          { companyId: null, createdBy: userId },
+        ],
       },
-      orderBy: {
-        invoiceDate: 'desc'
-      },
+      orderBy: { invoiceDate: 'desc' },
       include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true
-          }
-        },
         items: {
           select: {
             id: true,
+            productId: true,
             productName: true,
+            sku: true,
             quantity: true,
             unitPrice: true,
-            totalPrice: true
-          }
-        }
-      }
-    });
-
-    const invoiceIds = invoices.map(inv => inv.id);
-    const creditNotes = await prisma.creditNote.findMany({
-      where: {
-        originalInvoiceId: { in: invoiceIds },
-        companyId: companyId,
-        status: { in: ['Issued', 'PartiallyApplied'] }
+            taxRate: true,
+            taxAmount: true,
+            discount: true,
+            totalPrice: true,
+          },
+        },
+        creditNotes: {
+          where: { status: { notIn: ['Cancelled', 'Voided'] } },
+          select: { id: true, creditNumber: true, amount: true, status: true, date: true },
+        },
       },
-      select: {
-        originalInvoiceId: true,
-        creditNumber: true
-      }
     });
 
-    const invoicesWithCreditNotes = new Set(
-      creditNotes.map(cn => cn.originalInvoiceId)
-    );
+    // ─── For each invoice, compute eligibleCredit ─────────────────────────
+    const mappedInvoices = invoices.map(invoice => {
+      const grandTotal      = invoice.grandTotal || 0;
+      const paidAmount      = invoice.paidAmount || 0;
+      const totalCredited   = (invoice.creditNotes || []).reduce((s, cn) => s + cn.amount, 0);
+      const eligibleCredit  = Math.max(0, grandTotal - totalCredited);
 
-    const unpaidInvoices = invoices.map(invoice => ({
-      id: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      amount: invoice.grandTotal || 0,
-      outstanding: invoice.outstanding || 0,
-      date: invoice.invoiceDate,
-      dueDate: invoice.dueDate,
-      status: invoice.invoiceStatus,
-      paidAmount: invoice.paidAmount || 0,
-      customerName: invoice.customerName,
-      items: invoice.items,
-      taxRate: invoice.taxRate || 0,
-      taxAmount: invoice.taxAmount || 0,
-      hasCreditNote: invoicesWithCreditNotes.has(invoice.id)
-    }));
+      // Effective outstanding = grandTotal - paid - credited
+      const effectiveOutstanding = invoice.outstanding > 0
+        ? invoice.outstanding
+        : Math.max(0, grandTotal - paidAmount);
 
-    const filteredInvoices = unpaidInvoices.filter(
-      inv => !inv.hasCreditNote
-    );
-
-    const responseData = {
-      count: filteredInvoices.length,
-      data: filteredInvoices,
-    };
-
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
-
-    res.status(200).json({
-      success: true,
-      ...responseData,
-      cached: false,
+      return {
+        id:               invoice.id,
+        invoiceNumber:    invoice.invoiceNumber,
+        invoiceDate:      invoice.invoiceDate,
+        dueDate:          invoice.dueDate,
+        amount:           grandTotal,                // invoice total
+        paidAmount,
+        outstanding:      effectiveOutstanding,
+        totalCredited,
+        eligibleCredit,                              // ← key ERP field
+        creditNotes:      invoice.creditNotes || [],
+        status:           invoice.paymentStatus,
+        invoiceStatus:    invoice.invoiceStatus,
+        customerName:     invoice.customerName,
+        items:            invoice.items,
+        taxTotal:         invoice.taxTotal || 0,
+        subtotal:         invoice.subtotal || 0,
+      };
     });
+
+    // Only show invoices relevant to the caller's purpose
+    const purpose = req.query.purpose || 'create';
+    const filteredInvoices = purpose === 'apply'
+      ? mappedInvoices.filter(inv => inv.outstanding > 0)
+      : mappedInvoices.filter(inv => inv.eligibleCredit > 0);
+
+    const responseData = { count: filteredInvoices.length, data: filteredInvoices };
+
+    await set(cacheKey, responseData, 120); // shorter TTL since eligibleCredit changes
+
+    res.status(200).json({ success: true, ...responseData, cached: false });
 
   } catch (error) {
     console.error('❌ [CN] Get unpaid invoices error:', error);
@@ -924,193 +1020,231 @@ exports.getUnpaidInvoices = async (req, res) => {
 // ============================================================
 exports.applyCreditNote = async (req, res) => {
   try {
-    const { creditNoteId, invoiceId, amount } = req.body;
+    const { creditNoteId, invoiceId, amount, applications } = req.body;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    if (!amount || amount <= 0) {
+    const postingDate = new Date();
+
+    // Support single or multi-invoice application (backward compatible)
+    const appList = Array.isArray(applications) && applications.length > 0
+      ? applications
+      : [{ invoiceId, amount }];
+
+    if (!creditNoteId || appList.some(a => !a.invoiceId || !a.amount || a.amount <= 0)) {
       return res.status(400).json({
         success: false,
-        message: 'Valid amount is required',
+        message: 'Valid credit note ID and application amounts are required',
       });
     }
+
+    const totalApplyAmount = appList.reduce((s, a) => s + parseFloat(a.amount), 0);
+    if (totalApplyAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Total apply amount must be greater than 0' });
+    }
+
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id: creditNoteId,
-        companyId: companyId}
+        OR: [
+          { companyId: companyId },
+          { companyId: null, createdBy: userId },
+        ],
+      },
     });
 
     if (!creditNote) {
-      return res.status(404).json({
+      return res.status(404).json({ success: false, message: 'Credit note not found' });
+    }
+
+    if (['Applied', 'Expired', 'Voided', 'Cancelled'].includes(creditNote.status)) {
+      return res.status(400).json({
         success: false,
-        message: 'Credit note not found',
+        message: `Credit note cannot be applied (status: ${creditNote.status})`,
       });
     }
 
-    if (new Date() > new Date(creditNote.expiryDate) && creditNote.status !== 'Applied') {
+    if (new Date() > new Date(creditNote.expiryDate)) {
       return res.status(400).json({
         success: false,
         message: 'Credit note has expired and cannot be applied',
       });
     }
 
-    if (creditNote.status === 'Applied') {
+    if (totalApplyAmount > creditNote.remainingAmount) {
       return res.status(400).json({
         success: false,
-        message: 'Credit note is already fully applied',
+        message: `Total apply amount (${totalApplyAmount}) exceeds remaining credit (${creditNote.remainingAmount})`,
       });
     }
 
-    if (amount > creditNote.remainingAmount) {
-      return res.status(400).json({
-        success: false,
-        message: `Amount exceeds remaining credit note amount of ${creditNote.remainingAmount}`,
-      });
-    }
+    const existingApps = Array.isArray(creditNote.appliedToInvoices)
+      ? creditNote.appliedToInvoices
+      : [];
 
-    const invoice = await prisma.warehouseInvoice.findFirst({
-      where: {
-        id: invoiceId,
-        companyId: companyId}
-    });
+    const arAccount = await getOrCreateReceivableAccount(userId, companyId);
+    const customerCreditAccount = await getOrCreateCustomerCreditAccount(userId, companyId);
 
-    if (!invoice) {
-      return res.status(404).json({
-        success: false,
-        message: 'Warehouse invoice not found',
-      });
-    }
+    await prisma.$transaction(async (tx) => {
+      const newAppliedEntries = [];
 
-    if (amount > invoice.outstanding) {
-      return res.status(400).json({
-        success: false,
-        message: `Amount exceeds invoice outstanding balance of ${invoice.outstanding}`,
-      });
-    }
+      for (const app of appList) {
+        const applyAmount = parseFloat(app.amount);
 
-    const newAppliedAmount = creditNote.appliedAmount + amount;
-    const newRemainingAmount = creditNote.remainingAmount - amount;
-    
-    let status = 'PartiallyApplied';
-    if (newRemainingAmount === 0) {
-      status = 'Applied';
-    }
-
-    const appliedToInvoices = creditNote.appliedToInvoices || [];
-    appliedToInvoices.push({
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      amount: amount,
-      appliedAt: new Date()
-    });
-
-    await prisma.creditNote.update({
-      where: { id: creditNoteId },
-      data: {
-        appliedAmount: newAppliedAmount,
-        remainingAmount: newRemainingAmount,
-        status: status,
-        appliedToInvoices: appliedToInvoices
-      }
-    });
-
-    const newPaidAmount = invoice.paidAmount + amount;
-    const newOutstanding = invoice.grandTotal - newPaidAmount;
-    
-    let invoiceStatus = 'Partial';
-    if (newOutstanding === 0) {
-      invoiceStatus = 'Paid';
-    }
-
-    const creditNoteReferences = invoice.creditNoteReferences || [];
-    creditNoteReferences.push({
-      creditNoteId: creditNote.id,
-      creditNoteNumber: creditNote.creditNumber,
-      amount: amount,
-      appliedAt: new Date()
-    });
-
-    await prisma.warehouseInvoice.update({
-      where: { id: invoiceId },
-      data: {
-        paidAmount: newPaidAmount,
-        outstanding: newOutstanding,
-        invoiceStatus: invoiceStatus,
-        paymentStatus: newOutstanding === 0 ? 'Paid' : 'Partial',
-        creditNoteReferences: creditNoteReferences
-      }
-    });
-
-    // Update customer - Remove balance field
-    await prisma.customer.update({
-      where: { id: invoice.customerId },
-      data: {
-        totalCreditNotes: { increment: amount }
-      }
-    });
-
-    const arAccount = await getOrCreateReceivableAccount(userId);
-    const contraRevenueAccount = await getOrCreateContraRevenueAccount(userId, creditNote.reasonType || 'Return');
-
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: `JE-APPLY-${Date.now()}`,
-        date: new Date(),
-        description: `Applied credit note ${creditNote.creditNumber} to invoice ${invoice.invoiceNumber}`,
-        reference: `${creditNote.creditNumber} -> ${invoice.invoiceNumber}`,
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        postedAt: new Date(),
-        lines: {
-          create: [
-            {
-              accountId: arAccount.id,
-              accountName: arAccount.name,
-              accountCode: arAccount.code,
-              debit: amount,
-              credit: 0,
-              isReconciled: false,
-              description: `Applied credit note ${creditNote.creditNumber}`
-            },
-            {
-              accountId: contraRevenueAccount.id,
-              accountName: contraRevenueAccount.name,
-              accountCode: contraRevenueAccount.code,
-              debit: 0,
-              credit: amount,
-              isReconciled: false,
-              description: `Applied credit note ${creditNote.creditNumber}`
-            }
-          ]
+        // Prevent duplicate application to same invoice
+        const alreadyApplied = existingApps.some(
+          e => e.invoiceId === app.invoiceId && e.amount > 0
+        );
+        if (alreadyApplied) {
+          throw new Error(`Credit note already applied to invoice ${app.invoiceId}`);
         }
+
+        const invoice = await tx.warehouseInvoice.findFirst({
+          where: {
+            id: app.invoiceId,
+            customerId: creditNote.customerId,
+            isDeleted: false,
+            invoiceStatus: { not: 'Cancelled' },
+            OR: [
+              { companyId: companyId },
+              { companyId: null, createdBy: userId },
+            ],
+          },
+        });
+
+        if (!invoice) {
+          throw new Error(`Invoice not found or does not belong to this customer`);
+        }
+
+        const invoiceOutstanding = computeInvoiceOutstanding(invoice);
+        if (applyAmount > invoiceOutstanding) {
+          throw new Error(
+            `Amount ${applyAmount} exceeds invoice ${invoice.invoiceNumber} outstanding (${invoiceOutstanding})`
+          );
+        }
+
+        // Get total credits already on this invoice for status calc
+        const creditsOnInvoice = await tx.creditNote.aggregate({
+          where: {
+            originalInvoiceId: invoice.id,
+            status: { notIn: ['Cancelled', 'Voided'] },
+          },
+          _sum: { amount: true },
+        });
+        const totalCredited = creditsOnInvoice._sum.amount || 0;
+
+        const statusUpdate = deriveInvoiceStatusAfterCredit(
+          invoice.grandTotal,
+          invoice.paidAmount + applyAmount, // credit applied reduces effective outstanding
+          totalCredited,
+        );
+
+        await tx.warehouseInvoice.update({
+          where: { id: invoice.id },
+          data: {
+            outstanding: Math.max(0, invoiceOutstanding - applyAmount),
+            paymentStatus: statusUpdate.paymentStatus,
+            invoiceStatus: statusUpdate.invoiceStatus,
+          },
+        });
+
+        newAppliedEntries.push({
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          amount: applyAmount,
+          appliedAt: new Date().toISOString(),
+        });
       }
+
+      const newAppliedAmount = creditNote.appliedAmount + totalApplyAmount;
+      const newRemainingAmount = creditNote.remainingAmount - totalApplyAmount;
+      const newStatus = newRemainingAmount === 0 ? 'Applied' : 'PartiallyApplied';
+
+      await tx.creditNote.update({
+        where: { id: creditNoteId },
+        data: {
+          appliedAmount: newAppliedAmount,
+          remainingAmount: newRemainingAmount,
+          status: newStatus,
+          appliedToInvoices: [...existingApps, ...newAppliedEntries],
+        },
+      });
+
+      // AR netting entry — no duplicate revenue impact
+      // Dr Customer Credit Balance  Cr Accounts Receivable
+      await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-APPLY-${Date.now()}`,
+          date: postingDate,
+          description: `Applied credit note ${creditNote.creditNumber} to ${newAppliedEntries.length} invoice(s)`,
+          reference: creditNote.creditNumber,
+          status: 'Posted',
+          createdBy: userId,
+          postedBy: userId,
+          fiscalYearId,
+          companyId,
+          postedAt: new Date(),
+          lines: {
+            create: [
+              {
+                accountId: customerCreditAccount.id,
+                accountName: customerCreditAccount.name,
+                accountCode: customerCreditAccount.code,
+                debit: totalApplyAmount,
+                credit: 0,
+                isReconciled: false,
+              },
+              {
+                accountId: arAccount.id,
+                accountName: arAccount.name,
+                accountCode: arAccount.code,
+                debit: 0,
+                credit: totalApplyAmount,
+                isReconciled: false,
+              },
+            ],
+          },
+        },
+      });
+
+      await tx.customer.update({
+        where: { id: creditNote.customerId },
+        data: { outstandingBalance: { increment: totalApplyAmount } },
+      });
     });
 
-    await updateAccountBalances(arAccount.id, amount, true);
-    await updateAccountBalances(contraRevenueAccount.id, amount, false);
+    await updateAccountBalances(customerCreditAccount.id, totalApplyAmount, true);
+    await updateAccountBalances(arAccount.id, totalApplyAmount, false);
 
     res.status(200).json({
       success: true,
-      message: 'Credit note applied successfully with proper accounting entries',
+      message: 'Credit note applied successfully',
     });
 
-    // Invalidate cache after successful credit note application
     try {
       await delPattern(`cn:list:${userId}:*`);
       await delPattern(`cn:detail:${userId}:${creditNoteId}`);
       await delPattern(`cn:summary:${userId}:*`);
       await delPattern(`cn:unpaid-invoices:${userId}:*`);
-      console.log('🗑️ [CN] Cache invalidated after credit note application');
-    } catch (cacheError) {
-      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
+      await delPattern(`cn:invoices:${userId}:*`);
+    } catch (e) {
+      console.log('⚠️ [CN] Cache invalidation error:', e.message);
     }
   } catch (error) {
     console.error('❌ [CN] Apply credit note error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || 'Error applying credit note',
     });
   }
 };

@@ -1,4 +1,3 @@
-// controllers/userController.js - WITH EMAIL SERVICE
 
 const User = require('../models/User');
 const prisma = require('../prisma/client');
@@ -6,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
 const { sendToUser } = require('../services/onesignal');
+const { initializeDefaultChartOfAccounts } = require('../services/defaultChartOfAccountsService');
 
 const cleanToken = (token) => {
   if (!token) return null;
@@ -49,7 +49,6 @@ const checkAndExpireSubscription = async (userId) => {
   }
 };
 
-// ─── HELPER: Check and Update Trial Days ──────────────────
 const checkTrialDays = async (userId) => {
   const userData = await User.findById(userId);
   if (!userData) return 0;
@@ -64,7 +63,6 @@ const checkTrialDays = async (userId) => {
   return trialDaysRemaining;
 };
 
-// ==================== REGISTER ====================
 exports.register = async (req, res) => {
   try {
     const {
@@ -89,11 +87,6 @@ exports.register = async (req, res) => {
       }
     }
 
-    console.log('═══════════════════════════════════════════════════');
-    console.log('🔵 [register] Called');
-    console.log('📧 [register] Email:', email);
-    console.log('📛 [register] Name:', firstName, lastName);
-    console.log('═══════════════════════════════════════════════════');
 
     if (!firstName || !lastName || !email || !password || !country) {
       return res.status(400).json({
@@ -127,7 +120,6 @@ exports.register = async (req, res) => {
     const trialEnd = new Date(now);
     trialEnd.setDate(trialEnd.getDate() + 30);
 
-    // ─── Every user registering creates their own company, so they should be admin ─────────
     const userRole = 'admin';
 
     console.log('🎭 [register] Assigned role:', userRole);
@@ -210,51 +202,28 @@ exports.register = async (req, res) => {
         fyName      = fiscalYearName || `FY ${currentYear}`;
       }
 
-      await prisma.$transaction(async (tx) => {
-        await tx.fiscalYear.create({
-          data: {
-            companyId: company.id,
-            name:      fyName,
-            startDate: fyStartDate,
-            endDate:   fyEndDate,
-            status:    'Open',
-          },
-        });
-
-        const existingRE = await tx.chartOfAccount.findFirst({
-          where: {
-            companyId: company.id,
-            type:   'Equity',
-            name:   { contains: 'Retained Earnings', mode: 'insensitive' },
-          },
-        });
-
-        if (!existingRE) {
-          await tx.chartOfAccount.create({
-            data: {
-              code:           '3999',
-              name:           'Retained Earnings',
-              type:           'Equity',
-              parentAccount:  'Shareholders Equity',
-              openingBalance: 0,
-              currentBalance: 0,
-              description:    'Retained earnings account',
-              taxCode:        'N/A',
-              balanceType:    'Credit',
-              isActive:       true,
-              createdBy:      user._id,
-              companyId:      company.id,
-            },
-          });
-        }
+      await prisma.fiscalYear.create({
+        data: {
+          companyId: company.id,
+          name:      fyName,
+          startDate: fyStartDate,
+          endDate:   fyEndDate,
+          status:    'Open',
+        },
       });
 
-      console.log('✅ [register] FiscalYear and Retained Earnings created for user:', user._id);
+      console.log('✅ [register] FiscalYear created for user:', user._id);
     } catch (fyError) {
-      console.error('⚠️ [register] FiscalYear/RetainedEarnings creation failed (non-fatal):', fyError.message);
+      console.error('⚠️ [register] FiscalYear creation failed (non-fatal):', fyError.message);
     }
 
-    // ─── Send Welcome Email using emailService ───
+    try {
+      const coaResult = await initializeDefaultChartOfAccounts(company.id, user._id);
+      console.log('✅ [register] Default Chart of Accounts initialized:', coaResult.message);
+    } catch (coaError) {
+      console.error('⚠️ [register] Default Chart of Accounts initialization failed (non-fatal):', coaError.message);
+    }
+
     try {
       await emailService.sendWelcomeEmail(email, firstName);
       console.log('✅ [register] Welcome email sent successfully');
@@ -304,7 +273,6 @@ exports.register = async (req, res) => {
   }
 };
 
-// ==================== LOGIN ====================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -570,7 +538,7 @@ exports.verifyLoginOTP = async (req, res) => {
       await sendToUser({
         mongoUserId: updatedUser._id.toString(),
         title: 'Login Successful',
-        message: 'Welcome back to LedgerPro ✅',
+        message: 'Welcome back to BisonsTechs ✅',
         data: {
           type: 'auth',
           screen: 'home'
@@ -598,7 +566,6 @@ exports.verifyLoginOTP = async (req, res) => {
   }
 };
 
-// ==================== UPDATE BUSINESS DETAILS ====================
 exports.updateBusinessDetails = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -728,7 +695,6 @@ exports.getBusinessDetails = async (req, res) => {
   }
 };
 
-// ==================== REFRESH TOKEN ====================
 exports.refreshToken = async (req, res) => {
   try {
     let { refreshToken } = req.body;
@@ -749,6 +715,7 @@ exports.refreshToken = async (req, res) => {
         message: 'Invalid refresh token format'
       });
     }
+
 
     let decoded;
     try {
@@ -849,7 +816,6 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// ==================== CHANGE PASSWORD ====================
 exports.changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;

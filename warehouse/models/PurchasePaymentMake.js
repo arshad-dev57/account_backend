@@ -57,33 +57,52 @@ async function findCashAccount(tx, companyId) {
 
 class PurchasePaymentMakeModel {
   // ============================================================
-  // GET SUPPLIER INVOICES (Unpaid & Partially Paid) - ✅ FIXED
+  // GET SUPPLIER INVOICES (Unpaid & Partially Paid)
   // ============================================================
-  static async getSupplierInvoices(supplierId, companyId) {
-    // ✅ FIXED: Use companyId instead of userId
+  static async getSupplierInvoices(supplierId, companyId, userId = null) {
+    const companyScope = companyId
+      ? {
+          OR: [
+            { companyId },
+            ...(userId ? [{ companyId: null, createdBy: userId }] : []),
+          ],
+        }
+      : userId
+        ? { createdBy: userId }
+        : {};
+
     const invoices = await prisma.purchaseInvoice.findMany({
       where: {
-        supplierId: supplierId,
-        companyId: companyId,
-        isActive: true,
-        isDeleted: false,
-        invoiceStatus: {
-          in: ['Posted', 'Partially Paid']
-        },
-        outstanding: {
-          gt: 0
-        }
+        AND: [
+          { supplierId },
+          { isActive: true },
+          { isDeleted: false },
+          // Include Draft/Posted/Partially Paid — anything still unpaid
+          { invoiceStatus: { notIn: ['Paid', 'Cancelled'] } },
+          { paymentStatus: { notIn: ['Paid', 'paid'] } },
+          companyScope,
+        ],
       },
-      orderBy: {
-        invoiceDate: 'asc'
-      },
+      orderBy: { invoiceDate: 'asc' },
       include: {
         items: true,
-        supplier: true
-      }
+        supplier: true,
+      },
     });
 
-    return invoices;
+    // Recalculate outstanding so UI always shows remaining balance
+    return invoices
+      .map((inv) => {
+        const outstanding =
+          Number(inv.outstanding) > 0
+            ? Number(inv.outstanding)
+            : Math.max(0, Number(inv.grandTotal || 0) - Number(inv.paidAmount || 0));
+        return {
+          ...inv,
+          outstanding,
+        };
+      })
+      .filter((inv) => inv.outstanding > 0);
   }
 
   // ============================================================
@@ -164,24 +183,29 @@ class PurchasePaymentMakeModel {
             }
           },
           include: {
-            invoicePayments: {
+            purchasePayments: {
               where: {
                 payment: {
                   isActive: true,
                   isDeleted: false,
-                  status: 'Completed'
-                }
-              }
-            }
-          }
+                  status: 'Completed',
+                },
+              },
+            },
+          },
         });
 
         if (!invoice) {
           throw new Error(`Invoice ${inv.invoiceNumber} not found or cannot be paid`);
         }
 
-        const totalPaid = invoice.invoicePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
-        const currentOutstanding = invoice.grandTotal - totalPaid;
+        const totalPaidFromPayments =
+          invoice.purchasePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
+        const totalPaid = Math.max(totalPaidFromPayments, Number(invoice.paidAmount) || 0);
+        const currentOutstanding =
+          Number(invoice.outstanding) > 0
+            ? Number(invoice.outstanding)
+            : Math.max(0, Number(invoice.grandTotal) - totalPaid);
 
         if (currentOutstanding <= 0) {
           throw new Error(`Invoice ${inv.invoiceNumber} is already fully paid`);
@@ -588,18 +612,18 @@ class PurchasePaymentMakeModel {
             include: {
               invoice: {
                 include: {
-                  invoicePayments: {
+                  purchasePayments: {
                     where: {
                       payment: {
                         isActive: true,
                         isDeleted: false,
-                        status: 'Completed'
-                      }
-                    }
-                  }
-                }
-              }
-            }
+                        status: 'Completed',
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
           supplier: true,
           bankAccount: true,
@@ -622,7 +646,9 @@ class PurchasePaymentMakeModel {
       // ─── Reverse Invoice Payments ──────────────────────────
       for (const invPayment of payment.invoicePayments) {
         const invoice = invPayment.invoice;
-        const totalPaid = invoice.invoicePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
+        const totalPaidFromPayments =
+          invoice.purchasePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
+        const totalPaid = Math.max(totalPaidFromPayments, Number(invoice.paidAmount) || 0);
         const newPaidAmount = totalPaid - invPayment.amountPaid;
         const newOutstanding = invoice.grandTotal - newPaidAmount;
 

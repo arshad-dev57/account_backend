@@ -18,11 +18,17 @@ const prisma = require('../prisma/client');
 async function findFiscalYearForDate(userId, date) {
   try {
     const d = new Date(date);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { companyId: true },
+    });
+    if (!user?.companyId) return null;
+
     return await prisma.fiscalYear.findFirst({
       where: {
-        userId,
+        companyId: user.companyId,
         startDate: { lte: d },
-        endDate:   { gte: d },
+        endDate: { gte: d },
       },
     });
   } catch {

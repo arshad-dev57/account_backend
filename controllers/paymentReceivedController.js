@@ -61,7 +61,7 @@ async function getOrCreateCashAccount(userId, companyId, tx) {
 }
 
 // ─── HELPER: Validate Customer ──────────────────────────────────
-async function validateCustomer(customerId, userId, tx) {
+async function validateCustomer(customerId, companyId, tx) {
   const db = tx || prisma;
   if (!customerId) throw new Error('Customer ID is required');
 
@@ -74,7 +74,7 @@ async function validateCustomer(customerId, userId, tx) {
 }
 
 // ─── HELPER: Validate Bank Account ──────────────────────────────
-async function validateBankAccount(bankAccountId, userId, tx) {
+async function validateBankAccount(bankAccountId, companyId, tx) {
   const db = tx || prisma;
   if (!bankAccountId) return null;
 
@@ -88,12 +88,12 @@ async function validateBankAccount(bankAccountId, userId, tx) {
 }
 
 // ─── HELPER: Validate Invoice ──────────────────────────────────
-async function validateInvoice(invoiceId, userId, tx) {
+async function validateInvoice(invoiceId, companyId, tx) {
   const db = tx || prisma;
   if (!invoiceId) throw new Error('Invoice ID is required');
 
   const invoice = await db.warehouseInvoice.findFirst({
-    where: { id: invoiceId, companyId: companyId, invoiceStatus: { not: 'Paid' } }
+    where: { id: invoiceId, invoiceStatus: { not: 'Paid' }, isDeleted: false }
   });
 
   if (!invoice) throw new Error('Invoice not found or already paid');
@@ -101,7 +101,7 @@ async function validateInvoice(invoiceId, userId, tx) {
 }
 
 // ─── HELPER: Generate next payment number (used inside retry loop) ──
-async function generatePaymentNumber(userId, tx) {
+async function generatePaymentNumber(companyId, tx) {
   const year = new Date().getFullYear();
   const prefix = `PMT-${year}-`;
 
@@ -137,8 +137,24 @@ const recordPayment = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📦 [recordPayment] START');
+    console.log('  userId     :', userId);
+    console.log('  companyId  :', companyId);
+    console.log('  customerId :', customerId);
+    console.log('  invoiceId  :', invoiceId);
+    console.log('  amount     :', amount);
+    console.log('  paymentMethod:', paymentMethod);
+    console.log('  bankAccountId:', bankAccountId);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    if (!companyId) {
+      console.error('❌ [recordPayment] companyId is missing from req.user');
+      return res.status(400).json({ success: false, message: 'Company ID not found in session. Please re-login.' });
+    }
+
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -148,33 +164,38 @@ const recordPayment = async (req, res) => {
 
     // ─── Fiscal year guard ─────────────────────────────────────────
     const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+    console.log('🗓️  [recordPayment] postingDate:', postingDate);
     try {
       await fiscalYearGuard(userId, postingDate);
+      console.log('✅ [recordPayment] Fiscal year guard passed');
     } catch (err) {
+      console.error('❌ [recordPayment] Fiscal year guard failed:', err.message);
       if (err.code === 'FISCAL_YEAR_CLOSED') {
         return res.status(400).json({ success: false, message: err.message });
       }
       throw err;
     }
 
-    // ─── Everything below runs in ONE atomic transaction ───────────
-    // If ANYTHING fails (including a paymentNumber collision), the
-    // ENTIRE transaction rolls back — invoice will NOT be updated
-    // unless the payment record is also successfully created.
     const MAX_RETRIES = 5;
     let lastError = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      console.log(`🔄 [recordPayment] Transaction attempt ${attempt}/${MAX_RETRIES}`);
       try {
         const result = await prisma.$transaction(async (tx) => {
           // 1. Validate customer
-          const customer = await validateCustomer(customerId, userId, tx);
+          console.log('  [tx] Step 1: validateCustomer...');
+          const customer = await validateCustomer(customerId, companyId, tx);
+          console.log('  [tx] Customer found:', customer.id, customer.name);
 
           // 2. Validate invoice
-          const invoice = await validateInvoice(invoiceId, userId, tx);
+          console.log('  [tx] Step 2: validateInvoice...');
+          const invoice = await validateInvoice(invoiceId, companyId, tx);
+          console.log('  [tx] Invoice found:', invoice.id, invoice.invoiceNumber, '| grandTotal:', invoice.grandTotal, '| paidAmount:', invoice.paidAmount);
 
           // 3. Validate amount vs outstanding
           const outstanding = invoice.grandTotal - invoice.paidAmount;
+          console.log('  [tx] Step 3: outstanding =', outstanding, '| requested amount =', amount);
           if (amount > outstanding) {
             const err = new Error(
               `Payment amount cannot exceed outstanding balance of ${outstanding}`
@@ -187,14 +208,19 @@ const recordPayment = async (req, res) => {
           // 4. Validate bank account (if applicable)
           let bankAccount = null;
           let bankChartAccount = null;
+          console.log('  [tx] Step 4: validate bank account (method:', paymentMethod, ', bankAccountId:', bankAccountId, ')');
           if (paymentMethod !== 'Cash' && bankAccountId) {
-            bankAccount = await validateBankAccount(bankAccountId, userId, tx);
+            bankAccount = await validateBankAccount(bankAccountId, companyId, tx);
             if (bankAccount) bankChartAccount = bankAccount.chartOfAccount;
+            console.log('  [tx] Bank account found:', bankAccount?.id, bankAccount?.accountName);
           }
 
           // 5. Get/create AR + Cash accounts
-          const arAccount = await getOrCreateReceivableAccount(userId, tx);
-          const cashAccount = await getOrCreateCashAccount(userId, tx);
+          console.log('  [tx] Step 5: getOrCreate AR + Cash accounts...');
+          const arAccount = await getOrCreateReceivableAccount(userId, companyId, tx);
+          const cashAccount = await getOrCreateCashAccount(userId, companyId, tx);
+          console.log('  [tx] AR account:', arAccount?.id, arAccount?.code);
+          console.log('  [tx] Cash account:', cashAccount?.id, cashAccount?.code);
 
           // 6. Determine debit account
           let debitAccount = cashAccount;
@@ -213,11 +239,14 @@ const recordPayment = async (req, res) => {
           });
 
           // 8. Generate payment number FRESH inside this transaction
-          //    (re-read on every retry attempt to avoid collisions)
-          const paymentNumber = await generatePaymentNumber(userId, tx);
+          console.log('  [tx] Step 8: generatePaymentNumber...');
+          const paymentNumber = await generatePaymentNumber(companyId, tx);
+          console.log('  [tx] paymentNumber:', paymentNumber);
 
           // 8a. Resolve fiscal year id for this posting date
+          console.log('  [tx] Step 8a: resolveFiscalYearId...');
           const fyId = await resolveFiscalYearId(userId, postingDate);
+          console.log('  [tx] fiscalYearId:', fyId);
 
           const paymentData = {
             paymentNumber,
@@ -238,12 +267,14 @@ const recordPayment = async (req, res) => {
             status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
             clearedDate: paymentMethod === 'Cheque' ? null : new Date(),
             createdBy: userId,
+            companyId: companyId,
             fiscalYearId: fyId,
           };
 
-          // 9. Create payment record — this is the step that was
-          //    previously failing silently AFTER the invoice was
-          //    already updated outside a transaction.
+          console.log('  [tx] Step 9: Creating payment record with data:');
+          console.log(JSON.stringify(paymentData, null, 2));
+
+          // 9. Create payment record
           const payment = await tx.paymentReceived.create({
             data: paymentData,
             include: {
@@ -251,6 +282,7 @@ const recordPayment = async (req, res) => {
               creator: { select: { id: true, firstName: true, lastName: true, email: true } }
             }
           });
+          console.log('  [tx] ✅ Payment created:', payment.id, payment.paymentNumber);
 
           // 10. Create journal entry
           const journalEntry = await tx.journalEntry.create({
@@ -340,19 +372,25 @@ const recordPayment = async (req, res) => {
       } catch (error) {
         lastError = error;
 
+        console.error(`❌ [recordPayment] Transaction attempt ${attempt} FAILED:`);
+        console.error('  message   :', error.message);
+        console.error('  code      :', error.code);
+        console.error('  statusCode:', error.statusCode);
+        console.error('  stack     :', error.stack);
+
         // Prisma unique constraint violation on paymentNumber → retry
-        // with a freshly generated number instead of failing outright.
         if (error.code === 'P2002' && attempt < MAX_RETRIES) {
           console.warn(`⚠️ [AR] paymentNumber collision, retrying (attempt ${attempt}/${MAX_RETRIES})`);
           continue;
         }
 
-        // Any other error (validation, business-rule) → stop retrying
+        // Any other error → stop retrying
         break;
       }
     }
 
     // If we get here, all retries failed or a non-retryable error occurred
+    console.error('❌ [recordPayment] All retries exhausted. lastError:', lastError?.message);
     const statusCode = lastError && lastError.statusCode ? lastError.statusCode : 500;
     const response = { success: false, message: lastError ? lastError.message : 'Failed to record payment' };
     if (lastError && lastError.outstanding !== undefined) {

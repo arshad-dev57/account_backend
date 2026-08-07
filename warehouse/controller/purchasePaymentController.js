@@ -4,6 +4,7 @@ const PurchasePaymentMake = require('../models/PurchasePaymentMake');
 const prisma = require('../../prisma/client');
 const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
+const { createExpenseFromPurchasePayment } = require('../../controllers/expenseController');
 
 // ============================================================
 // ─── PURCHASE PAYMENT MAKE CONTROLLERS ──────────────────────
@@ -14,8 +15,8 @@ const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 // @access  Private
 const getSupplierInvoices = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
+    const userId = req.user.id;
     const { supplierId } = req.params;
 
     // ─── Check if supplier exists ──────────────────────────
@@ -34,7 +35,11 @@ const getSupplierInvoices = async (req, res) => {
       });
     }
 
-    const invoices = await PurchasePaymentMake.getSupplierInvoices(supplierId, userId);
+    const invoices = await PurchasePaymentMake.getSupplierInvoices(
+      supplierId,
+      companyId,
+      userId
+    );
 
     res.status(200).json({
       success: true,
@@ -191,10 +196,35 @@ const makePayment = async (req, res) => {
 
     const payment = await PurchasePaymentMake.makePayment(paymentData);
 
+    // Mirror completed purchase payment onto Expense screen (no second JE/bank hit)
+    let expense = null;
+    try {
+      expense = await createExpenseFromPurchasePayment({
+        userId,
+        companyId,
+        payment,
+        fiscalYearId,
+      });
+    } catch (expenseErr) {
+      console.error(
+        '⚠️ Purchase payment succeeded but expense creation failed:',
+        expenseErr.message
+      );
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Payment made successfully',
-      data: payment
+      message: expense
+        ? 'Payment made successfully and expense recorded'
+        : 'Payment made successfully',
+      data: payment,
+      expense: expense
+        ? {
+            id: expense.id,
+            expenseNumber: expense.expenseNumber,
+            amount: expense.totalAmount || expense.amount,
+          }
+        : null,
     });
   } catch (error) {
     console.error('Make payment error:', error);

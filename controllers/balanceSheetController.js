@@ -1,7 +1,7 @@
 // controllers/balanceSheetController.js
 
 const { buildBalanceSheetFromLedger } = require('../utils/balanceSheetHelper');
-const { get, set, del, delPattern } = require('../utils/redisClient');
+const { get, set } = require('../utils/redisClient');
 
 exports.getBalanceSheet = async (req, res) => {
   try {
@@ -9,10 +9,15 @@ exports.getBalanceSheet = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    // Build cache key with parameters
-    const cacheKey = `bs:balance-sheet:${userId}:${period || ''}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
-    
-    // Try to get from cache
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `bs:balance-sheet:${companyId}:${period || ''}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -22,9 +27,17 @@ exports.getBalanceSheet = async (req, res) => {
       });
     }
 
-    const data = await buildBalanceSheetFromLedger(userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate);
+    // Correct argument order: userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate
+    const data = await buildBalanceSheetFromLedger(
+      userId,
+      companyId,
+      period || 'All Time',
+      asOfDate || null,
+      fiscalYearId || null,
+      startDate || null,
+      endDate || null
+    );
 
-    // Cache the result (5 minutes TTL)
     await set(cacheKey, data, 300);
 
     res.status(200).json({
@@ -43,14 +56,19 @@ exports.getBalanceSheet = async (req, res) => {
 
 exports.getSummary = async (req, res) => {
   try {
-    const { fiscalYearId, startDate, endDate } = req.query;
+    const { fiscalYearId, startDate, endDate, asOfDate } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    // Build cache key with parameters
-    const cacheKey = `bs:summary:${userId}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
-    
-    // Try to get from cache
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `bs:summary:${companyId}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}:${asOfDate || ''}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -60,17 +78,25 @@ exports.getSummary = async (req, res) => {
       });
     }
 
-    const data = await buildBalanceSheetFromLedger(userId, 'All Time', null, fiscalYearId, startDate, endDate);
+    const data = await buildBalanceSheetFromLedger(
+      userId,
+      companyId,
+      'All Time',
+      asOfDate || null,
+      fiscalYearId || null,
+      startDate || null,
+      endDate || null
+    );
 
     const summaryData = {
       asOfDate: data.asOfDate,
-      totalAssets: data.totalAssets,
-      totalLiabilities: data.totalLiabilities,
-      totalEquity: data.totalEquity,
+      totalAssets: data.totals.totalAssets,
+      totalLiabilities: data.totals.totalLiabilities,
+      totalEquity: data.totals.totalEquity,
       isBalanced: data.isBalanced,
+      difference: data.difference,
     };
 
-    // Cache the result (2 minutes TTL)
     await set(cacheKey, summaryData, 120);
 
     res.status(200).json({
@@ -92,11 +118,17 @@ exports.getBalanceSheetByDate = async (req, res) => {
     const { date } = req.params;
     const { fiscalYearId, startDate, endDate } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // Build cache key with parameters
-    const cacheKey = `bs:by-date:${userId}:${date}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
-    
-    // Try to get from cache
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `bs:by-date:${companyId}:${date}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -106,38 +138,57 @@ exports.getBalanceSheetByDate = async (req, res) => {
       });
     }
 
-    const data = await buildBalanceSheetFromLedger(userId, 'All Time', date, fiscalYearId, startDate, endDate);
+    const data = await buildBalanceSheetFromLedger(
+      userId,
+      companyId,
+      'All Time',
+      date,
+      fiscalYearId || null,
+      startDate || null,
+      endDate || null
+    );
 
     const assets = [];
     const liabilities = [];
     const equity = [];
 
     Object.entries(data.assets).forEach(([category, items]) => {
-      Object.entries(items).forEach(([name, balance]) => {
-        assets.push({ code: '', name: `${category} - ${name}`, balance });
+      items.forEach((item) => {
+        assets.push({
+          code: item.code,
+          name: `${category} - ${item.name}`,
+          balance: item.balance,
+        });
       });
     });
 
     Object.entries(data.liabilities).forEach(([category, items]) => {
-      Object.entries(items).forEach(([name, balance]) => {
-        liabilities.push({ code: '', name: `${category} - ${name}`, balance });
+      items.forEach((item) => {
+        liabilities.push({
+          code: item.code,
+          name: `${category} - ${item.name}`,
+          balance: item.balance,
+        });
       });
     });
 
-    Object.entries(data.equityDetails).forEach(([category, items]) => {
-      Object.entries(items).forEach(([name, balance]) => {
-        equity.push({ code: '', name: `${category} - ${name}`, balance });
+    (data.equity.owners || []).forEach((item) => {
+      equity.push({
+        code: item.code,
+        name: item.name,
+        balance: item.balance,
       });
     });
 
     const responseData = {
       asOfDate: data.asOfDate,
-      assets: { total: data.totalAssets, items: assets },
-      liabilities: { total: data.totalLiabilities, items: liabilities },
-      equity: { total: data.totalEquity, items: equity },
+      assets: { total: data.totals.totalAssets, items: assets },
+      liabilities: { total: data.totals.totalLiabilities, items: liabilities },
+      equity: { total: data.totals.totalEquity, items: equity },
+      isBalanced: data.isBalanced,
+      difference: data.difference,
     };
 
-    // Cache the result (5 minutes TTL)
     await set(cacheKey, responseData, 300);
 
     res.status(200).json({
@@ -158,9 +209,17 @@ exports.getAssetsBreakdown = async (req, res) => {
   try {
     const { asOfDate, fiscalYearId, startDate, endDate } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    const cacheKey = `bs:assets:${userId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
-    
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `bs:assets:${companyId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -170,7 +229,15 @@ exports.getAssetsBreakdown = async (req, res) => {
       });
     }
 
-    const data = await buildBalanceSheetFromLedger(userId, 'All Time', asOfDate, fiscalYearId, startDate, endDate);
+    const data = await buildBalanceSheetFromLedger(
+      userId,
+      companyId,
+      'All Time',
+      asOfDate || null,
+      fiscalYearId || null,
+      startDate || null,
+      endDate || null
+    );
 
     let currentAssets = 0;
     let fixedAssets = 0;
@@ -178,11 +245,16 @@ exports.getAssetsBreakdown = async (req, res) => {
     const assetDetails = [];
 
     Object.entries(data.assets).forEach(([category, items]) => {
-      Object.entries(items).forEach(([name, balance]) => {
-        assetDetails.push({ code: '', name, parentAccount: category, balance });
-        if (category === 'Current Assets') currentAssets += balance;
-        else if (category === 'Fixed Assets') fixedAssets += balance;
-        else otherAssets += balance;
+      items.forEach((item) => {
+        assetDetails.push({
+          code: item.code,
+          name: item.name,
+          parentAccount: item.parent || category,
+          balance: item.balance,
+        });
+        if (category === 'current') currentAssets += item.balance;
+        else if (category === 'fixed') fixedAssets += item.balance;
+        else otherAssets += item.balance;
       });
     });
 
@@ -191,11 +263,10 @@ exports.getAssetsBreakdown = async (req, res) => {
       currentAssets,
       fixedAssets,
       otherAssets,
-      totalAssets: data.totalAssets,
+      totalAssets: data.totals.totalAssets,
       details: assetDetails,
     };
 
-    // Cache the result (5 minutes TTL)
     await set(cacheKey, responseData, 300);
 
     res.status(200).json({
@@ -216,11 +287,17 @@ exports.getLiabilitiesBreakdown = async (req, res) => {
   try {
     const { asOfDate, fiscalYearId, startDate, endDate } = req.query;
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
-    // Build cache key with parameters
-    const cacheKey = `bs:liabilities:${userId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
-    
-    // Try to get from cache
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `bs:liabilities:${companyId}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -230,17 +307,30 @@ exports.getLiabilitiesBreakdown = async (req, res) => {
       });
     }
 
-    const data = await buildBalanceSheetFromLedger(userId, 'All Time', asOfDate, fiscalYearId, startDate, endDate);
+    const data = await buildBalanceSheetFromLedger(
+      userId,
+      companyId,
+      'All Time',
+      asOfDate || null,
+      fiscalYearId || null,
+      startDate || null,
+      endDate || null
+    );
 
     let currentLiabilities = 0;
     let longTermLiabilities = 0;
     const liabilityDetails = [];
 
     Object.entries(data.liabilities).forEach(([category, items]) => {
-      Object.entries(items).forEach(([name, balance]) => {
-        liabilityDetails.push({ code: '', name, parentAccount: category, balance });
-        if (category === 'Current Liabilities') currentLiabilities += balance;
-        else if (category === 'Long Term Liabilities') longTermLiabilities += balance;
+      items.forEach((item) => {
+        liabilityDetails.push({
+          code: item.code,
+          name: item.name,
+          parentAccount: item.parent || category,
+          balance: item.balance,
+        });
+        if (category === 'current') currentLiabilities += item.balance;
+        else if (category === 'longTerm') longTermLiabilities += item.balance;
       });
     });
 
@@ -248,13 +338,12 @@ exports.getLiabilitiesBreakdown = async (req, res) => {
       asOfDate: data.asOfDate,
       currentLiabilities,
       longTermLiabilities,
-      equity: data.totalEquity,
-      totalLiabilities: data.totalLiabilities,
-      totalEquityAndLiabilities: data.totalLiabilities + data.totalEquity,
+      equity: data.totals.totalEquity,
+      totalLiabilities: data.totals.totalLiabilities,
+      totalEquityAndLiabilities: data.totals.totalLiabilitiesAndEquity,
       details: liabilityDetails,
     };
 
-    // Cache the result (5 minutes TTL)
     await set(cacheKey, responseData, 300);
 
     res.status(200).json({

@@ -21,8 +21,8 @@ async function resolveFiscalYearId(userId, postingDate, cachedFiscalYear = null)
   try {
     const date = new Date(postingDate);
 
-    // Use cached fiscal year if provided and date falls within its range (Req A4)
-    if (cachedFiscalYear && cachedFiscalYear.userId === userId) {
+    // Use cached fiscal year if provided and date falls within its range
+    if (cachedFiscalYear) {
       const startDate = new Date(cachedFiscalYear.startDate);
       const endDate = new Date(cachedFiscalYear.endDate);
       if (date >= startDate && date <= endDate) {
@@ -30,11 +30,19 @@ async function resolveFiscalYearId(userId, postingDate, cachedFiscalYear = null)
       }
     }
 
+    // FiscalYear is scoped by companyId — resolve via user.companyId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { companyId: true },
+    });
+    const companyId = user?.companyId || cachedFiscalYear?.companyId || null;
+    if (!companyId) return null;
+
     const fiscalYear = await prisma.fiscalYear.findFirst({
       where: {
-        userId,
+        companyId,
         startDate: { lte: date },
-        endDate:   { gte: date },
+        endDate: { gte: date },
       },
     });
     return fiscalYear ? fiscalYear.id : null;
@@ -67,12 +75,18 @@ function getFiscalYearDateRange(fiscalYear) {
 async function lookupActiveFiscalYear(userId) {
   try {
     const now = new Date();
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { companyId: true },
+    });
+    if (!user?.companyId) return null;
+
     return await prisma.fiscalYear.findFirst({
       where: {
-        userId,
-        status:    'Open',
+        companyId: user.companyId,
+        status: 'Open',
         startDate: { lte: now },
-        endDate:   { gte: now },
+        endDate: { gte: now },
       },
     });
   } catch {

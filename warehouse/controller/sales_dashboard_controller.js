@@ -1092,9 +1092,162 @@ const getSalesPerformance = async (req, res) => {
   }
 };
 
+// ============================================================
+// @desc    Get combined revenue data (POS + Sales Invoices)
+// @route   GET /api/warehouse/sales/combined-revenue
+// @access  Private
+// ============================================================
+const getCombinedRevenue = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { period = 'month', startDate, endDate } = req.query;
+    const dateFilter = getDateFilter(period, startDate, endDate);
+
+    // Get POS sales data
+    const posSalesData = await prisma.pOSSale.aggregate({
+      where: {
+        companyId,
+        status: 'Completed',
+        createdAt: dateFilter
+      },
+      _sum: { grandTotal: true, discountTotal: true, taxTotal: true },
+      _count: { id: true }
+    });
+
+    // Get Sales Invoice data
+    const invoiceData = await prisma.salesInvoice.aggregate({
+      where: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        invoiceDate: dateFilter
+      },
+      _sum: { grandTotal: true, discountTotal: true, taxTotal: true },
+      _count: { id: true }
+    });
+
+    // Get Order data
+    const orderData = await prisma.order.aggregate({
+      where: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        orderDate: dateFilter
+      },
+      _sum: { grandTotal: true, discountTotal: true },
+      _count: { id: true }
+    });
+
+    // Calculate combined totals
+    const totalRevenue = (posSalesData._sum.grandTotal || 0) + (invoiceData._sum.grandTotal || 0);
+    const totalDiscount = (posSalesData._sum.discountTotal || 0) + (invoiceData._sum.discountTotal || 0) + (orderData._sum.discountTotal || 0);
+    const totalTax = (posSalesData._sum.taxTotal || 0) + (invoiceData._sum.taxTotal || 0);
+    const totalTransactions = posSalesData._count.id + invoiceData._count.id + orderData._count.id;
+
+    // Get daily breakdown for chart
+    const startDateObj = new Date();
+    if (period === 'custom' && startDate) {
+      startDateObj.setTime(new Date(startDate).getTime());
+    } else if (period === 'today') {
+      startDateObj.setHours(0, 0, 0, 0);
+    } else if (period === 'week') {
+      startDateObj.setDate(startDateObj.getDate() - 7);
+    } else if (period === 'month') {
+      startDateObj.setMonth(startDateObj.getMonth() - 1);
+    } else if (period === 'year') {
+      startDateObj.setFullYear(startDateObj.getFullYear() - 1);
+    } else {
+      startDateObj.setMonth(startDateObj.getMonth() - 1);
+    }
+
+    const posSalesDaily = await prisma.pOSSale.findMany({
+      where: {
+        companyId,
+        status: 'Completed',
+        createdAt: { gte: startDateObj }
+      },
+      select: {
+        createdAt: true,
+        grandTotal: true
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    const invoiceDaily = await prisma.salesInvoice.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        invoiceDate: { gte: startDateObj }
+      },
+      select: {
+        invoiceDate: true,
+        grandTotal: true
+      },
+      orderBy: { invoiceDate: 'asc' }
+    });
+
+    // Combine daily data
+    const dailyMap = {};
+    
+    posSalesDaily.forEach(sale => {
+      const key = sale.createdAt.toISOString().split('T')[0];
+      if (!dailyMap[key]) {
+        dailyMap[key] = { date: key, posRevenue: 0, invoiceRevenue: 0, total: 0 };
+      }
+      dailyMap[key].posRevenue += sale.grandTotal;
+      dailyMap[key].total += sale.grandTotal;
+    });
+
+    invoiceDaily.forEach(invoice => {
+      const key = invoice.invoiceDate.toISOString().split('T')[0];
+      if (!dailyMap[key]) {
+        dailyMap[key] = { date: key, posRevenue: 0, invoiceRevenue: 0, total: 0 };
+      }
+      dailyMap[key].invoiceRevenue += invoice.grandTotal;
+      dailyMap[key].total += invoice.grandTotal;
+    });
+
+    const dailyBreakdown = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary: {
+          totalRevenue,
+          totalDiscount,
+          totalTax,
+          totalTransactions,
+          posSales: {
+            count: posSalesData._count.id,
+            revenue: posSalesData._sum.grandTotal || 0
+          },
+          invoices: {
+            count: invoiceData._count.id,
+            revenue: invoiceData._sum.grandTotal || 0
+          },
+          orders: {
+            count: orderData._count.id,
+            revenue: orderData._sum.grandTotal || 0
+          }
+        },
+        dailyBreakdown
+      }
+    });
+  } catch (error) {
+    console.error('Combined revenue error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getSalesDashboard,
   getSalesSummary,
   getSalesTrends,
-  getSalesPerformance
+  getSalesPerformance,
+  getCombinedRevenue
 };

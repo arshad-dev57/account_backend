@@ -1,17 +1,295 @@
+// controllers/cashFlowController.js
+
 const prisma = require('../prisma/client');
-const { get, set, del, delPattern } = require('../utils/redisClient');
+const { get, set } = require('../utils/redisClient');
+
+function amountOf(record) {
+  return Number(record.totalAmount ?? record.amount ?? 0) || 0;
+}
+
+function matchesExpenseType(expenseType = '', keywords = []) {
+  const value = expenseType.toLowerCase();
+  return keywords.some((k) => value.includes(k.toLowerCase()));
+}
+
+function matchesIncomeType(incomeType = '', keywords = []) {
+  const value = incomeType.toLowerCase();
+  return keywords.some((k) => value.includes(k.toLowerCase()));
+}
+
+async function resolveCashFlowPeriod({
+  period,
+  startDate,
+  endDate,
+  fiscalYearId,
+  companyId,
+}) {
+  const now = new Date();
+  now.setHours(23, 59, 59, 999);
+
+  if (startDate && endDate) {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    return { start, end, labelPeriod: period || 'Custom Range' };
+  }
+
+  if (fiscalYearId && (!period || period === 'This Year' || period === 'All Time')) {
+    const fiscalYear = await prisma.fiscalYear.findFirst({
+      where: { id: fiscalYearId, companyId },
+      select: { startDate: true, endDate: true, name: true },
+    });
+
+    if (fiscalYear) {
+      const start = new Date(fiscalYear.startDate);
+      start.setHours(0, 0, 0, 0);
+      const fyEnd = new Date(fiscalYear.endDate);
+      fyEnd.setHours(23, 59, 59, 999);
+      const end = now < fyEnd ? now : fyEnd;
+      return { start, end, labelPeriod: period || fiscalYear.name || 'Fiscal Year' };
+    }
+  }
+
+  let start;
+  let end = now;
+
+  switch (period) {
+    case 'Today':
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'This Week':
+      start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      start.setHours(0, 0, 0, 0);
+      break;
+    case 'This Quarter': {
+      const quarter = Math.floor(now.getMonth() / 3);
+      start = new Date(now.getFullYear(), quarter * 3, 1);
+      break;
+    }
+    case 'This Year':
+      start = new Date(now.getFullYear(), 0, 1);
+      break;
+    case 'This Month':
+    default:
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+  }
+
+  start.setHours(0, 0, 0, 0);
+  return { start, end, labelPeriod: period || 'This Month' };
+}
+
+async function getCashBalanceAsOf(companyId, asOfDate) {
+  const bankAccounts = await prisma.bankAccount.findMany({
+    where: { companyId, status: 'Active' },
+    select: {
+      chartOfAccountId: true,
+      openingBalance: true,
+      currentBalance: true,
+    },
+  });
+
+  const linkedIds = bankAccounts
+    .map((b) => b.chartOfAccountId)
+    .filter(Boolean);
+
+  const cashAccounts = await prisma.chartOfAccount.findMany({
+    where: {
+      companyId,
+      isActive: true,
+      type: 'Asset',
+      OR: [
+        ...(linkedIds.length ? [{ id: { in: linkedIds } }] : []),
+        { name: { contains: 'Cash', mode: 'insensitive' } },
+        { name: { contains: 'Bank', mode: 'insensitive' } },
+      ],
+    },
+  });
+
+  // Deduplicate by id
+  const accountMap = new Map();
+  cashAccounts.forEach((a) => accountMap.set(a.id, a));
+
+  if (accountMap.size === 0) {
+    // Fallback to bank current balances only when no COA link
+    return bankAccounts.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
+  }
+
+  const entries = await prisma.journalEntry.findMany({
+    where: {
+      companyId,
+      status: 'Posted',
+      date: { lte: asOfDate },
+    },
+    include: { lines: true },
+  });
+
+  let total = 0;
+
+  for (const account of accountMap.values()) {
+    let debit = 0;
+    let credit = 0;
+
+    entries.forEach((entry) => {
+      entry.lines.forEach((line) => {
+        if (line.accountId !== account.id) return;
+        debit += line.debit || 0;
+        credit += line.credit || 0;
+      });
+    });
+
+    const hasOB = entries.some(
+      (entry) =>
+        entry.description &&
+        entry.description.toLowerCase().includes('opening balance') &&
+        entry.lines.some((line) => line.accountId === account.id)
+    );
+
+    if (!hasOB && account.openingBalance) {
+      debit += account.openingBalance;
+    }
+
+    total += debit - credit;
+  }
+
+  return total;
+}
+
+function buildOperatingBreakdown(incomes, expenses, customerPayments, billPayments) {
+  const interestReceived = incomes
+    .filter((inc) =>
+      matchesIncomeType(inc.incomeType, ['Interest', 'Interest Income'])
+    )
+    .reduce((sum, inc) => sum + amountOf(inc), 0);
+
+  const otherOperatingIncome = incomes
+    .filter(
+      (inc) =>
+        !matchesIncomeType(inc.incomeType, ['Interest', 'Interest Income'])
+    )
+    .reduce((sum, inc) => sum + amountOf(inc), 0);
+
+  const customerReceipts =
+    otherOperatingIncome +
+    customerPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  const salaryPaid = expenses
+    .filter((exp) =>
+      matchesExpenseType(exp.expenseType, ['Salary', 'Salaries', 'Payroll', 'Wages'])
+    )
+    .reduce((sum, exp) => sum + amountOf(exp), 0);
+
+  const rentPaid = expenses
+    .filter((exp) => matchesExpenseType(exp.expenseType, ['Rent']))
+    .reduce((sum, exp) => sum + amountOf(exp), 0);
+
+  const utilitiesPaid = expenses
+    .filter((exp) =>
+      matchesExpenseType(exp.expenseType, ['Utility', 'Utilities', 'Electric', 'Internet'])
+    )
+    .reduce((sum, exp) => sum + amountOf(exp), 0);
+
+  const interestPaid = expenses
+    .filter((exp) =>
+      matchesExpenseType(exp.expenseType, ['Interest'])
+    )
+    .reduce((sum, exp) => sum + amountOf(exp), 0);
+
+  const taxesPaid = expenses
+    .filter((exp) =>
+      matchesExpenseType(exp.expenseType, ['Tax', 'Taxes', 'GST', 'VAT'])
+    )
+    .reduce((sum, exp) => sum + amountOf(exp), 0);
+
+  const categorizedExpenseTotal =
+    salaryPaid + rentPaid + utilitiesPaid + interestPaid + taxesPaid;
+
+  const otherSupplierExpenses = expenses
+    .filter((exp) => {
+      const t = exp.expenseType || '';
+      return !(
+        matchesExpenseType(t, ['Salary', 'Salaries', 'Payroll', 'Wages']) ||
+        matchesExpenseType(t, ['Rent']) ||
+        matchesExpenseType(t, ['Utility', 'Utilities', 'Electric', 'Internet']) ||
+        matchesExpenseType(t, ['Interest']) ||
+        matchesExpenseType(t, ['Tax', 'Taxes', 'GST', 'VAT'])
+      );
+    })
+    .reduce((sum, exp) => sum + amountOf(exp), 0);
+
+  const billPaid = billPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const cashPaidToSuppliers = otherSupplierExpenses + billPaid;
+
+  const items = [
+    {
+      name: 'Cash Receipts from Customers',
+      amount: customerReceipts,
+      type: 'Inflow',
+    },
+    {
+      name: 'Interest Received',
+      amount: interestReceived,
+      type: 'Inflow',
+    },
+    {
+      name: 'Cash Paid to Suppliers',
+      amount: -cashPaidToSuppliers,
+      type: 'Outflow',
+    },
+    {
+      name: 'Cash Paid for Salaries',
+      amount: -salaryPaid,
+      type: 'Outflow',
+    },
+    {
+      name: 'Cash Paid for Rent',
+      amount: -rentPaid,
+      type: 'Outflow',
+    },
+    {
+      name: 'Cash Paid for Utilities',
+      amount: -utilitiesPaid,
+      type: 'Outflow',
+    },
+    {
+      name: 'Interest Paid',
+      amount: -interestPaid,
+      type: 'Outflow',
+    },
+    {
+      name: 'Taxes Paid',
+      amount: -taxesPaid,
+      type: 'Outflow',
+    },
+  ].filter((item) => Math.abs(item.amount) >= 0.01);
+
+  const total = items.reduce((sum, item) => sum + item.amount, 0);
+
+  return {
+    items,
+    total,
+    // keep for debugging / internal use
+    _meta: { categorizedExpenseTotal },
+  };
+}
 
 // ==================== GET CASH FLOW STATEMENT ====================
 exports.getCashFlowStatement = async (req, res) => {
   try {
     const { period, startDate, endDate, fiscalYearId } = req.query;
-    const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    // Build cache key with parameters
-    const cacheKey = `cf:statement:${userId}:${period || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
-    
-    // Try to get from cache
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `cf:statement:${companyId}:${period || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -20,267 +298,230 @@ exports.getCashFlowStatement = async (req, res) => {
         cached: true,
       });
     }
-    
-    let start, end;
-    const now = new Date();
-    now.setHours(23, 59, 59, 999);
-    
-    // Set date range based on period
-    if (startDate && endDate) {
-      start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-    } else {
-      switch (period) {
-        case 'Today':
-          start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          end = now;
-          break;
-        case 'This Week':
-          start = new Date(now);
-          start.setDate(now.getDate() - now.getDay());
-          start.setHours(0, 0, 0, 0);
-          end = now;
-          break;
-        case 'This Month':
-          start = new Date(now.getFullYear(), now.getMonth(), 1);
-          end = now;
-          break;
-        case 'This Quarter':
-          const quarter = Math.floor(now.getMonth() / 3);
-          start = new Date(now.getFullYear(), quarter * 3, 1);
-          end = now;
-          break;
-        case 'This Year':
-          start = new Date(now.getFullYear(), 0, 1);
-          end = now;
-          break;
-        default:
-          // Default to this month
-          start = new Date(now.getFullYear(), now.getMonth(), 1);
-          end = now;
-      }
-    }
-    
-    // Build fiscal year filter
-    let fiscalYearFilter = {};
-    if (fiscalYearId) {
-      fiscalYearFilter = {
-        fiscalYearId: fiscalYearId
-      };
-    }
-    
-    // ==================== OPERATING ACTIVITIES ====================
-    // Cash inflows from customers (Income records) - only for this user
-    const incomes = await prisma.income.findMany({
-      where: {
-        date: { gte: start, lte: end },
-        status: 'Posted',
-        companyId: companyId,
-        ...fiscalYearFilter
-      }
+
+    const { start, end, labelPeriod } = await resolveCashFlowPeriod({
+      period,
+      startDate,
+      endDate,
+      fiscalYearId,
+      companyId,
     });
-    const cashReceiptsFromCustomers = incomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
-    
-    // Cash outflows to suppliers (Expense records + Bill Payments) - only for this user
-    const expenses = await prisma.expense.findMany({
-      where: {
-        date: { gte: start, lte: end },
-        status: 'Posted',
-        companyId: companyId,
-        ...fiscalYearFilter
+
+    // Optional soft FY filter — do not require fiscalYearId on every record
+    const withOptionalFY = (extra = {}) => {
+      const where = { companyId, ...extra };
+      if (fiscalYearId) {
+        where.OR = [
+          { fiscalYearId },
+          { fiscalYearId: null },
+        ];
       }
-    });
-    const expenseTotal = expenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-    
-    const billPayments = await prisma.paymentMade.findMany({
-      where: {
-        paymentDate: { gte: start, lte: end },
-        billId: { not: null },
-        companyId: companyId,
-        ...fiscalYearFilter
-      }
-    });
-    const cashPaidForBills = billPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
-    
-    const cashPaidToSuppliers = expenseTotal + cashPaidForBills;
-    
-    // Cash paid for salaries (filter salary expenses)
-    const salaryExpenses = expenses.filter(exp => exp.expenseType === 'Salaries');
-    const cashPaidForSalaries = salaryExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-    
-    // Cash paid for rent
-    const rentExpenses = expenses.filter(exp => exp.expenseType === 'Rent');
-    const cashPaidForRent = rentExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-    
-    // Cash paid for utilities
-    const utilityExpenses = expenses.filter(exp => exp.expenseType === 'Utilities');
-    const cashPaidForUtilities = utilityExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-    
-    // Interest received (from other income)
-    const interestIncome = incomes.filter(inc => inc.incomeType === 'Interest Income');
-    const interestReceived = interestIncome.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
-    
-    // Interest paid (from expenses)
-    const interestExpenses = expenses.filter(exp => exp.expenseType === 'Interest Expense');
-    const interestPaid = interestExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-    
-    // Taxes paid
-    const taxExpenses = expenses.filter(exp => exp.expenseType === 'Taxes');
-    const taxesPaid = taxExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-    
-    // Calculate operating activities
-    const cashFlowFromOperations = cashReceiptsFromCustomers - cashPaidToSuppliers;
-    
-    // ==================== INVESTING ACTIVITIES ====================
-    // Purchase of fixed assets - only for this user
-    const fixedAssets = await prisma.fixedAsset.findMany({
-      where: {
-        purchaseDate: { gte: start, lte: end },
-        companyId: companyId,
-        ...fiscalYearFilter
-      }
-    });
-    const purchaseOfEquipment = fixedAssets.reduce((sum, asset) => sum + asset.purchaseCost, 0);
-    
-    // Sale of fixed assets (from disposed assets) - only for this user
-    const disposedAssets = await prisma.fixedAsset.findMany({
-      where: {
-        disposedDate: { gte: start, lte: end },
-        status: 'Disposed',
-        companyId: companyId,
-        ...fiscalYearFilter
-      }
-    });
-    const saleOfFixedAssets = disposedAssets.reduce((sum, asset) => sum + (asset.disposalAmount || 0), 0);
-    
-    // Calculate investing activities
-    const cashFlowFromInvesting = saleOfFixedAssets - purchaseOfEquipment;
-    
-    // ==================== FINANCING ACTIVITIES ====================
-    // Loan proceeds (new loans) - only for this user
+      return where;
+    };
+
+    // ==================== OPERATING ====================
+    const [incomes, expenses, customerPayments, billPayments] =
+      await Promise.all([
+        prisma.income.findMany({
+          where: {
+            ...withOptionalFY({
+              date: { gte: start, lte: end },
+              status: 'Posted',
+            }),
+          },
+        }),
+        prisma.expense.findMany({
+          where: {
+            ...withOptionalFY({
+              date: { gte: start, lte: end },
+              status: 'Posted',
+            }),
+          },
+        }),
+        prisma.paymentReceived.findMany({
+          where: {
+            ...withOptionalFY({
+              paymentDate: { gte: start, lte: end },
+              status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] },
+            }),
+          },
+        }),
+        prisma.paymentMade.findMany({
+          where: {
+            ...withOptionalFY({
+              paymentDate: { gte: start, lte: end },
+              billId: { not: null },
+              status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] },
+            }),
+          },
+        }),
+      ]);
+
+    const operating = buildOperatingBreakdown(
+      incomes,
+      expenses,
+      customerPayments,
+      billPayments
+    );
+
+    // ==================== INVESTING ====================
+    const [fixedAssets, disposedAssets] = await Promise.all([
+      prisma.fixedAsset.findMany({
+        where: withOptionalFY({
+          purchaseDate: { gte: start, lte: end },
+        }),
+      }),
+      prisma.fixedAsset.findMany({
+        where: withOptionalFY({
+          disposedDate: { gte: start, lte: end },
+          status: 'Disposed',
+        }),
+      }),
+    ]);
+
+    const purchaseOfEquipment = fixedAssets.reduce(
+      (sum, asset) => sum + (asset.purchaseCost || 0),
+      0
+    );
+    const saleOfFixedAssets = disposedAssets.reduce(
+      (sum, asset) => sum + (asset.disposalAmount || 0),
+      0
+    );
+
+    const investingItems = [
+      {
+        name: 'Purchase of Equipment',
+        amount: -purchaseOfEquipment,
+        type: 'Outflow',
+      },
+      {
+        name: 'Sale of Fixed Assets',
+        amount: saleOfFixedAssets,
+        type: 'Inflow',
+      },
+    ].filter((item) => Math.abs(item.amount) >= 0.01);
+
+    const cashFlowFromInvesting = investingItems.reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
+
+    // ==================== FINANCING ====================
     const newLoans = await prisma.loan.findMany({
-      where: {
+      where: withOptionalFY({
         disbursementDate: { gte: start, lte: end },
-        companyId: companyId,
-        ...fiscalYearFilter
-      }
+      }),
     });
-    const loanProceeds = newLoans.reduce((sum, loan) => sum + loan.loanAmount, 0);
-    
-    // Loan repayments (from payments array inside Loan model) - only for this user
-    const userLoans = await prisma.loan.findMany({ 
-      where: { companyId: companyId} 
+    const loanProceeds = newLoans.reduce(
+      (sum, loan) => sum + (loan.loanAmount || 0),
+      0
+    );
+
+    const loanPayments = await prisma.loanPayment.findMany({
+      where: {
+        date: { gte: start, lte: end },
+        status: 'Paid',
+        loan: { companyId },
+      },
     });
-    let loanRepayments = 0;
-    userLoans.forEach(loan => {
-      if (loan.payments) {
-        loan.payments.forEach(payment => {
-          const paymentDate = new Date(payment.date);
-          if (paymentDate >= start && paymentDate <= end && payment.status === 'Paid') {
-            loanRepayments += payment.amount;
-          }
-        });
-      }
+    const loanRepayments = loanPayments.reduce(
+      (sum, p) => sum + (p.amount || 0),
+      0
+    );
+
+    const equityTx = await prisma.equityTransaction.findMany({
+      where: {
+        companyId,
+        date: { gte: start, lte: end },
+        status: 'Posted',
+      },
     });
-    
-    // Capital investment and Owner drawings (from EquityAccount transactions)
-    const userEquityAccounts = await prisma.equityAccount.findMany({ 
-      where: { companyId: companyId} 
-    });
+
     let capitalInvestments = 0;
     let ownerDrawings = 0;
-    
-    userEquityAccounts.forEach(account => {
-      account.transactions.forEach(tx => {
-        if (tx.date >= start && tx.date <= end && tx.status === 'Posted') {
-          if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
-            capitalInvestments += tx.amount;
-          } else if (tx.type === 'Drawings') {
-            ownerDrawings += tx.amount;
-          }
-        }
-      });
+    equityTx.forEach((tx) => {
+      const type = (tx.type || '').toLowerCase();
+      if (
+        type.includes('additional capital') ||
+        type.includes('share issue') ||
+        type.includes('capital contribution') ||
+        type.includes('owner investment')
+      ) {
+        capitalInvestments += tx.amount || 0;
+      } else if (type.includes('drawing') || type.includes('withdrawal')) {
+        ownerDrawings += tx.amount || 0;
+      }
     });
-    
-    // Calculate financing activities
-    const cashFlowFromFinancing = loanProceeds - loanRepayments + capitalInvestments - ownerDrawings;
-    
-    // ==================== NET CASH FLOW ====================
-    const netCashFlow = cashFlowFromOperations + cashFlowFromInvesting + cashFlowFromFinancing;
-    
-    // ==================== OPENING & CLOSING BALANCES ====================
-    // Get opening cash balance (from bank accounts before period start) - only for this user
-    const openingDate = new Date(start);
-    openingDate.setDate(openingDate.getDate() - 1);
-    
-    const bankAccounts = await prisma.bankAccount.findMany({ 
-      where: {
-        status: 'Active',
-        companyId: companyId}
-    });
-    let openingCashBalance = 0;
-    let closingCashBalance = 0;
-    
-    for (const account of bankAccounts) {
-      // For simplicity, use current balance as closing
-      // In production, need to track historical balances
-      closingCashBalance += account.currentBalance || 0;
-    }
-    
-    // For demo purposes, set opening balance
-    openingCashBalance = closingCashBalance - netCashFlow;
-    
-    // ==================== BUILD RESPONSE ====================
-    const operatingItems = [
-      { name: 'Cash Receipts from Customers', amount: cashReceiptsFromCustomers, type: 'Inflow' },
-      { name: 'Cash Paid to Suppliers', amount: -cashPaidToSuppliers, type: 'Outflow' },
-      { name: 'Cash Paid for Salaries', amount: -cashPaidForSalaries, type: 'Outflow' },
-      { name: 'Cash Paid for Rent', amount: -cashPaidForRent, type: 'Outflow' },
-      { name: 'Cash Paid for Utilities', amount: -cashPaidForUtilities, type: 'Outflow' },
-      { name: 'Interest Received', amount: interestReceived, type: 'Inflow' },
-      { name: 'Interest Paid', amount: -interestPaid, type: 'Outflow' },
-      { name: 'Taxes Paid', amount: -taxesPaid, type: 'Outflow' }
-    ].filter(item => item.amount !== 0);
-    
-    const investingItems = [
-      { name: 'Purchase of Equipment', amount: -purchaseOfEquipment, type: 'Outflow' },
-      { name: 'Sale of Fixed Assets', amount: saleOfFixedAssets, type: 'Inflow' }
-    ].filter(item => item.amount !== 0);
-    
+
     const financingItems = [
       { name: 'Loan Proceeds', amount: loanProceeds, type: 'Inflow' },
       { name: 'Loan Repayment', amount: -loanRepayments, type: 'Outflow' },
-      { name: 'Capital Investment', amount: capitalInvestments, type: 'Inflow' },
-      { name: 'Owner Drawings', amount: -ownerDrawings, type: 'Outflow' }
-    ].filter(item => item.amount !== 0);
-    
+      {
+        name: 'Capital Investment',
+        amount: capitalInvestments,
+        type: 'Inflow',
+      },
+      { name: 'Owner Drawings', amount: -ownerDrawings, type: 'Outflow' },
+    ].filter((item) => Math.abs(item.amount) >= 0.01);
+
+    const cashFlowFromFinancing = financingItems.reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
+
+    // ==================== NET / OPENING / CLOSING ====================
+    const cashFlowFromOperations = operating.total;
+    const netCashFlow =
+      cashFlowFromOperations + cashFlowFromInvesting + cashFlowFromFinancing;
+
+    const dayBeforeStart = new Date(start);
+    dayBeforeStart.setMilliseconds(dayBeforeStart.getMilliseconds() - 1);
+
+    const openingCashBalance = await getCashBalanceAsOf(
+      companyId,
+      dayBeforeStart
+    );
+    const closingCashBalanceFromLedger = await getCashBalanceAsOf(
+      companyId,
+      end
+    );
+
+    // Prefer ledger closing; fall back to opening + net if ledger empty
+    const closingCashBalance =
+      Math.abs(closingCashBalanceFromLedger) > 0.0001 ||
+      Math.abs(openingCashBalance) > 0.0001
+        ? closingCashBalanceFromLedger
+        : openingCashBalance + netCashFlow;
+
     const responseData = {
       period: {
-        start: start,
-        end: end,
-        displayText: _getPeriodDisplayText(period, start, end)
+        start,
+        end,
+        displayText: _getPeriodDisplayText(labelPeriod, start, end),
       },
       operatingActivities: {
-        items: operatingItems,
-        total: cashFlowFromOperations
+        items: operating.items,
+        total: cashFlowFromOperations,
       },
       investingActivities: {
         items: investingItems,
-        total: cashFlowFromInvesting
+        total: cashFlowFromInvesting,
       },
       financingActivities: {
         items: financingItems,
-        total: cashFlowFromFinancing
+        total: cashFlowFromFinancing,
       },
-      netCashFlow: netCashFlow,
-      openingCashBalance: openingCashBalance,
-      closingCashBalance: closingCashBalance,
-      netCashFlowPercentage: openingCashBalance !== 0 ? (netCashFlow / openingCashBalance) * 100 : 0
+      netCashFlow,
+      openingCashBalance,
+      closingCashBalance,
+      netCashFlowPercentage:
+        openingCashBalance !== 0
+          ? (netCashFlow / Math.abs(openingCashBalance)) * 100
+          : 0,
+      isReconciled:
+        Math.abs(openingCashBalance + netCashFlow - closingCashBalance) < 0.5,
     };
 
-    // Cache the result (5 minutes TTL)
     await set(cacheKey, responseData, 300);
 
     res.status(200).json({
@@ -288,12 +529,11 @@ exports.getCashFlowStatement = async (req, res) => {
       data: responseData,
       cached: false,
     });
-    
   } catch (error) {
     console.error('Error generating cash flow statement:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -302,13 +542,17 @@ exports.getCashFlowStatement = async (req, res) => {
 exports.getSummary = async (req, res) => {
   try {
     const { fiscalYearId } = req.query;
-    const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `cf:summary:${userId}:${fiscalYearId || ''}`;
-    
-    // Try to get from cache
+
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `cf:summary:${companyId}:${fiscalYearId || ''}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -318,112 +562,108 @@ exports.getSummary = async (req, res) => {
       });
     }
 
+    // Reuse current-month window for dashboard summary
     const now = new Date();
+    now.setHours(23, 59, 59, 999);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now);
-    endOfMonth.setHours(23, 59, 59, 999);
-    
-    // Build fiscal year filter
-    let fiscalYearFilter = {};
-    if (fiscalYearId) {
-      fiscalYearFilter = {
-        fiscalYearId: fiscalYearId
-      };
-    }
-    
-    // Get current month incomes and expenses - only for this user
-    const monthIncomes = await prisma.income.findMany({
-      where: {
-        date: { gte: startOfMonth, lte: endOfMonth },
-        status: 'Posted',
-        companyId: companyId,
-        ...fiscalYearFilter
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const [incomes, expenses, customerPayments, billPayments, loanPayments, equityTx] =
+      await Promise.all([
+        prisma.income.findMany({
+          where: {
+            companyId,
+            date: { gte: startOfMonth, lte: now },
+            status: 'Posted',
+          },
+        }),
+        prisma.expense.findMany({
+          where: {
+            companyId,
+            date: { gte: startOfMonth, lte: now },
+            status: 'Posted',
+          },
+        }),
+        prisma.paymentReceived.findMany({
+          where: {
+            companyId,
+            paymentDate: { gte: startOfMonth, lte: now },
+            status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] },
+          },
+        }),
+        prisma.paymentMade.findMany({
+          where: {
+            companyId,
+            paymentDate: { gte: startOfMonth, lte: now },
+            billId: { not: null },
+            status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] },
+          },
+        }),
+        prisma.loanPayment.findMany({
+          where: {
+            date: { gte: startOfMonth, lte: now },
+            status: 'Paid',
+            loan: { companyId },
+          },
+        }),
+        prisma.equityTransaction.findMany({
+          where: {
+            companyId,
+            date: { gte: startOfMonth, lte: now },
+            status: 'Posted',
+          },
+        }),
+      ]);
+
+    const operating = buildOperatingBreakdown(
+      incomes,
+      expenses,
+      customerPayments,
+      billPayments
+    );
+
+    const monthLoanPayments = loanPayments.reduce(
+      (sum, p) => sum + (p.amount || 0),
+      0
+    );
+    let monthCapital = 0;
+    let monthDrawings = 0;
+    equityTx.forEach((tx) => {
+      const type = (tx.type || '').toLowerCase();
+      if (type.includes('capital') || type.includes('share issue')) {
+        monthCapital += tx.amount || 0;
+      } else if (type.includes('drawing') || type.includes('withdrawal')) {
+        monthDrawings += tx.amount || 0;
       }
     });
-    
-    const monthExpenses = await prisma.expense.findMany({
-      where: {
-        date: { gte: startOfMonth, lte: endOfMonth },
-        status: 'Posted',
-        companyId: companyId,
-        ...fiscalYearFilter
-      }
-    });
-    
-    // Add bill payments
-    const monthBillPayments = await prisma.paymentMade.findMany({
-      where: {
-        paymentDate: { gte: startOfMonth, lte: endOfMonth },
-        billId: { not: null },
-        companyId: companyId,
-        ...fiscalYearFilter
-      }
-    });
-    
-    // Add loan payments
-    const userLoans = await prisma.loan.findMany({ 
-      where: { companyId: companyId} 
-    });
-    let monthLoanPayments = 0;
-    userLoans.forEach(loan => {
-      if (loan.payments) {
-        loan.payments.forEach(payment => {
-          const paymentDate = new Date(payment.date);
-          if (paymentDate >= startOfMonth && paymentDate <= endOfMonth && payment.status === 'Paid') {
-            monthLoanPayments += payment.amount;
-          }
-        });
-      }
-    });
-    
-    // Add equity transactions
-    const userEquityAccounts = await prisma.equityAccount.findMany({ 
-      where: { companyId: companyId} 
-    });
-    let monthCapitalInvestments = 0;
-    let monthOwnerDrawings = 0;
-    
-    userEquityAccounts.forEach(account => {
-      if (account.transactions) {
-        account.transactions.forEach(tx => {
-          const txDate = new Date(tx.date);
-          if (txDate >= startOfMonth && txDate <= endOfMonth && tx.status === 'Posted') {
-            if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
-              monthCapitalInvestments += tx.amount;
-            } else if (tx.type === 'Drawings') {
-              monthOwnerDrawings += tx.amount;
-            }
-          }
-        });
-      }
-    });
-    
-    const monthIncomeTotal = monthIncomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
-    const monthCashInflow = monthIncomeTotal + monthCapitalInvestments;
-    
-    const monthExpenseTotal = monthExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-    const monthBillTotal = monthBillPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
-    const monthCashOutflow = monthExpenseTotal + monthBillTotal + monthLoanPayments + monthOwnerDrawings;
-    
+
+    const monthCashInflow =
+      operating.items
+        .filter((i) => i.amount > 0)
+        .reduce((s, i) => s + i.amount, 0) + monthCapital;
+    const monthCashOutflow =
+      Math.abs(
+        operating.items
+          .filter((i) => i.amount < 0)
+          .reduce((s, i) => s + i.amount, 0)
+      ) +
+      monthLoanPayments +
+      monthDrawings;
+
     const monthNetCashFlow = monthCashInflow - monthCashOutflow;
-    
-    // Get bank balances - only for this user
-    const bankAccounts = await prisma.bankAccount.findMany({ 
-      where: {
-        status: 'Active',
-        companyId: companyId}
-    });
-    const currentCashBalance = bankAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
-    
+    const currentCashBalance = await getCashBalanceAsOf(companyId, now);
+
     const summaryData = {
       currentCashBalance,
       monthCashInflow,
       monthCashOutflow,
       monthNetCashFlow,
-      monthNetCashFlowPercentage: currentCashBalance !== 0 ? (monthNetCashFlow / currentCashBalance) * 100 : 0
+      monthNetCashFlowPercentage:
+        currentCashBalance !== 0
+          ? (monthNetCashFlow / Math.abs(currentCashBalance)) * 100
+          : 0,
     };
 
-    // Cache the result (2 minutes TTL)
     await set(cacheKey, summaryData, 120);
 
     res.status(200).json({
@@ -431,12 +671,11 @@ exports.getSummary = async (req, res) => {
       data: summaryData,
       cached: false,
     });
-    
   } catch (error) {
     console.error('Error generating cash flow summary:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -444,14 +683,17 @@ exports.getSummary = async (req, res) => {
 // ==================== GET CASH FLOW TREND ====================
 exports.getTrend = async (req, res) => {
   try {
-    const { months = 12, fiscalYearId } = req.query;
-    const userId = req.user.id;
-
+    const { months = 12 } = req.query;
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `cf:trend:${userId}:${months}:${fiscalYearId || ''}`;
-    
-    // Try to get from cache
+
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context is required',
+      });
+    }
+
+    const cacheKey = `cf:trend:${companyId}:${months}`;
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -463,107 +705,104 @@ exports.getTrend = async (req, res) => {
 
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setMonth(endDate.getMonth() - parseInt(months));
-    
-    // Build fiscal year filter
-    let fiscalYearFilter = {};
-    if (fiscalYearId) {
-      fiscalYearFilter = {
-        fiscalYearId: fiscalYearId
-      };
-    }
-    
+    startDate.setMonth(endDate.getMonth() - parseInt(months, 10));
+
     const monthlyData = [];
-    
-    for (let i = 0; i <= parseInt(months); i++) {
+    const monthCount = parseInt(months, 10);
+
+    for (let i = 0; i <= monthCount; i++) {
       const date = new Date(startDate);
       date.setMonth(startDate.getMonth() + i);
       const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
       const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
       monthEnd.setHours(23, 59, 59, 999);
-      
-      // Get incomes for this month - only for this user
-      const monthIncomes = await prisma.income.findMany({
-        where: {
-          date: { gte: monthStart, lte: monthEnd },
-          status: 'Posted',
-          companyId: companyId,
-          ...fiscalYearFilter
+
+      const [incomes, expenses, customerPayments, billPayments, loanPayments, equityTx] =
+        await Promise.all([
+          prisma.income.findMany({
+            where: {
+              companyId,
+              date: { gte: monthStart, lte: monthEnd },
+              status: 'Posted',
+            },
+          }),
+          prisma.expense.findMany({
+            where: {
+              companyId,
+              date: { gte: monthStart, lte: monthEnd },
+              status: 'Posted',
+            },
+          }),
+          prisma.paymentReceived.findMany({
+            where: {
+              companyId,
+              paymentDate: { gte: monthStart, lte: monthEnd },
+              status: { in: ['Posted', 'Completed', 'Cleared', 'Paid'] },
+            },
+          }),
+          prisma.paymentMade.findMany({
+            where: {
+              companyId,
+              paymentDate: { gte: monthStart, lte: monthEnd },
+              billId: { not: null },
+              status: { in: ['Posted', 'Completed', 'Paid', 'Cleared'] },
+            },
+          }),
+          prisma.loanPayment.findMany({
+            where: {
+              date: { gte: monthStart, lte: monthEnd },
+              status: 'Paid',
+              loan: { companyId },
+            },
+          }),
+          prisma.equityTransaction.findMany({
+            where: {
+              companyId,
+              date: { gte: monthStart, lte: monthEnd },
+              status: 'Posted',
+            },
+          }),
+        ]);
+
+      const operating = buildOperatingBreakdown(
+        incomes,
+        expenses,
+        customerPayments,
+        billPayments
+      );
+
+      let capital = 0;
+      let drawings = 0;
+      equityTx.forEach((tx) => {
+        const type = (tx.type || '').toLowerCase();
+        if (type.includes('capital') || type.includes('share')) {
+          capital += tx.amount || 0;
+        } else if (type.includes('drawing') || type.includes('withdrawal')) {
+          drawings += tx.amount || 0;
         }
       });
-      
-      // Get expenses for this month - only for this user
-      const monthExpenses = await prisma.expense.findMany({
-        where: {
-          date: { gte: monthStart, lte: monthEnd },
-          status: 'Posted',
-          companyId: companyId,
-          ...fiscalYearFilter
-        }
-      });
-      
-      // Get bill payments for this month
-      const monthBillPayments = await prisma.paymentMade.findMany({
-        where: {
-          paymentDate: { gte: monthStart, lte: monthEnd },
-          billId: { not: null },
-          companyId: companyId,
-          ...fiscalYearFilter
-        }
-      });
-      
-      // Get loan payments and equity transactions
-      const userLoans = await prisma.loan.findMany({ 
-        where: { companyId: companyId} 
-      });
-      let monthLoanPayments = 0;
-      userLoans.forEach(loan => {
-        if (loan.payments) {
-          loan.payments.forEach(payment => {
-            const paymentDate = new Date(payment.date);
-            if (paymentDate >= monthStart && paymentDate <= monthEnd && payment.status === 'Paid') {
-              monthLoanPayments += payment.amount;
-            }
-          });
-        }
-      });
-      
-      const userEquityAccounts = await prisma.equityAccount.findMany({ 
-        where: { companyId: companyId} 
-      });
-      let monthCapitalInvestments = 0;
-      let monthOwnerDrawings = 0;
-      userEquityAccounts.forEach(account => {
-        if (account.transactions) {
-          account.transactions.forEach(tx => {
-            const txDate = new Date(tx.date);
-            if (txDate >= monthStart && txDate <= monthEnd && tx.status === 'Posted') {
-              if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
-                monthCapitalInvestments += tx.amount;
-              } else if (tx.type === 'Drawings') {
-                monthOwnerDrawings += tx.amount;
-              }
-            }
-          });
-        }
-      });
-      
-      const incomeTotal = monthIncomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
-      const inflow = incomeTotal + monthCapitalInvestments;
-      
-      const expenseTotal = monthExpenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
-      const billTotal = monthBillPayments.reduce((sum, pmt) => sum + pmt.amount, 0);
-      const outflow = expenseTotal + billTotal + monthLoanPayments + monthOwnerDrawings;
-      
+
+      const loanOut = loanPayments.reduce((s, p) => s + (p.amount || 0), 0);
+      const inflow =
+        operating.items.filter((i) => i.amount > 0).reduce((s, i) => s + i.amount, 0) +
+        capital;
+      const outflow =
+        Math.abs(
+          operating.items
+            .filter((i) => i.amount < 0)
+            .reduce((s, i) => s + i.amount, 0)
+        ) +
+        loanOut +
+        drawings;
+
       monthlyData.push({
         month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
-        inflow: inflow,
-        outflow: outflow,
-        netCashFlow: inflow - outflow
+        inflow,
+        outflow,
+        netCashFlow: inflow - outflow,
       });
     }
-    
-    // Cache the result (5 minutes TTL)
+
     await set(cacheKey, monthlyData, 300);
 
     res.status(200).json({
@@ -571,176 +810,11 @@ exports.getTrend = async (req, res) => {
       data: monthlyData,
       cached: false,
     });
-    
   } catch (error) {
     console.error('Error generating cash flow trend:', error);
     res.status(500).json({
       success: false,
-      message: error.message
-    });
-  }
-};
-
-// ==================== GET DETAILED CASH FLOW ====================
-exports.getDetailedCashFlow = async (req, res) => {
-  try {
-    const { startDate, endDate } = req.query;
-    const userId = req.user.id;
-
-    const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `cf:detailed:${userId}:${startDate || ''}:${endDate || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
-    let start, end;
-    
-    if (startDate && endDate) {
-      start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-    } else {
-      const now = new Date();
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      end = new Date(now);
-      end.setHours(23, 59, 59, 999);
-    }
-    
-    const dateFilter = {
-      date: { $gte: start, $lte: end },
-      status: 'Posted',
-      createdBy: req.user.id  // 👈 Only show entries created by this user
-    };
-    
-    // Get all incomes with details
-    const incomes = await Income.find(dateFilter).sort({ date: -1 });
-    const incomeDetails = incomes.map(inc => ({
-      date: inc.date,
-      type: inc.incomeType,
-      description: inc.description,
-      amount: inc.totalAmount,
-      reference: inc.reference,
-      paymentMethod: inc.paymentMethod
-    }));
-    
-    // Get all expenses with details
-    const expenses = await Expense.find(dateFilter).sort({ date: -1 });
-    const expenseDetails = expenses.map(exp => ({
-      date: exp.date,
-      type: exp.expenseType,
-      description: exp.description,
-      amount: exp.totalAmount,
-      reference: exp.reference,
-      paymentMethod: exp.paymentMethod
-    }));
-    
-    // Get bill payments
-    const billPayments = await PaymentMade.find({
-      paymentDate: { $gte: start, $lte: end },
-      billId: { $exists: true },
-      createdBy: req.user.id
-    }).sort({ paymentDate: -1 });
-    
-    billPayments.forEach(pmt => {
-      expenseDetails.push({
-        date: pmt.paymentDate,
-        type: 'Bill Payment',
-        description: `Payment for Bill ${pmt.billNumber}`,
-        amount: pmt.amount,
-        reference: pmt.reference,
-        paymentMethod: pmt.paymentMethod
-      });
-    });
-    
-    // Get loan repayments
-    const userLoans = await Loan.find({ createdBy: req.user.id });
-    userLoans.forEach(loan => {
-      loan.payments.forEach(payment => {
-        if (payment.date >= start && payment.date <= end && payment.status === 'Paid') {
-          expenseDetails.push({
-            date: payment.date,
-            type: 'Loan Repayment',
-            description: `Payment for Loan ${loan.loanNumber}`,
-            amount: payment.amount,
-            reference: payment.reference,
-            paymentMethod: 'Bank Transfer'
-          });
-        }
-      });
-    });
-    
-    // Get equity withdrawals
-    const userEquityAccounts = await EquityAccount.find({ createdBy: req.user.id });
-    userEquityAccounts.forEach(account => {
-      account.transactions.forEach(tx => {
-        if (tx.date >= start && tx.date <= end && tx.status === 'Posted') {
-          if (tx.type === 'Drawings') {
-            expenseDetails.push({
-              date: tx.date,
-              type: 'Owner Drawings',
-              description: tx.description || 'Owner Withdrawal',
-              amount: tx.amount,
-              reference: tx.reference,
-              paymentMethod: 'N/A'
-            });
-          } else if (tx.type === 'Additional Capital' || tx.type === 'Share Issue') {
-            incomeDetails.push({
-              date: tx.date,
-              type: tx.type,
-              description: tx.description || 'Capital Investment',
-              amount: tx.amount,
-              reference: tx.reference,
-              paymentMethod: 'N/A'
-            });
-          }
-        }
-      });
-    });
-
-    // Sort combined arrays by date
-    incomeDetails.sort((a, b) => new Date(b.date) - new Date(a.date));
-    expenseDetails.sort((a, b) => new Date(b.date) - new Date(a.date));
-    
-    const totalInflow = incomeDetails.reduce((sum, inc) => sum + inc.amount, 0);
-    const totalOutflow = expenseDetails.reduce((sum, exp) => sum + exp.amount, 0);
-    
-    const responseData = {
-      period: {
-        start: start,
-        end: end
-      },
-      summary: {
-        totalInflow: totalInflow,
-        totalOutflow: totalOutflow,
-        netCashFlow: totalInflow - totalOutflow
-      },
-      inflows: incomeDetails,
-      outflows: expenseDetails
-    };
-
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
-
-    res.status(200).json({
-      success: true,
-      data: responseData,
-      cached: false,
-    });
-    
-  } catch (error) {
-    console.error('Error generating detailed cash flow:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -749,12 +823,21 @@ exports.getDetailedCashFlow = async (req, res) => {
 function _getPeriodDisplayText(period, start, end) {
   if (period && period !== 'Custom Range') {
     switch (period) {
-      case 'Today': return new Date(start).toLocaleDateString();
-      case 'This Week': return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
-      case 'This Month': return start.toLocaleString('default', { month: 'long', year: 'numeric' });
-      case 'This Quarter': return `Q${Math.floor(start.getMonth() / 3) + 1} ${start.getFullYear()}`;
-      case 'This Year': return `Year ${start.getFullYear()}`;
-      default: return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+      case 'Today':
+        return new Date(start).toLocaleDateString();
+      case 'This Week':
+        return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+      case 'This Month':
+        return start.toLocaleString('default', {
+          month: 'long',
+          year: 'numeric',
+        });
+      case 'This Quarter':
+        return `Q${Math.floor(start.getMonth() / 3) + 1} ${start.getFullYear()}`;
+      case 'This Year':
+        return `Year ${start.getFullYear()}`;
+      default:
+        return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
     }
   }
   return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;

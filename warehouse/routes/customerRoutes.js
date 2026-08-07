@@ -14,6 +14,7 @@
     router.get('/:id', customerController.getCustomerById);
     router.get('/number/:customerNumber', customerController.getCustomerByNumber);
     router.get('/:id/orders', customerController.getCustomerOrders);
+    router.get('/:id/credit-info', customerController.getCustomerCreditInfo);
 
     router.post('/', customerController.createCustomer);
 

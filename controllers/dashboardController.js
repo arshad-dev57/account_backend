@@ -2,114 +2,1079 @@
 const prisma = require('../prisma/client');
 const { get, set } = require('../utils/redisClient');
 
-
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    maximumFractionDigits: 0,
   });
-  return formatter.format(amount);
+  return formatter.format(amount || 0);
 }
 
-function groupByMonth(docs, amountField = 'totalAmount') {
-  const map = {
-  };
-  docs.forEach(doc => {
+function toNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Prefer totalAmount (includes tax) when present, else amount. */
+function docAmount(doc, preferred = 'totalAmount') {
+  if (preferred === 'totalAmount') {
+    const t = toNum(doc.totalAmount);
+    if (t > 0) return t;
+    return toNum(doc.amount);
+  }
+  const a = toNum(doc.amount);
+  if (a > 0) return a;
+  return toNum(doc.totalAmount);
+}
+
+function groupByMonth(docs, getAmount) {
+  const map = {};
+  docs.forEach((doc) => {
     const d = new Date(doc.date);
+    if (Number.isNaN(d.getTime())) return;
     const key = `${d.getFullYear()}-${d.getMonth()}`;
-    map[key] = (map[key] || 0) + (doc[amountField] || 0);
+    map[key] = (map[key] || 0) + getAmount(doc);
   });
   return map;
 }
 
-function inRange(doc, from, to) {
-  const d = new Date(doc.date);
+function inRange(dateVal, from, to) {
+  const d = new Date(dateVal);
   return d >= from && d <= to;
 }
 
-function sum(arr, field = 'totalAmount') {
-  return arr.reduce((s, d) => s + (d[field] || 0), 0);
+function sumDocs(arr, getAmount) {
+  return arr.reduce((s, d) => s + getAmount(d), 0);
 }
 
 function pct(current, previous) {
-  if (previous === 0) return current > 0 ? 100 : 0;
-  return ((current - previous) / previous) * 100;
+  if (previous === 0) return current > 0 ? 100 : current < 0 ? -100 : 0;
+  return ((current - previous) / Math.abs(previous)) * 100;
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+/** Parse yyyy-MM-dd as a local calendar date (avoids UTC midnight shift). */
+function parseLocalDate(value) {
+  if (value instanceof Date) return new Date(value.getTime());
+  const raw = String(value || '').trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  }
+  return new Date(raw);
 }
 
 function getDateRangeFromTimePeriod(timePeriod) {
   const now = new Date();
-  const endOfDay = new Date(now);
-  endOfDay.setHours(23, 59, 59, 999);
-  
+
   switch (timePeriod) {
     case 'Today':
-      return {
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-        end: endOfDay
-      };
-    
-    case 'Last Week':
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay() - 7);
-      startOfWeek.setHours(0, 0, 0, 0);
-      const endOfLastWeek = new Date(startOfWeek);
-      endOfLastWeek.setDate(startOfWeek.getDate() + 6);
-      endOfLastWeek.setHours(23, 59, 59, 999);
-      return { start: startOfWeek, end: endOfLastWeek };
-    
+      return { start: startOfDay(now), end: endOfDay(now) };
+
+    case 'Last Week': {
+      // Rolling last 7 days (matches Flutter UI label)
+      const start = startOfDay(new Date(now));
+      start.setDate(start.getDate() - 6);
+      return { start, end: endOfDay(now) };
+    }
+
     case 'This Month':
       return {
-        start: new Date(now.getFullYear(), now.getMonth(), 1),
-        end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+        start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
       };
-    
+
     case 'Last Month':
       return {
-        start: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-        end: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)
+        start: new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth(), 0)),
       };
-    
-    case 'This Quarter':
+
+    case 'This Quarter': {
       const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
       return {
-        start: new Date(now.getFullYear(), quarterStartMonth, 1),
-        end: new Date(now.getFullYear(), quarterStartMonth + 3, 0, 23, 59, 59, 999)
+        start: new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0, 0),
+        end: endOfDay(new Date(now.getFullYear(), quarterStartMonth + 3, 0)),
       };
-    
+    }
+
     case 'This Year':
       return {
-        start: new Date(now.getFullYear(), 0, 1),
-        end: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
+        start: new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0),
+        end: endOfDay(new Date(now.getFullYear(), 11, 31)),
       };
-    
+
     case 'Custom':
-      // For custom, default to this month (should be handled with custom date picker in UI)
+      // Custom ranges must supply startDate + endDate via resolveDateRange
       return {
-        start: new Date(now.getFullYear(), now.getMonth(), 1),
-        end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+        start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
+        end: endOfDay(now),
       };
-    
+
     default:
-      // Default to this month
       return {
-        start: new Date(now.getFullYear(), now.getMonth(), 1),
-        end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+        start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
       };
   }
 }
 
+/** Previous period of equal length ending just before current start. */
+function getPreviousPeriod(startDate, endDate) {
+  const durationMs = endDate.getTime() - startDate.getTime();
+  const prevEnd = new Date(startDate.getTime() - 1);
+  const prevStart = new Date(prevEnd.getTime() - durationMs);
+  return { start: prevStart, end: prevEnd };
+}
+
+/**
+ * Named periods (Today, Last Week, …) are resolved on the server so
+ * Flutter / web clients cannot drift. Custom ranges use startDate + endDate.
+ */
+function resolveDateRange(query = {}) {
+  const timePeriod = String(query.timePeriod || 'This Month').trim() || 'This Month';
+  const isCustom =
+    timePeriod === 'Custom' ||
+    timePeriod.toLowerCase() === 'custom';
+
+  if (isCustom && query.startDate && query.endDate) {
+    const start = startOfDay(parseLocalDate(query.startDate));
+    const end = endOfDay(parseLocalDate(query.endDate));
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start <= end) {
+      return { start, end, timePeriod: 'Custom' };
+    }
+  }
+
+  // Named period → backend calendar window (ignore client start/end)
+  const range = getDateRangeFromTimePeriod(timePeriod);
+  return { ...range, timePeriod };
+}
+
+function incomeAmt(d) {
+  return docAmount(d, 'totalAmount');
+}
+function expenseAmt(d) {
+  // Match ExpenseModel.getSummary — use totalAmount (tax-inclusive)
+  return toNum(d.totalAmount) || toNum(d.amount);
+}
+
+/** Same company scope as expenseController (incl. legacy null companyId rows). */
+function expenseWhere(companyId, userId, extra = {}) {
+  return {
+    OR: [
+      { companyId },
+      { companyId: null, createdBy: userId },
+    ],
+    status: 'Posted',
+    ...extra,
+  };
+}
+function invoiceAmt(d) {
+  return toNum(d.totalAmount);
+}
+function billAmt(d) {
+  return toNum(d.totalAmount);
+}
+function creditAmt(d) {
+  return toNum(d.amount);
+}
+
+function companyInvoiceScope(companyId, userId) {
+  if (companyId) {
+    return {
+      OR: [
+        { companyId },
+        { companyId: null, createdBy: userId },
+      ],
+    };
+  }
+  return { createdBy: userId };
+}
+
+function salesInvoiceWhere(companyId, userId, extra = {}) {
+  return {
+    AND: [
+      companyInvoiceScope(companyId, userId),
+      {
+        isDeleted: false,
+        isActive: true,
+        ...extra,
+      },
+    ],
+  };
+}
+
+/**
+ * Accounting dashboard aggregates across modules:
+ *
+ *   Sales (KPI)    ← Warehouse Invoices Paid amount (sales invoices only)
+ *   Sales revenue  ← Sales invoice grand totals (for Revenue formula)
+ *   Purchases      ← Purchases module (PurchaseInvoice)
+ *   Other income   ← Accounting Income screen
+ *   Expenses       ← Accounting Expense screen
+ *   Credit notes   ← Accounting Credit Notes
+ *
+ *   Revenue   = Sales revenue + Other income − Credit notes
+ *   Net Profit = Revenue − Purchases − Expenses
+ */
+function computePeriodTotals(
+  incomes,
+  salesInvoices,
+  creditNotes,
+  expenses,
+  purchaseInvoices,
+  start,
+  end
+) {
+  const curInc = incomes.filter((d) => inRange(d.date, start, end));
+  const curSales = salesInvoices.filter((d) => inRange(d.date, start, end));
+  const curCN = creditNotes.filter((d) => inRange(d.date, start, end));
+  const curExp = expenses.filter((d) => inRange(d.date, start, end));
+  const curPurch = purchaseInvoices.filter((d) => inRange(d.date, start, end));
+
+  const otherIncome = sumDocs(curInc, incomeAmt);
+  const salesRevenue = sumDocs(curSales, invoiceAmt);
+  const salesPaid = curSales.reduce((s, d) => s + toNum(d.paidAmount), 0);
+  const creditNotesTotal = sumDocs(curCN, creditAmt);
+  const operatingExpenses = sumDocs(curExp, expenseAmt);
+  const purchases = sumDocs(curPurch, invoiceAmt);
+
+  const revenue = salesRevenue + otherIncome - creditNotesTotal;
+  const totalCosts = purchases + operatingExpenses;
+  const netProfit = revenue - totalCosts;
+  const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  const grossProfit = salesRevenue - purchases;
+
+  return {
+    otherIncome,
+    salesRevenue,
+    salesPaid,
+    creditNotesTotal,
+    operatingExpenses,
+    purchases,
+    revenue,
+    totalExpenses: operatingExpenses,
+    totalCosts,
+    netProfit,
+    profitMargin,
+    grossProfit,
+  };
+}
+
+function purchaseWhere(companyId, userId, extra = {}) {
+  return {
+    AND: [
+      {
+        OR: [
+          { companyId },
+          { companyId: null, createdBy: userId },
+        ],
+      },
+      {
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        isDeleted: false,
+        isActive: true,
+        ...extra,
+      },
+    ],
+  };
+}
+
+function groupByDay(docs, getAmount) {
+  const map = {};
+  docs.forEach((doc) => {
+    const d = new Date(doc.date);
+    if (Number.isNaN(d.getTime())) return;
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    map[key] = (map[key] || 0) + getAmount(doc);
+  });
+  return map;
+}
+
+function buildChartSeries({
+  incomes,
+  mappedSales,
+  creditNotes,
+  expenses,
+  mappedPurchases,
+  startDate,
+  endDate,
+}) {
+  const daySpan =
+    Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  const useDaily = daySpan <= 45;
+
+  const buckets = [];
+  if (useDaily) {
+    const cursor = startOfDay(startDate);
+    const last = startOfDay(endDate);
+    while (cursor <= last) {
+      buckets.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  } else {
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const last = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    while (cursor <= last) {
+      buckets.push(new Date(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  }
+  if (buckets.length === 0) buckets.push(startOfDay(endDate));
+
+  const groupFn = useDaily ? groupByDay : groupByMonth;
+  const bucketKey = (d) =>
+    useDaily
+      ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+      : `${d.getFullYear()}-${d.getMonth()}`;
+  const bucketLabel = (d) =>
+    useDaily
+      ? d.toLocaleString('default', { month: 'short', day: 'numeric' })
+      : d.toLocaleString('default', { month: 'short', year: 'numeric' });
+
+  const periodIncomes = incomes.filter((d) => inRange(d.date, startDate, endDate));
+  const periodSales = mappedSales.filter((d) => inRange(d.date, startDate, endDate));
+  const periodCN = creditNotes.filter((d) => inRange(d.date, startDate, endDate));
+  const periodExp = expenses.filter((d) => inRange(d.date, startDate, endDate));
+  const periodPurch = mappedPurchases.filter((d) => inRange(d.date, startDate, endDate));
+
+  const incMap = groupFn(periodIncomes, incomeAmt);
+  const invMap = groupFn(periodSales, invoiceAmt);
+  const paidMap = groupFn(periodSales, (d) => toNum(d.paidAmount));
+  const cnMap = groupFn(periodCN, creditAmt);
+  const expMap = groupFn(periodExp, expenseAmt);
+  const purchMap = groupFn(periodPurch, invoiceAmt);
+
+  return {
+    useDaily,
+    chartData: buckets.map((d) => {
+      const key = bucketKey(d);
+      const revenue = (incMap[key] || 0) + (invMap[key] || 0) - (cnMap[key] || 0);
+      const expensesTotal = expMap[key] || 0;
+      const purchases = purchMap[key] || 0;
+      return {
+        month: bucketLabel(d),
+        date: d.toISOString(),
+        revenue,
+        sales: paidMap[key] || 0,
+        expenses: expensesTotal,
+        purchases,
+        profit: revenue - purchases - expensesTotal,
+      };
+    }),
+  };
+}
+
+function buildExpenseCategories(expenses, startDate, endDate) {
+  const categories = {};
+  let totalAmount = 0;
+  expenses
+    .filter((d) => inRange(d.date, startDate, endDate))
+    .forEach((exp) => {
+      const type = exp.expenseType || 'Other';
+      const amt = expenseAmt(exp);
+      categories[type] = (categories[type] || 0) + amt;
+      totalAmount += amt;
+    });
+
+  return Object.entries(categories)
+    .map(([name, amount]) => ({
+      name,
+      amount,
+      formatted: formatAmount(amount),
+      percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+function buildRecentTransactions(rows, limitNum = 10) {
+  const transactions = [];
+
+  (rows.paymentsReceived || []).forEach((p) => {
+    transactions.push({
+      id: p.id,
+      title: p.reference || `Payment from ${p.customerName}`,
+      amount: toNum(p.amount),
+      date: p.paymentDate,
+      type: 'payment',
+      icon: 'payment',
+      reference: p.reference,
+      invoiceNumber: p.invoiceNumber,
+      source: 'payment_received',
+    });
+  });
+
+  (rows.incomes || []).forEach((inc) => {
+    transactions.push({
+      id: inc.id,
+      title: inc.description || `${inc.incomeType} - ${inc.incomeNumber}`,
+      amount: incomeAmt(inc),
+      date: inc.date,
+      type: 'income',
+      icon: 'trending_up',
+      reference: inc.reference,
+      source: 'income',
+    });
+  });
+
+  (rows.expenses || []).forEach((exp) => {
+    transactions.push({
+      id: exp.id,
+      title: exp.description || `${exp.expenseType} - ${exp.expenseNumber}`,
+      amount: expenseAmt(exp),
+      date: exp.date,
+      type: 'expense',
+      icon: 'trending_down',
+      reference: exp.reference,
+      source: 'expense',
+    });
+  });
+
+  (rows.invoices || []).forEach((inv) => {
+    transactions.push({
+      id: inv.id,
+      title: `Invoice to ${inv.customerName}`,
+      amount: toNum(inv.grandTotal),
+      date: inv.invoiceDate,
+      type: 'income',
+      icon: 'receipt_long',
+      reference: inv.invoiceNumber,
+      source: 'warehouse_invoice',
+    });
+  });
+
+  (rows.bills || []).forEach((bill) => {
+    transactions.push({
+      id: bill.id,
+      title: `Bill from ${bill.vendorName}`,
+      amount: toNum(bill.totalAmount),
+      date: bill.date,
+      type: 'purchase',
+      icon: 'receipt',
+      reference: bill.billNumber,
+      source: 'bill',
+    });
+  });
+
+  (rows.purchases || []).forEach((inv) => {
+    transactions.push({
+      id: inv.id,
+      title: `Purchase from ${inv.supplierName || 'Supplier'}`,
+      amount: toNum(inv.grandTotal),
+      date: inv.invoiceDate,
+      type: 'purchase',
+      icon: 'receipt',
+      reference: inv.invoiceNumber,
+      source: 'purchase_invoice',
+    });
+  });
+
+  transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+  return transactions.slice(0, limitNum);
+}
+
+/**
+ * Single source of truth for the accounting dashboard.
+ * All KPIs, charts, categories and recent txns share the same date window.
+ */
+async function buildDashboardOverview({
+  userId,
+  companyId,
+  startDate,
+  endDate,
+  timePeriod,
+  txnLimit = 10,
+}) {
+  const { start: previousStartDate, end: previousEndDate } = getPreviousPeriod(
+    startDate,
+    endDate
+  );
+  const fetchFrom = previousStartDate;
+  const fetchTo = endDate;
+
+  const [
+    allIncomes,
+    allSalesInvoices,
+    allModuleSalesInvoices,
+    allCreditNotes,
+    allExpenses,
+    allPurchaseInvoices,
+    outstandingSalesInvoices,
+    outstandingModuleSalesInvoices,
+    outstandingBills,
+    outstandingPurchaseInvoices,
+    bankAccounts,
+    periodPaymentsReceived,
+    periodTxnIncomes,
+    periodTxnExpenses,
+    periodTxnInvoices,
+    periodTxnBills,
+    periodTxnPurchases,
+  ] = await Promise.all([
+    prisma.income.findMany({
+      where: {
+        companyId,
+        date: { gte: fetchFrom, lte: fetchTo },
+        status: 'Posted',
+      },
+      select: {
+        id: true,
+        date: true,
+        amount: true,
+        totalAmount: true,
+        description: true,
+        incomeType: true,
+        incomeNumber: true,
+        reference: true,
+      },
+    }),
+    prisma.warehouseInvoice.findMany({
+      where: salesInvoiceWhere(companyId, userId, {
+        invoiceDate: { gte: fetchFrom, lte: fetchTo },
+        invoiceStatus: { notIn: ['Cancelled'] },
+      }),
+      select: {
+        id: true,
+        invoiceDate: true,
+        grandTotal: true,
+        paidAmount: true,
+        invoiceNumber: true,
+        customerName: true,
+      },
+    }),
+    prisma.salesInvoice.findMany({
+      where: salesInvoiceWhere(companyId, userId, {
+        invoiceDate: { gte: fetchFrom, lte: fetchTo },
+        invoiceStatus: { notIn: ['Cancelled'] },
+      }),
+      select: {
+        id: true,
+        invoiceDate: true,
+        grandTotal: true,
+        paidAmount: true,
+        invoiceNumber: true,
+        customerName: true,
+      },
+    }),
+    prisma.creditNote.findMany({
+      where: {
+        companyId,
+        date: { gte: fetchFrom, lte: fetchTo },
+        status: { notIn: ['Cancelled', 'Voided'] },
+      },
+      select: { date: true, amount: true },
+    }),
+    prisma.expense.findMany({
+      where: expenseWhere(companyId, userId, {
+        date: { gte: fetchFrom, lte: fetchTo },
+      }),
+      select: {
+        id: true,
+        date: true,
+        amount: true,
+        totalAmount: true,
+        expenseType: true,
+        description: true,
+        expenseNumber: true,
+        reference: true,
+      },
+    }),
+    prisma.purchaseInvoice.findMany({
+      where: purchaseWhere(companyId, userId, {
+        invoiceDate: { gte: fetchFrom, lte: fetchTo },
+      }),
+      select: {
+        id: true,
+        invoiceDate: true,
+        grandTotal: true,
+        invoiceNumber: true,
+        supplierName: true,
+      },
+    }),
+    prisma.warehouseInvoice.findMany({
+      where: {
+        ...salesInvoiceWhere(companyId, userId, {
+          paymentStatus: { in: ['Unpaid', 'Partial'] },
+          outstanding: { gt: 0 },
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        }),
+      },
+      select: { outstanding: true },
+    }),
+    prisma.salesInvoice.findMany({
+      where: {
+        ...salesInvoiceWhere(companyId, userId, {
+          paymentStatus: { in: ['Unpaid', 'Partial'] },
+          outstanding: { gt: 0 },
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        }),
+      },
+      select: { outstanding: true },
+    }),
+    prisma.bill.findMany({
+      where: {
+        companyId,
+        posted: true,
+        outstanding: { gt: 0 },
+        status: { notIn: ['Cancelled', 'Voided', 'Draft', 'Paid'] },
+      },
+      select: { outstanding: true },
+    }),
+    prisma.purchaseInvoice.findMany({
+      where: {
+        AND: [
+          {
+            OR: [{ companyId }, { companyId: null, createdBy: userId }],
+          },
+          {
+            paymentStatus: { in: ['Unpaid', 'Partial', 'unpaid', 'partial'] },
+            outstanding: { gt: 0 },
+            invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+            isDeleted: false,
+            isActive: true,
+          },
+        ],
+      },
+      select: { outstanding: true },
+    }),
+    prisma.bankAccount.findMany({
+      where: { companyId, status: 'Active' },
+      select: { currentBalance: true, accountType: true },
+    }),
+    // Period-scoped activity feed
+    prisma.paymentReceived.findMany({
+      where: {
+        companyId,
+        status: { notIn: ['Cancelled', 'Voided'] },
+        paymentDate: { gte: startDate, lte: endDate },
+      },
+      orderBy: { paymentDate: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        reference: true,
+        customerName: true,
+        amount: true,
+        paymentDate: true,
+        invoiceNumber: true,
+      },
+    }),
+    prisma.income.findMany({
+      where: {
+        companyId,
+        status: 'Posted',
+        date: { gte: startDate, lte: endDate },
+      },
+      orderBy: { date: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        description: true,
+        incomeType: true,
+        incomeNumber: true,
+        amount: true,
+        totalAmount: true,
+        date: true,
+        reference: true,
+      },
+    }),
+    prisma.expense.findMany({
+      where: expenseWhere(companyId, userId, {
+        date: { gte: startDate, lte: endDate },
+      }),
+      orderBy: { date: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        description: true,
+        expenseType: true,
+        expenseNumber: true,
+        amount: true,
+        totalAmount: true,
+        date: true,
+        reference: true,
+      },
+    }),
+    prisma.warehouseInvoice.findMany({
+      where: salesInvoiceWhere(companyId, userId, {
+        invoiceDate: { gte: startDate, lte: endDate },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      }),
+      orderBy: { invoiceDate: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        customerName: true,
+        grandTotal: true,
+        invoiceDate: true,
+      },
+    }),
+    prisma.bill.findMany({
+      where: {
+        companyId,
+        posted: true,
+        status: { notIn: ['Cancelled', 'Voided', 'Draft'] },
+        date: { gte: startDate, lte: endDate },
+      },
+      orderBy: { date: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        billNumber: true,
+        vendorName: true,
+        totalAmount: true,
+        date: true,
+      },
+    }),
+    prisma.purchaseInvoice.findMany({
+      where: purchaseWhere(companyId, userId, {
+        invoiceDate: { gte: startDate, lte: endDate },
+      }),
+      orderBy: { invoiceDate: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        supplierName: true,
+        grandTotal: true,
+        invoiceDate: true,
+      },
+    }),
+  ]);
+
+  const mappedSales = [
+    ...allSalesInvoices.map((inv) => ({
+      date: inv.invoiceDate,
+      totalAmount: inv.grandTotal,
+      paidAmount: inv.paidAmount,
+    })),
+    ...allModuleSalesInvoices.map((inv) => ({
+      date: inv.invoiceDate,
+      totalAmount: inv.grandTotal,
+      paidAmount: inv.paidAmount,
+    })),
+  ];
+  const mappedPurchases = allPurchaseInvoices.map((inv) => ({
+    date: inv.invoiceDate,
+    totalAmount: inv.grandTotal,
+  }));
+
+  const current = computePeriodTotals(
+    allIncomes,
+    mappedSales,
+    allCreditNotes,
+    allExpenses,
+    mappedPurchases,
+    startDate,
+    endDate
+  );
+  const previous = computePeriodTotals(
+    allIncomes,
+    mappedSales,
+    allCreditNotes,
+    allExpenses,
+    mappedPurchases,
+    previousStartDate,
+    previousEndDate
+  );
+
+  const salesInPeriod = mappedSales.filter((d) => inRange(d.date, startDate, endDate));
+  const totalSalesPaid = salesInPeriod.reduce((s, d) => s + toNum(d.paidAmount), 0);
+  const totalSalesCount = salesInPeriod.length;
+  const expenseScreenTotal = current.operatingExpenses;
+  const expenseScreenCount = allExpenses.filter((d) =>
+    inRange(d.date, startDate, endDate)
+  ).length;
+  const netProfitAmount = current.revenue - current.purchases - expenseScreenTotal;
+
+  const allOutstandingSales = [
+    ...outstandingSalesInvoices,
+    ...outstandingModuleSalesInvoices,
+  ];
+  const totalReceivables = allOutstandingSales.reduce(
+    (s, inv) => s + toNum(inv.outstanding),
+    0
+  );
+  const billsPayable = outstandingBills.reduce(
+    (s, bill) => s + toNum(bill.outstanding),
+    0
+  );
+  const purchasePayable = outstandingPurchaseInvoices.reduce(
+    (s, inv) => s + toNum(inv.outstanding),
+    0
+  );
+  const totalPayables = billsPayable + purchasePayable;
+  const bankBalance = bankAccounts.reduce(
+    (s, acc) => s + toNum(acc.currentBalance),
+    0
+  );
+  const cashOnlyBalance = bankAccounts
+    .filter((acc) => String(acc.accountType || '').toLowerCase().includes('cash'))
+    .reduce((s, acc) => s + toNum(acc.currentBalance), 0);
+
+  const prevSalesPaid = mappedSales
+    .filter((d) => inRange(d.date, previousStartDate, previousEndDate))
+    .reduce((s, d) => s + toNum(d.paidAmount), 0);
+  const prevNetProfit =
+    previous.revenue - previous.purchases - previous.operatingExpenses;
+
+  const revenueChange = pct(current.revenue, previous.revenue);
+  const expenseChange = pct(expenseScreenTotal, previous.operatingExpenses);
+  const profitChange = pct(netProfitAmount, prevNetProfit);
+  const salesChange = pct(totalSalesPaid, prevSalesPaid);
+  const purchasesChange = pct(current.purchases, previous.purchases);
+
+  const { chartData, useDaily } = buildChartSeries({
+    incomes: allIncomes,
+    mappedSales,
+    creditNotes: allCreditNotes,
+    expenses: allExpenses,
+    mappedPurchases,
+    startDate,
+    endDate,
+  });
+
+  const expenseCategories = buildExpenseCategories(
+    allExpenses,
+    startDate,
+    endDate
+  );
+
+  const recentTransactions = buildRecentTransactions(
+    {
+      paymentsReceived: periodPaymentsReceived,
+      incomes: periodTxnIncomes,
+      expenses: periodTxnExpenses,
+      invoices: periodTxnInvoices,
+      bills: periodTxnBills,
+      purchases: periodTxnPurchases,
+    },
+    txnLimit
+  );
+
+  // Chart totals must equal KPI period totals
+  const chartTotals = chartData.reduce(
+    (acc, row) => {
+      acc.revenue += row.revenue;
+      acc.sales += row.sales;
+      acc.expenses += row.expenses;
+      acc.purchases += row.purchases;
+      acc.profit += row.profit;
+      return acc;
+    },
+    { revenue: 0, sales: 0, expenses: 0, purchases: 0, profit: 0 }
+  );
+
+  return {
+    kpi: {
+      totalRevenue: {
+        amount: current.revenue,
+        formatted: formatAmount(current.revenue),
+        change: Math.round(revenueChange * 10) / 10,
+        isPositive: revenueChange >= 0,
+        period: timePeriod,
+        sources: {
+          salesModule: current.salesRevenue,
+          incomeModule: current.otherIncome,
+          creditNotes: current.creditNotesTotal,
+          formula: 'Sales invoices + Income − Credit Notes',
+        },
+      },
+      totalSales: {
+        amount: totalSalesPaid,
+        formatted: formatAmount(totalSalesPaid),
+        change: Math.round(salesChange * 10) / 10,
+        isPositive: salesChange >= 0,
+        period: timePeriod,
+        count: totalSalesCount,
+        source: 'Sales invoices paid amount (selected period)',
+      },
+      totalPurchases: {
+        amount: current.purchases,
+        formatted: formatAmount(current.purchases),
+        change: Math.round(purchasesChange * 10) / 10,
+        isPositive: purchasesChange <= 0,
+        period: timePeriod,
+        source: 'Purchase invoices (selected period)',
+      },
+      totalExpenses: {
+        amount: expenseScreenTotal,
+        formatted: formatAmount(expenseScreenTotal),
+        change: Math.round(expenseChange * 10) / 10,
+        isPositive: expenseChange <= 0,
+        period: timePeriod,
+        count: expenseScreenCount,
+        sources: {
+          expenseModule: expenseScreenTotal,
+          formula: 'Expense screen Posted (selected period)',
+        },
+      },
+      netProfit: {
+        amount: netProfitAmount,
+        formatted: formatAmount(netProfitAmount),
+        change: Math.round(profitChange * 10) / 10,
+        isPositive: netProfitAmount >= 0,
+        margin:
+          current.revenue > 0
+            ? Math.round((netProfitAmount / current.revenue) * 1000) / 10
+            : 0,
+        period: timePeriod,
+        formula: 'Revenue − Purchases − Expenses',
+      },
+      grossProfit: {
+        amount: current.grossProfit,
+        formatted: formatAmount(current.grossProfit),
+        isPositive: current.grossProfit >= 0,
+        period: timePeriod,
+        formula: 'Sales invoiced − Purchases',
+      },
+      outstanding: {
+        amount: totalReceivables,
+        formatted: formatAmount(totalReceivables),
+        change: 0,
+        isPositive: true,
+        count: allOutstandingSales.length,
+        period: 'Current',
+        source: 'Sales invoices outstanding',
+      },
+      accountsReceivable: {
+        amount: totalReceivables,
+        formatted: formatAmount(totalReceivables),
+        change: 0,
+        isPositive: true,
+        count: allOutstandingSales.length,
+        period: 'Current',
+      },
+      accountsPayable: {
+        amount: totalPayables,
+        formatted: formatAmount(totalPayables),
+        change: 0,
+        isPositive: totalPayables === 0,
+        count: outstandingBills.length + outstandingPurchaseInvoices.length,
+        period: 'Current',
+        breakdown: {
+          bills: billsPayable,
+          purchaseInvoices: purchasePayable,
+        },
+      },
+      cashBalance: {
+        amount: bankBalance,
+        formatted: formatAmount(bankBalance),
+        change: 0,
+        isPositive: bankBalance >= 0,
+        cashOnly: cashOnlyBalance,
+        accountsCount: bankAccounts.length,
+        period: 'Current',
+      },
+      bankBalance: {
+        amount: bankBalance,
+        formatted: formatAmount(bankBalance),
+        change: 0,
+        isPositive: bankBalance >= 0,
+        accountsCount: bankAccounts.length,
+        period: 'Current',
+      },
+    },
+    breakdown: {
+      salesRevenue: current.salesRevenue,
+      salesPaid: totalSalesPaid,
+      otherIncome: current.otherIncome,
+      creditNotes: current.creditNotesTotal,
+      purchases: current.purchases,
+      operatingExpenses: current.operatingExpenses,
+      expenseScreenTotal,
+      receivables: totalReceivables,
+      payables: totalPayables,
+      billsPayable,
+      purchasePayable,
+      bankBalance,
+      cashOnlyBalance,
+      bankAccountsCount: bankAccounts.length,
+    },
+    weeklyData: {
+      revenue: current.revenue,
+      expenses: expenseScreenTotal,
+      profit: netProfitAmount,
+    },
+    dailyData: {
+      revenue: current.revenue,
+      expenses: expenseScreenTotal,
+      profit: netProfitAmount,
+    },
+    chartData,
+    chartMeta: {
+      granularity: useDaily ? 'daily' : 'monthly',
+      totals: chartTotals,
+    },
+    expenseCategories,
+    recentTransactions,
+    period: {
+      timePeriod,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      startDateLocal: `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`,
+      endDateLocal: `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`,
+    },
+  };
+}
+
+// ─── Get Dashboard Overview (single API) ───────────────────────
+
+const getDashboardOverview = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
+    const txnLimit = parseInt(req.query.limit, 10) || 10;
+
+    const cacheKey = `dashboard:overview:v1:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${txnLimit}`;
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({ success: true, data: cached, cached: true });
+    }
+
+    const data = await buildDashboardOverview({
+      userId,
+      companyId,
+      startDate,
+      endDate,
+      timePeriod,
+      txnLimit,
+    });
+
+    await set(cacheKey, data, 60);
+
+    return res.status(200).json({ success: true, data, cached: false });
+  } catch (error) {
+    console.error('Error getting dashboard overview:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── Get Dashboard Summary ─────────────────────────────────────
 
 const getDashboardSummary = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { timePeriod = 'This Month' } = req.query;
-    const now = new Date();
+    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
 
-    const cacheKey = `dashboard:summary:${userId}:${timePeriod}`;
-    
+    const cacheKey = `dashboard:summary:v11:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -119,173 +1084,22 @@ const getDashboardSummary = async (req, res) => {
       });
     }
 
-    const { start: startDate, end: endDate } = getDateRangeFromTimePeriod(timePeriod);
-
-    // Calculate previous period for comparison
-    const periodLength = endDate - startDate;
-    const previousStartDate = new Date(startDate - periodLength);
-    const previousEndDate = new Date(endDate - periodLength);
-
-    // ─── FETCH ALL DATA (User-specific) ──────────────────────────
-    const [
-      allIncomes,
-      allInvoices,
-      allCreditNotes,
-      allExpenses,
-      allBills,
-      outstandingInvoices,
-      bankAccounts
-    ] = await Promise.all([
-      // ✅ Income
-      prisma.income.findMany({
-        where: {
-          
-          companyId: companyId,
-          date: { gte: previousStartDate, lte: endDate },
-          status: 'Posted'
-        },
-        select: { date: true, amount: true }
-      }),
-      // ✅ WarehouseInvoice (NOT Invoice)
-      prisma.warehouseInvoice.findMany({
-        where: {
-          
-          companyId: companyId,
-          invoiceDate: { gte: previousStartDate, lte: endDate },
-          invoiceStatus: { not: 'Draft' }
-        },
-        select: { invoiceDate: true, grandTotal: true }
-      }),
-      // ✅ CreditNote
-      prisma.creditNote.findMany({
-        where: {
-          
-          companyId: companyId,
-          date: { gte: previousStartDate, lte: endDate }
-        },
-        select: { date: true, amount: true }
-      }),
-      // ✅ Expense
-      prisma.expense.findMany({
-        where: {
-          
-          companyId: companyId,
-          date: { gte: previousStartDate, lte: endDate },
-          status: 'Posted'
-        },
-        select: { date: true, amount: true }
-      }),
-      // ✅ Bill
-      prisma.bill.findMany({
-        where: {
-          
-          companyId: companyId,
-          date: { gte: previousStartDate, lte: endDate }
-        },
-        select: { date: true, totalAmount: true }
-      }),
-      // ✅ Outstanding Invoices (WarehouseInvoice)
-      prisma.warehouseInvoice.findMany({
-        where: {
-          
-          companyId: companyId,
-          paymentStatus: { in: ['Unpaid', 'Partial'] },
-          outstanding: { gt: 0 }
-        },
-        select: { outstanding: true }
-      }),
-      // ✅ BankAccount
-      prisma.bankAccount.findMany({
-        where: {
-          
-          companyId: companyId,
-          status: 'Active'
-        },
-        select: { currentBalance: true }
-      })
-    ]);
-
-    // ─── MAP DATA ──────────────────────────────────────────────────
-    // Map invoiceDate to date for consistency
-    const mappedInvoices = allInvoices.map(inv => ({
-      date: inv.invoiceDate,
-      totalAmount: inv.grandTotal
-    }));
-
-    // ─── FILTER IN JS ─────────────────────────────────────────────
-    const currentInc = allIncomes.filter(d => inRange({ date: d.date }, startDate, endDate));
-    const currentInv = mappedInvoices.filter(d => inRange(d, startDate, endDate));
-    const currentCN = allCreditNotes.filter(d => inRange({ date: d.date }, startDate, endDate));
-    const currentExp = allExpenses.filter(d => inRange({ date: d.date }, startDate, endDate));
-    const currentBill = allBills.filter(d => inRange({ date: d.date }, startDate, endDate));
-
-    const totalRevenueCurrent = sum(currentInc, 'amount') + sum(currentInv, 'totalAmount') - sum(currentCN, 'amount');
-    const totalExpensesCurrent = sum(currentExp, 'amount') + sum(currentBill, 'totalAmount');
-
-    // ─── PREVIOUS PERIOD ──────────────────────────────────────────
-    const previousInc = allIncomes.filter(d => inRange({ date: d.date }, previousStartDate, previousEndDate));
-    const previousInv = mappedInvoices.filter(d => inRange(d, previousStartDate, previousEndDate));
-    const previousCN = allCreditNotes.filter(d => inRange({ date: d.date }, previousStartDate, previousEndDate));
-    const previousExp = allExpenses.filter(d => inRange({ date: d.date }, previousStartDate, previousEndDate));
-    const previousBill = allBills.filter(d => inRange({ date: d.date }, previousStartDate, previousEndDate));
-
-    const previousRevenue = sum(previousInc, 'amount') + sum(previousInv, 'totalAmount') - sum(previousCN, 'amount');
-    const previousExpenses = sum(previousExp, 'amount') + sum(previousBill, 'totalAmount');
-
-    // ─── KPIs ──────────────────────────────────────────────────────
-    const totalOutstanding = outstandingInvoices.reduce((s, inv) => s + inv.outstanding, 0);
-    const cashBalance = bankAccounts.reduce((s, acc) => s + (acc.currentBalance || 0), 0);
-
-    const revenueChange = pct(totalRevenueCurrent, previousRevenue);
-    const expenseChange = pct(totalExpensesCurrent, previousExpenses);
-    const lastMonthCash = cashBalance - totalRevenueCurrent + totalExpensesCurrent;
-    const cashChange = pct(cashBalance, lastMonthCash);
+    const overview = await buildDashboardOverview({
+      userId,
+      companyId,
+      startDate,
+      endDate,
+      timePeriod,
+    });
 
     const summaryData = {
-      kpi: {
-        totalRevenue: {
-          amount: totalRevenueCurrent,
-          formatted: formatAmount(totalRevenueCurrent),
-          change: Math.round(revenueChange),
-          isPositive: revenueChange >= 0,
-          period: timePeriod
-        },
-        totalExpenses: {
-          amount: totalExpensesCurrent,
-          formatted: formatAmount(totalExpensesCurrent),
-          change: Math.round(Math.abs(expenseChange)),
-          isPositive: expenseChange <= 0,
-          period: timePeriod
-        },
-        outstanding: {
-          amount: totalOutstanding,
-          formatted: formatAmount(totalOutstanding),
-          change: 0,
-          isPositive: true,
-          count: outstandingInvoices.length,
-          period: 'Current'
-        },
-        cashBalance: {
-          amount: cashBalance,
-          formatted: formatAmount(cashBalance),
-          change: Math.round(cashChange),
-          isPositive: cashChange >= 0,
-          period: 'Current'
-        }
-      },
-      weeklyData: {
-        revenue: totalRevenueCurrent,
-        expenses: totalExpensesCurrent,
-        profit: totalRevenueCurrent - totalExpensesCurrent
-      },
-      dailyData: {
-        revenue: totalRevenueCurrent,
-        expenses: totalExpensesCurrent,
-        profit: totalRevenueCurrent - totalExpensesCurrent
-      }
+      kpi: overview.kpi,
+      breakdown: overview.breakdown,
+      weeklyData: overview.weeklyData,
+      dailyData: overview.dailyData,
+      period: overview.period,
     };
 
-    // Cache the result (1 minute TTL - dashboard data changes frequently)
     await set(cacheKey, summaryData, 60);
 
     res.status(200).json({
@@ -303,100 +1117,21 @@ const getDashboardSummary = async (req, res) => {
 
 const getChartData = async (req, res) => {
   try {
-    const { months = 12, timePeriod = 'This Month' } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const now = new Date();
+    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
 
-    // Build cache key with parameters
-    const cacheKey = `dashboard:chart:${userId}:${months}:${timePeriod}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
-    // Get date range from time period
-    const { start: startDate, end: endDate } = getDateRangeFromTimePeriod(timePeriod);
-
-    const [incomes, invoices, creditNotes, expenses, bills] = await Promise.all([
-      prisma.income.findMany({
-        where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate },
-          status: 'Posted'
-        },
-        select: { date: true, amount: true }
-      }),
-      prisma.warehouseInvoice.findMany({
-        where: {
-          companyId: companyId,
-          invoiceDate: { gte: startDate, lte: endDate },
-          invoiceStatus: { not: 'Draft' }
-        },
-        select: { invoiceDate: true, grandTotal: true }
-      }),
-      prisma.creditNote.findMany({
-        where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate }
-        },
-        select: { date: true, amount: true }
-      }),
-      prisma.expense.findMany({
-        where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate },
-          status: 'Posted'
-        },
-        select: { date: true, amount: true }
-      }),
-      prisma.bill.findMany({
-        where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate }
-        },
-        select: { date: true, totalAmount: true }
-      })
-    ]);
-
-    // Map invoices
-    const mappedInvoices = invoices.map(inv => ({
-      date: inv.invoiceDate,
-      totalAmount: inv.grandTotal
-    }));
-
-    const incMap = groupByMonth(incomes, 'amount');
-    const invMap = groupByMonth(mappedInvoices, 'totalAmount');
-    const cnMap = groupByMonth(creditNotes, 'amount');
-    const expMap = groupByMonth(expenses, 'amount');
-    const billMap = groupByMonth(bills, 'totalAmount');
-
-    const chartData = [];
-    for (let i = 0; i <= parseInt(months); i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - parseInt(months) + i, 1);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const revenue = (incMap[key] || 0) + (invMap[key] || 0) - (cnMap[key] || 0);
-      const expensesTotal = (expMap[key] || 0) + (billMap[key] || 0);
-      chartData.push({
-        month: d.toLocaleString('default', { month: 'short', year: 'numeric' }),
-        revenue,
-        expenses: expensesTotal,
-        profit: revenue - expensesTotal
-      });
-    }
-
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, chartData, 300);
+    const overview = await buildDashboardOverview({
+      userId,
+      companyId,
+      startDate,
+      endDate,
+      timePeriod,
+    });
 
     res.status(200).json({
       success: true,
-      data: chartData,
+      data: overview.chartData,
       cached: false,
     });
   } catch (error) {
@@ -409,72 +1144,21 @@ const getChartData = async (req, res) => {
 
 const getExpenseCategories = async (req, res) => {
   try {
-    const { timePeriod = 'This Month' } = req.query;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `dashboard:expense-categories:${userId}:${timePeriod}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
+    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
 
-    // Get date range from time period
-    const { start: startDate, end: endDate } = getDateRangeFromTimePeriod(timePeriod);
-
-    const [expenses, bills] = await Promise.all([
-      prisma.expense.findMany({
-        where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate },
-          status: 'Posted'
-        },
-        select: { expenseType: true, amount: true }
-      }),
-      prisma.bill.findMany({
-        where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate }
-        },
-        select: { totalAmount: true }
-      })
-    ]);
-
-    const categories = {};
-    let totalAmount = 0;
-
-    expenses.forEach(exp => {
-      const type = exp.expenseType || 'Other';
-      categories[type] = (categories[type] || 0) + exp.amount;
-      totalAmount += exp.amount;
+    const overview = await buildDashboardOverview({
+      userId,
+      companyId,
+      startDate,
+      endDate,
+      timePeriod,
     });
-    bills.forEach(bill => {
-      categories['Purchases (Bills)'] = (categories['Purchases (Bills)'] || 0) + bill.totalAmount;
-      totalAmount += bill.totalAmount;
-    });
-
-    const categoryData = Object.entries(categories)
-      .map(([name, amount]) => ({
-        name,
-        amount,
-        formatted: formatAmount(amount),
-        percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0
-      }))
-      .sort((a, b) => b.amount - a.amount);
-
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, categoryData, 300);
 
     res.status(200).json({
       success: true,
-      data: categoryData,
+      data: overview.expenseCategories,
       cached: false,
     });
   } catch (error) {
@@ -488,14 +1172,12 @@ const getExpenseCategories = async (req, res) => {
 const getRecentTransactions = async (req, res) => {
   try {
     const { limit = 10 } = req.query;
-    const limitNum = parseInt(limit);
+    const limitNum = parseInt(limit, 10) || 10;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `dashboard:recent-transactions:${userId}:${limit}`;
-    
-    // Try to get from cache
+
+    const cacheKey = `dashboard:recent-transactions:v2:${userId}:${limitNum}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -507,7 +1189,7 @@ const getRecentTransactions = async (req, res) => {
 
     const [paymentsReceived, incomes, expenses, invoices, bills] = await Promise.all([
       prisma.paymentReceived.findMany({
-        where: { companyId: companyId},
+        where: { companyId, status: { notIn: ['Cancelled', 'Voided'] } },
         orderBy: { paymentDate: 'desc' },
         take: limitNum,
         select: {
@@ -516,11 +1198,11 @@ const getRecentTransactions = async (req, res) => {
           customerName: true,
           amount: true,
           paymentDate: true,
-          invoiceNumber: true
-        }
+          invoiceNumber: true,
+        },
       }),
       prisma.income.findMany({
-        where: { companyId: companyId, status: 'Posted' },
+        where: { companyId, status: 'Posted' },
         orderBy: { date: 'desc' },
         take: limitNum,
         select: {
@@ -529,12 +1211,13 @@ const getRecentTransactions = async (req, res) => {
           incomeType: true,
           incomeNumber: true,
           amount: true,
+          totalAmount: true,
           date: true,
-          reference: true
-        }
+          reference: true,
+        },
       }),
       prisma.expense.findMany({
-        where: { companyId: companyId, status: 'Posted' },
+        where: expenseWhere(companyId, userId),
         orderBy: { date: 'desc' },
         take: limitNum,
         select: {
@@ -543,12 +1226,17 @@ const getRecentTransactions = async (req, res) => {
           expenseType: true,
           expenseNumber: true,
           amount: true,
+          totalAmount: true,
           date: true,
-          reference: true
-        }
+          reference: true,
+        },
       }),
       prisma.warehouseInvoice.findMany({
-        where: { companyId: companyId, invoiceStatus: { not: 'Draft' } },
+        where: {
+          companyId,
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+          isDeleted: false,
+        },
         orderBy: { invoiceDate: 'desc' },
         take: limitNum,
         select: {
@@ -556,11 +1244,15 @@ const getRecentTransactions = async (req, res) => {
           invoiceNumber: true,
           customerName: true,
           grandTotal: true,
-          invoiceDate: true
-        }
+          invoiceDate: true,
+        },
       }),
       prisma.bill.findMany({
-        where: { companyId: companyId},
+        where: {
+          companyId,
+          posted: true,
+          status: { notIn: ['Cancelled', 'Voided', 'Draft'] },
+        },
         orderBy: { date: 'desc' },
         take: limitNum,
         select: {
@@ -568,84 +1260,82 @@ const getRecentTransactions = async (req, res) => {
           billNumber: true,
           vendorName: true,
           totalAmount: true,
-          date: true
-        }
-      })
+          date: true,
+        },
+      }),
     ]);
 
     const transactions = [];
 
-    paymentsReceived.forEach(p => {
+    paymentsReceived.forEach((p) => {
       transactions.push({
         id: p.id,
         title: p.reference || `Payment from ${p.customerName}`,
-        amount: p.amount,
+        amount: toNum(p.amount),
         date: p.paymentDate,
-        type: 'income',
+        type: 'payment',
         icon: 'payment',
         reference: p.reference,
         invoiceNumber: p.invoiceNumber,
-        source: 'payment_received'
+        source: 'payment_received',
       });
     });
 
-    incomes.forEach(inc => {
+    incomes.forEach((inc) => {
       transactions.push({
         id: inc.id,
         title: inc.description || `${inc.incomeType} - ${inc.incomeNumber}`,
-        amount: inc.amount,
+        amount: incomeAmt(inc),
         date: inc.date,
         type: 'income',
         icon: 'trending_up',
         reference: inc.reference,
-        source: 'income'
+        source: 'income',
       });
     });
 
-    expenses.forEach(exp => {
+    expenses.forEach((exp) => {
       transactions.push({
         id: exp.id,
         title: exp.description || `${exp.expenseType} - ${exp.expenseNumber}`,
-        amount: exp.amount,
+        amount: expenseAmt(exp),
         date: exp.date,
         type: 'expense',
         icon: 'trending_down',
         reference: exp.reference,
-        source: 'expense'
+        source: 'expense',
       });
     });
 
-    invoices.forEach(inv => {
+    invoices.forEach((inv) => {
       transactions.push({
         id: inv.id,
         title: `Invoice to ${inv.customerName}`,
-        amount: inv.grandTotal,
+        amount: toNum(inv.grandTotal),
         date: inv.invoiceDate,
         type: 'income',
         icon: 'receipt_long',
         reference: inv.invoiceNumber,
-        source: 'warehouse_invoice'
+        source: 'warehouse_invoice',
       });
     });
 
-    bills.forEach(bill => {
+    bills.forEach((bill) => {
       transactions.push({
         id: bill.id,
         title: `Bill from ${bill.vendorName}`,
-        amount: bill.totalAmount,
+        amount: toNum(bill.totalAmount),
         date: bill.date,
-        type: 'expense',
+        type: 'purchase',
         icon: 'receipt',
         reference: bill.billNumber,
-        source: 'bill'
+        source: 'bill',
       });
     });
 
     transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-
     const recentTransactions = transactions.slice(0, limitNum);
 
-    // Cache the result (2 minutes TTL - transactions change frequently)
     await set(cacheKey, recentTransactions, 120);
 
     res.status(200).json({
@@ -669,8 +1359,8 @@ const getQuickActions = async (req, res) => {
       { id: 'add_expense', label: 'Expense', icon: 'remove_circle_outline', color: '#E74C3C', route: '/expense' },
       { id: 'create_invoice', label: 'Invoice', icon: 'receipt_long', color: '#3498DB', route: '/invoices' },
       { id: 'record_payment', label: 'Payment', icon: 'payment', color: '#F39C12', route: '/payments' },
-      { id: 'add_customer', label: 'Customer', icon: 'person_add', color: '#9B59B6', route: '/customers' }
-    ]
+      { id: 'add_customer', label: 'Customer', icon: 'person_add', color: '#9B59B6', route: '/customers' },
+    ],
   });
 };
 
@@ -681,14 +1371,12 @@ const getYearlySummary = async (req, res) => {
     const { year = new Date().getFullYear() } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31);
-    endDate.setHours(23, 59, 59, 999);
+    const y = parseInt(year, 10);
+    const startDate = new Date(y, 0, 1, 0, 0, 0, 0);
+    const endDate = endOfDay(new Date(y, 11, 31));
 
-    // Build cache key with parameters
-    const cacheKey = `dashboard:yearly-summary:${userId}:${year}`;
-    
-    // Try to get from cache
+    const cacheKey = `dashboard:yearly-summary:v5:${userId}:${y}`;
+
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -698,78 +1386,76 @@ const getYearlySummary = async (req, res) => {
       });
     }
 
-    const [incomes, invoices, creditNotes, expenses, bills] = await Promise.all([
+    const [incomes, invoices, creditNotes, expenses] = await Promise.all([
       prisma.income.findMany({
         where: {
-          companyId: companyId,
+          companyId,
           date: { gte: startDate, lte: endDate },
-          status: 'Posted'
+          status: 'Posted',
         },
-        select: { date: true, amount: true }
+        select: { date: true, amount: true, totalAmount: true },
       }),
       prisma.warehouseInvoice.findMany({
         where: {
-          companyId: companyId,
+          companyId,
           invoiceDate: { gte: startDate, lte: endDate },
-          invoiceStatus: { not: 'Draft' }
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+          isDeleted: false,
         },
-        select: { invoiceDate: true, grandTotal: true }
+        select: { invoiceDate: true, grandTotal: true },
       }),
       prisma.creditNote.findMany({
         where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate }
+          companyId,
+          date: { gte: startDate, lte: endDate },
+          status: { notIn: ['Cancelled', 'Voided'] },
         },
-        select: { date: true, amount: true }
+        select: { date: true, amount: true },
       }),
       prisma.expense.findMany({
-        where: {
-          companyId: companyId,
+        where: expenseWhere(companyId, userId, {
           date: { gte: startDate, lte: endDate },
-          status: 'Posted'
-        },
-        select: { date: true, amount: true }
+        }),
+        select: { date: true, amount: true, totalAmount: true },
       }),
-      prisma.bill.findMany({
-        where: {
-          companyId: companyId,
-          date: { gte: startDate, lte: endDate }
-        },
-        select: { date: true, totalAmount: true }
-      })
     ]);
 
-    const mappedInvoices = invoices.map(inv => ({
+    const mappedInvoices = invoices.map((inv) => ({
       date: inv.invoiceDate,
-      totalAmount: inv.grandTotal
+      totalAmount: inv.grandTotal,
     }));
 
-    const incMap = groupByMonth(incomes, 'amount');
-    const invMap = groupByMonth(mappedInvoices, 'totalAmount');
-    const cnMap = groupByMonth(creditNotes, 'amount');
-    const expMap = groupByMonth(expenses, 'amount');
-    const billMap = groupByMonth(bills, 'totalAmount');
+    const incMap = groupByMonth(incomes, incomeAmt);
+    const invMap = groupByMonth(mappedInvoices, invoiceAmt);
+    const cnMap = groupByMonth(creditNotes, creditAmt);
+    const expMap = groupByMonth(expenses, expenseAmt);
 
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
     ];
 
     const monthlyData = monthNames.map((name, m) => {
-      const key = `${year}-${m}`;
+      const key = `${y}-${m}`;
       const revenue = (incMap[key] || 0) + (invMap[key] || 0) - (cnMap[key] || 0);
-      const expensesTotal = (expMap[key] || 0) + (billMap[key] || 0);
-      return { month: name, revenue, expenses: expensesTotal, profit: revenue - expensesTotal };
+      const expensesTotal = expMap[key] || 0;
+      return {
+        month: name,
+        revenue,
+        expenses: expensesTotal,
+        profit: revenue - expensesTotal,
+      };
     });
 
     const totalRevenue = monthlyData.reduce((s, m) => s + m.revenue, 0);
     const totalExpenses = monthlyData.reduce((s, m) => s + m.expenses, 0);
 
     const summaryData = {
-      year: parseInt(year),
+      year: y,
       totalRevenue,
       totalExpenses,
       totalProfit: totalRevenue - totalExpenses,
-      monthlyData
+      monthlyData,
     };
 
     await set(cacheKey, summaryData, 600);
@@ -785,12 +1471,12 @@ const getYearlySummary = async (req, res) => {
   }
 };
 
-
 module.exports = {
+  getDashboardOverview,
   getDashboardSummary,
   getChartData,
   getExpenseCategories,
   getRecentTransactions,
   getQuickActions,
-  getYearlySummary
+  getYearlySummary,
 };

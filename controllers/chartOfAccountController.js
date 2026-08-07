@@ -726,18 +726,6 @@ const getAccounts = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `coa:accounts:${userId}:${type || 'All'}:${search || ''}:${page}:${limit}:${sortBy}:${sortOrder}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
-    }
 
     const filter = { 
       companyId: companyId,
@@ -763,6 +751,19 @@ const getAccounts = async (req, res) => {
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(limit) || 10;
     const skip = (pageNum - 1) * limitNum;
+
+    // Build cache key with parameters (v2 to force cache invalidation)
+    const cacheKey = `coa:accounts:v2:${userId}:${type || 'All'}:${search || ''}:${page}:${limitNum}:${sortBy}:${sortOrder}`;
+    
+    // Try to get from cache
+    const cached = await get(cacheKey);
+    if (cached) {
+      return res.status(200).json({
+        success: true,
+        ...cached,
+        cached: true,
+      });
+    }
 
     const orderBy = {};
     orderBy[sortBy] = sortOrder === 'desc' ? 'desc' : 'asc';

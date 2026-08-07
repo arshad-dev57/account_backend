@@ -1,3 +1,5 @@
+// warehouse/models/Product.js - COMPLETE FIXED
+
 const prisma = require('../../prisma/client');
 
 class ProductModel {
@@ -166,6 +168,7 @@ class ProductModel {
     return await prisma.product.findFirst({ where });
   }
 
+  // ✅ FIXED: create method with ALL required fields properly handled
   static async create(data) {
     const {
       name,
@@ -180,6 +183,7 @@ class ProductModel {
       maximumStock,
       description,
       rackLocationName,
+      rackLocationId,
       weight,
       weightUnitName,
       length,
@@ -206,6 +210,7 @@ class ProductModel {
       sizes,
       stockUnitName,
       zoneName,
+      zoneId,
       storageConditionName,
       hsCode,
       countryOfOriginName,
@@ -226,6 +231,7 @@ class ProductModel {
       hasIndividualTracking,
       bulkUnit,
       defaultQuantityPerBatch,
+      shelfLifeDays,
       videoUrl,
       leadTimeDays,
       reorderPoint,
@@ -238,6 +244,7 @@ class ProductModel {
     const totalValue = (currentStock || 0) * (costPrice || 0);
     const availableStock = currentStock || 0;
 
+    // ✅ Ensure all required fields have values
     const createData = {
       name,
       sku: sku.toUpperCase(),
@@ -248,7 +255,8 @@ class ProductModel {
       minimumStock: minimumStock || 5,
       maximumStock: maximumStock || 100,
       description: description || '',
-      rackLocationName: rackLocationName || null,
+      rackLocationName: rackLocationName || 'A-1-B1',
+      rackLocationId: rackLocationId || null,
       weight: weight || 0,
       weightUnitName: weightUnitName || 'KG',
       length: length || 0,
@@ -275,10 +283,11 @@ class ProductModel {
       sizes: sizes || [],
       stockUnitName: stockUnitName || 'Pcs',
       zoneName: zoneName || null,
-      storageConditionName: storageConditionName || null,
+      zoneId: zoneId || null,
+      storageConditionName: storageConditionName || 'Normal',
       hsCode: hsCode || null,
       countryOfOriginName: countryOfOriginName || 'Pakistan',
-      shippingClass: shippingClass || null,
+      shippingClass: shippingClass || 'Normal',
       freightClass: freightClass || null,
       palletNumber: palletNumber || null,
       shelfNumber: shelfNumber || null,
@@ -287,26 +296,27 @@ class ProductModel {
       dangerousGoods: dangerousGoods || false,
       unNumber: unNumber || null,
       handlingInstructions: handlingInstructions || null,
-      warrantyPeriod: warrantyPeriod ? parseInt(warrantyPeriod) : null,
+      warrantyPeriod: parseInt(warrantyPeriod) >= 0 ? parseInt(warrantyPeriod) : 0,
       warrantyUnit: warrantyUnit || 'Months',
       isReturnable: isReturnable !== undefined ? isReturnable : true,
-      returnDays: returnDays ? parseInt(returnDays) : 7,
+      returnDays: parseInt(returnDays) >= 0 ? parseInt(returnDays) : 7,
       isBulkManaged: isBulkManaged || false,
       hasIndividualTracking: hasIndividualTracking || false,
       bulkUnit: bulkUnit || 'Bale',
-      defaultQuantityPerBatch: defaultQuantityPerBatch ? parseInt(defaultQuantityPerBatch) : null,
+      shelfLifeDays: parseInt(shelfLifeDays) >= 0 ? parseInt(shelfLifeDays) : 0,
+      defaultQuantityPerBatch: parseInt(defaultQuantityPerBatch) >= 0 ? parseInt(defaultQuantityPerBatch) : 0,
       videoUrl: videoUrl || null,
-      leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : null,
-      reorderPoint: reorderPoint ? parseInt(reorderPoint) : null,
+      leadTimeDays: parseInt(leadTimeDays) >= 0 ? parseInt(leadTimeDays) : 0,
+      reorderPoint: parseInt(reorderPoint) >= 0 ? parseInt(reorderPoint) : 0,
       supplierSku: supplierSku || null,
-      landingCost: landingCost ? parseFloat(landingCost) : null,
+      landingCost: landingCost ? parseFloat(landingCost) : 0,
       totalValue,
       availableStock,
-      createdBy,
-      companyId,
-      // Relations
-      category: categoryId ? { connect: { id: categoryId } } : undefined,
-      supplier: supplierId ? { connect: { id: supplierId } } : undefined
+      // Relations (all relation-owned FKs must use connect syntax)
+      company:   companyId   ? { connect: { id: companyId } }   : undefined,
+      creator:   createdBy   ? { connect: { id: createdBy } }   : undefined,
+      category:  categoryId  ? { connect: { id: categoryId } }  : undefined,
+      supplier:  supplierId  ? { connect: { id: supplierId } }  : undefined
     };
 
     // Remove undefined values
@@ -386,6 +396,7 @@ class ProductModel {
     const totalValue = newStock * newCost;
     const availableStock = newStock - (existing.reservedStock || 0);
 
+    // ✅ Ensure all required fields have values when updating
     const updateData = {
       name: data.name !== undefined ? data.name : undefined,
       sku: data.sku ? data.sku.toUpperCase() : undefined,
@@ -396,7 +407,8 @@ class ProductModel {
       minimumStock: data.minimumStock !== undefined ? data.minimumStock : undefined,
       maximumStock: data.maximumStock !== undefined ? data.maximumStock : undefined,
       description: data.description !== undefined ? data.description : undefined,
-      rackLocationName: data.rackLocationName !== undefined ? data.rackLocationName : undefined,
+      rackLocationName: data.rackLocationName !== undefined ? data.rackLocationName : existing.rackLocationName,
+      rackLocationId: data.rackLocationId !== undefined ? data.rackLocationId : undefined,
       weight: data.weight !== undefined ? data.weight : undefined,
       weightUnitName: data.weightUnitName !== undefined ? data.weightUnitName : undefined,
       length: data.length !== undefined ? data.length : undefined,
@@ -423,36 +435,38 @@ class ProductModel {
       sizes: data.sizes !== undefined ? data.sizes : undefined,
       stockUnitName: data.stockUnitName !== undefined ? data.stockUnitName : undefined,
       zoneName: data.zoneName !== undefined ? data.zoneName : undefined,
-      storageConditionName: data.storageConditionName !== undefined ? data.storageConditionName : undefined,
+      zoneId: data.zoneId !== undefined ? data.zoneId : undefined,
+      storageConditionName: data.storageConditionName !== undefined ? data.storageConditionName : existing.storageConditionName,
       hsCode: data.hsCode !== undefined ? data.hsCode : undefined,
-      countryOfOriginName: data.countryOfOrigin !== undefined ? data.countryOfOrigin : undefined,
-      shippingClass: data.shippingClass !== undefined ? data.shippingClass : undefined,
+      countryOfOriginName: data.countryOfOriginName !== undefined ? data.countryOfOriginName : existing.countryOfOriginName,
+      shippingClass: data.shippingClass !== undefined ? data.shippingClass : existing.shippingClass,
       freightClass: data.freightClass !== undefined ? data.freightClass : undefined,
       palletNumber: data.palletNumber !== undefined ? data.palletNumber : undefined,
       shelfNumber: data.shelfNumber !== undefined ? data.shelfNumber : undefined,
-      temperatureMin: data.tempMin !== undefined ? (data.tempMin ? parseFloat(data.tempMin) : null) : undefined,
-      temperatureMax: data.tempMax !== undefined ? (data.tempMax ? parseFloat(data.tempMax) : null) : undefined,
+      temperatureMin: data.temperatureMin !== undefined ? (data.temperatureMin ? parseFloat(data.temperatureMin) : null) : undefined,
+      temperatureMax: data.temperatureMax !== undefined ? (data.temperatureMax ? parseFloat(data.temperatureMax) : null) : undefined,
       dangerousGoods: data.dangerousGoods !== undefined ? data.dangerousGoods : undefined,
       unNumber: data.unNumber !== undefined ? data.unNumber : undefined,
       handlingInstructions: data.handlingInstructions !== undefined ? data.handlingInstructions : undefined,
-      warrantyPeriod: data.warrantyPeriod !== undefined ? (data.warrantyPeriod ? parseInt(data.warrantyPeriod) : null) : undefined,
-      warrantyUnit: data.warrantyUnit !== undefined ? data.warrantyUnit : undefined,
-      isReturnable: data.isReturnable !== undefined ? data.isReturnable : undefined,
-      returnDays: data.returnDays !== undefined ? (data.returnDays ? parseInt(data.returnDays) : null) : undefined,
+      warrantyPeriod: data.warrantyPeriod !== undefined ? (parseInt(data.warrantyPeriod) >= 0 ? parseInt(data.warrantyPeriod) : 0) : existing.warrantyPeriod,
+      warrantyUnit: data.warrantyUnit !== undefined ? data.warrantyUnit : existing.warrantyUnit,
+      isReturnable: data.isReturnable !== undefined ? data.isReturnable : existing.isReturnable,
+      returnDays: data.returnDays !== undefined ? (parseInt(data.returnDays) >= 0 ? parseInt(data.returnDays) : 7) : existing.returnDays,
       isBulkManaged: data.isBulkManaged !== undefined ? data.isBulkManaged : undefined,
       hasIndividualTracking: data.hasIndividualTracking !== undefined ? data.hasIndividualTracking : undefined,
-      bulkUnit: data.bulkUnit !== undefined ? data.bulkUnit : undefined,
-      defaultQuantityPerBatch: data.defaultBatchQuantity !== undefined ? (data.defaultBatchQuantity ? parseInt(data.defaultBatchQuantity) : null) : undefined,
+      bulkUnit: data.bulkUnit !== undefined ? data.bulkUnit : existing.bulkUnit,
+      shelfLifeDays: data.shelfLifeDays !== undefined ? (parseInt(data.shelfLifeDays) >= 0 ? parseInt(data.shelfLifeDays) : 0) : undefined,
+      defaultQuantityPerBatch: data.defaultQuantityPerBatch !== undefined ? (parseInt(data.defaultQuantityPerBatch) >= 0 ? parseInt(data.defaultQuantityPerBatch) : 0) : undefined,
       videoUrl: data.videoUrl !== undefined ? data.videoUrl : undefined,
-      leadTimeDays: data.leadTime !== undefined ? (data.leadTime ? parseInt(data.leadTime) : null) : undefined,
-      reorderPoint: data.reorderPoint !== undefined ? (data.reorderPoint ? parseInt(data.reorderPoint) : null) : undefined,
+      leadTimeDays: data.leadTimeDays !== undefined ? (parseInt(data.leadTimeDays) >= 0 ? parseInt(data.leadTimeDays) : 0) : undefined,
+      reorderPoint: data.reorderPoint !== undefined ? (parseInt(data.reorderPoint) >= 0 ? parseInt(data.reorderPoint) : 0) : undefined,
       supplierSku: data.supplierSku !== undefined ? data.supplierSku : undefined,
       landingCost: data.landingCost !== undefined ? parseFloat(data.landingCost) : undefined,
       totalValue,
       availableStock,
-      updatedBy: data.updatedBy,
       updatedAt: new Date(),
       // Relations - using category and supplier (NOT categoryId or supplierId)
+      updater: data.updatedBy ? { connect: { id: data.updatedBy } } : undefined,
       category: data.categoryId ? { connect: { id: data.categoryId } } : undefined,
       supplier: data.supplierId ? { connect: { id: data.supplierId } } : undefined
     };
@@ -505,8 +519,8 @@ class ProductModel {
       where: { id },
       data: {
         isActive: false,
-        updatedBy: userId,
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        updater: userId ? { connect: { id: userId } } : undefined
       }
     });
 
@@ -609,8 +623,8 @@ class ProductModel {
         currentStock: newStock,
         availableStock: newStock - (product.reservedStock || 0),
         totalValue: newStock * product.costPrice,
-        updatedBy: userId,
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        updater: userId ? { connect: { id: userId } } : undefined
       }
     });
 

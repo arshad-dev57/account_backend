@@ -10,7 +10,6 @@ async function getOrCreatePayableAccount(userId, companyId) {
   let apAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '2010',
-      
       companyId: companyId
     }
   });
@@ -29,7 +28,8 @@ async function getOrCreatePayableAccount(userId, companyId) {
         taxCode: 'N/A',
         balanceType: 'Credit',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       }
     });
     console.log('✅ [PM] Accounts Payable account created');
@@ -45,7 +45,6 @@ async function getOrCreateCashAccount(userId, companyId) {
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
-      
       companyId: companyId
     }
   });
@@ -76,12 +75,13 @@ async function getOrCreateCashAccount(userId, companyId) {
 }
 
 // ─── HELPER: Validate Supplier ──────────────────────────────────
-async function validateSupplier(supplierId, userId) {
+async function validateSupplier(supplierId, companyId) {
   console.log(`🔍 [PM] Validating supplier: ${supplierId}`);
   const supplier = await prisma.supplier.findFirst({
     where: {
       id: supplierId,
-      companyId: companyId}
+      companyId: companyId
+    }
   });
 
   if (!supplier) {
@@ -93,12 +93,13 @@ async function validateSupplier(supplierId, userId) {
 }
 
 // ─── HELPER: Validate Bill ────────────────────────────────────────
-async function validateBill(billId, userId) {
+async function validateBill(billId, companyId) {
   console.log(`🔍 [PM] Validating bill: ${billId}`);
   const bill = await prisma.bill.findFirst({
     where: {
       id: billId,
-      companyId: companyId}
+      companyId: companyId
+    }
   });
 
   if (!bill) {
@@ -110,7 +111,7 @@ async function validateBill(billId, userId) {
 }
 
 // ─── HELPER: Validate Bank Account ──────────────────────────────
-async function validateBankAccount(bankAccountId, userId) {
+async function validateBankAccount(bankAccountId, companyId) {
   console.log(`🔍 [PM] Validating bank account: ${bankAccountId}`);
   const bankAccount = await prisma.bankAccount.findFirst({
     where: {
@@ -132,15 +133,15 @@ async function validateBankAccount(bankAccountId, userId) {
 }
 
 // ─── HELPER: Generate payment number ─────────────────────────────
-async function generatePaymentNumber(userId) {
+async function generatePaymentNumber(companyId) {
   const count = await prisma.paymentMade.count({
-    where: { companyId: companyId}
+    where: { companyId: companyId }
   });
   const year = new Date().getFullYear();
   return `PMT-${year}-${String(count + 1).padStart(4, '0')}`;
 }
 
-// ─── ✅ NEW: Reverse Journal Entry ──────────────────────────────
+// ─── HELPER: Reverse Journal Entry ──────────────────────────────
 async function reverseJournalEntry(payment, userId, tx) {
   console.log('🔍 [PM] reverseJournalEntry called for payment:', payment.id);
   
@@ -171,6 +172,8 @@ async function reverseJournalEntry(payment, userId, tx) {
       createdBy: userId,
       postedBy: userId,
       postedAt: new Date(),
+      companyId: payment.companyId,
+      fiscalYearId: payment.fiscalYearId,
       lines: {
         create: journalEntry.lines.map(line => ({
           accountId: line.accountId,
@@ -229,9 +232,14 @@ const recordPayment = async (req, res) => {
       allocations,
     } = req.body;
 
-    const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const userId = req.user?.id;
+    const companyId = req.user?.companyId;
     console.log('👤 [PM] User ID:', userId);
+    console.log('🏢 [PM] Company ID:', companyId);
+
+    if (!userId || !companyId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized: missing user or company context.' });
+    }
 
     const postingDate = paymentDate ? new Date(paymentDate) : new Date();
     try {
@@ -243,18 +251,18 @@ const recordPayment = async (req, res) => {
       throw err;
     }
 
-    const supplier = await validateSupplier(supplierId, userId);
+    const supplier = await validateSupplier(supplierId, companyId);
 
     let billList = [];
     if (billIds && Array.isArray(billIds)) {
       for (const id of billIds) {
-        const bill = await validateBill(id, userId);
+        const bill = await validateBill(id, companyId);
         if (bill) {
           billList.push(bill);
         }
       }
     } else if (billIds && typeof billIds === 'string') {
-      const bill = await validateBill(billIds, userId);
+      const bill = await validateBill(billIds, companyId);
       if (bill) {
         billList.push(bill);
       }
@@ -291,14 +299,14 @@ const recordPayment = async (req, res) => {
     let bankChartAccount = null;
 
     if (bankAccountId && paymentMethod === 'Bank Transfer') {
-      bankAccount = await validateBankAccount(bankAccountId, userId);
+      bankAccount = await validateBankAccount(bankAccountId, companyId);
       if (bankAccount && bankAccount.chartOfAccount) {
         bankChartAccount = bankAccount.chartOfAccount;
       }
     }
 
-    const apAccount = await getOrCreatePayableAccount(userId);
-    const cashAccount = await getOrCreateCashAccount(userId);
+    const apAccount = await getOrCreatePayableAccount(userId, companyId);
+    const cashAccount = await getOrCreateCashAccount(userId, companyId);
 
     let paymentAccount = cashAccount;
     if (paymentMethod === 'Bank Transfer' && bankChartAccount) {
@@ -308,7 +316,7 @@ const recordPayment = async (req, res) => {
       console.log('💵 [PM] Using cash account');
     }
 
-    const paymentNumber = await generatePaymentNumber(userId);
+    const paymentNumber = await generatePaymentNumber(companyId);
 
     const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
@@ -378,7 +386,8 @@ const recordPayment = async (req, res) => {
           notes: notes || '',
           status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
           createdBy: userId,
-          ...(fiscalYearId && { fiscalYearId }),
+          companyId: companyId,
+          fiscalYearId: fiscalYearId,
         },
         include: {
           supplier: {
@@ -408,6 +417,8 @@ const recordPayment = async (req, res) => {
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
+        companyId: companyId,
+        fiscalYearId: fiscalYearId,
         lines: {
           create: [
             {
@@ -492,7 +503,7 @@ const recordPayment = async (req, res) => {
 };
 
 // ============================================================
-// @desc    ✅ DELETE payment (with reversal)
+// @desc    DELETE payment (with reversal)
 // @route   DELETE /api/payments-made/:id
 // @access  Private
 // ============================================================
@@ -503,12 +514,13 @@ const deletePayment = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const payment = await prisma.paymentMade.findFirst({
       where: {
         id,
-        companyId: companyId},
+        companyId: companyId
+      },
       include: {
         bill: true
       }
@@ -571,7 +583,7 @@ const deletePayment = async (req, res) => {
 };
 
 // ============================================================
-// @desc    ✅ Clear cheque payment
+// @desc    Clear cheque payment
 // @route   POST /api/payments-made/:id/clear
 // @access  Private
 // ============================================================
@@ -582,12 +594,13 @@ const clearChequePayment = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const payment = await prisma.paymentMade.findFirst({
       where: {
         id,
-        companyId: companyId}
+        companyId: companyId
+      }
     });
 
     if (!payment) {
@@ -657,13 +670,13 @@ const getPayments = async (req, res) => {
   try {
     const { supplierId, billId, status, startDate, endDate, search, page = 1, limit = 20 } = req.query;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const filter = { companyId: companyId };
 
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
-        where: { id: supplierId, companyId: companyId}
+        where: { id: supplierId, companyId: companyId }
       });
       if (supplier) {
         filter.supplierId = supplierId;
@@ -672,7 +685,7 @@ const getPayments = async (req, res) => {
 
     if (billId) {
       const bill = await prisma.bill.findFirst({
-        where: { id: billId, companyId: companyId}
+        where: { id: billId, companyId: companyId }
       });
       if (bill) {
         filter.billId = billId;
@@ -753,12 +766,13 @@ const getPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const payment = await prisma.paymentMade.findFirst({
       where: {
         id,
-        companyId: companyId},
+        companyId: companyId
+      },
       include: {
         supplier: {
           select: { id: true, name: true, email: true, phone: true, address: true }
@@ -816,12 +830,13 @@ const getUnpaidBills = async (req, res) => {
   try {
     const { supplierId } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        companyId: companyId}
+        companyId: companyId
+      }
     });
 
     if (!supplier) {
@@ -838,7 +853,8 @@ const getUnpaidBills = async (req, res) => {
       where: {
         vendorId: supplierId,
         status: { not: 'Paid' },
-        companyId: companyId},
+        companyId: companyId
+      },
       orderBy: { dueDate: 'asc' }
     });
 
@@ -880,8 +896,8 @@ const getSummary = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const filter = { companyId: companyId };
 
     if (startDate && endDate) {
@@ -950,7 +966,7 @@ const getSummary = async (req, res) => {
   }
 };
 
-// ─── ✅ EXPORT ALL FUNCTIONS ──────────────────────────────────────────
+// ─── EXPORT ALL FUNCTIONS ──────────────────────────────────────────
 module.exports = {
   recordPayment,
   getPayments,

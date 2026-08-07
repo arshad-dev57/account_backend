@@ -229,7 +229,7 @@ const sendExpiryEmail = async (user, expiredProducts, expiringSoonProducts) => {
   const orgName = organizationName || 'Your Organization';
 
   const mailOptions = {
-    from: `"LedgerPro" <${process.env.EMAIL_USER}>`,
+    from: `"BisonsTechs" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: `⚠️ ${totalAffected} Products ${expiredProducts.length > 0 ? 'Expired' : 'Expiring Soon'} — ${orgName}`,
     html: `
@@ -307,7 +307,7 @@ const sendExpiryEmail = async (user, expiredProducts, expiringSoonProducts) => {
             ${tableSections}
 
             <div style="text-align:center;margin:28px 0 12px;">
-              <a href="${process.env.FRONTEND_URL || 'https://app.ledgerpro.com'}/warehouse/expiry" 
+              <a href="${process.env.FRONTEND_URL || 'https://app.BisonsTechs.com'}/warehouse/expiry" 
                  class="button" 
                  style="display:inline-block;background:linear-gradient(135deg,#1AB4F5,#6366f1);color:#ffffff;text-decoration:none;padding:12px 36px;border-radius:50px;font-weight:600;font-size:15px;">
                 View Full Report →
@@ -316,7 +316,7 @@ const sendExpiryEmail = async (user, expiredProducts, expiringSoonProducts) => {
 
             <div style="border-top:1px solid #e5e7eb;margin:20px 0 4px;"></div>
             <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:16px 0 0 0;">
-              This is an automated notification from LedgerPro.<br/>
+              This is an automated notification from BisonsTechs.<br/>
               Please review your inventory and take necessary action.
             </p>
           </td>
@@ -324,7 +324,7 @@ const sendExpiryEmail = async (user, expiredProducts, expiringSoonProducts) => {
         <!-- Footer -->
         <tr>
           <td class="footer" style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:22px 40px;text-align:center;font-size:12px;color:#9ca3af;line-height:1.7;">
-            © 2025 LedgerPro. All rights reserved.<br/>
+            © 2025 BisonsTechs. All rights reserved.<br/>
             Secure Financial & Inventory Management Platform
           </td>
         </tr>

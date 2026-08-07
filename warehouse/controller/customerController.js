@@ -123,7 +123,8 @@ const createCustomer = async (req, res) => {
     const {
       name, email, phone, company, customerType, taxId,
       address, shippingAddress, billingAddress, status,
-      loyaltyPoints, notes, tags, preferences
+      loyaltyPoints, notes, tags, preferences,
+      creditLimit, creditTerms
     } = req.body;
 
     const userId = req.user.id;
@@ -155,8 +156,20 @@ const createCustomer = async (req, res) => {
       if (existing) return res.status(409).json({ success: false, message: 'Customer with this phone already exists' });
     }
 
-    const count = await prisma.customer.count({ where: { companyId } });
-    const customerNumber = `CUST-${String(count + 1).padStart(5, '0')}`;
+    // Generate unique customer number
+    const lastCustomer = await prisma.customer.findFirst({
+      where: { companyId },
+      orderBy: { customerNumber: 'desc' },
+      select: { customerNumber: true }
+    });
+    
+    let nextNumber = 1;
+    if (lastCustomer && lastCustomer.customerNumber) {
+      const lastNum = parseInt(lastCustomer.customerNumber.replace('CUST-', ''));
+      nextNumber = lastNum + 1;
+    }
+    
+    const customerNumber = `CUST-${String(nextNumber).padStart(5, '0')}`;
 
     const customer = await prisma.customer.create({
       data: {
@@ -175,6 +188,8 @@ const createCustomer = async (req, res) => {
         notes: notes || '',
         tags: tags || [],
         preferences: preferences || {},
+        creditLimit: creditLimit || 0,
+        creditTerms: creditTerms || 'Net 30',
         createdBy: userId,
         companyId: companyId
       }
@@ -486,6 +501,58 @@ const getCustomerOrders = async (req, res) => {
   }
 };
 
+const getCustomerCreditInfo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+    
+    const customer = await prisma.customer.findFirst({
+      where: { 
+        id, 
+        companyId, 
+        isActive: true, 
+        isDeleted: false 
+      },
+      select: {
+        id: true,
+        customerNumber: true,
+        name: true,
+        creditLimit: true,
+        creditTerms: true,
+        outstandingBalance: true,
+        totalSpent: true,
+        totalOrders: true
+      }
+    });
+    
+    if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+    const creditLimit = customer.creditLimit || 0;
+    const outstandingBalance = customer.outstandingBalance || 0;
+    const utilization = creditLimit > 0 ? (outstandingBalance / creditLimit) * 100 : 0;
+    const availableCredit = creditLimit - outstandingBalance;
+
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        customerId: customer.id,
+        customerNumber: customer.customerNumber,
+        customerName: customer.name,
+        creditLimit,
+        creditTerms: customer.creditTerms || 'Net 30',
+        outstandingBalance,
+        utilization: Math.round(utilization * 100) / 100,
+        availableCredit,
+        totalSpent: customer.totalSpent || 0,
+        totalOrders: customer.totalOrders || 0
+      }
+    });
+  } catch (error) {
+    console.error('Get customer credit info error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch credit info', error: error.message });
+  }
+};
+
 module.exports = {
   getCustomers, 
   getCustomerById, 
@@ -496,5 +563,6 @@ module.exports = {
   updateCustomerStatus, 
   getCustomerStats, 
   searchCustomers,  
-  getCustomerOrders
+  getCustomerOrders,
+  getCustomerCreditInfo
 };

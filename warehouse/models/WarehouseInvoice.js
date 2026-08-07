@@ -32,11 +32,13 @@ class WarehouseInvoiceModel {
           taxTotal: data.taxTotal || 0,
           discountTotal: data.discountTotal || 0,
           grandTotal: data.grandTotal,
-          invoiceStatus: 'Unpaid',  // ✅ FIXED: Always 'Unpaid'
-          paymentStatus: 'Unpaid',   // ✅ FIXED: Always 'Unpaid'
-          paidAmount: 0,
+          invoiceStatus: 'Unpaid',
+          paymentStatus: data.paymentStatus || 'Unpaid',
+          paidAmount: data.paidAmount || 0,
+          outstanding: data.grandTotal - (data.paidAmount || 0),
           notes: data.notes || '',
           createdBy: data.createdBy,
+          companyId: data.companyId || null,
         },
         include: { items: true, creator: { select: { id: true, firstName: true, lastName: true, email: true } } },
       });
@@ -117,7 +119,7 @@ class WarehouseInvoiceModel {
   }
 
   // ✅ FIXED: getStats - Removed 'Draft' and 'Sent'
-  static async getStats(period = 'month') {
+  static async getStats(period = 'month', companyId = null) {
     const now = new Date();
     let dateFilter = {};
     if (period === 'today') {
@@ -134,7 +136,12 @@ class WarehouseInvoiceModel {
       dateFilter = { invoiceDate: { gte: start } };
     }
 
-    const base = { isActive: true, isDeleted: false, ...dateFilter };
+    const base = {
+      isActive: true,
+      isDeleted: false,
+      ...(companyId ? { companyId } : {}),
+      ...dateFilter,
+    };
     
     // ✅ FIXED: Only Unpaid, Partial, Paid, Overdue, Cancelled
     const [total, unpaid, partial, paid, overdue, cancelled] = await Promise.all([
@@ -168,7 +175,7 @@ class WarehouseInvoiceModel {
     };
   }
 
-  static async getDailyTrend(days = 30) {
+  static async getDailyTrend(days = 30, companyId = null) {
     const start = new Date();
     start.setDate(start.getDate() - days);
     start.setHours(0, 0, 0, 0);
@@ -179,6 +186,7 @@ class WarehouseInvoiceModel {
         isDeleted: false,
         invoiceDate: { gte: start },
         invoiceStatus: { not: 'Cancelled' },
+        ...(companyId ? { companyId } : {}),
       },
       select: { invoiceDate: true, grandTotal: true, paidAmount: true },
       orderBy: { invoiceDate: 'asc' },

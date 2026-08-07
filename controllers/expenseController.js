@@ -1,4 +1,3 @@
-// controllers/expenseController.js - COMPLETE FIXED VERSION
 
 const ExpenseModel = require('../models/Expense');
 const prisma = require('../prisma/client');
@@ -6,7 +5,6 @@ const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 const { get, set, del, delPattern } = require('../utils/redisClient');
 
-// ─── EXPENSE TYPE TO ACCOUNT MAPPING ─────────────────────────────
 const EXPENSE_ACCOUNT_MAPPING = {
   'Rent': { code: '5100', name: 'Rent Expense' },
   'Utilities': { code: '5200', name: 'Utilities Expense' },
@@ -19,9 +17,117 @@ const EXPENSE_ACCOUNT_MAPPING = {
   'Maintenance': { code: '5900', name: 'Maintenance Expense' },
   'Software': { code: '6000', name: 'Software Expense' },
   'Taxes': { code: '6100', name: 'Taxes Expense' },
+  'Other': { code: '6900', name: 'Other Expenses' },
 };
 
 const DEFAULT_EXPENSE_ACCOUNT = { code: '6900', name: 'Other Expenses' };
+
+function mapPurchasePaymentMethod(method) {
+  const m = String(method || 'Cash');
+  if (m === 'Online Payment') return 'Online';
+  if (['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Online'].includes(m)) return m;
+  return 'Cash';
+}
+
+/**
+ * Create a Posted expense from a completed purchase payment.
+ * Skips journal/bank updates — those are already posted by the purchase payment.
+ */
+const createExpenseFromPurchasePayment = async ({
+  userId,
+  companyId,
+  payment,
+  fiscalYearId = null,
+}) => {
+  if (!payment || !userId || !companyId) {
+    throw new Error('Missing data for purchase expense creation');
+  }
+
+  const paymentNumber = payment.paymentNumber;
+  const reference = `PP:${paymentNumber}`;
+
+  // Idempotent — one expense per purchase payment
+  const existing = await prisma.expense.findFirst({
+    where: {
+      companyId,
+      reference,
+      status: { not: 'Cancelled' },
+    },
+  });
+  if (existing) {
+    console.log(`ℹ️ Expense already exists for ${reference}: ${existing.expenseNumber}`);
+    return existing;
+  }
+
+  let expenseAccount = await getExistingExpenseAccount(userId, companyId, 'Other');
+  if (!expenseAccount) {
+    expenseAccount = await prisma.chartOfAccount.findFirst({
+      where: {
+        companyId,
+        type: 'Expense',
+        isActive: true,
+      },
+      orderBy: { code: 'asc' },
+    });
+  }
+  if (!expenseAccount) {
+    throw new Error('No expense account found. Please create an Expense account in Chart of Accounts.');
+  }
+
+  const invoiceLines = (payment.invoicePayments || [])
+    .map((ip) => ip.invoiceNumber)
+    .filter(Boolean);
+  const invoiceLabel = invoiceLines.length
+    ? invoiceLines.join(', ')
+    : 'purchase invoice(s)';
+
+  const amount = Number(payment.amount) || 0;
+  if (amount <= 0) {
+    throw new Error('Purchase payment amount must be greater than 0');
+  }
+
+  const paymentDate = payment.paymentDate
+    ? new Date(payment.paymentDate)
+    : new Date();
+
+  const fyId =
+    fiscalYearId ||
+    (await resolveFiscalYearId(userId, paymentDate).catch(() => null));
+
+  const expense = await ExpenseModel.create({
+    date: paymentDate,
+    expenseType: 'Other',
+    expenseAccountId: expenseAccount.id,
+    vendorId: payment.supplierId || null,
+    vendorName: payment.supplierName || '',
+    amount,
+    taxRate: 0,
+    description: `Purchase payment ${paymentNumber} for ${invoiceLabel}`,
+    reference,
+    paymentMethod: mapPurchasePaymentMethod(payment.paymentMethod),
+    bankAccountId: payment.bankAccountId || null,
+    fiscalYearId: fyId,
+    status: 'Posted',
+    postedBy: userId,
+    postedAt: new Date(),
+    createdBy: userId,
+    companyId,
+  });
+
+  try {
+    await delPattern(`expense:list:${userId}:*`);
+    await delPattern(`expense:accounts:${userId}`);
+    await delPattern(`expense:summary:${userId}:*`);
+    await delPattern(`dashboard:summary:v8:${userId}:*`);
+  } catch (cacheError) {
+    console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
+  }
+
+  console.log(
+    `✅ Expense ${expense.expenseNumber} created from purchase payment ${paymentNumber}`
+  );
+  return expense;
+};
 
 // ─── HELPER: Get existing expense account (DO NOT CREATE NEW) ───
 async function getExistingExpenseAccount(userId, companyId, expenseType) {
@@ -72,7 +178,7 @@ async function getExpenseAccountsForDropdown(userId, companyId) {
 }
 
 // ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId) {
+async function getOrCreateCashAccount(userId, companyId) {
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
       code: '1010',
@@ -122,8 +228,7 @@ async function getOrCreateCashAccount(userId) {
   return cashAccount;
 }
 
-// ─── HELPER: Create journal entry for expense ─────────────────────
-async function createExpenseJournalEntry(userId, expense, expenseAccount, cashOrBankAccount) {
+async function createExpenseJournalEntry(userId, companyId, expense, expenseAccount, cashOrBankAccount) {
   const entryNumber = `JE-${Date.now()}`;
 
   return await prisma.journalEntry.create({
@@ -136,6 +241,7 @@ async function createExpenseJournalEntry(userId, expense, expenseAccount, cashOr
       createdBy: userId,
       postedBy: userId,
       postedAt: new Date(),
+      companyId: companyId,
       lines: {
         create: [
           {
@@ -183,7 +289,7 @@ const getExpenseAccounts = async (req, res) => {
       });
     }
 
-    const accounts = await getExpenseAccountsForDropdown(userId);
+    const accounts = await getExpenseAccountsForDropdown(userId, companyId);
 
     // Cache the result (10 minutes TTL - accounts change infrequently)
     await set(cacheKey, accounts, 600);
@@ -266,23 +372,24 @@ const createExpense = async (req, res) => {
     console.log(`✅ Using expense account: ${expenseAccount.name} (${expenseAccount.code})`);
 
     let cleanBankAccountId = null;
-    const rawValue = bankAccountId !== null && bankAccountId !== undefined 
-      ? String(bankAccountId).trim() 
+    const rawValue = bankAccountId !== null && bankAccountId !== undefined
+      ? String(bankAccountId).trim()
       : '';
 
-    if (rawValue && 
-        rawValue !== 'null' && 
-        rawValue !== 'NULL' && 
+    if (rawValue &&
+        rawValue !== 'null' &&
+        rawValue !== 'NULL' &&
         rawValue !== 'undefined' &&
         rawValue !== '') {
       cleanBankAccountId = rawValue;
     }
 
+    console.log(`🔍 bankAccountId from request: ${bankAccountId} (type: ${typeof bankAccountId})`);
     console.log(`🔍 cleanBankAccountId: "${cleanBankAccountId}"`);
 
     let vendorName = '';
     if (vendorId) {
-      const vendor = await prisma.vendor.findFirst({
+      const vendor = await prisma.supplier.findFirst({
         where: {
           id: vendorId,
           companyId: companyId}
@@ -371,7 +478,8 @@ const createExpense = async (req, res) => {
       status: 'Posted',
       postedBy: userId,
       postedAt: new Date(),
-      createdBy: userId
+      createdBy: userId,
+      companyId: companyId      // ← was missing: expenses saved with null companyId
     });
 
     console.log("✅ Expense created successfully!");
@@ -382,66 +490,67 @@ const createExpense = async (req, res) => {
     let cashOrBankAccount;
 
     if (finalPaymentMethod === 'Cash' || !finalBankAccountId) {
-      cashOrBankAccount = await getOrCreateCashAccount(userId);
+      cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
       console.log('💵 Using Cash account');
     } else if (finalBankAccountId && bankAccountData) {
       cashOrBankAccount = bankAccountData.chartOfAccount;
       console.log(`🏦 Using Bank account: ${bankAccountData.accountName}`);
     } else {
-      cashOrBankAccount = await getOrCreateCashAccount(userId);
+      cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
       console.log('💵 Fallback: Using Cash account');
     }
 
     if (!cashOrBankAccount) {
-      cashOrBankAccount = await getOrCreateCashAccount(userId);
+      cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
     }
 
     console.log(`📒 Journal Entry - Debit: ${expenseAccount.name}, Credit: ${cashOrBankAccount.name}`);
 
-    await createExpenseJournalEntry(userId, expense, expenseAccount, cashOrBankAccount);
+    await createExpenseJournalEntry(userId, companyId, expense, expenseAccount, cashOrBankAccount);
+
+    console.log(`🔍 Balance update check - finalBankAccountId: ${finalBankAccountId}, bankAccountData exists: ${!!bankAccountData}`);
 
     if (finalBankAccountId && bankAccountData) {
-      const oldBalance = bankAccountData.currentBalance;
-      const newBalance = oldBalance - totalAmount;
-      
-      console.log(`💰 Updating bank account balance: ${oldBalance} → ${newBalance}`);
-      
+      console.log(`💰 Updating bank account balance: decrementing by ${totalAmount}`);
+      console.log(`🏦 Bank Account ID: ${finalBankAccountId}, ChartOfAccount ID: ${bankAccountData.chartOfAccountId}`);
+
       await prisma.bankAccount.update({
         where: { id: finalBankAccountId },
-        data: { currentBalance: newBalance }
+        data: { currentBalance: { decrement: totalAmount } }
       });
 
       if (bankAccountData.chartOfAccountId) {
         await prisma.chartOfAccount.update({
           where: { id: bankAccountData.chartOfAccountId },
-          data: { currentBalance: newBalance }
+          data: { currentBalance: { decrement: totalAmount } }
         });
       }
-      
+
       console.log(`✅ Bank account balance updated successfully!`);
-    } else if (cashOrBankAccount) {
-      const oldBalance = cashOrBankAccount.currentBalance || 0;
-      const newBalance = oldBalance - totalAmount;
-      
-      console.log(`💰 Updating cash account balance: ${oldBalance} → ${newBalance}`);
-      
-      await prisma.chartOfAccount.update({
-        where: { id: cashOrBankAccount.id },
-        data: { currentBalance: newBalance }
-      });
-      
-      console.log(`✅ Cash account balance updated successfully!`);
+    } else {
+      console.log(`⚠️ Skipping bank account balance update - finalBankAccountId: ${finalBankAccountId}, bankAccountData: ${bankAccountData ? 'found' : 'not found'}`);
+
+      // Only update cash account if not using bank account
+      if (cashOrBankAccount) {
+        console.log(`💰 Updating cash account balance: decrementing by ${totalAmount}`);
+
+        await prisma.chartOfAccount.update({
+          where: { id: cashOrBankAccount.id },
+          data: { currentBalance: { decrement: totalAmount } }
+        });
+
+        console.log(`✅ Cash account balance updated successfully!`);
+      }
     }
 
-    const oldExpenseBalance = expenseAccount.currentBalance || 0;
-    const newExpenseBalance = oldExpenseBalance + totalAmount;
-    
+    console.log(`💰 Updating expense account balance: incrementing by ${totalAmount}`);
+
     await prisma.chartOfAccount.update({
       where: { id: expenseAccount.id },
-      data: { currentBalance: newExpenseBalance }
+      data: { currentBalance: { increment: totalAmount } }
     });
-    
-    console.log(`💰 Updated expense account balance: ${oldExpenseBalance} → ${newExpenseBalance}`);
+
+    console.log(`✅ Expense account balance updated successfully!`);
 
     res.status(201).json({
       success: true,
@@ -459,6 +568,10 @@ const createExpense = async (req, res) => {
       await delPattern(`expense:list:${userId}:*`);
       await delPattern(`expense:accounts:${userId}`);
       await delPattern(`expense:summary:${userId}:*`);
+      // Bust bank account cache so updated balance is visible immediately
+      if (companyId) {
+        await delPattern(`bank:accounts:${companyId}:*`);
+      }
       console.log('🗑️ [Expense] Cache invalidated after expense creation');
     } catch (cacheError) {
       console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
@@ -480,11 +593,6 @@ const createExpense = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get all expenses
-// @route   GET /api/expenses
-// @access  Private
-// ============================================================
 const getExpenses = async (req, res) => {
   try {
     const { 
@@ -513,33 +621,41 @@ const getExpenses = async (req, res) => {
       });
     }
 
-    const filter = { 
-      creator: {
-        id: userId
-      }
+    // Company scoping: show this company's expenses + old records without companyId (backward compat)
+    const companyFilter = {
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId }
+      ]
     };
 
+    const filter = { AND: [companyFilter] };
+
     if (expenseType && expenseType !== 'All') {
-      filter.expenseType = expenseType;
+      filter.AND.push({ expenseType });
     }
 
     if (status && status !== 'All') {
-      filter.status = status;
+      filter.AND.push({ status });
     }
 
     if (startDate && endDate) {
-      filter.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate)
-      };
+      filter.AND.push({
+        date: {
+          gte: new Date(startDate),
+          lte: new Date(endDate)
+        }
+      });
     }
 
     if (search) {
-      filter.OR = [
-        { expenseNumber: { contains: search, mode: 'insensitive' } },
-        { vendorName: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } }
-      ];
+      filter.AND.push({
+        OR: [
+          { expenseNumber: { contains: search, mode: 'insensitive' } },
+          { vendorName:    { contains: search, mode: 'insensitive' } },
+          { description:   { contains: search, mode: 'insensitive' } }
+        ]
+      });
     }
 
     const pageNum = parseInt(page) || 1;
@@ -578,11 +694,6 @@ const getExpenses = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get single expense
-// @route   GET /api/expenses/:id
-// @access  Private
-// ============================================================
 const getExpense = async (req, res) => {
   try {
     const { id } = req.params;
@@ -677,11 +788,6 @@ const getExpense = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Update expense
-// @route   PUT /api/expenses/:id
-// @access  Private
-// ============================================================
 const updateExpense = async (req, res) => {
   try {
     const { id } = req.params;
@@ -737,7 +843,7 @@ const updateExpense = async (req, res) => {
 
     let vendorName = existing.vendorName;
     if (vendorId) {
-      const vendor = await prisma.vendor.findFirst({
+      const vendor = await prisma.supplier.findFirst({
         where: {
           id: vendorId,
           companyId: companyId}
@@ -896,13 +1002,6 @@ const deleteExpense = async (req, res) => {
       });
     }
 
-    if (existing.status === 'Posted') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete posted expense record'
-      });
-    }
-
     try {
       await fiscalYearGuard(userId, existing.date);
     } catch (err) {
@@ -910,6 +1009,58 @@ const deleteExpense = async (req, res) => {
         return res.status(400).json({ success: false, message: err.message });
       }
       throw err;
+    }
+
+    // Reverse balance changes if expense was Posted
+    if (existing.status === 'Posted') {
+      // Reverse expense account balance (decrement since it was incremented)
+      if (existing.expenseAccountId) {
+        await prisma.chartOfAccount.update({
+          where: { id: existing.expenseAccountId },
+          data: { currentBalance: { decrement: existing.totalAmount } }
+        });
+      }
+
+      // Reverse bank/cash account balance (increment since it was decremented)
+      if (existing.bankAccountId) {
+        const bankAccount = await prisma.bankAccount.findFirst({
+          where: {
+            id: existing.bankAccountId,
+            companyId: companyId
+          },
+          include: {
+            chartOfAccount: true
+          }
+        });
+        if (bankAccount) {
+          // Reverse BankAccount.currentBalance
+          await prisma.bankAccount.update({
+            where: { id: existing.bankAccountId },
+            data: { currentBalance: { increment: existing.totalAmount } }
+          });
+          // Reverse ChartOfAccount.currentBalance for the bank account
+          if (bankAccount.chartOfAccountId) {
+            await prisma.chartOfAccount.update({
+              where: { id: bankAccount.chartOfAccountId },
+              data: { currentBalance: { increment: existing.totalAmount } }
+            });
+          }
+        }
+      } else {
+        // If paid with cash, reverse cash account balance
+        const cashAccount = await prisma.chartOfAccount.findFirst({
+          where: {
+            code: '1010',
+            companyId: companyId
+          }
+        });
+        if (cashAccount) {
+          await prisma.chartOfAccount.update({
+            where: { id: cashAccount.id },
+            data: { currentBalance: { increment: existing.totalAmount } }
+          });
+        }
+      }
     }
 
     await ExpenseModel.delete(id);
@@ -963,9 +1114,10 @@ const getSummary = async (req, res) => {
     }
 
     const filter = {
-      creator: {
-        id: userId
-      },
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId }
+      ],
       status: 'Posted'
     };
 
@@ -1053,7 +1205,7 @@ const postExpense = async (req, res) => {
     let cashOrBankAccount;
 
     if (expense.paymentMethod === 'Cash' || !expense.bankAccountId) {
-      cashOrBankAccount = await getOrCreateCashAccount(userId);
+      cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
     } else if (expense.bankAccountId) {
       const bankAccount = await prisma.bankAccount.findFirst({
         where: {
@@ -1069,10 +1221,10 @@ const postExpense = async (req, res) => {
     }
 
     if (!cashOrBankAccount) {
-      cashOrBankAccount = await getOrCreateCashAccount(userId);
+      cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
     }
 
-    await createExpenseJournalEntry(userId, expense, expenseAccount, cashOrBankAccount);
+    await createExpenseJournalEntry(userId, companyId, expense, expenseAccount, cashOrBankAccount);
 
     if (expense.bankAccountId) {
       const bankAccount = await prisma.bankAccount.findFirst({
@@ -1081,21 +1233,19 @@ const postExpense = async (req, res) => {
           companyId: companyId}
       });
       if (bankAccount) {
-        const newBalance = bankAccount.currentBalance - expense.totalAmount;
         await prisma.bankAccount.update({
           where: { id: expense.bankAccountId },
-          data: { currentBalance: newBalance }
+          data: { currentBalance: { decrement: expense.totalAmount } }
         });
         await prisma.chartOfAccount.update({
           where: { id: bankAccount.chartOfAccountId },
-          data: { currentBalance: newBalance }
+          data: { currentBalance: { decrement: expense.totalAmount } }
         });
       }
     } else if (cashOrBankAccount) {
-      const newBalance = (cashOrBankAccount.currentBalance || 0) - expense.totalAmount;
       await prisma.chartOfAccount.update({
         where: { id: cashOrBankAccount.id },
-        data: { currentBalance: newBalance }
+        data: { currentBalance: { decrement: expense.totalAmount } }
       });
     }
 
@@ -1129,11 +1279,9 @@ const postExpense = async (req, res) => {
   }
 };
 
-// ============================================================
-// ─── EXPORT ALL FUNCTIONS ──────────────────────────────────────
-// ============================================================
 module.exports = {
   createExpense,
+  createExpenseFromPurchasePayment,
   getExpenses,
   getExpense,
   updateExpense,

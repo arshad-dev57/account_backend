@@ -2,6 +2,147 @@
 
 const prisma = require('../prisma/client');
 
+const FRONTEND_TYPE_MAP = {
+  Asset: 'Assets',
+  Liability: 'Liabilities',
+  Equity: 'Equity',
+  Revenue: 'Income',
+  Expense: 'Expenses',
+};
+
+const BACKEND_TYPE_MAP = {
+  Assets: 'Asset',
+  Liabilities: 'Liability',
+  Equity: 'Equity',
+  Income: 'Revenue',
+  Expenses: 'Expense',
+};
+
+function hasOpeningBalanceJournalEntry(allEntries, accountId) {
+  return allEntries.some(
+    (entry) =>
+      entry.description &&
+      entry.description.toLowerCase().includes('opening balance') &&
+      entry.lines.some((line) => line.accountId === accountId)
+  );
+}
+
+function sumAccountLines(entries, accountId) {
+  let debit = 0;
+  let credit = 0;
+
+  entries.forEach((entry) => {
+    entry.lines.forEach((line) => {
+      if (line.accountId === accountId) {
+        debit += line.debit || 0;
+        credit += line.credit || 0;
+      }
+    });
+  });
+
+  return { debit, credit };
+}
+
+function applyOpeningBalanceField(account, debit, credit, includeOpeningBalance) {
+  if (!includeOpeningBalance || !account.openingBalance) {
+    return { debit, credit };
+  }
+
+  if (account.type === 'Asset' || account.type === 'Expense') {
+    debit += account.openingBalance;
+  } else {
+    credit += account.openingBalance;
+  }
+
+  return { debit, credit };
+}
+
+function netToTrialBalanceColumns(debitBalance, creditBalance) {
+  const netBalance = debitBalance - creditBalance;
+
+  if (netBalance > 0) {
+    return { debitBalance: netBalance, creditBalance: 0 };
+  }
+  if (netBalance < 0) {
+    return { debitBalance: 0, creditBalance: Math.abs(netBalance) };
+  }
+  return { debitBalance: 0, creditBalance: 0 };
+}
+
+async function resolvePeriodBounds({ startDate, endDate, fiscalYearId, companyId }) {
+  if (startDate && endDate) {
+    return {
+      periodStart: new Date(startDate),
+      periodEnd: new Date(endDate),
+    };
+  }
+
+  if (fiscalYearId) {
+    const fiscalYear = await prisma.fiscalYear.findFirst({
+      where: { id: fiscalYearId, companyId },
+      select: { startDate: true, endDate: true },
+    });
+
+    if (fiscalYear) {
+      return {
+        periodStart: fiscalYear.startDate,
+        periodEnd: fiscalYear.endDate,
+      };
+    }
+  }
+
+  return { periodStart: null, periodEnd: null };
+}
+
+function buildAccountTrialBalance(account, allPostedEntries, priorEntries, periodEntries) {
+  const hasOBEntry = hasOpeningBalanceJournalEntry(allPostedEntries, account.id);
+  const includeOpeningBalance = !hasOBEntry;
+
+  let debitBalance = 0;
+  let creditBalance = 0;
+
+  if (priorEntries.length > 0 || (periodEntries !== allPostedEntries)) {
+    const priorTotals = sumAccountLines(priorEntries, account.id);
+    const periodTotals = sumAccountLines(periodEntries, account.id);
+
+    debitBalance = priorTotals.debit + periodTotals.debit;
+    creditBalance = priorTotals.credit + periodTotals.credit;
+
+    ({ debit: debitBalance, credit: creditBalance } = applyOpeningBalanceField(
+      account,
+      debitBalance,
+      creditBalance,
+      includeOpeningBalance
+    ));
+  } else {
+    const totals = sumAccountLines(periodEntries, account.id);
+    debitBalance = totals.debit;
+    creditBalance = totals.credit;
+
+    ({ debit: debitBalance, credit: creditBalance } = applyOpeningBalanceField(
+      account,
+      debitBalance,
+      creditBalance,
+      includeOpeningBalance
+    ));
+  }
+
+  const { debitBalance: finalDebitBalance, creditBalance: finalCreditBalance } =
+    netToTrialBalanceColumns(debitBalance, creditBalance);
+
+  return {
+    accountId: account.id,
+    accountCode: account.code,
+    accountName: account.name,
+    accountType: FRONTEND_TYPE_MAP[account.type] || account.type,
+    backendType: account.type,
+    debitBalance: finalDebitBalance,
+    creditBalance: finalCreditBalance,
+    openingBalance: account.openingBalance,
+    currentBalance: account.currentBalance,
+  };
+}
+
 // ============================================================
 // @desc    Get Trial Balance
 // @route   GET /api/trial-balance
@@ -9,166 +150,92 @@ const prisma = require('../prisma/client');
 // ============================================================
 exports.getTrialBalance = async (req, res) => {
   try {
-    const { startDate, endDate, accountType, showZeroBalance, fiscalYearId } = req.query;
-    const userId = req.user.id;
+    const { startDate, endDate, accountType, showZeroBalance, fiscalYearId, search } =
+      req.query;
     const companyId = req.user.companyId;
 
-    // ─── Build date filter ──────────────────────────────────────
-    let dateFilter = {};
-    if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          gte: new Date(startDate),
-          lte: new Date(endDate),
-        }
-      };
-    }
-
-    // ─── Build fiscal year filter ────────────────────────────────
-    let fiscalYearFilter = {};
-    if (fiscalYearId) {
-      fiscalYearFilter = {
-        fiscalYearId: fiscalYearId
-      };
-    }
-
-    // ─── Get all posted journal entries within date range ──────
-    const journalEntries = await prisma.journalEntry.findMany({
-      where: {
-        
-        companyId: companyId,
-        status: 'Posted',
-        ...dateFilter,
-        ...fiscalYearFilter
-      },
-      include: {
-        lines: true
-      }
+    const { periodStart, periodEnd } = await resolvePeriodBounds({
+      startDate,
+      endDate,
+      fiscalYearId,
+      companyId,
     });
 
-    // ─── Get all active accounts ──────────────────────────────────
+    const allPostedEntries = await prisma.journalEntry.findMany({
+      where: {
+        companyId,
+        status: 'Posted',
+      },
+      include: { lines: true },
+    });
+
+    let priorEntries = [];
+    let periodEntries = allPostedEntries;
+
+    if (periodStart && periodEnd) {
+      priorEntries = allPostedEntries.filter((entry) => entry.date < periodStart);
+      periodEntries = allPostedEntries.filter(
+        (entry) => entry.date >= periodStart && entry.date <= periodEnd
+      );
+    }
+
     let accountsQuery = {
-      companyId: companyId,
-      companyId: companyId,
-      isActive: true
+      companyId,
+      isActive: true,
     };
 
-    // Filter by account type if specified
     if (accountType && accountType !== 'All') {
-      // Map frontend type to backend type
-      const typeMap = {
-        'Assets': 'Asset',
-        'Liabilities': 'Liability',
-        'Equity': 'Equity',
-        'Income': 'Revenue',
-        'Expenses': 'Expense'
-      };
-      const backendType = typeMap[accountType] || accountType;
-      accountsQuery.type = backendType;
+      accountsQuery.type = BACKEND_TYPE_MAP[accountType] || accountType;
     }
 
     const accounts = await prisma.chartOfAccount.findMany({
       where: accountsQuery,
-      orderBy: { code: 'asc' }
+      orderBy: { code: 'asc' },
     });
 
-    // ─── Calculate debit and credit balances for each account ──
-    const trialBalanceData = accounts.map(account => {
-      let debitBalance = 0;
-      let creditBalance = 0;
+    let trialBalanceData = accounts.map((account) =>
+      buildAccountTrialBalance(account, allPostedEntries, priorEntries, periodEntries)
+    );
 
-      // Calculate from journal entries
-      journalEntries.forEach(entry => {
-        entry.lines.forEach(line => {
-          if (line.accountId === account.id) {
-            debitBalance += line.debit || 0;
-            creditBalance += line.credit || 0;
-          }
-        });
-      });
-
-      // Check if this account has an opening balance entry posted in the journal
-      const hasOBEntry = journalEntries.some(entry => 
-        entry.description && 
-        entry.description.includes('Opening Balance') && 
-        entry.lines.some(line => line.accountId === account.id)
-      );
-
-      // Add opening balance ONLY if there is no posted opening balance journal entry
-      if (!hasOBEntry) {
-        if (account.type === 'Asset' || account.type === 'Expense') {
-          debitBalance += account.openingBalance;
-        } else {
-          creditBalance += account.openingBalance;
-        }
-      }
-
-      // Determine final balance (Debit or Credit)
-      let finalDebitBalance = 0;
-      let finalCreditBalance = 0;
-      const netBalance = debitBalance - creditBalance;
-
-      if (netBalance > 0) {
-        finalDebitBalance = netBalance;
-        finalCreditBalance = 0;
-      } else if (netBalance < 0) {
-        finalDebitBalance = 0;
-        finalCreditBalance = Math.abs(netBalance);
-      }
-
-      // Map type for frontend display
-      const typeMap = {
-        'Asset': 'Assets',
-        'Liability': 'Liabilities',
-        'Equity': 'Equity',
-        'Revenue': 'Income',
-        'Expense': 'Expenses'
-      };
-
-      return {
-        accountId: account.id,
-        accountCode: account.code,
-        accountName: account.name,
-        accountType: typeMap[account.type] || account.type,
-        backendType: account.type,
-        debitBalance: finalDebitBalance,
-        creditBalance: finalCreditBalance,
-        openingBalance: account.openingBalance,
-        currentBalance: account.currentBalance,
-      };
-    });
-
-    // ─── Filter zero balance accounts if needed ──────────────
-    let filteredData = trialBalanceData;
     if (showZeroBalance === 'false') {
-      filteredData = trialBalanceData.filter(account =>
-        account.debitBalance > 0 || account.creditBalance > 0
+      trialBalanceData = trialBalanceData.filter(
+        (account) => account.debitBalance > 0 || account.creditBalance > 0
       );
     }
 
-    // ─── Calculate totals ──────────────────────────────────────
-    const totalDebit = filteredData.reduce((sum, acc) => sum + acc.debitBalance, 0);
-    const totalCredit = filteredData.reduce((sum, acc) => sum + acc.creditBalance, 0);
+    if (search) {
+      const term = search.toLowerCase();
+      trialBalanceData = trialBalanceData.filter(
+        (account) =>
+          account.accountName.toLowerCase().includes(term) ||
+          account.accountCode.toLowerCase().includes(term) ||
+          account.accountType.toLowerCase().includes(term)
+      );
+    }
+
+    const totalDebit = trialBalanceData.reduce((sum, acc) => sum + acc.debitBalance, 0);
+    const totalCredit = trialBalanceData.reduce((sum, acc) => sum + acc.creditBalance, 0);
     const difference = Math.abs(totalDebit - totalCredit);
     const isBalanced = difference < 0.01;
 
     res.status(200).json({
       success: true,
-      count: filteredData.length,
-      data: filteredData,
+      count: trialBalanceData.length,
+      data: trialBalanceData,
       summary: {
         totalDebit,
         totalCredit,
         difference,
         isBalanced,
-        message: isBalanced 
-          ? '✅ Trial Balance is balanced' 
-          : '⚠️ Trial Balance is NOT balanced. Please check entries.'
+        message: isBalanced
+          ? '✅ Trial Balance is balanced'
+          : '⚠️ Trial Balance is NOT balanced. Please check entries.',
       },
       period: {
-        startDate: startDate || null,
-        endDate: endDate || null
-      }
+        startDate: periodStart ? periodStart.toISOString() : startDate || null,
+        endDate: periodEnd ? periodEnd.toISOString() : endDate || null,
+        fiscalYearId: fiscalYearId || null,
+      },
     });
   } catch (error) {
     console.error('❌ Get trial balance error:', error);

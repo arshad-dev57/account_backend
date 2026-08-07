@@ -160,6 +160,13 @@ class IncomeModel {
       connect: { id: posterId }
     };
 
+    // ─── Add company relation ───────────────────────────────────
+    if (data.companyId) {
+      createData.company = {
+        connect: { id: data.companyId }
+      };
+    }
+
     // ─── Add customer relation if customerId exists ────────────
     if (data.customerId) {
       createData.customer = {

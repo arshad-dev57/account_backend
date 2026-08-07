@@ -1,7 +1,7 @@
 const prisma = require('../prisma/client');
 
 // ─── CONSTANTS ─────────────────────────────────────────────────────
-const VALID_REASON_TYPES = ['Return', 'Refund', 'Discount', 'Adjustment'];
+const VALID_REASON_TYPES = ['Return', 'Refund', 'Discount', 'Adjustment', 'Price Adjustment', 'Damaged Goods'];
 const VALID_STATUS = ['Issued', 'Applied', 'Expired', 'PartiallyApplied'];
 
 class CreditNoteModel {
@@ -79,7 +79,8 @@ class CreditNoteModel {
           remainingAmount: data.amount,
           expiryDate: expiryDate,
           notes: data.notes || '',
-          createdBy: data.createdBy
+          createdBy: data.createdBy,
+          companyId: data.companyId || null,
         },
         include: {
           customer: {

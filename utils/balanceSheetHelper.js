@@ -2,81 +2,231 @@
 
 const prisma = require('../prisma/client');
 
-// ============================================================
-// BUILD BALANCE SHEET FROM LEDGER
-// ============================================================
-async function buildBalanceSheetFromLedger(userId, period, asOfDate, fiscalYearId, startDate, endDate) {
-  console.log('\n========== BUILD BALANCE SHEET ==========');
-  console.log('🔍 User ID:', userId);
-  console.log('📅 Period:', period);
-  console.log('📅 As Of Date:', asOfDate);
-  console.log('📅 Start Date:', startDate);
-  console.log('📅 End Date:', endDate);
-  console.log('📅 Fiscal Year ID:', fiscalYearId);
+function classifyAssetBucket(parentAccount = '') {
+  const parent = parentAccount.toLowerCase();
+  if (
+    parent.includes('current') ||
+    parent.includes('cash') ||
+    parent.includes('receivable') ||
+    parent.includes('inventory') ||
+    parent.includes('prepaid')
+  ) {
+    return 'current';
+  }
+  if (
+    parent.includes('fixed') ||
+    parent.includes('non-current') ||
+    parent.includes('property') ||
+    parent.includes('equipment') ||
+    parent.includes('depreciation')
+  ) {
+    return 'fixed';
+  }
+  return 'other';
+}
 
-  // ✅ FIX: If asOfDate is undefined, use current date
-  if (!asOfDate) {
-    asOfDate = new Date();
-    console.log('⚠️ asOfDate was undefined, using current date:', asOfDate);
+function classifyLiabilityBucket(parentAccount = '') {
+  const parent = parentAccount.toLowerCase();
+  if (
+    parent.includes('current') ||
+    parent.includes('short') ||
+    parent.includes('payable')
+  ) {
+    return 'current';
+  }
+  if (
+    parent.includes('long') ||
+    parent.includes('non-current') ||
+    parent.includes('deferred')
+  ) {
+    return 'longTerm';
+  }
+  return 'other';
+}
+
+function resolvePeriodAsOfDate(period, asOfDate) {
+  if (asOfDate) {
+    const d = new Date(asOfDate);
+    d.setHours(23, 59, 59, 999);
+    return d;
   }
 
-  // Ensure asOfDate is a Date object
-  const reportDate = new Date(asOfDate);
-  reportDate.setHours(23, 59, 59, 999);
+  // Balance sheet is a point-in-time statement — default as-of is today.
+  // Period only affects the earnings window (current year earnings).
+  const now = new Date();
+  now.setHours(23, 59, 59, 999);
+  return now;
+}
 
-  console.log('📅 Report Date:', reportDate);
-
-  // Determine date range for retained earnings calculation
-  let startOfPeriod, endOfPeriod;
-
+async function resolveEarningsWindow({
+  companyId,
+  fiscalYearId,
+  startDate,
+  endDate,
+  reportDate,
+  period,
+}) {
   if (startDate && endDate) {
-    // Use provided startDate and endDate
-    startOfPeriod = new Date(startDate);
-    startOfPeriod.setHours(0, 0, 0, 0);
-    endOfPeriod = new Date(endDate);
-    endOfPeriod.setHours(23, 59, 59, 999);
-    console.log('📅 Using provided date range:', startOfPeriod, 'to', endOfPeriod);
-  } else {
-    // Default to start of year to report date
-    startOfPeriod = new Date(reportDate.getFullYear(), 0, 1);
-    endOfPeriod = reportDate;
-    console.log('📅 Using default date range (start of year):', startOfPeriod, 'to', endOfPeriod);
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
   }
 
-  // Build fiscal year filter
-  let fiscalYearFilter = {};
   if (fiscalYearId) {
-    fiscalYearFilter = {
-      fiscalYearId: fiscalYearId
-    };
+    const fiscalYear = await prisma.fiscalYear.findFirst({
+      where: { id: fiscalYearId, companyId },
+      select: { startDate: true, endDate: true },
+    });
+
+    if (fiscalYear) {
+      const start = new Date(fiscalYear.startDate);
+      start.setHours(0, 0, 0, 0);
+      const fyEnd = new Date(fiscalYear.endDate);
+      fyEnd.setHours(23, 59, 59, 999);
+      const end = reportDate < fyEnd ? reportDate : fyEnd;
+      return { start, end };
+    }
   }
 
-  // ─── GET ALL CHART OF ACCOUNTS ──────────────────────────────
-  const accounts = await prisma.chartOfAccount.findMany({
-    where: {
-      createdBy: userId,
-      isActive: true
-    }
+  let start = new Date(reportDate.getFullYear(), 0, 1);
+  start.setHours(0, 0, 0, 0);
+
+  if (period === 'This Month') {
+    start = new Date(reportDate.getFullYear(), reportDate.getMonth(), 1);
+    start.setHours(0, 0, 0, 0);
+  } else if (period === 'This Quarter') {
+    const quarter = Math.floor(reportDate.getMonth() / 3);
+    start = new Date(reportDate.getFullYear(), quarter * 3, 1);
+    start.setHours(0, 0, 0, 0);
+  }
+
+  return { start, end: reportDate };
+}
+
+function hasOpeningBalanceJournalEntry(entries, accountId) {
+  return entries.some(
+    (entry) =>
+      entry.description &&
+      entry.description.toLowerCase().includes('opening balance') &&
+      entry.lines.some((line) => line.accountId === accountId)
+  );
+}
+
+function sumLinesUpTo(entries, accountId, asOfDate) {
+  let debit = 0;
+  let credit = 0;
+
+  entries.forEach((entry) => {
+    if (entry.date > asOfDate) return;
+    entry.lines.forEach((line) => {
+      if (line.accountId !== accountId) return;
+      debit += line.debit || 0;
+      credit += line.credit || 0;
+    });
   });
 
-  console.log('📊 Chart of Accounts found:', accounts.length);
+  return { debit, credit };
+}
 
-  // ─── SEPARATE EQUITY ACCOUNTS ──────────────────────────────
-  const equityAccounts = [];
-  const otherAccounts = [];
+function sumLinesInRange(entries, accountId, start, end) {
+  let debit = 0;
+  let credit = 0;
 
-  for (const account of accounts) {
-    if (account.type === 'Equity') {
-      equityAccounts.push(account);
+  entries.forEach((entry) => {
+    if (entry.date < start || entry.date > end) return;
+    entry.lines.forEach((line) => {
+      if (line.accountId !== accountId) return;
+      debit += line.debit || 0;
+      credit += line.credit || 0;
+    });
+  });
+
+  return { debit, credit };
+}
+
+function accountBalanceAsOf(account, allEntries, asOfDate) {
+  const { debit, credit } = sumLinesUpTo(allEntries, account.id, asOfDate);
+  let runningDebit = debit;
+  let runningCredit = credit;
+
+  const hasOB = hasOpeningBalanceJournalEntry(allEntries, account.id);
+  if (!hasOB && account.openingBalance) {
+    if (account.type === 'Asset' || account.type === 'Expense') {
+      runningDebit += account.openingBalance;
     } else {
-      otherAccounts.push(account);
+      runningCredit += account.openingBalance;
     }
   }
 
-  console.log('📊 Equity Accounts found:', equityAccounts.length);
-  console.log('📊 Other Accounts found:', otherAccounts.length);
+  // Normal balances:
+  // Asset/Expense → Debit normal
+  // Liability/Equity/Revenue → Credit normal
+  if (account.type === 'Asset' || account.type === 'Expense') {
+    return runningDebit - runningCredit;
+  }
+  return runningCredit - runningDebit;
+}
 
-  // ─── INITIALIZE BALANCE SHEET STRUCTURE ──────────────────────
+function periodNetForPnL(account, allEntries, start, end) {
+  const { debit, credit } = sumLinesInRange(allEntries, account.id, start, end);
+  if (account.type === 'Revenue') {
+    return credit - debit;
+  }
+  if (account.type === 'Expense') {
+    return debit - credit;
+  }
+  return 0;
+}
+
+/**
+ * Build a proper point-in-time Balance Sheet from posted journal entries.
+ *
+ * Signature (fixed):
+ *   buildBalanceSheetFromLedger(userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate)
+ */
+async function buildBalanceSheetFromLedger(
+  userId,
+  companyId,
+  period = 'All Time',
+  asOfDate = null,
+  fiscalYearId = null,
+  startDate = null,
+  endDate = null
+) {
+  if (!companyId) {
+    throw new Error('companyId is required to build balance sheet');
+  }
+
+  const reportDate = resolvePeriodAsOfDate(period, asOfDate);
+  const earningsWindow = await resolveEarningsWindow({
+    companyId,
+    fiscalYearId,
+    startDate,
+    endDate,
+    reportDate,
+    period,
+  });
+
+  const accounts = await prisma.chartOfAccount.findMany({
+    where: {
+      companyId,
+      isActive: true,
+    },
+    orderBy: { code: 'asc' },
+  });
+
+  const allPostedEntries = await prisma.journalEntry.findMany({
+    where: {
+      companyId,
+      status: 'Posted',
+      date: { lte: reportDate },
+    },
+    include: { lines: true },
+    orderBy: { date: 'asc' },
+  });
+
   const assetsData = { current: [], fixed: [], other: [] };
   const liabilitiesData = { current: [], longTerm: [], other: [] };
   const equityItems = [];
@@ -84,353 +234,117 @@ async function buildBalanceSheetFromLedger(userId, period, asOfDate, fiscalYearI
   let totalAssets = 0;
   let totalLiabilities = 0;
   let totalEquityFromAccounts = 0;
+  let totalRevenue = 0;
+  let totalExpense = 0;
 
-  // ─── PROCESS EQUITY ACCOUNTS ──────────────────────────────
-  for (const account of equityAccounts) {
-    const balance = account.currentBalance || account.openingBalance || 0;
-    totalEquityFromAccounts += balance;
-    
-    equityItems.push({
+  for (const account of accounts) {
+    if (account.type === 'Revenue' || account.type === 'Expense') {
+      const net = periodNetForPnL(
+        account,
+        allPostedEntries,
+        earningsWindow.start,
+        earningsWindow.end
+      );
+      if (account.type === 'Revenue') totalRevenue += net;
+      else totalExpense += net;
+      continue;
+    }
+
+    const balance = accountBalanceAsOf(account, allPostedEntries, reportDate);
+    if (Math.abs(balance) < 0.0001) continue;
+
+    const item = {
       code: account.code,
       name: account.name,
-      balance: balance,
-      parent: account.parentAccount || 'Owners Equity'
-    });
-  }
-
-  console.log('📊 Total Equity from Accounts:', totalEquityFromAccounts);
-
-  // ─── PROCESS OTHER ACCOUNTS (Assets & Liabilities) ────────
-  for (const account of otherAccounts) {
-    const balance = account.currentBalance || account.openingBalance || 0;
-    
-    // Skip zero balance accounts (optional)
-    // if (balance === 0) continue;
-
-    const accountData = {
-      code: account.code,
-      name: account.name,
-      balance: balance,
-      parent: account.parentAccount || ''
+      balance,
+      parent: account.parentAccount || '',
     };
 
-    if (account.type === 'Assets') {
+    if (account.type === 'Asset') {
       totalAssets += balance;
-      
-      const parent = account.parentAccount || '';
-      if (parent.includes('Current') || parent.includes('Cash') || parent.includes('Receivable')) {
-        assetsData.current.push(accountData);
-      } else if (parent.includes('Fixed') || parent.includes('Property') || parent.includes('Equipment')) {
-        assetsData.fixed.push(accountData);
-      } else {
-        assetsData.other.push(accountData);
-      }
-    } 
-    else if (account.type === 'Liabilities') {
+      assetsData[classifyAssetBucket(account.parentAccount)].push(item);
+    } else if (account.type === 'Liability') {
       totalLiabilities += balance;
-      
-      const parent = account.parentAccount || '';
-      if (parent.includes('Current') || parent.includes('Short') || parent.includes('Payable')) {
-        liabilitiesData.current.push(accountData);
-      } else if (parent.includes('Long') || parent.includes('Deferred')) {
-        liabilitiesData.longTerm.push(accountData);
-      } else {
-        liabilitiesData.other.push(accountData);
-      }
+      liabilitiesData[classifyLiabilityBucket(account.parentAccount)].push(item);
+    } else if (account.type === 'Equity') {
+      totalEquityFromAccounts += balance;
+      equityItems.push(item);
     }
   }
 
-  console.log('📊 Total Assets from Accounts:', totalAssets);
-  console.log('📊 Total Liabilities from Accounts:', totalLiabilities);
+  // Current period net income (Revenue - Expense) added under equity.
+  // Permanent equity accounts (capital, prior RE, etc.) already include historical closings.
+  const retainedEarnings = totalRevenue - totalExpense;
+  let addedCurrentEarnings = 0;
 
-  // ─── GET RETAINED EARNINGS ──────────────────────────────────
-  console.log('📅 Start of Period:', startOfPeriod);
-  console.log('📅 End of Period:', endOfPeriod);
-
-  const incomes = await prisma.income.aggregate({
-    where: {
-      createdBy: userId,
-      date: { 
-        gte: startOfPeriod, 
-        lte: endOfPeriod 
-      },
-      status: 'Posted',
-      ...fiscalYearFilter
-    },
-    _sum: { totalAmount: true }
-  });
-
-  const expenses = await prisma.expense.aggregate({
-    where: {
-      createdBy: userId,
-      date: { 
-        gte: startOfPeriod, 
-        lte: endOfPeriod 
-      },
-      status: 'Posted',
-      ...fiscalYearFilter
-    },
-    _sum: { totalAmount: true }
-  });
-
-  const totalIncome = incomes._sum.totalAmount || 0;
-  const totalExpense = expenses._sum.totalAmount || 0;
-  const retainedEarnings = totalIncome - totalExpense;
-
-  console.log('💰 Total Income:', totalIncome);
-  console.log('💸 Total Expense:', totalExpense);
-  console.log('📊 Retained Earnings:', retainedEarnings);
-
-  // ─── ADD RETAINED EARNINGS TO EQUITY ITEMS ────────────────
-  if (retainedEarnings !== 0) {
+  if (Math.abs(retainedEarnings) >= 0.01) {
     equityItems.push({
-      code: 'RE-001',
-      name: 'Retained Earnings',
+      code: 'RE-CY',
+      name: 'Current Year Earnings',
       balance: retainedEarnings,
-      parent: 'Owners Equity'
+      parent: 'Owners Equity',
     });
+    addedCurrentEarnings = retainedEarnings;
   }
 
-  // ─── CALCULATE TOTAL EQUITY ──────────────────────────────────
-  // Total Equity = Equity Accounts + Retained Earnings
-  const totalEquity = totalEquityFromAccounts + retainedEarnings;
-
-  console.log('📊 Total Equity:', totalEquity);
-
-  // ─── GET BANK ACCOUNT BALANCES ──────────────────────────────
-  const bankAccounts = await prisma.bankAccount.findMany({
-    where: {
-      createdBy: userId,
-      status: 'Active'
-    }
-  });
-
-  let totalBankBalance = 0;
-  for (const account of bankAccounts) {
-    totalBankBalance += account.currentBalance || 0;
-  }
-
-  if (totalBankBalance > 0) {
-    assetsData.current.push({
-      code: 'BANK-001',
-      name: 'Cash & Bank Accounts',
-      balance: totalBankBalance,
-      parent: 'Current Assets'
-    });
-    totalAssets += totalBankBalance;
-  }
-
-  console.log('🏦 Total Bank Balance:', totalBankBalance);
-
-  // ─── GET ACCOUNTS RECEIVABLE FROM WAREHOUSE INVOICES ──────
-  let unpaidInvoices = [];
-  try {
-    unpaidInvoices = await prisma.warehouseInvoice.findMany({
-      where: {
-        createdBy: userId,
-        paymentStatus: { in: ['Unpaid', 'Partial', 'Overdue'] },
-        outstanding: { gt: 0 },
-        ...fiscalYearFilter
-      }
-    });
-    console.log('✅ Warehouse Invoices found:', unpaidInvoices.length);
-  } catch (error) {
-    console.log('⚠️ Could not find warehouseInvoice model, skipping accounts receivable');
-    unpaidInvoices = [];
-  }
-
-  let totalReceivables = 0;
-  for (const invoice of unpaidInvoices) {
-    totalReceivables += invoice.outstanding || 0;
-  }
-
-  if (totalReceivables > 0) {
-    assetsData.current.push({
-      code: 'AR-001',
-      name: 'Accounts Receivable',
-      balance: totalReceivables,
-      parent: 'Current Assets'
-    });
-    totalAssets += totalReceivables;
-  }
-
-  console.log('📊 Total Receivables:', totalReceivables);
-
-  // ─── GET ACCOUNTS PAYABLE ──────────────────────────────────
-  let unpaidBills = [];
-  try {
-    unpaidBills = await prisma.bill.findMany({
-      where: {
-        createdBy: userId,
-        status: { in: ['Unpaid', 'Partial', 'Overdue'] },
-        outstanding: { gt: 0 },
-        ...fiscalYearFilter
-      }
-    });
-    console.log('✅ Bills found:', unpaidBills.length);
-  } catch (error) {
-    console.log('⚠️ Could not find bill model, skipping accounts payable');
-    unpaidBills = [];
-  }
-
-  let totalPayables = 0;
-  for (const bill of unpaidBills) {
-    totalPayables += bill.outstanding || 0;
-  }
-
-  if (totalPayables > 0) {
-    liabilitiesData.current.push({
-      code: 'AP-001',
-      name: 'Accounts Payable',
-      balance: totalPayables,
-      parent: 'Current Liabilities'
-    });
-    totalLiabilities += totalPayables;
-  }
-
-  console.log('📊 Total Payables:', totalPayables);
-
-  // ─── GET LOAN BALANCES ──────────────────────────────────────
-  const loans = await prisma.loan.findMany({
-    where: {
-      createdBy: userId,
-      status: { not: 'Fully Paid' }
-    }
-  });
-
-  let totalShortTermLoans = 0;
-  let totalLongTermLoans = 0;
-
-  for (const loan of loans) {
-    const outstanding = loan.outstandingBalance || 0;
-    if (loan.tenureMonths <= 12) {
-      totalShortTermLoans += outstanding;
-    } else {
-      totalLongTermLoans += outstanding;
-    }
-    totalLiabilities += outstanding;
-  }
-
-  if (totalShortTermLoans > 0) {
-    liabilitiesData.current.push({
-      code: 'STL-001',
-      name: 'Short-term Loans',
-      balance: totalShortTermLoans,
-      parent: 'Current Liabilities'
-    });
-  }
-
-  if (totalLongTermLoans > 0) {
-    liabilitiesData.longTerm.push({
-      code: 'LTL-001',
-      name: 'Long-term Debt',
-      balance: totalLongTermLoans,
-      parent: 'Long Term Liabilities'
-    });
-  }
-
-  console.log('📊 Short-term Loans:', totalShortTermLoans);
-  console.log('📊 Long-term Loans:', totalLongTermLoans);
-
-  // ─── GET CREDIT NOTES ──────────────────────────────────────
-  const creditNotes = await prisma.creditNote.findMany({
-    where: {
-      createdBy: userId,
-      date: { lte: reportDate }
-    }
-  });
-
-  let totalCreditNotes = 0;
-  for (const cn of creditNotes) {
-    totalCreditNotes += cn.remainingAmount || cn.amount || 0;
-  }
-
-  if (totalCreditNotes > 0) {
-    assetsData.current.push({
-      code: 'CN-001',
-      name: 'Credit Notes Issued',
-      balance: totalCreditNotes,
-      parent: 'Current Assets'
-    });
-    totalAssets += totalCreditNotes;
-  }
-
-  console.log('📊 Total Credit Notes:', totalCreditNotes);
-
-  // ─── RECALCULATE TOTALS ──────────────────────────────────
-  // Total Assets = Assets from accounts + Bank + Receivables + Credit Notes
-  // Total Liabilities = Liabilities from accounts + Payables + Loans
-  // Total Equity = Equity Accounts + Retained Earnings
-  
   const finalTotalAssets = totalAssets;
   const finalTotalLiabilities = totalLiabilities;
-  const finalTotalEquity = totalEquity;
-  const finalTotalLiabilitiesAndEquity = finalTotalLiabilities + finalTotalEquity;
-
-  console.log('📊 Final Total Assets:', finalTotalAssets);
-  console.log('📊 Final Total Liabilities:', finalTotalLiabilities);
-  console.log('📊 Final Total Equity:', finalTotalEquity);
-  console.log('📊 Final Total L + E:', finalTotalLiabilitiesAndEquity);
-
-  // ─── CHECK IF BALANCED ──────────────────────────────────────
+  const finalTotalEquity = totalEquityFromAccounts + addedCurrentEarnings;
+  const finalTotalLiabilitiesAndEquity =
+    finalTotalLiabilities + finalTotalEquity;
   const difference = finalTotalAssets - finalTotalLiabilitiesAndEquity;
   const isBalanced = Math.abs(difference) < 0.01;
 
-  console.log('📊 Difference:', difference);
-  console.log('📊 Is Balanced:', isBalanced);
-
-  // ─── FILTER OUT ZERO BALANCE ITEMS ────────────────────────
-  // Filter assets
-  const filteredAssets = {
-    current: assetsData.current.filter(item => item.balance !== 0),
-    fixed: assetsData.fixed.filter(item => item.balance !== 0),
-    other: assetsData.other.filter(item => item.balance !== 0)
-  };
-
-  // Filter liabilities
-  const filteredLiabilities = {
-    current: liabilitiesData.current.filter(item => item.balance !== 0),
-    longTerm: liabilitiesData.longTerm.filter(item => item.balance !== 0),
-    other: liabilitiesData.other.filter(item => item.balance !== 0)
-  };
-
-  // Filter equity
-  const filteredEquityItems = equityItems.filter(item => item.balance !== 0);
-
-  console.log('📊 Filtered Assets - Current:', filteredAssets.current.length);
-  console.log('📊 Filtered Assets - Fixed:', filteredAssets.fixed.length);
-  console.log('📊 Filtered Liabilities - LongTerm:', filteredLiabilities.longTerm.length);
-  console.log('📊 Filtered Equity Items:', filteredEquityItems.length);
-
-  // ─── RETURN BALANCE SHEET ──────────────────────────────────
   return {
     asOfDate: reportDate,
-    assets: filteredAssets,
-    liabilities: filteredLiabilities,
+    period: period || 'All Time',
+    earningsPeriod: {
+      startDate: earningsWindow.start,
+      endDate: earningsWindow.end,
+    },
+    assets: assetsData,
+    liabilities: liabilitiesData,
     equity: {
-      owners: filteredEquityItems,
-      retainedEarnings: retainedEarnings
+      owners: equityItems,
+      retainedEarnings: addedCurrentEarnings,
     },
     totals: {
       totalAssets: finalTotalAssets,
       totalLiabilities: finalTotalLiabilities,
       totalEquity: finalTotalEquity,
-      totalLiabilitiesAndEquity: finalTotalLiabilitiesAndEquity
+      totalLiabilitiesAndEquity: finalTotalLiabilitiesAndEquity,
     },
-    isBalanced: isBalanced,
-    difference: difference
+    isBalanced,
+    difference,
   };
 }
 
-// ============================================================
-// GET BALANCE SHEET SUMMARY
-// ============================================================
-async function getBalanceSheetSummary(userId, asOfDate) {
-  const balanceSheet = await buildBalanceSheetFromLedger(userId, asOfDate);
-  
-  // Calculate key ratios
-  const currentAssets = balanceSheet.assets.current.reduce((sum, a) => sum + a.balance, 0);
-  const currentLiabilities = balanceSheet.liabilities.current.reduce((sum, l) => sum + l.balance, 0);
+async function getBalanceSheetSummary(
+  userId,
+  companyId,
+  asOfDate,
+  fiscalYearId,
+  startDate,
+  endDate
+) {
+  const balanceSheet = await buildBalanceSheetFromLedger(
+    userId,
+    companyId,
+    'All Time',
+    asOfDate,
+    fiscalYearId,
+    startDate,
+    endDate
+  );
+
+  const currentAssets = balanceSheet.assets.current.reduce(
+    (sum, a) => sum + a.balance,
+    0
+  );
+  const currentLiabilities = balanceSheet.liabilities.current.reduce(
+    (sum, l) => sum + l.balance,
+    0
+  );
   const totalAssets = balanceSheet.totals.totalAssets;
   const totalLiabilities = balanceSheet.totals.totalLiabilities;
   const totalEquity = balanceSheet.totals.totalEquity;
@@ -441,14 +355,15 @@ async function getBalanceSheetSummary(userId, asOfDate) {
     isBalanced: balanceSheet.isBalanced,
     difference: balanceSheet.difference,
     ratios: {
-      currentRatio: currentLiabilities > 0 ? currentAssets / currentLiabilities : 0,
+      currentRatio:
+        currentLiabilities > 0 ? currentAssets / currentLiabilities : 0,
       debtToEquity: totalEquity > 0 ? totalLiabilities / totalEquity : 0,
-      equityToAssets: totalAssets > 0 ? totalEquity / totalAssets : 0
-    }
+      equityToAssets: totalAssets > 0 ? totalEquity / totalAssets : 0,
+    },
   };
 }
 
 module.exports = {
   buildBalanceSheetFromLedger,
-  getBalanceSheetSummary
+  getBalanceSheetSummary,
 };
