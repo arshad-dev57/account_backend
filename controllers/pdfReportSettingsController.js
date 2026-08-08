@@ -3,6 +3,16 @@
 
 const prisma = require('../prisma/client');
 
+function pdfSettingsDelegate() {
+  const delegate = prisma.pdfReportSetting;
+  if (!delegate) {
+    throw new Error(
+      'Prisma model pdfReportSetting is missing. Run: npx prisma generate && restart the server'
+    );
+  }
+  return delegate;
+}
+
 function parseBool(value, fallback = true) {
   if (value === undefined || value === null || value === '') return fallback;
   if (typeof value === 'boolean') return value;
@@ -27,7 +37,7 @@ async function getPdfReportSettingsForUserId(userId) {
   });
   if (!user) return serialize(null);
 
-  const row = await prisma.pdfReportSetting.findUnique({
+  const row = await pdfSettingsDelegate().findUnique({
     where: { scopeKey: scopeKeyFor(user) },
   });
   return serialize(row);
@@ -106,7 +116,7 @@ exports.getPdfReportSettings = async (req, res) => {
     }
 
     const scopeKey = scopeKeyFor(user);
-    const row = await prisma.pdfReportSetting.findUnique({
+    const row = await pdfSettingsDelegate().findUnique({
       where: { scopeKey },
     });
 
@@ -152,7 +162,7 @@ exports.updatePdfReportSettings = async (req, res) => {
     }
 
     const scopeKey = scopeKeyFor(user);
-    const existing = await prisma.pdfReportSetting.findUnique({
+    const existing = await pdfSettingsDelegate().findUnique({
       where: { scopeKey },
     });
 
@@ -206,7 +216,7 @@ exports.updatePdfReportSettings = async (req, res) => {
           : existing?.signatureLabel || 'Authorized Signature',
     };
 
-    const row = await prisma.pdfReportSetting.upsert({
+    const row = await pdfSettingsDelegate().upsert({
       where: { scopeKey },
       create: {
         scopeKey,

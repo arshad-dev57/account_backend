@@ -6,9 +6,13 @@ const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
 const { sendToUser } = require('../services/onesignal');
 const { initializeDefaultChartOfAccounts } = require('../services/defaultChartOfAccountsService');
-const {
-  getPdfReportSettingsForUserId,
-} = require('./pdfReportSettingsController');
+
+// Lazy require — avoid circular load with pdfReportSettingsController
+function getPdfReportSettingsForUserId(userId) {
+  return require('./pdfReportSettingsController').getPdfReportSettingsForUserId(
+    userId
+  );
+}
 
 const cleanToken = (token) => {
   if (!token) return null;
