@@ -252,7 +252,8 @@ function mergeSalesInvoiceRows(warehouseRows = [], moduleRows = []) {
  *   Unpaid invoice balances are NOT included in Revenue/Sales.
  *   They appear under Receivables (outstanding).
  *
- *   Net Profit = Revenue − Purchases − Expenses
+ *   Net Profit = Revenue − Expenses
+ *   (Purchases are already included via the Expense screen — do not subtract again)
  */
 function computePeriodTotals(
   incomes,
@@ -281,8 +282,9 @@ function computePeriodTotals(
   // Revenue uses PAID sales only (not unpaid invoice totals)
   const salesRevenue = salesPaid;
   const revenue = salesPaid + otherIncome - creditNotesTotal;
-  const totalCosts = purchases + operatingExpenses;
-  const netProfit = revenue - totalCosts;
+  // Purchases already flow into expenses — only subtract expenses for net profit
+  const totalCosts = operatingExpenses;
+  const netProfit = revenue - operatingExpenses;
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
   const grossProfit = salesPaid - purchases;
 
@@ -402,7 +404,8 @@ function buildChartSeries({
         sales: paidMap[key] || 0,
         expenses: expensesTotal,
         purchases,
-        profit: revenue - purchases - expensesTotal,
+        // Purchases already included in expenses — do not subtract again
+        profit: revenue - expensesTotal,
       };
     }),
   };
@@ -830,7 +833,8 @@ async function buildDashboardOverview({
   const expenseScreenCount = allExpenses.filter((d) =>
     inRange(d.date, startDate, endDate)
   ).length;
-  const netProfitAmount = current.revenue - current.purchases - expenseScreenTotal;
+  // Purchases already included in expenses — do not subtract again
+  const netProfitAmount = current.revenue - expenseScreenTotal;
 
   const allOutstandingSales = mergeSalesInvoiceRows(
     outstandingSalesInvoices,
@@ -860,8 +864,7 @@ async function buildDashboardOverview({
   const prevSalesPaid = mappedSales
     .filter((d) => inRange(d.date, previousStartDate, previousEndDate))
     .reduce((s, d) => s + toNum(d.paidAmount), 0);
-  const prevNetProfit =
-    previous.revenue - previous.purchases - previous.operatingExpenses;
+  const prevNetProfit = previous.revenue - previous.operatingExpenses;
 
   const revenueChange = pct(current.revenue, previous.revenue);
   const expenseChange = pct(expenseScreenTotal, previous.operatingExpenses);
@@ -965,7 +968,7 @@ async function buildDashboardOverview({
             ? Math.round((netProfitAmount / current.revenue) * 1000) / 10
             : 0,
         period: timePeriod,
-        formula: 'Revenue − Purchases − Expenses',
+        formula: 'Revenue − Expenses',
       },
       grossProfit: {
         amount: current.grossProfit,

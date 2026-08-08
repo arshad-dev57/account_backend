@@ -93,6 +93,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/admin/users', userManagementRoutes);
 app.use('/api/deliveries', deliveryRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/pdf-report-settings', require('./routes/pdfReportSettingsRoutes'));
 app.use('/api/subscription', subscriptionRoutes);
 
 app.use('/api/chart-of-accounts', chartOfAccountRoutes);

@@ -1,12 +1,23 @@
-// controllers/profileController.js - PURE JAVASCRIPT (FIXED)
-
 const prisma = require('../prisma/client');
+
+function formatBusinessDetails(businessDetails = {}) {
+  const bd = businessDetails || {};
+  return {
+    logo: bd.logo || '',
+    fiscalYear: bd.fiscalYear || '',
+    taxRegistrationNumber: bd.taxRegistrationNumber || '',
+    signature: bd.signature || '',
+    industry: bd.industry || '',
+    businessType: bd.businessType || '',
+    currencyCode: bd.currencyCode || '',
+    currencySymbol: bd.currencySymbol || '',
+  };
+}
 
 // ==================== GET PROFILE ====================
 exports.getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -34,10 +45,8 @@ exports.getProfile = async (req, res) => {
       });
     }
 
-    // ✅ FIX: JavaScript mein 'as' nahi, simple object access
     const businessDetails = user.businessDetails || {};
 
-    // ✅ FIX: JavaScript mein 'final' nahi, 'const' use karein
     const profile = {
       id: user.id,
       organizationName: user.organizationName || '',
@@ -50,16 +59,7 @@ exports.getProfile = async (req, res) => {
       contactNo: user.contactNo || user.phone || '',
       websiteLink: user.websiteLink || '',
       country: user.country || '',
-      
-      businessDetails: {
-        logo: businessDetails.logo || '',
-        fiscalYear: businessDetails.fiscalYear || '',
-        taxRegistrationNumber: businessDetails.taxRegistrationNumber || '',
-        signature: businessDetails.signature || '',
-        industry: businessDetails.industry || '',
-        businessType: businessDetails.businessType || '',
-      },
-      
+      businessDetails: formatBusinessDetails(businessDetails),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -173,11 +173,10 @@ exports.updateProfile = async (req, res) => {
     }
 
     // ─── BUSINESS DETAILS (JSON) ──────────────────────────────
-    // ✅ FIX: Get existing business details
     const existingBusinessDetails = existingUser.businessDetails || {};
     
-    // ✅ FIX: Create updated business details
     const updatedBusinessDetails = {
+      ...existingBusinessDetails,
       logo: logo || existingBusinessDetails.logo || '',
       fiscalYear: fiscalYear || existingBusinessDetails.fiscalYear || '',
       taxRegistrationNumber: taxRegistrationNumber || existingBusinessDetails.taxRegistrationNumber || '',
@@ -229,14 +228,7 @@ exports.updateProfile = async (req, res) => {
       websiteLink: updatedUser.websiteLink || '',
       country: updatedUser.country || '',
       
-      businessDetails: {
-        logo: businessDetails.logo || '',
-        fiscalYear: businessDetails.fiscalYear || '',
-        taxRegistrationNumber: businessDetails.taxRegistrationNumber || '',
-        signature: businessDetails.signature || '',
-        industry: businessDetails.industry || '',
-        businessType: businessDetails.businessType || '',
-      },
+      businessDetails: formatBusinessDetails(businessDetails),
       
       updatedAt: updatedUser.updatedAt,
     };
@@ -279,7 +271,6 @@ exports.updateBusinessDetails = async (req, res) => {
       }
     }
 
-    // ─── CHECK IF USER EXISTS ────────────────────────────────
     const existingUser = await prisma.user.findUnique({
       where: { id: userId }
     });
@@ -291,11 +282,10 @@ exports.updateBusinessDetails = async (req, res) => {
       });
     }
 
-    // ✅ FIX: Get existing business details
     const existingBusinessDetails = existingUser.businessDetails || {};
 
-    // ✅ FIX: Update business details
     const updatedBusinessDetails = {
+      ...existingBusinessDetails,
       logo: logo || existingBusinessDetails.logo || '',
       fiscalYear: fiscalYear || existingBusinessDetails.fiscalYear || '',
       taxRegistrationNumber: taxRegistrationNumber || existingBusinessDetails.taxRegistrationNumber || '',
@@ -304,7 +294,6 @@ exports.updateBusinessDetails = async (req, res) => {
       businessType: businessType || existingBusinessDetails.businessType || '',
     };
 
-    // ─── UPDATE USER ──────────────────────────────────────────
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
@@ -317,21 +306,13 @@ exports.updateBusinessDetails = async (req, res) => {
       }
     });
 
-    // ✅ FIX: JavaScript mein 'as' nahi
     const businessDetails = updatedUser.businessDetails || {};
 
     res.status(200).json({
       success: true,
       message: 'Business details updated successfully',
       data: {
-        businessDetails: {
-          logo: businessDetails.logo || '',
-          fiscalYear: businessDetails.fiscalYear || '',
-          taxRegistrationNumber: businessDetails.taxRegistrationNumber || '',
-          signature: businessDetails.signature || '',
-          industry: businessDetails.industry || '',
-          businessType: businessDetails.businessType || '',
-        },
+        businessDetails: formatBusinessDetails(businessDetails),
         updatedAt: updatedUser.updatedAt,
       }
     });
@@ -371,7 +352,6 @@ exports.getBusinessDetails = async (req, res) => {
       });
     }
 
-    // ✅ FIX: JavaScript mein 'as' nahi
     const businessDetails = user.businessDetails || {};
 
     res.status(200).json({
@@ -383,14 +363,7 @@ exports.getBusinessDetails = async (req, res) => {
         address: user.address || '',
         phone: user.phone || '',
         country: user.country || '',
-        businessDetails: {
-          logo: businessDetails.logo || '',
-          fiscalYear: businessDetails.fiscalYear || '',
-          taxRegistrationNumber: businessDetails.taxRegistrationNumber || '',
-          signature: businessDetails.signature || '',
-          industry: businessDetails.industry || '',
-          businessType: businessDetails.businessType || '',
-        },
+        businessDetails: formatBusinessDetails(businessDetails),
       }
     });
   } catch (error) {
@@ -436,16 +409,12 @@ exports.updateProfileImage = async (req, res) => {
       });
     }
 
-    // ✅ FIX: Get existing business details
     const existingBusinessDetails = existingUser.businessDetails || {};
 
     const updatedBusinessDetails = {
+      ...existingBusinessDetails,
       logo: logo || existingBusinessDetails.logo || '',
-      fiscalYear: existingBusinessDetails.fiscalYear || '',
-      taxRegistrationNumber: existingBusinessDetails.taxRegistrationNumber || '',
       signature: signature || existingBusinessDetails.signature || '',
-      industry: existingBusinessDetails.industry || '',
-      businessType: existingBusinessDetails.businessType || '',
     };
 
     const updatedUser = await prisma.user.update({
@@ -460,7 +429,6 @@ exports.updateProfileImage = async (req, res) => {
       }
     });
 
-    // ✅ FIX: JavaScript mein 'as' nahi
     const businessDetails = updatedUser.businessDetails || {};
 
     res.status(200).json({

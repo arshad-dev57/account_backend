@@ -83,6 +83,7 @@ model Company {
   posSales           POSSale[]
   posReturns         POSReturn[]
   posAuditLogs       POSAuditLog[]
+  pdfReportSettings  PdfReportSetting[]
 
   @@index([email])
   @@index([isActive])
@@ -219,6 +220,7 @@ model User {
   createdReturns      POSReturn[]          @relation("ReturnCreator")
   createdAuditLogs    POSAuditLog[]        @relation("AuditCreator")
   approvedExemptions  TaxExemption[]       @relation("ExemptionApprover")
+  pdfReportSettings   PdfReportSetting[]   @relation("PdfReportSettingOwner")
 
   @@index([email])
   @@index([roleId])
@@ -226,6 +228,46 @@ model User {
   @@index([createdBy])
   @@index([companyId])
   @@map("users")
+}
+
+// ============================================================
+// PDF REPORT SETTINGS (separate from profile / businessDetails)
+// ============================================================
+
+model PdfReportSetting {
+  id              String  @id @default(uuid())
+  /// company:{companyId} or user:{userId} — one settings row per tenant scope
+  scopeKey        String  @unique @map("scope_key")
+  companyId       String? @map("company_id")
+  userId          String  @map("user_id")
+
+  companyName     String  @default("") @map("company_name")
+  companyAddress  String  @default("") @map("company_address")
+  logo            String  @default("")
+  signature       String  @default("")
+
+  showLogo        Boolean @default(true) @map("show_logo")
+  showSignature   Boolean @default(true) @map("show_signature")
+  showCompanyName Boolean @default(true) @map("show_company_name")
+  showAddress     Boolean @default(true) @map("show_address")
+  showPageNumbers Boolean @default(true) @map("show_page_numbers")
+
+  layout          String  @default("classic")
+  logoPosition    String  @default("left") @map("logo_position")
+  headerSubtitle  String  @default("") @map("header_subtitle")
+  footerText      String  @default("Confidential - For Internal Use Only") @map("footer_text")
+  accentColor     String  @default("#014582") @map("accent_color")
+  signatureLabel  String  @default("Authorized Signature") @map("signature_label")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User     @relation("PdfReportSettingOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([userId])
+  @@map("pdf_report_settings")
 }
 
 // ============================================================
