@@ -19,6 +19,23 @@ function scopeKeyFor(user) {
   return `user:${user.id}`;
 }
 
+/** Used by login / other controllers to embed PDF settings in auth payloads. */
+async function getPdfReportSettingsForUserId(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: String(userId) },
+    select: { id: true, companyId: true },
+  });
+  if (!user) return serialize(null);
+
+  const row = await prisma.pdfReportSetting.findUnique({
+    where: { scopeKey: scopeKeyFor(user) },
+  });
+  return serialize(row);
+}
+
+exports.getPdfReportSettingsForUserId = getPdfReportSettingsForUserId;
+exports.serializePdfReportSettings = serialize;
+
 function serialize(row) {
   if (!row) {
     return {

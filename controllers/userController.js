@@ -6,6 +6,9 @@ const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
 const { sendToUser } = require('../services/onesignal');
 const { initializeDefaultChartOfAccounts } = require('../services/defaultChartOfAccountsService');
+const {
+  getPdfReportSettingsForUserId,
+} = require('./pdfReportSettingsController');
 
 const cleanToken = (token) => {
   if (!token) return null;
@@ -490,6 +493,15 @@ exports.verifyLoginOTP = async (req, res) => {
     console.log('📊 [verifyLoginOTP] User permissions count:', userPermissions.length);
     console.log('📊 [verifyLoginOTP] User permissions:', userPermissions);
 
+    let pdfReportSettings = null;
+    try {
+      pdfReportSettings = await getPdfReportSettingsForUserId(updatedUser._id);
+      console.log('📄 [verifyLoginOTP] PDF report settings loaded');
+    } catch (pdfErr) {
+      console.error('⚠️ [verifyLoginOTP] PDF settings load failed:', pdfErr.message);
+      pdfReportSettings = null;
+    }
+
     const token = generateToken(updatedUser._id);
     const refreshToken = generateRefreshToken(updatedUser._id);
 
@@ -505,6 +517,7 @@ exports.verifyLoginOTP = async (req, res) => {
       websiteLink: updatedUser.websiteLink,
       contactNo: updatedUser.contactNo,
       businessDetails: updatedUser.businessDetails || {},
+      pdfReportSettings,
       role: updatedUser.role,
       permissions: userPermissions.map(p => ({
         id: p.id,
@@ -555,6 +568,7 @@ exports.verifyLoginOTP = async (req, res) => {
       token,
       refreshToken,
       user: responseUser,
+      pdfReportSettings,
     });
   } catch (error) {
     console.error('❌ [verifyLoginOTP] Error:', error);
