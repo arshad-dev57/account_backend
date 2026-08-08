@@ -86,7 +86,7 @@ const createGoodsReceiving = async (req, res) => {
       receivedBy: receivedBy || '',
       notes: notes || '',
       items: processedItems,
-      status: status || 'Draft',
+      status: status || 'Confirmed',
       createdBy: userId,
       companyId: companyId  // ✅ Use companyId
     };
@@ -604,7 +604,8 @@ const getAvailablePurchaseOrders = async (req, res) => {
         goodsReceivings: {
           where: {
             isActive: true,
-            isDeleted: false
+            isDeleted: false,
+            status: { in: ['Partially Received', 'Fully Received'] },
           },
           include: {
             items: true

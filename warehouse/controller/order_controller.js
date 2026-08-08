@@ -93,6 +93,7 @@ const createSalesOrder = async (req, res) => {
       shippingCost,
       paymentMethod,
       paymentStatus,
+      orderStatus,
       couponCode,
       discountTotal,
       customerNotes,
@@ -223,6 +224,7 @@ const createSalesOrder = async (req, res) => {
       shippingCarrier: shippingCarrier || '',
       paymentMethod: paymentMethod || 'Cash',
       paymentStatus: paymentStatus || 'Pending',
+      orderStatus: orderStatus || 'Pending',
       couponCode: couponCode || '',
       customerNotes: customerNotes || '',
       internalNotes: internalNotes || '',
@@ -233,16 +235,14 @@ const createSalesOrder = async (req, res) => {
 
     const order = await Order.create(orderData);
 
-    // ─── Auto-Generate Invoice ───────────────────────────
-    const invoice = await autoGenerateInvoice(order, userId, companyId);
+    // Do NOT auto-create WarehouseInvoice drafts here.
+    // Invoices are created explicitly from Sales Invoice / Warehouse Invoice screens
+    // (auto-drafts were duplicating when a SalesInvoice was also created for the same order).
 
     res.status(201).json({
       success: true,
       message: 'Sales Order created successfully',
       data: order,
-      invoice: invoice
-        ? { invoiceNumber: invoice.invoiceNumber, id: invoice.id }
-        : null,
     });
   } catch (error) {
     console.error('Create sales order error:', error);
@@ -313,12 +313,20 @@ const getSalesOrders = async (req, res) => {
       Order.countSalesOrders(filter),
     ]);
 
+    // Repair stale Draft/Pending payment badges from linked invoices
+    await Order.syncManyFromInvoices(orders.map((o) => o.id));
+    const syncedOrders = await Order.findSalesOrders(filter, {
+      skip,
+      take: limitNum,
+      orderBy,
+    });
+
     const kpi = await Order.getStatusCounts(userId, 'Sales Order');
 
     res.status(200).json({
       success: true,
-      count: orders.length,
-      data: orders,
+      count: syncedOrders.length,
+      data: syncedOrders,
       kpi,
       pagination: {
         page: pageNum,
@@ -493,16 +501,12 @@ const createPurchaseOrder = async (req, res) => {
 
     const order = await Order.create(orderData);
 
-    // ─── Auto-Generate Purchase Invoice ────────────────────
-    const invoice = await autoGenerateInvoice(order, userId, companyId);
+    // Do NOT auto-create invoice drafts on PO create (same duplication issue as sales).
 
     res.status(201).json({
       success: true,
       message: 'Purchase Order created successfully',
       data: order,
-      invoice: invoice
-        ? { invoiceNumber: invoice.invoiceNumber, id: invoice.id }
-        : null,
     });
   } catch (error) {
     console.error('Create purchase order error:', error);
@@ -642,7 +646,36 @@ const getOrderById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    res.status(200).json({ success: true, data: order });
+    await Order.syncFromInvoices(order.id);
+    const synced = await prisma.order.findFirst({
+      where: { id: order.id },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: { id: true, name: true, sku: true },
+            },
+          },
+        },
+        creator: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        picker: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        packer: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        shipper: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        updater: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
+    });
+
+    res.status(200).json({ success: true, data: synced || order });
   } catch (error) {
     console.error('Get order error:', error);
     res.status(500).json({ success: false, message: error.message });

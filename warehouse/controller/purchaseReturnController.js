@@ -240,18 +240,24 @@ const createDraftReturn = async (req, res) => {
       fiscalYearId,
     };
 
-    console.log('🔵 [createDraftReturn] Creating draft return...');
+    console.log('🔵 [createDraftReturn] Creating return...');
 
     const purchaseReturn = await PurchaseReturnModel.createDraft(returnData);
+    // No Draft step — process immediately (stock − + JE)
+    const processedReturn = await PurchaseReturnModel.processReturn(
+      purchaseReturn.id,
+      userId,
+      companyId
+    );
 
-    console.log('✅ [createDraftReturn] Draft return created successfully');
-    console.log(`✅ [createDraftReturn] Return Number: ${purchaseReturn.returnNumber}`);
+    console.log('✅ [createDraftReturn] Return processed successfully');
+    console.log(`✅ [createDraftReturn] Return Number: ${processedReturn.returnNumber}`);
     console.log('═══════════════════════════════════════════════════');
 
     res.status(201).json({
       success: true,
-      message: 'Draft return created successfully',
-      data: purchaseReturn
+      message: 'Purchase return created successfully',
+      data: processedReturn
     });
   } catch (error) {
     console.error('❌ [createDraftReturn] Error:', error);

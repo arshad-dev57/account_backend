@@ -2,6 +2,44 @@
 
 const prisma = require('../../prisma/client');
 
+/**
+ * customer_number is globally unique (not per-company).
+ * Compute next CUST-##### from the true max across all customers.
+ */
+async function generateUniqueCustomerNumber(maxAttempts = 5) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const lastCustomer = await prisma.customer.findFirst({
+      where: { customerNumber: { startsWith: 'CUST-' } },
+      orderBy: { customerNumber: 'desc' },
+      select: { customerNumber: true },
+    });
+
+    let nextNumber = 1;
+    if (lastCustomer?.customerNumber) {
+      const lastNum = parseInt(
+        String(lastCustomer.customerNumber).replace(/^CUST-/i, ''),
+        10
+      );
+      if (Number.isFinite(lastNum) && lastNum > 0) {
+        nextNumber = lastNum + 1 + attempt;
+      }
+    } else {
+      nextNumber = 1 + attempt;
+    }
+
+    const customerNumber = `CUST-${String(nextNumber).padStart(5, '0')}`;
+
+    const exists = await prisma.customer.findFirst({
+      where: { customerNumber },
+      select: { id: true },
+    });
+    if (!exists) return customerNumber;
+  }
+
+  // Fallback when concurrent creates race on padded sequence
+  return `CUST-${Date.now().toString().slice(-8)}`;
+}
+
 const getCustomers = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -156,48 +194,62 @@ const createCustomer = async (req, res) => {
       if (existing) return res.status(409).json({ success: false, message: 'Customer with this phone already exists' });
     }
 
-    // Generate unique customer number
-    const lastCustomer = await prisma.customer.findFirst({
-      where: { companyId },
-      orderBy: { customerNumber: 'desc' },
-      select: { customerNumber: true }
-    });
-    
-    let nextNumber = 1;
-    if (lastCustomer && lastCustomer.customerNumber) {
-      const lastNum = parseInt(lastCustomer.customerNumber.replace('CUST-', ''));
-      nextNumber = lastNum + 1;
-    }
-    
-    const customerNumber = `CUST-${String(nextNumber).padStart(5, '0')}`;
-
-    const customer = await prisma.customer.create({
-      data: {
-        customerNumber,
-        name,
-        email,
-        phone,
-        companyName: company || null,
-        customerType: customerType || 'Individual',
-        taxId: taxId || null,
-        address: address || {},
-        shippingAddress: shippingAddress || {},
-        billingAddress: billingAddress || {},
-        status: status || 'Active',
-        loyaltyPoints: loyaltyPoints || 0,
-        notes: notes || '',
-        tags: tags || [],
-        preferences: preferences || {},
-        creditLimit: creditLimit || 0,
-        creditTerms: creditTerms || 'Net 30',
-        createdBy: userId,
-        companyId: companyId
+    // customerNumber is globally unique in schema — generate from global max, not company-only
+    let customer;
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const customerNumber = await generateUniqueCustomerNumber();
+      try {
+        customer = await prisma.customer.create({
+          data: {
+            customerNumber,
+            name,
+            email,
+            phone,
+            companyName: company || null,
+            customerType: customerType || 'Individual',
+            taxId: taxId || null,
+            address: address || {},
+            shippingAddress: shippingAddress || {},
+            billingAddress: billingAddress || {},
+            status: status || 'Active',
+            loyaltyPoints: loyaltyPoints || 0,
+            notes: notes || '',
+            tags: tags || [],
+            preferences: preferences || {},
+            creditLimit: creditLimit || 0,
+            creditTerms: creditTerms || 'Net 30',
+            createdBy: userId,
+            companyId: companyId
+          }
+        });
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+        const targets = err.meta?.target;
+        const isNumberClash =
+          err.code === 'P2002' &&
+          (Array.isArray(targets)
+            ? targets.includes('customer_number') || targets.includes('customerNumber')
+            : String(targets || '').includes('customer_number'));
+        if (!isNumberClash) throw err;
       }
-    });
+    }
+
+    if (!customer) throw lastError;
 
     res.status(201).json({ success: true, message: 'Customer created successfully', data: customer });
   } catch (error) {
     console.error('Create customer error:', error);
+    if (error.code === 'P2002') {
+      const target = error.meta?.target;
+      const field = Array.isArray(target) ? target.join(', ') : String(target || 'field');
+      return res.status(409).json({
+        success: false,
+        message: `A customer with this ${field} already exists`,
+      });
+    }
     res.status(500).json({ success: false, message: 'Failed to create customer', error: error.message });
   }
 };

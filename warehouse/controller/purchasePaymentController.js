@@ -4,7 +4,6 @@ const PurchasePaymentMake = require('../models/PurchasePaymentMake');
 const prisma = require('../../prisma/client');
 const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
-const { createExpenseFromPurchasePayment } = require('../../controllers/expenseController');
 
 // ============================================================
 // ─── PURCHASE PAYMENT MAKE CONTROLLERS ──────────────────────
@@ -196,35 +195,13 @@ const makePayment = async (req, res) => {
 
     const payment = await PurchasePaymentMake.makePayment(paymentData);
 
-    // Mirror completed purchase payment onto Expense screen (no second JE/bank hit)
-    let expense = null;
-    try {
-      expense = await createExpenseFromPurchasePayment({
-        userId,
-        companyId,
-        payment,
-        fiscalYearId,
-      });
-    } catch (expenseErr) {
-      console.error(
-        '⚠️ Purchase payment succeeded but expense creation failed:',
-        expenseErr.message
-      );
-    }
+    // Payment is balance-sheet only (Dr AP / Cr Cash). Do NOT create Expense —
+    // that double-counts purchases in Net Profit (Purchases + Expenses).
 
     res.status(201).json({
       success: true,
-      message: expense
-        ? 'Payment made successfully and expense recorded'
-        : 'Payment made successfully',
+      message: 'Payment made successfully',
       data: payment,
-      expense: expense
-        ? {
-            id: expense.id,
-            expenseNumber: expense.expenseNumber,
-            amount: expense.totalAmount || expense.amount,
-          }
-        : null,
     });
   } catch (error) {
     console.error('Make payment error:', error);
@@ -482,7 +459,12 @@ const cancelPayment = async (req, res) => {
     }
 
     // ─── Cancel Payment ──────────────────────────────────
-    const cancelledPayment = await PurchasePaymentMake.cancelPayment(id, userId, reason);
+    const cancelledPayment = await PurchasePaymentMake.cancelPayment(
+      id,
+      userId,
+      companyId,
+      reason || ''
+    );
 
     res.status(200).json({
       success: true,

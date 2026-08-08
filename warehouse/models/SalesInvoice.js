@@ -1,6 +1,7 @@
 // warehouse/models/SalesInvoice.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const BalanceCalculator = require('../../utils/balanceCalculator');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -233,6 +234,14 @@ class SalesInvoiceModel {
         }
       });
 
+      // Invoice created → lift Draft order to Pending
+      if (order.orderStatus === 'Draft') {
+        await tx.order.update({
+          where: { id: order.id },
+          data: { orderStatus: 'Pending', updatedBy: userId },
+        });
+      }
+
       return invoice;
     });
   }
@@ -454,6 +463,9 @@ class SalesInvoiceModel {
         include: { lines: true }
       });
 
+      // Sync Chart of Accounts: Dr AR, Cr Sales Revenue
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
+
       // ─── 2. Create Accounts Receivable Record ─────────────
       await tx.accountsReceivable.create({
         data: {
@@ -497,6 +509,22 @@ class SalesInvoiceModel {
           accountsReceivable: true
         }
       });
+
+      // Advance linked order out of Draft/Pending into Processing
+      if (invoice.orderId) {
+        const linkedOrder = await tx.order.findUnique({
+          where: { id: invoice.orderId },
+        });
+        if (
+          linkedOrder &&
+          ['Draft', 'Pending'].includes(linkedOrder.orderStatus)
+        ) {
+          await tx.order.update({
+            where: { id: invoice.orderId },
+            data: { orderStatus: 'Processing', updatedBy: userId },
+          });
+        }
+      }
 
       return updatedInvoice;
     });
@@ -862,6 +890,11 @@ class SalesInvoiceModel {
           status: invoiceStatus === 'Paid' ? 'Paid' : 'Current'
         }
       });
+
+      if (invoice.orderId) {
+        const Order = require('./Order');
+        await Order.syncFromInvoices(invoice.orderId, tx);
+      }
 
       return updatedInvoice;
     });

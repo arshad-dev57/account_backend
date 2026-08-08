@@ -1,6 +1,7 @@
 // warehouse/models/PurchaseInvoice.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const BalanceCalculator = require('../../utils/balanceCalculator');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -52,24 +53,24 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
 
 // ─── Helper: Find or Create Accounts Payable Account ──────
 async function findOrCreateAPAccount(tx, companyId, userId) {
+  // Prefer real AP (2000). Never use 2100 — that is Taxes Payable in default COA.
   let account = await tx.chartOfAccount.findFirst({
     where: {
       companyId: companyId,
       isActive: true,
       OR: [
-        { code: '2100' },
         { code: '2000' },
         { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
         { name: { contains: 'Creditors', mode: 'insensitive' } },
-        { name: { contains: 'Trade Payables', mode: 'insensitive' } }
-      ]
-    }
+        { name: { contains: 'Trade Payables', mode: 'insensitive' } },
+      ],
+    },
   });
 
   if (!account) {
     account = await tx.chartOfAccount.create({
       data: {
-        code: '2100',
+        code: '2000',
         name: 'Accounts Payable',
         type: 'Liability',
         parentAccount: 'Current Liabilities',
@@ -79,10 +80,10 @@ async function findOrCreateAPAccount(tx, companyId, userId) {
         description: 'Accounts Payable - Auto-created for Purchase Invoices',
         isActive: true,
         createdBy: userId || 'SYSTEM',
-        companyId: companyId
-      }
+        companyId: companyId,
+      },
     });
-    console.log('✅ Auto-created Accounts Payable Account (2100)');
+    console.log('✅ Auto-created Accounts Payable Account (2000)');
   }
 
   return account;
@@ -185,7 +186,7 @@ class PurchaseInvoiceModel {
   static async createFromGRN(data) {
     const invoiceNumber = generateInvoiceNumber();
 
-    return await prisma.$transaction(async (tx) => {
+    const invoice = await prisma.$transaction(async (tx) => {
       const grn = await tx.goodsReceiving.findFirst({
         where: {
           id: data.goodsReceivingId,
@@ -237,7 +238,11 @@ class PurchaseInvoiceModel {
       let totalTax = 0;
 
       const invoiceItems = grn.items.map(item => {
-        const unitPrice = item.product?.costPrice || 0;
+        // Use PO line price (agreed cost), not product master costPrice
+        const unitPrice =
+          item.purchaseOrderItem?.unitPrice ??
+          item.product?.costPrice ??
+          0;
         const lineTotal = item.receivingQuantity * unitPrice;
         const discountAmount = (lineTotal * (item.purchaseOrderItem?.discount || 0)) / 100;
         const taxableAmount = lineTotal - discountAmount;
@@ -316,6 +321,9 @@ class PurchaseInvoiceModel {
 
       return invoice;
     });
+
+    // No Draft — post immediately (JE + AP, Unpaid)
+    return await this.postInvoice(invoice.id, data.createdBy || data.userId);
   }
 
   // ============================================================
@@ -324,7 +332,7 @@ class PurchaseInvoiceModel {
   static async createFromPurchaseOrder(data) {
     const invoiceNumber = generateInvoiceNumber();
 
-    return await prisma.$transaction(async (tx) => {
+    const invoice = await prisma.$transaction(async (tx) => {
       const purchaseOrder = await tx.purchaseOrder.findFirst({
         where: {
           id: data.purchaseOrderId,
@@ -337,7 +345,11 @@ class PurchaseInvoiceModel {
           items: { include: { product: true } },
           supplier: true,
           goodsReceivings: {
-            where: { isActive: true, isDeleted: false },
+            where: {
+              isActive: true,
+              isDeleted: false,
+              status: { in: ['Partially Received', 'Fully Received'] },
+            },
             include: { items: true }
           }
         }
@@ -381,11 +393,14 @@ class PurchaseInvoiceModel {
 
       const invoiceItems = purchaseOrder.items
         .map(item => {
+          // Prefer confirmed received qty; otherwise use ordered PO qty
           const receivedQuantity = receivedQty[item.id] || 0;
-          if (receivedQuantity === 0) return null;
+          const quantity =
+            receivedQuantity > 0 ? receivedQuantity : item.quantity || 0;
+          if (quantity === 0) return null;
 
           const unitPrice = item.unitPrice;
-          const lineTotal = receivedQuantity * unitPrice;
+          const lineTotal = quantity * unitPrice;
           const discountAmount = (lineTotal * (item.discount || 0)) / 100;
           const taxableAmount = lineTotal - discountAmount;
           const taxAmount = (taxableAmount * (item.taxRate || 0)) / 100;
@@ -399,7 +414,7 @@ class PurchaseInvoiceModel {
             productId: item.productId,
             productName: item.productName,
             sku: item.sku,
-            quantity: receivedQuantity,
+            quantity: quantity,
             unitPrice: unitPrice,
             discount: item.discount || 0,
             taxRate: item.taxRate || 0,
@@ -411,7 +426,7 @@ class PurchaseInvoiceModel {
         .filter(item => item !== null);
 
       if (invoiceItems.length === 0) {
-        throw new Error('No items have been received for this purchase order');
+        throw new Error('Purchase order has no items to invoice');
       }
 
       const grandTotal = subtotal - totalDiscount + totalTax;
@@ -467,6 +482,9 @@ class PurchaseInvoiceModel {
 
       return invoice;
     });
+
+    // No Draft — post immediately (JE + AP, Unpaid)
+    return await this.postInvoice(invoice.id, data.createdBy || data.userId);
   }
 
   // ============================================================
@@ -542,6 +560,9 @@ class PurchaseInvoiceModel {
         },
         include: { lines: true }
       });
+
+      // Sync COA balances with posted purchase invoice JE
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
 
       const apRecord = await tx.accountsPayable.create({
         data: {
@@ -769,9 +790,9 @@ class PurchaseInvoiceModel {
       }
 
       if (invoice.invoiceStatus === 'Posted') {
-        if (invoice.journalEntry) {
+          if (invoice.journalEntry) {
           const reverseEntryNumber = `REV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-          await tx.journalEntry.create({
+          const reverseEntry = await tx.journalEntry.create({
             data: {
               entryNumber: reverseEntryNumber,
               date: new Date(),
@@ -792,8 +813,10 @@ class PurchaseInvoiceModel {
                   credit: line.debit
                 }))
               }
-            }
+            },
+            include: { lines: true },
           });
+          await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);
         }
 
         if (invoice.accountsPayable) {

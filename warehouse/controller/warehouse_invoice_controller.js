@@ -413,9 +413,43 @@ const getInvoices = async (req, res) => {
       );
     }
 
+    // Prefer SalesInvoice (accounting module) when both exist for the same order.
+    // Also hide orphan WarehouseInvoice Drafts (legacy auto-generated on order create).
+    const salesOrderIds = new Set(
+      moduleSalesRows.filter((r) => r.orderId).map((r) => r.orderId)
+    );
+
+    // Soft-delete legacy auto-draft warehouse invoices superseded by a SalesInvoice
+    const supersededDraftIds = salesRows
+      .filter(
+        (inv) =>
+          String(inv.invoiceStatus || '') === 'Draft' &&
+          inv.orderId &&
+          salesOrderIds.has(inv.orderId)
+      )
+      .map((inv) => inv.id);
+    if (supersededDraftIds.length > 0) {
+      await prisma.warehouseInvoice.updateMany({
+        where: { id: { in: supersededDraftIds } },
+        data: { isDeleted: true, isActive: false },
+      });
+    }
+
+    const filteredWarehouseSales = salesRows.filter((inv) => {
+      const status = String(inv.invoiceStatus || '');
+      if (supersededDraftIds.includes(inv.id)) return false;
+      if (status === 'Draft' || status === 'Cancelled') return false;
+      if (inv.orderId && salesOrderIds.has(inv.orderId)) return false;
+      return true;
+    });
+
     const mappedSales = [
-      ...salesRows.map((inv) => mapSalesInvoice(inv, creditMap[inv.id] || 0)),
-      ...moduleSalesRows.map(mapModuleSalesInvoice),
+      ...moduleSalesRows
+        .filter((inv) => String(inv.invoiceStatus || '') !== 'Cancelled')
+        .map(mapModuleSalesInvoice),
+      ...filteredWarehouseSales.map((inv) =>
+        mapSalesInvoice(inv, creditMap[inv.id] || 0)
+      ),
     ];
     const mappedPurchases = purchaseRows.map(mapPurchaseInvoice);
 
@@ -652,6 +686,11 @@ const recordPayment = async (req, res) => {
       invoiceStatus: paymentStatus === 'Paid' ? 'Paid' : invoice.invoiceStatus,
       updatedBy: req.user.id,
     });
+
+    if (invoice.orderId) {
+      const Order = require('../models/Order');
+      await Order.syncFromInvoices(invoice.orderId);
+    }
 
     res.status(200).json({ success: true, message: 'Payment recorded', data: updated });
   } catch (error) {

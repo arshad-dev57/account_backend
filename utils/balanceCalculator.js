@@ -102,6 +102,49 @@ class BalanceCalculator {
   static calculateNetDifference(totalDebit, totalCredit) {
     return totalDebit - totalCredit;
   }
+
+  /**
+   * Normalize type aliases (Income → Revenue)
+   */
+  static normalizeAccountType(type) {
+    if (type === 'Income') return 'Revenue';
+    return type || 'Asset';
+  }
+
+  /**
+   * Apply one journal line to ChartOfAccount.currentBalance (inside a Prisma tx).
+   */
+  static async applyJournalLine(tx, { accountId, debit = 0, credit = 0 }) {
+    if (!accountId) return null;
+    const account = await tx.chartOfAccount.findUnique({ where: { id: accountId } });
+    if (!account) return null;
+
+    const accountType = this.normalizeAccountType(account.type);
+    const newBalance = this.calculateRunningBalance({
+      currentBalance: Number(account.currentBalance || 0),
+      debit: Number(debit || 0),
+      credit: Number(credit || 0),
+      accountType,
+    });
+
+    return tx.chartOfAccount.update({
+      where: { id: accountId },
+      data: { currentBalance: newBalance },
+    });
+  }
+
+  /**
+   * Apply many journal lines to COA balances.
+   */
+  static async applyJournalLines(tx, lines = []) {
+    for (const line of lines) {
+      await this.applyJournalLine(tx, {
+        accountId: line.accountId,
+        debit: line.debit,
+        credit: line.credit,
+      });
+    }
+  }
 }
 
 module.exports = BalanceCalculator;

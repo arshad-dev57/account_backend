@@ -113,7 +113,15 @@ const normalizeOrderStatus = (s) => {
   const v = String(s || '').toLowerCase();
   if (v === 'approved' || v === 'confirm' || v === 'confirmed') return 'approved';
   if (v === 'sent' || v === 'submitted') return 'sent';
-  if (v === 'received' || v === 'completed' || v === 'closed') return 'received';
+  if (
+    v === 'received' ||
+    v === 'partially received' ||
+    v === 'fully received' ||
+    v === 'completed' ||
+    v === 'closed'
+  ) {
+    return 'received';
+  }
   if (v === 'cancelled' || v === 'canceled' || v === 'rejected') return 'cancelled';
   if (v === 'draft') return 'draft';
   return v || 'draft';
@@ -133,6 +141,7 @@ const getMetrics = async (req, res) => {
     });
     const invoiceWhere = baseWhere(companyId, userId, {
       invoiceDate: { gte: start, lte: end },
+      invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
     });
     const returnWhere = baseWhere(companyId, userId, {
       createdAt: { gte: start, lte: end },
@@ -142,7 +151,7 @@ const getMetrics = async (req, res) => {
       status: { not: 'Cancelled' },
     });
 
-    const [orders, invoices, returnsCount, paymentsAgg] = await Promise.all([
+    const [orders, invoices, returnsRows, paymentsAgg] = await Promise.all([
       prisma.purchaseOrder.findMany({
         where: orderWhere,
         select: { status: true, grandTotal: true },
@@ -157,12 +166,24 @@ const getMetrics = async (req, res) => {
           outstanding: true,
         },
       }),
-      prisma.purchaseReturn.count({ where: returnWhere }),
+      prisma.purchaseReturn.findMany({
+        where: {
+          ...returnWhere,
+          status: 'Processed',
+        },
+        select: { grandTotal: true },
+      }),
       prisma.purchasePaymentMake.aggregate({
         where: paymentWhere,
         _sum: { amount: true },
       }),
     ]);
+
+    const returnsCount = returnsRows.length;
+    const returnsAmount = returnsRows.reduce(
+      (s, r) => s + toNum(r.grandTotal),
+      0
+    );
 
     const orderStats = {
       total: orders.length,
@@ -210,6 +231,8 @@ const getMetrics = async (req, res) => {
       }
     });
 
+    const netSpend = Math.max(0, totalSpend - returnsAmount);
+
     res.json({
       success: true,
       data: {
@@ -219,9 +242,10 @@ const getMetrics = async (req, res) => {
           paid: paidCount,
           paidAmount,
           outstanding,
-          totalSpend,
+          totalSpend: netSpend,
+          grossSpend: totalSpend,
         },
-        returns: { total: returnsCount },
+        returns: { total: returnsCount, amount: returnsAmount },
         payments: { totalPaid: toNum(paymentsAgg._sum.amount) },
         period: { start, end, key: period },
       },

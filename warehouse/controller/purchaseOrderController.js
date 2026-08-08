@@ -100,7 +100,7 @@ const createPurchaseOrder = async (req, res) => {
       items: processedItems,
       notes: notes || '',
       termsConditions: termsConditions || '',
-      status: status || 'Draft',
+      status: status || 'Approved',
       createdBy: userId,      // ✅ Use createdBy
       companyId: companyId,   // ✅ Use companyId
     };

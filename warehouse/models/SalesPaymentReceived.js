@@ -1,6 +1,7 @@
 // warehouse/models/SalesPaymentReceived.js - COMPLETE WITH AUTO-CREATE
 
 const prisma = require('../../prisma/client');
+const BalanceCalculator = require('../../utils/balanceCalculator');
 
 // ─── Generate Payment Number ──────────────────────────────
 function generatePaymentNumber() {
@@ -298,11 +299,16 @@ class SalesPaymentReceivedModel {
             debitAccountId = bankGLAccount.id;
             debitAccountName = bankGLAccount.name;
             debitAccountCode = bankGLAccount.code;
+          } else {
+            debitAccountId = cashAccount.id;
+            debitAccountName = cashAccount.name;
+            debitAccountCode = cashAccount.code;
           }
         } else {
-          debitAccountName = bankAccount.accountName || 'Bank Account';
-          debitAccountCode = bankAccount.accountCode || '1110';
-          debitAccountId = arAccount.id;
+          // Bank has no linked GL — fall back to Cash (never debit AR)
+          debitAccountId = cashAccount.id;
+          debitAccountName = cashAccount.name;
+          debitAccountCode = cashAccount.code;
         }
       } else {
         debitAccountId = cashAccount.id;
@@ -352,6 +358,9 @@ class SalesPaymentReceivedModel {
           }
         }
       });
+
+      // Keep Chart of Accounts balances in sync with the JE
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
 
       // ─── Get AR Record for first invoice ─────────────────
       const firstInvoice = validatedInvoices[0].invoice;
@@ -409,6 +418,7 @@ class SalesPaymentReceivedModel {
       });
 
       // ─── Update Each Invoice ─────────────────────────────
+      const orderIdsToSync = new Set();
       for (const inv of validatedInvoices) {
         const invoice = inv.invoice;
         const newPaidAmount = inv.totalPaid + inv.amountPaid;
@@ -439,6 +449,16 @@ class SalesPaymentReceivedModel {
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
+
+        if (invoice.orderId) {
+          orderIdsToSync.add(invoice.orderId);
+        }
+      }
+
+      // ─── Sync linked sales orders (payment + lift Draft) ──
+      const Order = require('./Order');
+      for (const orderId of orderIdsToSync) {
+        await Order.syncFromInvoices(orderId, tx);
       }
 
       // ─── Update Customer Outstanding Balance ─────────────
@@ -696,6 +716,7 @@ class SalesPaymentReceivedModel {
       }
 
       // ─── Reverse Invoice Payments ──────────────────────────
+      const orderIdsToSync = new Set();
       for (const invPayment of payment.invoicePayments) {
         const invoice = invPayment.invoice;
         const totalPaid = invoice.invoicePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
@@ -729,13 +750,20 @@ class SalesPaymentReceivedModel {
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
+
+        if (invoice.orderId) orderIdsToSync.add(invoice.orderId);
+      }
+
+      const Order = require('./Order');
+      for (const orderId of orderIdsToSync) {
+        await Order.syncFromInvoices(orderId, tx);
       }
 
       // ─── Reverse Journal Entry ─────────────────────────────
       if (payment.journalEntry) {
         const reverseEntryNumber = `REV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
-        await tx.journalEntry.create({
+        const reverseEntry = await tx.journalEntry.create({
           data: {
             entryNumber: reverseEntryNumber,
             date: new Date(),
@@ -756,8 +784,11 @@ class SalesPaymentReceivedModel {
                 credit: line.debit
               }))
             }
-          }
+          },
+          include: { lines: true },
         });
+
+        await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);
       }
 
       // ─── Update Bank Account Balance ──────────────────────

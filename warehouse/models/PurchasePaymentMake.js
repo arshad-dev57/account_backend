@@ -1,6 +1,7 @@
 // warehouse/models/PurchasePaymentMake.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const BalanceCalculator = require('../../utils/balanceCalculator');
 
 // ─── Generate Payment Number ──────────────────────────────
 function generatePaymentNumber() {
@@ -12,7 +13,7 @@ function generatePaymentNumber() {
   return `PP-${year}${month}${day}-${random}`;
 }
 
-// ─── Helper: Find AP Account ──────────────────────────────
+// ─── Helper: Find AP Account (unified code 2000) ──────────
 async function findAPAccount(tx, companyId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
@@ -20,10 +21,30 @@ async function findAPAccount(tx, companyId) {
       isActive: true,
       OR: [
         { code: '2000' },
-        { name: { contains: 'Accounts Payable', mode: 'insensitive' } }
-      ]
-    }
+        { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
+        { name: { contains: 'Trade Payables', mode: 'insensitive' } },
+        { name: { contains: 'Creditors', mode: 'insensitive' } },
+      ],
+    },
   });
+
+  if (!account) {
+    account = await tx.chartOfAccount.create({
+      data: {
+        code: '2000',
+        name: 'Accounts Payable',
+        type: 'Liability',
+        parentAccount: 'Current Liabilities',
+        openingBalance: 0,
+        currentBalance: 0,
+        balanceType: 'Credit',
+        description: 'Accounts Payable',
+        isActive: true,
+        createdBy: 'SYSTEM',
+        companyId,
+      },
+    });
+  }
 
   return account;
 }
@@ -71,15 +92,40 @@ class PurchasePaymentMakeModel {
         ? { createdBy: userId }
         : {};
 
+    // Resolve supplier so we can also match invoices by name
+    // (avoids empty list when supplierId drifted / duplicates)
+    const supplier = await prisma.supplier.findFirst({
+      where: {
+        id: supplierId,
+        ...(companyId ? { companyId } : {}),
+      },
+      select: { id: true, name: true },
+    });
+
+    const supplierMatch = supplier?.name
+      ? {
+          OR: [
+            { supplierId },
+            { supplierName: { equals: supplier.name, mode: 'insensitive' } },
+          ],
+        }
+      : { supplierId };
+
     const invoices = await prisma.purchaseInvoice.findMany({
       where: {
         AND: [
-          { supplierId },
+          supplierMatch,
           { isActive: true },
           { isDeleted: false },
-          // Include Draft/Posted/Partially Paid — anything still unpaid
-          { invoiceStatus: { notIn: ['Paid', 'Cancelled'] } },
-          { paymentStatus: { notIn: ['Paid', 'paid'] } },
+          // Only real payable invoices (no Draft)
+          {
+            invoiceStatus: {
+              in: ['Posted', 'Partially Paid'],
+            },
+          },
+          {
+            paymentStatus: { notIn: ['Paid', 'paid'] },
+          },
           companyScope,
         ],
       },
@@ -96,10 +142,14 @@ class PurchasePaymentMakeModel {
         const outstanding =
           Number(inv.outstanding) > 0
             ? Number(inv.outstanding)
-            : Math.max(0, Number(inv.grandTotal || 0) - Number(inv.paidAmount || 0));
+            : Math.max(
+                0,
+                Number(inv.grandTotal || 0) - Number(inv.paidAmount || 0)
+              );
         return {
           ...inv,
           outstanding,
+          payable: outstanding > 0,
         };
       })
       .filter((inv) => inv.outstanding > 0);
@@ -179,8 +229,8 @@ class PurchasePaymentMakeModel {
             isActive: true,
             isDeleted: false,
             invoiceStatus: {
-              notIn: ['Paid', 'Cancelled']
-            }
+              in: ['Posted', 'Partially Paid'],
+            },
           },
           include: {
             purchasePayments: {
@@ -255,9 +305,13 @@ class PurchasePaymentMakeModel {
               debitAccountCode = bankGLAccount.code;
             }
           } else {
-            debitAccountName = bankAccount.accountName || 'Bank Account';
-            debitAccountCode = bankAccount.accountCode || '1110';
-            debitAccountId = apAccount.id;
+            // Bank has no linked GL — fall back to Cash (never credit AP)
+            const cashAccount = await findCashAccount(tx, companyId);
+            if (cashAccount) {
+              debitAccountId = cashAccount.id;
+              debitAccountName = cashAccount.name;
+              debitAccountCode = cashAccount.code;
+            }
           }
         }
       } else {
@@ -311,6 +365,9 @@ class PurchasePaymentMakeModel {
           }
         }
       });
+
+      // Keep Chart of Accounts in sync with payment JE
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
 
       // ─── Create Payment Record ───────────────────────────────
       const payment = await tx.purchasePaymentMake.create({
@@ -685,7 +742,7 @@ class PurchasePaymentMakeModel {
       if (payment.journalEntry) {
         const reverseEntryNumber = `REV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
-        await tx.journalEntry.create({
+        const reverseEntry = await tx.journalEntry.create({
           data: {
             entryNumber: reverseEntryNumber,
             date: new Date(),
@@ -706,8 +763,11 @@ class PurchasePaymentMakeModel {
                 credit: line.debit
               }))
             }
-          }
+          },
+          include: { lines: true },
         });
+
+        await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);
       }
 
       // ─── Update Bank Account Balance ──────────────────────

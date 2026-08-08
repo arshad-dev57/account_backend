@@ -216,11 +216,19 @@ class GoodsReceivingModel {
         }
 
         const allItemsFullyReceived = receivingItems.every(item => item.remainingQuantity === 0);
-        if (allItemsFullyReceived && purchaseOrder.status !== 'Approved') {
+        if (allItemsFullyReceived) {
           await tx.purchaseOrder.update({
             where: { id: data.purchaseOrderId },
             data: {
-              status: 'Approved',
+              status: 'Received',
+              updatedBy: data.createdBy
+            }
+          });
+        } else if (!['Received', 'Cancelled'].includes(purchaseOrder.status)) {
+          await tx.purchaseOrder.update({
+            where: { id: data.purchaseOrderId },
+            data: {
+              status: 'Partially Received',
               updatedBy: data.createdBy
             }
           });
@@ -401,7 +409,15 @@ class GoodsReceivingModel {
         await tx.purchaseOrder.update({
           where: { id: goodsReceiving.purchaseOrderId },
           data: {
-            status: 'Approved',
+            status: 'Received',
+            updatedBy: userId
+          }
+        });
+      } else {
+        await tx.purchaseOrder.update({
+          where: { id: goodsReceiving.purchaseOrderId },
+          data: {
+            status: 'Partially Received',
             updatedBy: userId
           }
         });

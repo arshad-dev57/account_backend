@@ -2,6 +2,7 @@
 
 const prisma = require('../prisma/client');
 const { get, set, del, delPattern } = require('../utils/redisClient');
+const BalanceCalculator = require('../utils/balanceCalculator');
 
 // ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
@@ -752,8 +753,8 @@ const getAccounts = async (req, res) => {
     const limitNum = parseInt(limit) || 10;
     const skip = (pageNum - 1) * limitNum;
 
-    // Build cache key with parameters (v2 to force cache invalidation)
-    const cacheKey = `coa:accounts:v2:${userId}:${type || 'All'}:${search || ''}:${page}:${limitNum}:${sortBy}:${sortOrder}`;
+    // Build cache key with parameters (v3: balances derived from posted JEs)
+    const cacheKey = `coa:accounts:v3:${userId}:${type || 'All'}:${search || ''}:${page}:${limitNum}:${sortBy}:${sortOrder}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -783,6 +784,64 @@ const getAccounts = async (req, res) => {
       prisma.chartOfAccount.count({ where: filter })
     ]);
 
+    // Derive balances from posted journal lines (source of truth)
+    const accountIds = accounts.map((a) => a.id);
+    let debitCreditByAccount = {};
+    if (accountIds.length > 0) {
+      const lineAggs = await prisma.journalLine.groupBy({
+        by: ['accountId'],
+        where: {
+          accountId: { in: accountIds },
+          journal: {
+            companyId,
+            status: 'Posted',
+          },
+        },
+        _sum: { debit: true, credit: true },
+      });
+      debitCreditByAccount = Object.fromEntries(
+        lineAggs.map((row) => [
+          row.accountId,
+          {
+            debit: Number(row._sum.debit || 0),
+            credit: Number(row._sum.credit || 0),
+          },
+        ])
+      );
+    }
+
+    const accountsWithBalances = accounts.map((account) => {
+      const sums = debitCreditByAccount[account.id] || { debit: 0, credit: 0 };
+      const accountType = BalanceCalculator.normalizeAccountType(account.type);
+      const jeBalance = BalanceCalculator.calculateAccountBalance({
+        debit: sums.debit,
+        credit: sums.credit,
+        accountType,
+      });
+      // If no JE activity yet, keep stored currentBalance (opening / manual)
+      const hasJe = sums.debit !== 0 || sums.credit !== 0;
+      const balance = hasJe ? jeBalance : Number(account.currentBalance || 0);
+      return {
+        ...account,
+        currentBalance: balance,
+        debitTotal: sums.debit,
+        creditTotal: sums.credit,
+      };
+    });
+
+    // Persist JE-derived balances so Trial Balance / other screens stay consistent
+    await Promise.all(
+      accountsWithBalances.map((acc) => {
+        if (Number(acc.currentBalance) === Number(accounts.find((a) => a.id === acc.id)?.currentBalance || 0)) {
+          return null;
+        }
+        return prisma.chartOfAccount.update({
+          where: { id: acc.id },
+          data: { currentBalance: acc.currentBalance },
+        });
+      })
+    );
+
     const summary = {
       Assets: 0,
       Liabilities: 0,
@@ -791,7 +850,7 @@ const getAccounts = async (req, res) => {
       Expenses: 0
     };
 
-    accounts.forEach(account => {
+    accountsWithBalances.forEach(account => {
       const typeKey = account.type === 'Revenue' ? 'Income' : account.type;
       if (summary[typeKey] !== undefined) {
         summary[typeKey] += account.currentBalance;
@@ -801,9 +860,9 @@ const getAccounts = async (req, res) => {
     const totalPages = Math.ceil(totalCount / limitNum);
 
     const responseData = {
-      count: accounts.length,
+      count: accountsWithBalances.length,
       totalCount: totalCount,
-      data: accounts,
+      data: accountsWithBalances,
       summary,
       pagination: {
         total: totalCount,

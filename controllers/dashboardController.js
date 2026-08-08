@@ -218,16 +218,40 @@ function salesInvoiceWhere(companyId, userId, extra = {}) {
 }
 
 /**
+ * Merge WarehouseInvoice + SalesInvoice without double-counting.
+ * Prefer SalesInvoice when both exist for the same orderId.
+ * Rows without orderId are kept from both sources (manual invoices).
+ */
+function mergeSalesInvoiceRows(warehouseRows = [], moduleRows = []) {
+  const moduleOrderIds = new Set(
+    moduleRows.filter((r) => r.orderId).map((r) => r.orderId)
+  );
+  const filteredWarehouse = warehouseRows.filter((inv) => {
+    const status = String(inv.invoiceStatus || '');
+    if (status === 'Draft' || status === 'Cancelled') return false;
+    if (inv.orderId && moduleOrderIds.has(inv.orderId)) return false;
+    return true;
+  });
+  const filteredModule = moduleRows.filter((inv) => {
+    const status = String(inv.invoiceStatus || '');
+    return status !== 'Draft' && status !== 'Cancelled';
+  });
+  return [...filteredModule, ...filteredWarehouse];
+}
+
+/**
  * Accounting dashboard aggregates across modules:
  *
- *   Sales (KPI)    ← Warehouse Invoices Paid amount (sales invoices only)
- *   Sales revenue  ← Sales invoice grand totals (for Revenue formula)
+ *   Sales (KPI)    ← Sales invoices paidAmount (selected period)
+ *   Revenue        ← Sales paid + Other income − Credit notes
  *   Purchases      ← Purchases module (PurchaseInvoice)
  *   Other income   ← Accounting Income screen
  *   Expenses       ← Accounting Expense screen
  *   Credit notes   ← Accounting Credit Notes
  *
- *   Revenue   = Sales revenue + Other income − Credit notes
+ *   Unpaid invoice balances are NOT included in Revenue/Sales.
+ *   They appear under Receivables (outstanding).
+ *
  *   Net Profit = Revenue − Purchases − Expenses
  */
 function computePeriodTotals(
@@ -246,21 +270,26 @@ function computePeriodTotals(
   const curPurch = purchaseInvoices.filter((d) => inRange(d.date, start, end));
 
   const otherIncome = sumDocs(curInc, incomeAmt);
-  const salesRevenue = sumDocs(curSales, invoiceAmt);
+  // Invoiced total kept for breakdown only (includes unpaid)
+  const salesInvoiced = sumDocs(curSales, invoiceAmt);
+  // Cash/collected sales — excludes unpaid portion
   const salesPaid = curSales.reduce((s, d) => s + toNum(d.paidAmount), 0);
   const creditNotesTotal = sumDocs(curCN, creditAmt);
   const operatingExpenses = sumDocs(curExp, expenseAmt);
   const purchases = sumDocs(curPurch, invoiceAmt);
 
-  const revenue = salesRevenue + otherIncome - creditNotesTotal;
+  // Revenue uses PAID sales only (not unpaid invoice totals)
+  const salesRevenue = salesPaid;
+  const revenue = salesPaid + otherIncome - creditNotesTotal;
   const totalCosts = purchases + operatingExpenses;
   const netProfit = revenue - totalCosts;
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
-  const grossProfit = salesRevenue - purchases;
+  const grossProfit = salesPaid - purchases;
 
   return {
     otherIncome,
     salesRevenue,
+    salesInvoiced,
     salesPaid,
     creditNotesTotal,
     operatingExpenses,
@@ -352,7 +381,6 @@ function buildChartSeries({
   const periodPurch = mappedPurchases.filter((d) => inRange(d.date, startDate, endDate));
 
   const incMap = groupFn(periodIncomes, incomeAmt);
-  const invMap = groupFn(periodSales, invoiceAmt);
   const paidMap = groupFn(periodSales, (d) => toNum(d.paidAmount));
   const cnMap = groupFn(periodCN, creditAmt);
   const expMap = groupFn(periodExp, expenseAmt);
@@ -362,7 +390,9 @@ function buildChartSeries({
     useDaily,
     chartData: buckets.map((d) => {
       const key = bucketKey(d);
-      const revenue = (incMap[key] || 0) + (invMap[key] || 0) - (cnMap[key] || 0);
+      // Revenue trend = paid sales + income − credit notes (excludes unpaid)
+      const revenue =
+        (incMap[key] || 0) + (paidMap[key] || 0) - (cnMap[key] || 0);
       const expensesTotal = expMap[key] || 0;
       const purchases = purchMap[key] || 0;
       return {
@@ -544,29 +574,33 @@ async function buildDashboardOverview({
     prisma.warehouseInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
-        invoiceStatus: { notIn: ['Cancelled'] },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
       }),
       select: {
         id: true,
+        orderId: true,
         invoiceDate: true,
         grandTotal: true,
         paidAmount: true,
         invoiceNumber: true,
         customerName: true,
+        invoiceStatus: true,
       },
     }),
     prisma.salesInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
-        invoiceStatus: { notIn: ['Cancelled'] },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
       }),
       select: {
         id: true,
+        orderId: true,
         invoiceDate: true,
         grandTotal: true,
         paidAmount: true,
         invoiceNumber: true,
         customerName: true,
+        invoiceStatus: true,
       },
     }),
     prisma.creditNote.findMany({
@@ -612,7 +646,7 @@ async function buildDashboardOverview({
           invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
         }),
       },
-      select: { outstanding: true },
+      select: { outstanding: true, orderId: true, invoiceStatus: true },
     }),
     prisma.salesInvoice.findMany({
       where: {
@@ -622,7 +656,7 @@ async function buildDashboardOverview({
           invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
         }),
       },
-      select: { outstanding: true },
+      select: { outstanding: true, orderId: true, invoiceStatus: true },
     }),
     prisma.bill.findMany({
       where: {
@@ -756,18 +790,15 @@ async function buildDashboardOverview({
     }),
   ]);
 
-  const mappedSales = [
-    ...allSalesInvoices.map((inv) => ({
-      date: inv.invoiceDate,
-      totalAmount: inv.grandTotal,
-      paidAmount: inv.paidAmount,
-    })),
-    ...allModuleSalesInvoices.map((inv) => ({
-      date: inv.invoiceDate,
-      totalAmount: inv.grandTotal,
-      paidAmount: inv.paidAmount,
-    })),
-  ];
+  const mergedSalesRows = mergeSalesInvoiceRows(
+    allSalesInvoices,
+    allModuleSalesInvoices
+  );
+  const mappedSales = mergedSalesRows.map((inv) => ({
+    date: inv.invoiceDate,
+    totalAmount: inv.grandTotal,
+    paidAmount: inv.paidAmount,
+  }));
   const mappedPurchases = allPurchaseInvoices.map((inv) => ({
     date: inv.invoiceDate,
     totalAmount: inv.grandTotal,
@@ -801,10 +832,10 @@ async function buildDashboardOverview({
   ).length;
   const netProfitAmount = current.revenue - current.purchases - expenseScreenTotal;
 
-  const allOutstandingSales = [
-    ...outstandingSalesInvoices,
-    ...outstandingModuleSalesInvoices,
-  ];
+  const allOutstandingSales = mergeSalesInvoiceRows(
+    outstandingSalesInvoices,
+    outstandingModuleSalesInvoices
+  );
   const totalReceivables = allOutstandingSales.reduce(
     (s, inv) => s + toNum(inv.outstanding),
     0
@@ -888,10 +919,11 @@ async function buildDashboardOverview({
         isPositive: revenueChange >= 0,
         period: timePeriod,
         sources: {
-          salesModule: current.salesRevenue,
+          salesModule: current.salesPaid,
+          salesInvoiced: current.salesInvoiced,
           incomeModule: current.otherIncome,
           creditNotes: current.creditNotesTotal,
-          formula: 'Sales invoices + Income − Credit Notes',
+          formula: 'Sales paid + Income − Credit Notes (excludes unpaid)',
         },
       },
       totalSales: {
@@ -940,7 +972,7 @@ async function buildDashboardOverview({
         formatted: formatAmount(current.grossProfit),
         isPositive: current.grossProfit >= 0,
         period: timePeriod,
-        formula: 'Sales invoiced − Purchases',
+        formula: 'Sales paid − Purchases',
       },
       outstanding: {
         amount: totalReceivables,
@@ -1041,7 +1073,7 @@ const getDashboardOverview = async (req, res) => {
     const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
     const txnLimit = parseInt(req.query.limit, 10) || 10;
 
-    const cacheKey = `dashboard:overview:v1:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${txnLimit}`;
+    const cacheKey = `dashboard:overview:v3:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${txnLimit}`;
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({ success: true, data: cached, cached: true });

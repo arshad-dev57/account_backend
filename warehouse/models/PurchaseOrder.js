@@ -93,7 +93,8 @@ class PurchaseOrderModel {
           supplierAddress: supplier.address || null,
           orderDate: new Date(data.orderDate || Date.now()),
           expectedDeliveryDate: data.expectedDeliveryDate ? new Date(data.expectedDeliveryDate) : null,
-          status: data.status || 'Draft',
+          status: data.status || 'Approved',
+          approvedAt: data.status === 'Draft' || data.status === 'Sent' ? null : new Date(),
           subtotal,
           totalDiscount,
           totalTax,
@@ -377,7 +378,9 @@ class PurchaseOrderModel {
     const validTransitions = {
       'Draft': ['Sent', 'Cancelled'],
       'Sent': ['Approved', 'Cancelled'],
-      'Approved': ['Cancelled'],
+      'Approved': ['Partially Received', 'Received', 'Cancelled'],
+      'Partially Received': ['Received', 'Cancelled'],
+      'Received': ['Cancelled'],
       'Cancelled': []
     };
 
@@ -612,12 +615,21 @@ class PurchaseOrderModel {
       }
     });
 
-    const [draft, sent, approved, cancelled] = await Promise.all([
-      prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Draft' } }),
-      prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Sent' } }),
-      prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Approved' } }),
-      prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Cancelled' } })
-    ]);
+    const [draft, sent, approved, partiallyReceived, received, cancelled] =
+      await Promise.all([
+        prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Draft' } }),
+        prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Sent' } }),
+        prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Approved' } }),
+        prisma.purchaseOrder.count({
+          where: { ...baseFilter, status: 'Partially Received' },
+        }),
+        prisma.purchaseOrder.count({
+          where: { ...baseFilter, status: 'Received' },
+        }),
+        prisma.purchaseOrder.count({
+          where: { ...baseFilter, status: 'Cancelled' },
+        }),
+      ]);
 
     return {
       today: {
@@ -632,8 +644,16 @@ class PurchaseOrderModel {
         draft,
         sent,
         approved,
+        partiallyReceived,
+        received,
         cancelled,
-        total: draft + sent + approved + cancelled
+        total:
+          draft +
+          sent +
+          approved +
+          partiallyReceived +
+          received +
+          cancelled,
       }
     };
   }

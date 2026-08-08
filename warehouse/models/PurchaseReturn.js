@@ -1,6 +1,7 @@
 // warehouse/models/PurchaseReturn.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const BalanceCalculator = require('../../utils/balanceCalculator');
 
 // ─── Generate Return Number ──────────────────────────────
 function generateReturnNumber() {
@@ -14,80 +15,118 @@ function generateReturnNumber() {
 
 // ─── Helper: Find AP Account ──────────────────────────────
 async function findAPAccount(tx, companyId) {
-  let account = await tx.chartOfAccount.findFirst({
+  return tx.chartOfAccount.findFirst({
     where: {
       companyId: companyId,
       isActive: true,
       OR: [
         { code: '2000' },
-        { name: { contains: 'Accounts Payable', mode: 'insensitive' } }
-      ]
-    }
+        { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
+        { name: { contains: 'Trade Payables', mode: 'insensitive' } },
+        { name: { contains: 'Creditors', mode: 'insensitive' } },
+      ],
+    },
   });
-
-  return account;
 }
 
-// ─── Helper: Find Inventory Account ──────────────────────
 async function findInventoryAccount(tx, companyId) {
-  let account = await tx.chartOfAccount.findFirst({
+  return tx.chartOfAccount.findFirst({
     where: {
       companyId: companyId,
       isActive: true,
       OR: [
-        { code: '1200' },
-        { name: { contains: 'Inventory', mode: 'insensitive' } }
-      ]
-    }
+        { code: '1300' },
+        { name: { equals: 'Inventory', mode: 'insensitive' } },
+        { name: { contains: 'Inventory', mode: 'insensitive' } },
+      ],
+    },
   });
+}
 
+async function findOrCreateInventoryAccount(tx, companyId, userId) {
+  let account = await findInventoryAccount(tx, companyId);
+  if (account) return account;
+
+  account = await tx.chartOfAccount.create({
+    data: {
+      code: '1300',
+      name: 'Inventory',
+      type: 'Asset',
+      parentAccount: 'Current Assets',
+      openingBalance: 0,
+      currentBalance: 0,
+      balanceType: 'Debit',
+      description: 'Inventory asset',
+      taxCode: 'N/A',
+      isActive: true,
+      createdBy: userId || 'SYSTEM',
+      companyId,
+    },
+  });
   return account;
 }
 
-// ─── Helper: Get or create Purchase Returns account ──────
-async function getOrCreatePurchaseReturnsAccount(tx, companyId, userId) {
+async function findOrCreateCashAccount(tx, companyId, userId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
-      companyId: companyId,
+      companyId,
       isActive: true,
       OR: [
-        { code: '5100' },
-        { name: { contains: 'Purchase Returns', mode: 'insensitive' } }
-      ]
-    }
+        { code: '1100' },
+        { name: { equals: 'Cash', mode: 'insensitive' } },
+        { name: { contains: 'Cash in Hand', mode: 'insensitive' } },
+        { name: { contains: 'Cash', mode: 'insensitive' } },
+      ],
+    },
   });
 
   if (!account) {
-    const maxCode = await tx.chartOfAccount.aggregate({
-      where: { companyId: companyId },
-      _max: { code: true }
-    });
-    
-    let newCode = '5100';
-    if (maxCode._max.code) {
-      const num = parseInt(maxCode._max.code) + 1;
-      newCode = num.toString();
-    }
-
     account = await tx.chartOfAccount.create({
       data: {
-        code: newCode,
-        name: 'Purchase Returns',
-        type: 'Expense',
-        parentAccount: 'Cost of Goods Sold',
+        code: '1100',
+        name: 'Cash in Hand',
+        type: 'Asset',
+        parentAccount: 'Current Assets',
         openingBalance: 0,
         currentBalance: 0,
-        description: 'Purchase returns account - DO NOT DELETE',
-        taxCode: 'N/A',
         balanceType: 'Debit',
+        description: 'Cash on hand',
+        taxCode: 'N/A',
         isActive: true,
         createdBy: userId || 'SYSTEM',
-        companyId: companyId
-      }
+        companyId,
+      },
     });
   }
-
   return account;
+}
+
+async function findOrCreateAPAccount(tx, companyId, userId) {
+  let account = await findAPAccount(tx, companyId);
+  if (account) return account;
+
+  account = await tx.chartOfAccount.create({
+    data: {
+      code: '2000',
+      name: 'Accounts Payable',
+      type: 'Liability',
+      parentAccount: 'Current Liabilities',
+      openingBalance: 0,
+      currentBalance: 0,
+      balanceType: 'Credit',
+      description: 'Accounts Payable',
+      taxCode: 'N/A',
+      isActive: true,
+      createdBy: userId || 'SYSTEM',
+      companyId,
+    },
+  });
+  return account;
+}
+
+// Legacy alias (do not credit revenue for returns)
+async function getOrCreatePurchaseReturnsAccount(tx, companyId, userId) {
+  return findOrCreateInventoryAccount(tx, companyId, userId);
 }
 
 class PurchaseReturnModel {
@@ -353,21 +392,21 @@ class PurchaseReturnModel {
           id,
           companyId: companyId,
           isActive: true,
-          isDeleted: false
+          isDeleted: false,
         },
         include: {
           items: {
             include: {
-              product: true
-            }
+              product: true,
+            },
           },
           supplier: true,
           purchaseInvoice: {
             include: {
-              accountsPayable: true
-            }
-          }
-        }
+              accountsPayable: true,
+            },
+          },
+        },
       });
 
       if (!purchaseReturn) {
@@ -382,27 +421,35 @@ class PurchaseReturnModel {
         throw new Error('Purchase return is cancelled');
       }
 
-      // ─── Get Accounts ────────────────────────────────────────
-      const apAccount = await findAPAccount(tx, companyId);
-      if (!apAccount) {
-        throw new Error('Accounts Payable account not found');
+      const amount = Number(purchaseReturn.grandTotal) || 0;
+      if (amount <= 0) {
+        throw new Error('Return amount must be greater than zero');
       }
 
-      const inventoryAccount = await findInventoryAccount(tx, companyId);
-      if (!inventoryAccount) {
-        throw new Error('Inventory account not found');
-      }
+      const invoice = purchaseReturn.purchaseInvoice;
+      const isPaidInvoice =
+        String(invoice?.paymentStatus || '').toLowerCase() === 'paid' ||
+        String(invoice?.invoiceStatus || '').toLowerCase() === 'paid';
 
-      const purchaseReturnsAccount = await getOrCreatePurchaseReturnsAccount(tx, companyId, userId);
+      // ─── Resolve GL accounts ─────────────────────────────────
+      // Correct return JE: Dr AP (or Cash if refund) · Cr Inventory
+      const inventoryAccount = await findOrCreateInventoryAccount(
+        tx,
+        companyId,
+        userId
+      );
+      const cashAccount = await findOrCreateCashAccount(tx, companyId, userId);
+      const apAccount = await findOrCreateAPAccount(tx, companyId, userId);
 
-      // ─── Create Journal Entry ────────────────────────────────
+      // Paid invoice → cash refund back; unpaid → reduce AP liability
+      const debitAccount = isPaidInvoice ? cashAccount : apAccount;
+
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-
       const journalEntry = await tx.journalEntry.create({
         data: {
           entryNumber,
           date: new Date(),
-          description: `Purchase return #${purchaseReturn.returnNumber} from ${purchaseReturn.supplier.name}`,
+          description: `Purchase return #${purchaseReturn.returnNumber} from ${purchaseReturn.supplierName}`,
           reference: purchaseReturn.returnNumber,
           status: 'Posted',
           createdBy: userId,
@@ -413,30 +460,26 @@ class PurchaseReturnModel {
           lines: {
             create: [
               {
-                accountId: apAccount.id,
-                accountName: apAccount.name,
-                accountCode: apAccount.code,
-                debit: purchaseReturn.grandTotal,
-                credit: 0
+                accountId: debitAccount.id,
+                accountName: debitAccount.name,
+                accountCode: debitAccount.code,
+                debit: amount,
+                credit: 0,
               },
               {
-                accountId: purchaseReturnsAccount.id,
-                accountName: purchaseReturnsAccount.name,
-                accountCode: purchaseReturnsAccount.code,
+                accountId: inventoryAccount.id,
+                accountName: inventoryAccount.name,
+                accountCode: inventoryAccount.code,
                 debit: 0,
-                credit: purchaseReturn.grandTotal
-              }
-            ]
-          }
+                credit: amount,
+              },
+            ],
+          },
         },
-        include: {
-          lines: {
-            include: {
-              account: true
-            }
-          }
-        }
+        include: { lines: true },
       });
+
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
 
       // ─── Update Purchase Return ──────────────────────────────
       const updatedReturn = await tx.purchaseReturn.update({
@@ -446,13 +489,13 @@ class PurchaseReturnModel {
           journalEntryId: journalEntry.id,
           processedBy: userId,
           processedAt: new Date(),
-          updatedBy: userId
+          updatedBy: userId,
         },
         include: {
           items: {
             include: {
-              product: true
-            }
+              product: true,
+            },
           },
           supplier: true,
           purchaseInvoice: true,
@@ -460,30 +503,30 @@ class PurchaseReturnModel {
             include: {
               lines: {
                 include: {
-                  account: true
-                }
-              }
-            }
-          }
-        }
+                  account: true,
+                },
+              },
+            },
+          },
+        },
       });
 
       // ─── Update Inventory Stock ──────────────────────────────
       for (const item of purchaseReturn.items) {
         const product = await tx.product.findUnique({
-          where: { id: item.productId }
+          where: { id: item.productId },
         });
 
         if (!product) continue;
 
-        const newStock = product.currentStock - item.returnQuantity;
+        const newStock = Math.max(0, (product.currentStock || 0) - item.returnQuantity);
 
         await tx.product.update({
           where: { id: item.productId },
           data: {
             currentStock: newStock,
-            availableStock: newStock
-          }
+            availableStock: newStock,
+          },
         });
 
         await tx.stockMovement.create({
@@ -497,50 +540,62 @@ class PurchaseReturnModel {
             stockType: 'bulk',
             reason: 'Purchase Return',
             supplierId: purchaseReturn.supplierId,
-            supplierName: purchaseReturn.supplier.name,
+            supplierName: purchaseReturn.supplierName,
             reference: purchaseReturn.returnNumber,
             status: 'Completed',
             notes: `Returned ${item.returnQuantity} ${item.productName} - ${purchaseReturn.returnReason}`,
             createdBy: userId,
-            companyId: companyId
-          }
+            companyId: companyId,
+          },
         });
       }
 
-      // ─── Handle Invoice Outstanding ──────────────────────────
-      const invoice = purchaseReturn.purchaseInvoice;
-      
-      if (invoice.paymentStatus === 'Unpaid' || invoice.paymentStatus === 'Partial') {
-        const newOutstanding = invoice.outstanding - purchaseReturn.grandTotal;
-        const newPaidAmount = invoice.paidAmount;
-        
-        let invoiceStatus = invoice.invoiceStatus;
-        let paymentStatus = invoice.paymentStatus;
+      // ─── Invoice / AP impact ─────────────────────────────────
+      if (invoice) {
+        if (isPaidInvoice) {
+          // Cash refund already booked above. Keep invoice Paid.
+          // Optionally reduce paidAmount metadata for audit trail.
+          const newPaid = Math.max(0, Number(invoice.paidAmount || 0) - amount);
+          await tx.purchaseInvoice.update({
+            where: { id: invoice.id },
+            data: {
+              paidAmount: newPaid,
+              notes: `${invoice.notes || ''}\nReturn ${purchaseReturn.returnNumber} refund ${amount}`.trim(),
+            },
+          });
+        } else {
+          const newOutstanding = Math.max(
+            0,
+            Number(invoice.outstanding || invoice.grandTotal || 0) - amount
+          );
+          let invoiceStatus = invoice.invoiceStatus;
+          let paymentStatus = invoice.paymentStatus;
 
-        if (newOutstanding <= 0) {
-          invoiceStatus = 'Paid';
-          paymentStatus = 'Paid';
-        } else if (newOutstanding < invoice.grandTotal) {
-          invoiceStatus = 'Partially Paid';
-          paymentStatus = 'Partial';
+          if (newOutstanding <= 0.01) {
+            invoiceStatus = 'Paid';
+            paymentStatus = 'Paid';
+          } else if (Number(invoice.paidAmount || 0) > 0) {
+            invoiceStatus = 'Partially Paid';
+            paymentStatus = 'Partial';
+          }
+
+          await tx.purchaseInvoice.update({
+            where: { id: invoice.id },
+            data: {
+              outstanding: newOutstanding,
+              invoiceStatus,
+              paymentStatus,
+            },
+          });
+
+          await tx.accountsPayable.updateMany({
+            where: { invoiceId: invoice.id },
+            data: {
+              outstanding: newOutstanding,
+              status: newOutstanding <= 0.01 ? 'Paid' : 'Current',
+            },
+          });
         }
-
-        await tx.purchaseInvoice.update({
-          where: { id: invoice.id },
-          data: {
-            outstanding: Math.max(0, newOutstanding),
-            invoiceStatus: invoiceStatus,
-            paymentStatus: paymentStatus
-          }
-        });
-
-        await tx.accountsPayable.updateMany({
-          where: { invoiceId: invoice.id },
-          data: {
-            outstanding: Math.max(0, newOutstanding),
-            status: newOutstanding <= 0 ? 'Paid' : 'Current'
-          }
-        });
       }
 
       return updatedReturn;

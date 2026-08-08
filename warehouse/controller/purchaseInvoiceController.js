@@ -100,7 +100,7 @@ const createInvoiceFromGRN = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Purchase invoice created successfully',
+      message: 'Purchase invoice created and posted successfully',
       data: invoice
     });
   } catch (error) {
@@ -184,7 +184,7 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Purchase invoice created successfully',
+      message: 'Purchase invoice created and posted successfully',
       data: invoice
     });
   } catch (error) {
@@ -822,18 +822,61 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
       }
     });
 
-    const grnsWithStatus = grns.map(grn => ({
-      ...grn,
-      hasInvoice: grn.purchaseInvoices.length > 0,
-      invoiceCount: grn.purchaseInvoices.length,
-      invoices: grn.purchaseInvoices,
-      items: grn.items.map(item => ({
-        ...item,
-        unitPrice: item.purchaseOrderItem?.unitPrice || item.product?.costPrice || 0,
-        discount: item.purchaseOrderItem?.discount || 0,
-        taxRate: item.purchaseOrderItem?.taxRate || 0
-      }))
-    }));
+    const grnsWithStatus = grns.map((grn) => {
+      const items = grn.items.map((item) => {
+        const unitPrice =
+          item.purchaseOrderItem?.unitPrice || item.product?.costPrice || 0;
+        const discount = item.purchaseOrderItem?.discount || 0;
+        const taxRate = item.purchaseOrderItem?.taxRate || 0;
+        const qty = item.receivingQuantity || 0;
+        return {
+          ...item,
+          quantity: qty,
+          unitPrice,
+          discount,
+          taxRate,
+          productName: item.productName || item.product?.name,
+          sku: item.sku || item.product?.sku,
+        };
+      });
+      const totalQuantity = items.reduce(
+        (sum, item) => sum + (item.quantity || 0),
+        0
+      );
+      const invoiceSubtotal = items.reduce(
+        (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
+        0
+      );
+      const itemPreview = items
+        .slice(0, 3)
+        .map((item) => item.productName)
+        .filter(Boolean)
+        .join(', ');
+
+      return {
+        id: grn.id,
+        grnNumber: grn.grnNumber,
+        purchaseOrderId: grn.purchaseOrderId,
+        purchaseOrderNumber:
+          grn.purchaseOrderNumber || grn.purchaseOrder?.orderNumber,
+        supplierId: grn.supplierId,
+        supplierName: grn.supplierName,
+        supplierEmail: grn.supplier?.email || grn.purchaseOrder?.supplierEmail,
+        supplierPhone: grn.supplier?.phone || grn.purchaseOrder?.supplierPhone,
+        receivingDate: grn.receivingDate,
+        status: grn.status,
+        hasInvoice: grn.purchaseInvoices.length > 0,
+        invoiceCount: grn.purchaseInvoices.length,
+        invoices: grn.purchaseInvoices,
+        hasReceivedItems: true,
+        totalQuantity,
+        invoiceSubtotal,
+        grandTotal: invoiceSubtotal,
+        itemCount: items.length,
+        itemPreview,
+        items,
+      };
+    });
 
     const total = grnsWithStatus.length;
 
@@ -867,96 +910,164 @@ const getAvailablePOsForInvoicing = async (req, res) => {
     const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
-    // ✅ FIXED: Use createdBy and companyId
+    // Show POs available for invoicing (GRN optional).
+    // Exclude already-invoiced POs at DB level so pagination/search stay correct.
     const where = {
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false,
-      status: {
-        notIn: ['Cancelled', 'Draft']
-      }
+      status: { not: 'Cancelled' },
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId },
+      ],
+      purchaseInvoices: {
+        none: {
+          isActive: true,
+          isDeleted: false,
+          invoiceStatus: { notIn: ['Cancelled'] },
+        },
+      },
     };
 
-    if (search && search.trim().length >= 2) {
-      where.OR = [
-        { orderNumber: { contains: search, mode: 'insensitive' } },
-        { supplierName: { contains: search, mode: 'insensitive' } }
+    if (search && search.trim().length >= 1) {
+      const q = search.trim();
+      where.AND = [
+        {
+          OR: [
+            { orderNumber: { contains: q, mode: 'insensitive' } },
+            { supplierName: { contains: q, mode: 'insensitive' } },
+            { supplierEmail: { contains: q, mode: 'insensitive' } },
+          ],
+        },
       ];
     }
 
-    const pos = await prisma.purchaseOrder.findMany({
-      where,
-      include: {
-        items: true,
-        supplier: true,
-        goodsReceivings: {
-          where: {
-            isActive: true,
-            isDeleted: false,
-            status: {
-              in: ['Partially Received', 'Fully Received']
-            }
+    const [pos, total] = await Promise.all([
+      prisma.purchaseOrder.findMany({
+        where,
+        include: {
+          items: true,
+          supplier: true,
+          goodsReceivings: {
+            where: {
+              isActive: true,
+              isDeleted: false,
+              status: { in: ['Partially Received', 'Fully Received'] },
+            },
+            include: {
+              items: true,
+            },
           },
-          include: {
-            items: true
-          }
         },
-        purchaseInvoices: {
-          where: {
-            isActive: true,
-            isDeleted: false
-          },
-          select: {
-            id: true,
-            invoiceNumber: true,
-            invoiceStatus: true
-          }
-        }
-      },
-      skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit),
-      orderBy: {
-        orderDate: 'desc'
-      }
-    });
+        skip: (parseInt(page, 10) - 1) * parseInt(limit, 10),
+        take: parseInt(limit, 10),
+        orderBy: {
+          orderDate: 'desc',
+        },
+      }),
+      prisma.purchaseOrder.count({ where }),
+    ]);
 
-    const posWithStatus = pos.map(po => {
-      const hasReceivedItems = po.goodsReceivings.some(grn => grn.items.length > 0);
+    const posWithStatus = pos.map((po) => {
+      const receivedQty = {};
+      for (const grn of po.goodsReceivings) {
+        for (const item of grn.items) {
+          receivedQty[item.purchaseOrderItemId] =
+            (receivedQty[item.purchaseOrderItemId] || 0) +
+            item.receivingQuantity;
+        }
+      }
+      const hasReceivedItems = Object.values(receivedQty).some((q) => q > 0);
+
+      // Prefer confirmed received qty; fall back to ordered qty for listing
+      const invoiceItems = po.items
+        .map((item) => {
+          const qty = hasReceivedItems
+            ? receivedQty[item.id] || 0
+            : item.quantity || 0;
+          return {
+            ...item,
+            quantity: qty,
+            unitPrice: item.unitPrice || 0,
+            discount: item.discount || 0,
+            taxRate: item.taxRate || 0,
+            lineTotal:
+              qty *
+              (item.unitPrice || 0) *
+              (1 - (item.discount || 0) / 100) *
+              (1 + (item.taxRate || 0) / 100),
+          };
+        })
+        .filter((item) => item.quantity > 0);
+
+      const totalQuantity = invoiceItems.reduce(
+        (sum, item) => sum + (item.quantity || 0),
+        0
+      );
+      const invoiceSubtotal = invoiceItems.reduce((sum, item) => {
+        const line = (item.quantity || 0) * (item.unitPrice || 0);
+        return sum + line;
+      }, 0);
+      const itemPreview = invoiceItems
+        .slice(0, 3)
+        .map((item) => item.productName)
+        .filter(Boolean)
+        .join(', ');
+
       return {
-        ...po,
-        hasInvoice: po.purchaseInvoices.length > 0,
-        invoiceCount: po.purchaseInvoices.length,
-        invoices: po.purchaseInvoices,
-        hasReceivedItems: hasReceivedItems,
-        items: po.items.map(item => ({
-          ...item,
-          unitPrice: item.unitPrice || 0,
-          discount: item.discount || 0,
-          taxRate: item.taxRate || 0
-        }))
+        id: po.id,
+        orderNumber: po.orderNumber,
+        supplierId: po.supplierId,
+        supplierName: po.supplierName,
+        supplierEmail: po.supplierEmail,
+        supplierPhone: po.supplierPhone,
+        supplierAddress: po.supplierAddress,
+        orderDate: po.orderDate,
+        expectedDeliveryDate: po.expectedDeliveryDate,
+        status: po.status,
+        subtotal: po.subtotal,
+        totalDiscount: po.totalDiscount,
+        totalTax: po.totalTax,
+        grandTotal: po.grandTotal,
+        notes: po.notes,
+        hasInvoice: false,
+        invoiceCount: 0,
+        invoices: [],
+        hasReceivedItems,
+        totalQuantity,
+        invoiceSubtotal,
+        itemCount: invoiceItems.length,
+        itemPreview,
+        items: invoiceItems,
+        supplier: po.supplier
+          ? {
+              id: po.supplier.id,
+              name: po.supplier.name,
+              email: po.supplier.email,
+              phone: po.supplier.phone,
+              address: po.supplier.address,
+            }
+          : null,
       };
     });
-
-    const total = posWithStatus.length;
 
     res.status(200).json({
       success: true,
       count: posWithStatus.length,
       data: posWithStatus,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
         total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+        pages: Math.ceil(total / parseInt(limit, 10)) || 1,
+      },
     });
   } catch (error) {
     console.error('❌ Get available POs error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };

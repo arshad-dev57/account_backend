@@ -60,7 +60,10 @@ class OrderModel {
           tags: data.tags || [],
           createdBy: data.createdBy || data.userId,  // ✅ Use createdBy
           companyId: data.companyId,                 // ✅ Use companyId
-          orderStatus: data.orderStatus || 'Draft',
+          // Sales orders start as Pending (not Draft). Draft only if explicitly sent.
+          orderStatus:
+            data.orderStatus ||
+            (data.orderType === 'Purchase Order' ? 'Draft' : 'Pending'),
           fulfillmentStatus: data.fulfillmentStatus || 'Not Started',
           approvalStatus: data.approvalStatus || 'Pending',
           isActive: true,
@@ -511,6 +514,104 @@ class OrderModel {
   }
 
   // ============================================================
+  // SYNC ORDER PAYMENT / STATUS FROM LINKED INVOICES
+  // ============================================================
+  /**
+   * Align order.paymentStatus (and lift Draft) from SalesInvoice + WarehouseInvoice.
+   * Order payment labels: Pending | Partial | Paid
+   */
+  static async syncFromInvoices(orderId, client = prisma) {
+    if (!orderId) return null;
+
+    const order = await client.order.findUnique({ where: { id: orderId } });
+    if (!order || order.isDeleted) return null;
+
+    const [salesInvoices, warehouseInvoices] = await Promise.all([
+      client.salesInvoice.findMany({
+        where: {
+          orderId,
+          isActive: true,
+          isDeleted: false,
+          invoiceStatus: { notIn: ['Cancelled'] },
+        },
+        select: {
+          grandTotal: true,
+          paidAmount: true,
+          invoiceStatus: true,
+          paymentStatus: true,
+        },
+      }),
+      client.warehouseInvoice.findMany({
+        where: {
+          orderId,
+          isActive: true,
+          isDeleted: false,
+          invoiceStatus: { notIn: ['Cancelled', 'Draft'] },
+        },
+        select: {
+          grandTotal: true,
+          paidAmount: true,
+          invoiceStatus: true,
+          paymentStatus: true,
+        },
+      }),
+    ]);
+
+    const invoices = [...salesInvoices, ...warehouseInvoices];
+    if (invoices.length === 0) {
+      // No invoice yet — still lift stuck Draft → Pending for sales orders
+      if (
+        order.orderType === 'Sales Order' &&
+        order.orderStatus === 'Draft'
+      ) {
+        return client.order.update({
+          where: { id: orderId },
+          data: { orderStatus: 'Pending' },
+        });
+      }
+      return order;
+    }
+
+    const total = invoices.reduce((s, inv) => s + Number(inv.grandTotal || 0), 0);
+    const paid = invoices.reduce((s, inv) => s + Number(inv.paidAmount || 0), 0);
+
+    let paymentStatus = 'Pending';
+    if (paid > 0.0001 && paid + 0.01 >= total) paymentStatus = 'Paid';
+    else if (paid > 0.0001) paymentStatus = 'Partial';
+
+    const updateData = {};
+    if (order.paymentStatus !== paymentStatus) {
+      updateData.paymentStatus = paymentStatus;
+      if (paymentStatus === 'Paid') updateData.paymentDate = new Date();
+    }
+
+    // Lift Draft once real invoice activity exists
+    if (order.orderStatus === 'Draft') {
+      updateData.orderStatus =
+        paymentStatus === 'Paid' || paymentStatus === 'Partial'
+          ? 'Processing'
+          : 'Pending';
+    }
+
+    if (Object.keys(updateData).length === 0) return order;
+
+    return client.order.update({
+      where: { id: orderId },
+      data: updateData,
+    });
+  }
+
+  static async syncManyFromInvoices(orderIds = [], client = prisma) {
+    const unique = [...new Set((orderIds || []).filter(Boolean))];
+    if (unique.length === 0) return [];
+    const results = [];
+    for (const id of unique) {
+      results.push(await this.syncFromInvoices(id, client));
+    }
+    return results;
+  }
+
+  // ============================================================
   // GET STATUS COUNTS (KPI) - by type - ✅ FIXED
   // ============================================================
   static async getStatusCounts(userId, orderType = null) {
@@ -524,8 +625,9 @@ class OrderModel {
       activeFilter.orderType = orderType;
     }
     
-    const [total, pending, processing, packed, shipped, inTransit, delivered, cancelled, returned, onHold] = await Promise.all([
+    const [total, draft, pending, processing, packed, shipped, inTransit, delivered, cancelled, returned, onHold, paidOrders, partialOrders] = await Promise.all([
       prisma.order.count({ where: activeFilter }),
+      prisma.order.count({ where: { ...activeFilter, orderStatus: 'Draft' } }),
       prisma.order.count({ where: { ...activeFilter, orderStatus: 'Pending' } }),
       prisma.order.count({ where: { ...activeFilter, orderStatus: 'Processing' } }),
       prisma.order.count({ where: { ...activeFilter, orderStatus: 'Packed' } }),
@@ -534,7 +636,9 @@ class OrderModel {
       prisma.order.count({ where: { ...activeFilter, orderStatus: 'Delivered' } }),
       prisma.order.count({ where: { ...activeFilter, orderStatus: 'Cancelled' } }),
       prisma.order.count({ where: { ...activeFilter, orderStatus: 'Returned' } }),
-      prisma.order.count({ where: { ...activeFilter, orderStatus: 'On Hold' } })
+      prisma.order.count({ where: { ...activeFilter, orderStatus: 'On Hold' } }),
+      prisma.order.count({ where: { ...activeFilter, paymentStatus: 'Paid' } }),
+      prisma.order.count({ where: { ...activeFilter, paymentStatus: 'Partial' } }),
     ]);
 
     const revenue = await prisma.order.aggregate({
@@ -547,6 +651,7 @@ class OrderModel {
 
     return {
       total,
+      draft,
       pending,
       processing,
       packed,
@@ -556,6 +661,8 @@ class OrderModel {
       cancelled,
       returned,
       onHold,
+      paid: paidOrders,
+      partial: partialOrders,
       revenue: revenue._sum.grandTotal || 0
     };
   }

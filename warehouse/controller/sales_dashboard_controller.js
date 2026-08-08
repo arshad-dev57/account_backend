@@ -2,6 +2,38 @@
 
 const prisma = require('../../prisma/client');
 
+function toNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function invoiceDue(inv) {
+  const total = toNum(inv.grandTotal);
+  const paid = toNum(inv.paidAmount);
+  return Math.max(0, total - paid);
+}
+
+/**
+ * Prefer SalesInvoice when both exist for the same order.
+ * Always exclude Draft/Cancelled.
+ */
+function mergeSalesInvoiceRows(warehouseRows = [], moduleRows = []) {
+  const moduleOrderIds = new Set(
+    moduleRows.filter((r) => r.orderId).map((r) => r.orderId)
+  );
+  const filteredWarehouse = warehouseRows.filter((inv) => {
+    const status = String(inv.invoiceStatus || '');
+    if (status === 'Draft' || status === 'Cancelled') return false;
+    if (inv.orderId && moduleOrderIds.has(inv.orderId)) return false;
+    return true;
+  });
+  const filteredModule = moduleRows.filter((inv) => {
+    const status = String(inv.invoiceStatus || '');
+    return status !== 'Draft' && status !== 'Cancelled';
+  });
+  return [...filteredModule, ...filteredWarehouse];
+}
+
 // ─── HELPERS ────────────────────────────────────────────────
 const getDateFilter = (period, startDate, endDate) => {
   // Handle custom date range
@@ -76,76 +108,80 @@ const getOrderTrend = async (userId, companyId, dateFilter, days = 30) => {
 };
 
 // ─── GET INVOICE STATS ────────────────────────────────────
-const getInvoiceStats = async (userId, companyId, period) => {
-  const dateFilter = getDateFilter(period);
-  
-  const [total, paid, unpaid, partial] = await Promise.all([
-    prisma.warehouseInvoice.count({
+const getInvoiceStats = async (userId, companyId, dateFilter) => {
+  const baseWhere = {
+    companyId,
+    isActive: true,
+    isDeleted: false,
+    ...(dateFilter ? { invoiceDate: dateFilter } : {}),
+  };
+
+  const [warehouseRows, salesRows] = await Promise.all([
+    prisma.warehouseInvoice.findMany({
       where: {
-        companyId: companyId, // 👈 User-specific
-        isActive: true,
-        isDeleted: false,
-        invoiceDate: dateFilter
-      }
+        ...baseWhere,
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      },
+      select: {
+        id: true,
+        orderId: true,
+        grandTotal: true,
+        paidAmount: true,
+        outstanding: true,
+        paymentStatus: true,
+        invoiceStatus: true,
+      },
     }),
-    prisma.warehouseInvoice.count({
+    prisma.salesInvoice.findMany({
       where: {
-        companyId: companyId,
-        isActive: true,
-        isDeleted: false,
-        invoiceDate: dateFilter,
-        paymentStatus: 'Paid'
-      }
+        ...baseWhere,
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      },
+      select: {
+        id: true,
+        orderId: true,
+        grandTotal: true,
+        paidAmount: true,
+        outstanding: true,
+        paymentStatus: true,
+        invoiceStatus: true,
+      },
     }),
-    prisma.warehouseInvoice.count({
-      where: {
-        companyId: companyId,
-        isActive: true,
-        isDeleted: false,
-        invoiceDate: dateFilter,
-        paymentStatus: 'Unpaid'
-      }
-    }),
-    prisma.warehouseInvoice.count({
-      where: {
-        companyId: companyId,
-        isActive: true,
-        isDeleted: false,
-        invoiceDate: dateFilter,
-        paymentStatus: 'Partial'
-      }
-    })
   ]);
 
-  const revenue = await prisma.warehouseInvoice.aggregate({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      isDeleted: false,
-      invoiceDate: dateFilter,
-      paymentStatus: { in: ['Paid', 'Partial'] }
-    },
-    _sum: { grandTotal: true }
-  });
+  const merged = mergeSalesInvoiceRows(warehouseRows, salesRows);
 
-  const outstanding = await prisma.warehouseInvoice.aggregate({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      isDeleted: false,
-      invoiceDate: dateFilter,
-      paymentStatus: { in: ['Unpaid', 'Partial'] }
-    },
-    _sum: { outstanding: true }
-  });
+  let grandTotal = 0;
+  let paidAmount = 0;
+  let outstanding = 0;
+  let paid = 0;
+  let unpaid = 0;
+  let partial = 0;
+
+  for (const inv of merged) {
+    const total = toNum(inv.grandTotal);
+    const paidAmt = toNum(inv.paidAmount);
+    const due = invoiceDue(inv);
+
+    grandTotal += total;
+    paidAmount += paidAmt;
+    outstanding += due;
+
+    if (due <= 0.01) paid += 1;
+    else if (paidAmt > 0.01) partial += 1;
+    else unpaid += 1;
+  }
 
   return {
-    total,
+    total: merged.length,
     paid,
     unpaid,
     partial,
-    revenue: revenue._sum.grandTotal || 0,
-    outstanding: outstanding._sum.outstanding || 0
+    // revenue kept for older clients; equals invoiced grand total
+    revenue: grandTotal,
+    grandTotal,
+    paidAmount,
+    outstanding,
   };
 };
 
@@ -154,38 +190,74 @@ const getInvoiceTrend = async (userId, companyId, days = 30) => {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
   startDate.setHours(0, 0, 0, 0);
+  const dateFilter = { gte: startDate };
 
-  const invoices = await prisma.warehouseInvoice.findMany({
-    where: {
-      companyId: companyId, // 👈 User-specific
-      isActive: true,
-      isDeleted: false,
-      invoiceDate: { gte: startDate }
-    },
-    select: {
-      invoiceDate: true,
-      grandTotal: true,
-      paymentStatus: true
-    },
-    orderBy: { invoiceDate: 'asc' }
-  });
+  const [warehouseRows, salesRows] = await Promise.all([
+    prisma.warehouseInvoice.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        invoiceDate: dateFilter,
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      },
+      select: {
+        orderId: true,
+        invoiceDate: true,
+        grandTotal: true,
+        paidAmount: true,
+        paymentStatus: true,
+        invoiceStatus: true,
+      },
+      orderBy: { invoiceDate: 'asc' },
+    }),
+    prisma.salesInvoice.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        invoiceDate: dateFilter,
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      },
+      select: {
+        orderId: true,
+        invoiceDate: true,
+        grandTotal: true,
+        paidAmount: true,
+        paymentStatus: true,
+        invoiceStatus: true,
+      },
+      orderBy: { invoiceDate: 'asc' },
+    }),
+  ]);
+
+  const invoices = mergeSalesInvoiceRows(warehouseRows, salesRows);
 
   const trendMap = {};
   invoices.forEach((inv) => {
-    const key = inv.invoiceDate.toISOString().split('T')[0];
+    const key = new Date(inv.invoiceDate).toISOString().split('T')[0];
     if (!trendMap[key]) {
       trendMap[key] = {
         date: key,
         total: 0,
         paid: 0,
-        unpaid: 0
+        unpaid: 0,
+        revenue: 0,
+        collected: 0,
+        count: 0,
       };
     }
-    trendMap[key].total += inv.grandTotal;
-    if (inv.paymentStatus === 'Paid') {
-      trendMap[key].paid += inv.grandTotal;
+    const total = toNum(inv.grandTotal);
+    const paidAmt = toNum(inv.paidAmount);
+    const due = invoiceDue(inv);
+    trendMap[key].total += total;
+    trendMap[key].revenue += total;
+    trendMap[key].collected += paidAmt;
+    trendMap[key].count += 1;
+    if (due <= 0.01) {
+      trendMap[key].paid += total;
     } else {
-      trendMap[key].unpaid += inv.grandTotal;
+      trendMap[key].unpaid += due;
     }
   });
 
@@ -452,8 +524,8 @@ const getSalesDashboard = async (req, res) => {
 
     // ─── INVOICES ─────────────────────────────────────────────
     const [invoiceStats, invoiceTrend] = await Promise.all([
-      getInvoiceStats(userId, companyId, period),
-      getInvoiceTrend(userId, companyId)
+      getInvoiceStats(userId, companyId, dateFilter),
+      getInvoiceTrend(userId, companyId),
     ]);
 
     // ─── RETURNS ──────────────────────────────────────────────
