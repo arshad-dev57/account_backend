@@ -1,21 +1,34 @@
-// prisma/client.js — singleton (safe for Vercel serverless)
+// prisma/client.js — singleton (safe for Vercel serverless + Neon)
 const { PrismaClient } = require('@prisma/client');
 const { getPrismaHealth } = require('../utils/prismaHealth');
+const { resolveDatabaseUrl } = require('../utils/databaseUrl');
+const { patchPrismaTransactions } = require('../utils/withTransaction');
 
 const globalForPrisma = globalThis;
 
-const prisma =
-  globalForPrisma.__accountPrisma ||
-  new PrismaClient({
+function createClient() {
+  const url = resolveDatabaseUrl();
+
+  const client = new PrismaClient({
+    datasources: url
+      ? {
+          db: { url },
+        }
+      : undefined,
     log:
       process.env.NODE_ENV === 'development'
         ? ['error', 'warn']
         : ['error'],
   });
 
+  // Every $transaction call site gets longer timeouts + transient retries
+  patchPrismaTransactions(client);
+  return client;
+}
+
+const prisma = globalForPrisma.__accountPrisma || createClient();
 globalForPrisma.__accountPrisma = prisma;
 
-// Fail loud in logs if Vercel shipped a stale generated client
 try {
   const health = getPrismaHealth(prisma);
   if (!health.ok) {

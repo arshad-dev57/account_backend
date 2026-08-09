@@ -17,15 +17,21 @@ app.get('/', (req, res) => {
   res.send('API is running 🚀');
 });
 
-// Prisma client health — use after deploy to catch stale Vercel cache
+// Prisma client health — use after deploy to catch stale Vercel cache / bad DB URL
 app.get('/api/health/prisma', (req, res) => {
   try {
     const prisma = require('./prisma/client');
     const { getPrismaHealth } = require('./utils/prismaHealth');
+    const { describeDatabaseUrl, resolveDatabaseUrl } = require('./utils/databaseUrl');
     const health = getPrismaHealth(prisma);
+    const runtime = describeDatabaseUrl(resolveDatabaseUrl());
     res.status(health.ok ? 200 : 503).json({
       success: health.ok,
       ...health,
+      database: runtime,
+      tip: runtime.isPooler
+        ? 'Using a pooler URL. Interactive transactions (bank/bills/products) may fail on Vercel — set DIRECT_URL to Neon Direct/Unpooled, or set PRISMA_USE_DIRECT=1.'
+        : undefined,
     });
   } catch (error) {
     res.status(500).json({
