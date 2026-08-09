@@ -1,6 +1,83 @@
 const prisma = require('../prisma/client');
 const bcrypt = require('bcryptjs');
 
+/**
+ * Canonical permission catalog (module + pages).
+ * Frontend access screens should mirror these page keys.
+ */
+const AVAILABLE_PERMISSION_MODULES = [
+  {
+    module: 'accounting',
+    displayName: 'Accounting',
+    pages: [
+      { page: 'accounting-dashboard', displayName: 'Dashboard' },
+      { page: 'accounting-credit-notes', displayName: 'Credit Notes' },
+      { page: 'accounting-accounts-receivable', displayName: 'Accounts Receivable' },
+    ],
+  },
+  {
+    module: 'sales',
+    displayName: 'Sales',
+    pages: [
+      { page: 'sales-dashboard', displayName: 'Dashboard' },
+      { page: 'sales-products', displayName: 'Products' },
+      { page: 'sales-orders', displayName: 'Orders' },
+      { page: 'sales-quotations', displayName: 'Quotations' },
+      { page: 'sales-customers', displayName: 'Customers' },
+      { page: 'sales-deliveries', displayName: 'Deliveries' },
+      { page: 'sales-invoices', displayName: 'Invoices' },
+      { page: 'sales-sales-payments', displayName: 'Sales Payments' },
+      { page: 'sales-sales-returns', displayName: 'Sales Returns' },
+      { page: 'sales-refunds', displayName: 'Refunds' },
+      { page: 'sales-credits', displayName: 'Sales Credits' },
+    ],
+  },
+  {
+    module: 'purchases',
+    displayName: 'Purchases',
+    pages: [
+      { page: 'purchases-dashboard', displayName: 'Dashboard' },
+      { page: 'purchases-purchase-orders', displayName: 'Purchase Orders' },
+      { page: 'purchases-suppliers', displayName: 'Suppliers' },
+      { page: 'purchases-goods-receiving', displayName: 'Goods Receiving' },
+      { page: 'purchases-purchase-invoices', displayName: 'Purchase Invoices' },
+      { page: 'purchases-purchase-payments', displayName: 'Purchase Payments' },
+      { page: 'purchases-purchase-returns', displayName: 'Purchase Returns' },
+    ],
+  },
+  {
+    module: 'warehouse',
+    displayName: 'Warehouse',
+    pages: [
+      { page: 'warehouse-products', displayName: 'Products' },
+      { page: 'warehouse-categories', displayName: 'Categories' },
+      { page: 'warehouse-suppliers', displayName: 'Suppliers' },
+      { page: 'warehouse-customers', displayName: 'Customers' },
+      { page: 'warehouse-stock-movement', displayName: 'Stock Movement' },
+      { page: 'warehouse-orders', displayName: 'Orders' },
+    ],
+  },
+  {
+    module: 'users',
+    displayName: 'Users',
+    pages: [
+      { page: 'users-user-management', displayName: 'User Management' },
+      { page: 'users-roles', displayName: 'Roles' },
+      { page: 'users-permissions', displayName: 'Permissions' },
+    ],
+  },
+];
+
+/** Normalize legacy double-prefix keys written by older clients */
+function normalizePermissionPage(page) {
+  if (!page || typeof page !== 'string') return page;
+  const map = {
+    'sales-sales-credits': 'sales-credits',
+    'sales-credits': 'sales-credits',
+  };
+  return map[page] || page;
+}
+
 const getAllUsers = async (req, res) => {
   try {
     const currentUserId = req.user.id;
@@ -386,14 +463,21 @@ const createUser = async (req, res) => {
       console.log('   - Permissions:', JSON.stringify(permissions, null, 2));
 
       try {
-        const permissionData = permissions.map(p => ({
-          userId: newUser.id,
-          page: p.page,
-          canView: p.canView ?? true,
-          canCreate: p.canCreate ?? false,
-          canEdit: p.canEdit ?? false,
-          canDelete: p.canDelete ?? false
-        }));
+        const seen = new Set();
+        const permissionData = [];
+        for (const p of permissions) {
+          const page = normalizePermissionPage(p.page);
+          if (!page || seen.has(page)) continue;
+          seen.add(page);
+          permissionData.push({
+            userId: newUser.id,
+            page,
+            canView: p.canView ?? true,
+            canCreate: p.canCreate ?? false,
+            canEdit: p.canEdit ?? false,
+            canDelete: p.canDelete ?? false,
+          });
+        }
 
         await prisma.userPermission.createMany({
           data: permissionData,
@@ -692,19 +776,29 @@ const updateUserPermissions = async (req, res) => {
       where: { userId: id }
     });
 
-    // Create new permissions
+    // Create new permissions (normalize Sales Credits key)
     if (permissions && Array.isArray(permissions)) {
-      await prisma.userPermission.createMany({
-        data: permissions.map(p => ({
+      const seen = new Set();
+      const rows = [];
+      for (const p of permissions) {
+        const page = normalizePermissionPage(p.page);
+        if (!page || seen.has(page)) continue;
+        seen.add(page);
+        rows.push({
           userId: id,
-          page: p.page,
+          page,
           canView: p.canView ?? true,
           canCreate: p.canCreate ?? false,
           canEdit: p.canEdit ?? false,
-          canDelete: p.canDelete ?? false
-        })),
-        skipDuplicates: true
-      });
+          canDelete: p.canDelete ?? false,
+        });
+      }
+      if (rows.length > 0) {
+        await prisma.userPermission.createMany({
+          data: rows,
+          skipDuplicates: true,
+        });
+      }
     }
 
     // Return updated permissions
@@ -723,6 +817,27 @@ const updateUserPermissions = async (req, res) => {
       success: false,
       message: 'Server error',
       error: error.message
+    });
+  }
+};
+
+// ============================================================
+// @desc    Get available permission modules/pages (incl. Sales Credits)
+// @route   GET /api/admin/users/permissions/catalog
+// @access  Private
+// ============================================================
+const getPermissionCatalog = async (req, res) => {
+  try {
+    res.status(200).json({
+      success: true,
+      data: AVAILABLE_PERMISSION_MODULES,
+    });
+  } catch (error) {
+    console.error('Get permission catalog error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
     });
   }
 };
@@ -764,5 +879,7 @@ module.exports = {
   updateUser,
   deleteUser,
   updateUserPermissions,
-  getRoles
+  getPermissionCatalog,
+  getRoles,
+  AVAILABLE_PERMISSION_MODULES,
 };

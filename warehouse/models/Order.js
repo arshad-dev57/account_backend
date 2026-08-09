@@ -537,6 +537,7 @@ class OrderModel {
         select: {
           grandTotal: true,
           paidAmount: true,
+          outstanding: true,
           invoiceStatus: true,
           paymentStatus: true,
         },
@@ -551,6 +552,7 @@ class OrderModel {
         select: {
           grandTotal: true,
           paidAmount: true,
+          outstanding: true,
           invoiceStatus: true,
           paymentStatus: true,
         },
@@ -574,10 +576,21 @@ class OrderModel {
 
     const total = invoices.reduce((s, inv) => s + Number(inv.grandTotal || 0), 0);
     const paid = invoices.reduce((s, inv) => s + Number(inv.paidAmount || 0), 0);
+    // Prefer outstanding (reflects payments + credit notes); fall back to cash-only
+    const due = invoices.reduce((s, inv) => {
+      const status = String(inv.paymentStatus || inv.invoiceStatus || '');
+      if (status === 'Paid' || status === 'Credit Balance' || status === 'Cancelled') {
+        return s;
+      }
+      if (inv.outstanding != null && inv.outstanding !== undefined) {
+        return s + Math.max(0, Number(inv.outstanding) || 0);
+      }
+      return s + Math.max(0, Number(inv.grandTotal || 0) - Number(inv.paidAmount || 0));
+    }, 0);
 
     let paymentStatus = 'Pending';
-    if (paid > 0.0001 && paid + 0.01 >= total) paymentStatus = 'Paid';
-    else if (paid > 0.0001) paymentStatus = 'Partial';
+    if (due <= 0.01) paymentStatus = 'Paid';
+    else if (paid > 0.0001 || due < total - 0.01) paymentStatus = 'Partial';
 
     const updateData = {};
     if (order.paymentStatus !== paymentStatus) {

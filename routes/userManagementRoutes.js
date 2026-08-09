@@ -8,6 +8,7 @@ const {
   updateUser,
   deleteUser,
   updateUserPermissions,
+  getPermissionCatalog,
   getRoles
 } = require('../controllers/userManagementController');
 
@@ -20,6 +21,9 @@ router.get('/', getAllUsers);
 
 // Get available roles
 router.get('/roles', getRoles);
+
+// Permission catalog (modules + pages, includes Sales Credits)
+router.get('/permissions/catalog', getPermissionCatalog);
 
 // Get single user
 router.get('/:id', getUserById);

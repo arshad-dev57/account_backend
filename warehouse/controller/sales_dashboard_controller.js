@@ -8,9 +8,16 @@ function toNum(v) {
 }
 
 function invoiceDue(inv) {
-  const total = toNum(inv.grandTotal);
-  const paid = toNum(inv.paidAmount);
-  return Math.max(0, total - paid);
+  const status = String(inv.paymentStatus || inv.invoiceStatus || '');
+  // Fully settled by payment or credit note
+  if (status === 'Paid' || status === 'Credit Balance' || status === 'Cancelled') {
+    return 0;
+  }
+  // Stored outstanding is updated by payments + credit notes
+  if (inv.outstanding != null && inv.outstanding !== undefined) {
+    return Math.max(0, toNum(inv.outstanding));
+  }
+  return Math.max(0, toNum(inv.grandTotal) - toNum(inv.paidAmount));
 }
 
 /**
@@ -206,6 +213,7 @@ const getInvoiceTrend = async (userId, companyId, days = 30) => {
         invoiceDate: true,
         grandTotal: true,
         paidAmount: true,
+        outstanding: true,
         paymentStatus: true,
         invoiceStatus: true,
       },
@@ -224,6 +232,7 @@ const getInvoiceTrend = async (userId, companyId, days = 30) => {
         invoiceDate: true,
         grandTotal: true,
         paidAmount: true,
+        outstanding: true,
         paymentStatus: true,
         invoiceStatus: true,
       },
@@ -332,6 +341,48 @@ const getReturnStats = async (userId, companyId, period) => {
     rejected,
     completed,
     refundAmount: refundAmount._sum.refundAmount || 0
+  };
+};
+
+// ─── GET CREDIT NOTE (SALES CREDITS) STATS ────────────────
+const getCreditNoteStats = async (userId, companyId, period) => {
+  const dateFilter = getDateFilter(period);
+  const baseWhere = {
+    companyId,
+    date: dateFilter,
+    status: { notIn: ['Voided', 'Cancelled', 'Expired'] },
+  };
+
+  const [total, issued, partiallyApplied, fullyApplied, amounts] =
+    await Promise.all([
+      prisma.creditNote.count({ where: baseWhere }),
+      prisma.creditNote.count({
+        where: { ...baseWhere, status: 'Issued' },
+      }),
+      prisma.creditNote.count({
+        where: { ...baseWhere, status: 'PartiallyApplied' },
+      }),
+      prisma.creditNote.count({
+        where: { ...baseWhere, status: 'Applied' },
+      }),
+      prisma.creditNote.aggregate({
+        where: baseWhere,
+        _sum: {
+          amount: true,
+          appliedAmount: true,
+          remainingAmount: true,
+        },
+      }),
+    ]);
+
+  return {
+    total,
+    issued,
+    partiallyApplied,
+    fullyApplied,
+    creditAmount: amounts._sum.amount || 0,
+    appliedAmount: amounts._sum.appliedAmount || 0,
+    remainingAmount: amounts._sum.remainingAmount || 0,
   };
 };
 
@@ -534,6 +585,9 @@ const getSalesDashboard = async (req, res) => {
     // ─── REFUNDS ──────────────────────────────────────────────
     const refundStats = await getRefundStats(userId, companyId, period);
 
+    // ─── SALES CREDITS (CREDIT NOTES) ─────────────────────────
+    const creditNoteStats = await getCreditNoteStats(userId, companyId, period);
+
     // ─── TOP PRODUCTS ─────────────────────────────────────────
     const topProducts = await getTopProducts(userId, companyId, period);
 
@@ -549,6 +603,9 @@ const getSalesDashboard = async (req, res) => {
       totalReturns: returnStats.total,
       totalRefunds: refundStats.total,
       refundAmount: refundStats.refundAmount,
+      totalCredits: creditNoteStats.total,
+      creditAmount: creditNoteStats.creditAmount,
+      creditRemaining: creditNoteStats.remainingAmount,
       outstandingInvoices: invoiceStats.outstanding,
       totalCustomers: customerStats.totalCustomers
     };
@@ -825,6 +882,7 @@ const getSalesDashboard = async (req, res) => {
         },
         returns: returnStats,
         refunds: refundStats,
+        credits: creditNoteStats,
         comparison,
         recentActivity,
         topProducts,

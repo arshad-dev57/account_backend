@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const { requirePageView } = require('../middleware/pagePermissionMiddleware');
 const {
   createCreditNote,
   getCreditNotes,
@@ -18,6 +19,15 @@ const {
 
 // ─── Protected Routes ─────────────────────────────────────────────
 router.use(protect);
+// Sales Credits OR Accounting Credit Notes
+router.use(
+  requirePageView(
+    'sales-credits',
+    'sales-sales-credits', // legacy key
+    'accounting-credit-notes',
+    'credit-notes',
+  ),
+);
 
 // ─── CRUD Operations ──────────────────────────────────────────────
 router.post('/', createCreditNote);

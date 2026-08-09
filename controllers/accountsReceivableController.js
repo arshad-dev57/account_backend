@@ -4,6 +4,42 @@ const prisma = require('../prisma/client');
 const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
 const { get, set, del, delPattern } = require('../utils/redisClient');
 
+/**
+ * Live AR balance — do not trust invoiceStatus / stored outstanding alone.
+ * Outstanding = grandTotal − cash paid − issued credit notes (non-cancelled).
+ */
+function computeOpenBalance(inv) {
+  const grandTotal = Number(inv.grandTotal) || 0;
+  const paidFromPayments = (inv.invoicePayments || []).reduce(
+    (s, p) => s + (Number(p.amountPaid) || 0),
+    0
+  );
+  const paidAmount = Math.max(Number(inv.paidAmount) || 0, paidFromPayments);
+  const credited = (inv.creditNotes || []).reduce(
+    (s, c) => s + (Number(c.amount) || 0),
+    0
+  );
+  const outstanding = Math.max(0, grandTotal - paidAmount - credited);
+  return { grandTotal, paidAmount, credited, outstanding };
+}
+
+const salesOpenInclude = {
+  invoicePayments: {
+    where: {
+      payment: {
+        isActive: true,
+        isDeleted: false,
+        status: 'Completed',
+      },
+    },
+    select: { amountPaid: true },
+  },
+  creditNotes: {
+    where: { status: { notIn: ['Cancelled', 'Voided'] } },
+    select: { amount: true },
+  },
+};
+
 // ─── HELPER: Get or create Accounts Receivable account ──────────
 async function getOrCreateReceivableAccount(userId, companyId) {
   console.log('🔍 [AR] Getting/Creating Accounts Receivable account');
@@ -313,7 +349,7 @@ const getCustomers = async (req, res) => {
 
     const companyId = req.user.companyId;
     // Build cache key with parameters
-    const cacheKey = `ar:customers:${userId}:${search || ''}:${status || ''}`;
+    const cacheKey = `ar:v3:customers:${userId}:${search || ''}:${status || ''}`;
     
     // Try to get from cache (unless refresh is requested)
     if (refresh !== 'true') {
@@ -332,6 +368,8 @@ const getCustomers = async (req, res) => {
       // Clear the cache
       try {
         await delPattern(`ar:customers:${userId}:*`);
+        await delPattern(`ar:v2:customers:${userId}:*`);
+        await delPattern(`ar:v3:customers:${userId}:*`);
         console.log('🗑️ [AR] Cache cleared for refresh');
       } catch (cacheError) {
         console.log('⚠️ [AR] Cache clear error:', cacheError.message);
@@ -369,32 +407,81 @@ const getCustomers = async (req, res) => {
       }
     });
 
-    const invoices = await prisma.warehouseInvoice.findMany({
-      where: {
-        companyId: companyId,
-        invoiceStatus: { not: 'Paid' }
-      }
-    });
+    // Warehouse + Sales invoices (sales is the active invoicing module).
+    // Include Paid rows — balance is recomputed from payments + credit notes.
+    const [warehouseInvoices, salesInvoices] = await Promise.all([
+      prisma.warehouseInvoice.findMany({
+        where: {
+          companyId: companyId,
+          isDeleted: false,
+          invoiceStatus: { not: 'Cancelled' },
+        },
+      }),
+      prisma.salesInvoice.findMany({
+        where: {
+          companyId: companyId,
+          isDeleted: false,
+          isActive: true,
+          invoiceStatus: { not: 'Cancelled' },
+        },
+        include: salesOpenInclude,
+      }),
+    ]);
+
+    const normalizeInvoice = (inv, source) => {
+      const { grandTotal, paidAmount, outstanding } = computeOpenBalance(inv);
+      let status = inv.paymentStatus || inv.invoiceStatus || 'Unpaid';
+      if (outstanding <= 0) status = 'Paid';
+      else if (paidAmount > 0) status = 'Partial';
+      else status = 'Unpaid';
+      return {
+        id: inv.id,
+        source,
+        customerId: inv.customerId,
+        invoiceNumber: inv.invoiceNumber,
+        date: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        totalAmount: grandTotal,
+        paidAmount,
+        outstanding,
+        status,
+        invoiceStatus: inv.invoiceStatus,
+      };
+    };
+
+    const invoices = [
+      ...warehouseInvoices.map((inv) => normalizeInvoice(inv, 'warehouse')),
+      ...salesInvoices.map((inv) => normalizeInvoice(inv, 'sales')),
+    ].filter((inv) => inv.outstanding > 0);
 
     const customersWithOutstanding = customers.map(customer => {
       const customerInvoices = invoices.filter(
         inv => inv.customerId === customer.id
       );
-      const totalAmount = customerInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+      const totalAmount = customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
       const paidAmount = customerInvoices.reduce((sum, inv) => sum + inv.paidAmount, 0);
-      const outstandingAmount = totalAmount - paidAmount;
+      const outstandingAmount = customerInvoices.reduce(
+        (sum, inv) => sum + inv.outstanding,
+        0
+      );
 
       return {
-        ...customer,
+        id: customer.id,
+        name: customer.name,
+        email: customer.email || '',
+        phone: customer.phone || '',
+        isActive: customer.isActive,
         totalAmount,
         paidAmount,
         outstandingAmount,
         invoiceCount: customerInvoices.length,
+        invoices: customerInvoices,
+        lastPaymentDate: customer.lastOrderDate || null,
       };
     });
 
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, customersWithOutstanding, 600);
+    // Cache the result (2 minutes TTL — balances change often)
+    await set(cacheKey, customersWithOutstanding, 120);
 
     res.status(200).json({
       success: true,
@@ -455,16 +542,73 @@ const getCustomer = async (req, res) => {
       });
     }
 
-    const invoices = await prisma.warehouseInvoice.findMany({
+    const invoicesWh = await prisma.warehouseInvoice.findMany({
       where: {
         customerId: customer.id,
-        companyId: companyId},
+        companyId: companyId,
+        isDeleted: false,
+      },
       orderBy: { invoiceDate: 'desc' }
     });
 
-    const totalAmount = invoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
+    const invoicesSi = await prisma.salesInvoice.findMany({
+      where: {
+        customerId: customer.id,
+        companyId: companyId,
+        isDeleted: false,
+        isActive: true,
+      },
+      orderBy: { invoiceDate: 'desc' },
+      include: {
+        invoicePayments: {
+          where: {
+            payment: {
+              isActive: true,
+              isDeleted: false,
+              status: 'Completed',
+            },
+          },
+          select: { amountPaid: true },
+        },
+      },
+    });
+
+    const invoices = [
+      ...invoicesWh.map((inv) => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        date: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        totalAmount: inv.grandTotal || 0,
+        paidAmount: inv.paidAmount || 0,
+        status: inv.paymentStatus || inv.invoiceStatus,
+        outstanding: Math.max(0, (inv.grandTotal || 0) - (inv.paidAmount || 0)),
+      })),
+      ...invoicesSi.map((inv) => {
+        const paidFromPayments = (inv.invoicePayments || []).reduce(
+          (s, p) => s + (p.amountPaid || 0),
+          0
+        );
+        const paidAmount = Math.max(inv.paidAmount || 0, paidFromPayments);
+        return {
+          id: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.invoiceDate,
+          dueDate: inv.dueDate,
+          totalAmount: inv.grandTotal || 0,
+          paidAmount,
+          status: inv.paymentStatus || inv.invoiceStatus,
+          outstanding: Math.max(0, (inv.grandTotal || 0) - paidAmount),
+        };
+      }),
+    ];
+
+    const totalAmount = invoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
     const paidAmount = invoices.reduce((sum, inv) => sum + inv.paidAmount, 0);
-    const outstandingAmount = totalAmount - paidAmount;
+    const outstandingAmount = invoices.reduce(
+      (sum, inv) => sum + inv.outstanding,
+      0
+    );
 
     const customerData = {
       ...customer,
@@ -472,6 +616,7 @@ const getCustomer = async (req, res) => {
       totalAmount,
       paidAmount,
       outstandingAmount,
+      invoiceCount: invoices.length,
     };
 
     // Cache the result (10 minutes TTL)
@@ -1326,7 +1471,7 @@ const getSummary = async (req, res) => {
     const { fiscalYearId } = req.query;
 
     // Build cache key with parameters
-    const cacheKey = `ar:summary:${userId}:${fiscalYearId || ''}`;
+    const cacheKey = `ar:v3:summary:${userId}:${fiscalYearId || ''}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -1338,21 +1483,47 @@ const getSummary = async (req, res) => {
       });
     }
 
-    const filter = {
+    const baseWh = {
       companyId: companyId,
-      invoiceStatus: { not: 'Paid' }
+      isDeleted: false,
+      invoiceStatus: { not: 'Cancelled' },
+    };
+    const baseSi = {
+      companyId: companyId,
+      isDeleted: false,
+      isActive: true,
+      invoiceStatus: { not: 'Cancelled' },
     };
 
+    // fiscalYear only on sales invoices in schema; keep optional
     if (fiscalYearId) {
-      filter.fiscalYearId = fiscalYearId;
+      baseSi.fiscalYearId = fiscalYearId;
     }
 
-    const invoices = await prisma.warehouseInvoice.findMany({
-      where: filter
-    });
+    const [warehouseInvoices, salesInvoices] = await Promise.all([
+      prisma.warehouseInvoice.findMany({ where: baseWh }),
+      prisma.salesInvoice.findMany({
+        where: baseSi,
+        include: salesOpenInclude,
+      }),
+    ]);
+
+    const normalize = (inv) => {
+      const { outstanding } = computeOpenBalance(inv);
+      return {
+        dueDate: inv.dueDate,
+        invoiceStatus: inv.invoiceStatus,
+        outstanding,
+      };
+    };
+
+    const invoices = [
+      ...warehouseInvoices.map(normalize),
+      ...salesInvoices.map(normalize),
+    ].filter((inv) => inv.outstanding > 0);
 
     const totalOutstanding = invoices.reduce(
-      (sum, inv) => sum + (inv.grandTotal - inv.paidAmount),
+      (sum, inv) => sum + inv.outstanding,
       0
     );
 
@@ -1362,16 +1533,16 @@ const getSummary = async (req, res) => {
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
     const overdue = invoices
-      .filter(inv => inv.dueDate < now && inv.invoiceStatus !== 'Paid')
-      .reduce((sum, inv) => sum + (inv.grandTotal - inv.paidAmount), 0);
+      .filter(inv => inv.dueDate && new Date(inv.dueDate) < now)
+      .reduce((sum, inv) => sum + inv.outstanding, 0);
 
     const dueThisWeek = invoices
-      .filter(inv => inv.dueDate >= now && inv.dueDate <= endOfWeek && inv.invoiceStatus !== 'Paid')
-      .reduce((sum, inv) => sum + (inv.grandTotal - inv.paidAmount), 0);
+      .filter(inv => inv.dueDate && new Date(inv.dueDate) >= now && new Date(inv.dueDate) <= endOfWeek)
+      .reduce((sum, inv) => sum + inv.outstanding, 0);
 
     const dueThisMonth = invoices
-      .filter(inv => inv.dueDate >= now && inv.dueDate <= endOfMonth && inv.invoiceStatus !== 'Paid')
-      .reduce((sum, inv) => sum + (inv.grandTotal - inv.paidAmount), 0);
+      .filter(inv => inv.dueDate && new Date(inv.dueDate) >= now && new Date(inv.dueDate) <= endOfMonth)
+      .reduce((sum, inv) => sum + inv.outstanding, 0);
 
     const activeCustomers = await prisma.customer.count({
       where: {
@@ -1413,7 +1584,7 @@ const getAgedReceivables = async (req, res) => {
     const { fiscalYearId } = req.query;
 
     // Build cache key with parameters
-    const cacheKey = `ar:aged:${userId}:${fiscalYearId || ''}`;
+    const cacheKey = `ar:v3:aged:${userId}:${fiscalYearId || ''}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -1427,7 +1598,8 @@ const getAgedReceivables = async (req, res) => {
 
     const filter = {
       companyId: companyId,
-      invoiceStatus: { not: 'Paid' }
+      isDeleted: false,
+      invoiceStatus: { not: 'Cancelled' },
     };
 
     if (fiscalYearId) {
@@ -1448,24 +1620,44 @@ const getAgedReceivables = async (req, res) => {
       }
     });
 
+    const salesInvoices = await prisma.salesInvoice.findMany({
+      where: {
+        companyId: companyId,
+        isDeleted: false,
+        isActive: true,
+        invoiceStatus: { not: 'Cancelled' },
+        ...(fiscalYearId ? { fiscalYearId } : {}),
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
+        ...salesOpenInclude,
+      },
+    });
+
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 
     const customerMap = new Map();
 
-    for (const invoice of invoices) {
-      const outstanding = invoice.grandTotal - (invoice.paidAmount || 0);
-      if (outstanding <= 0) continue;
+    const pushInvoice = (invoice, outstanding) => {
+      if (outstanding <= 0) return;
 
       const customerId = invoice.customerId || 'unknown';
-      const customerName = invoice.customer?.name || 'Unknown Customer';
+      const customerName = invoice.customer?.name || invoice.customerName || 'Unknown Customer';
 
       if (!customerMap.has(customerId)) {
         customerMap.set(customerId, {
           id: customerId,
           name: customerName,
-          email: invoice.customer?.email || '',
-          phone: invoice.customer?.phone || '',
+          email: invoice.customer?.email || invoice.customerEmail || '',
+          phone: invoice.customer?.phone || invoice.customerPhone || '',
           invoices: [],
           current: 0,
           days1to30: 0,
@@ -1504,6 +1696,16 @@ const getAgedReceivables = async (req, res) => {
         outstanding,
         daysPastDue: Math.max(0, daysPastDue),
       });
+    };
+
+    for (const invoice of invoices) {
+      const outstanding = Math.max(0, (invoice.grandTotal || 0) - (invoice.paidAmount || 0));
+      pushInvoice(invoice, outstanding);
+    }
+
+    for (const invoice of salesInvoices) {
+      const { outstanding } = computeOpenBalance(invoice);
+      pushInvoice(invoice, outstanding);
     }
 
     const customers = Array.from(customerMap.values()).sort(

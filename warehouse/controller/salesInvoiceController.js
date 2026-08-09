@@ -803,51 +803,101 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
     const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
-    // ✅ FIXED: Use createdBy instead of userId
     const where = {
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
       isActive: true,
       isDeleted: false,
       orderType: 'Sales Order',
-      orderStatus: {
-        notIn: ['Cancelled']
-      }
+      orderStatus: { notIn: ['Cancelled'] },
+      OR: [
+        { companyId: companyId },
+        { companyId: null, createdBy: userId },
+      ],
     };
 
-    if (search) {
-      where.OR = [
-        { orderNumber: { contains: search, mode: 'insensitive' } },
-        { customerName: { contains: search, mode: 'insensitive' } }
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
+      where.AND = [
+        {
+          OR: [
+            { orderNumber: { contains: q, mode: 'insensitive' } },
+            { customerName: { contains: q, mode: 'insensitive' } },
+            { customerEmail: { contains: q, mode: 'insensitive' } },
+            { customerPhone: { contains: q, mode: 'insensitive' } },
+          ],
+        },
       ];
     }
 
-    // Get orders that don't have invoices yet
     const orders = await prisma.order.findMany({
       where,
       include: {
         items: {
-          include: {
-            product: true
-          }
+          select: {
+            id: true,
+            productId: true,
+            productName: true,
+            sku: true,
+            quantity: true,
+            unitPrice: true,
+            totalPrice: true,
+            discount: true,
+            taxRate: true,
+            taxAmount: true,
+          },
         },
-        customer: true,
+        customer: {
+          select: { id: true, name: true, email: true, phone: true },
+        },
         salesInvoices: {
-          where: {
-            isActive: true,
-            isDeleted: false
-          }
-        }
+          where: { isActive: true, isDeleted: false },
+          select: { id: true },
+        },
       },
       skip: (parseInt(page) - 1) * parseInt(limit),
       take: parseInt(limit),
-      orderBy: {
-        orderDate: 'desc'
-      }
+      orderBy: { orderDate: 'desc' },
     });
 
-    // Filter orders without invoices
-    const availableOrders = orders.filter(order => order.salesInvoices.length === 0);
+    const availableOrders = orders
+      .filter((order) => order.salesInvoices.length === 0)
+      .map((order) => {
+        const items = order.items || [];
+        const itemCount = items.length || order.totalItems || 0;
+        const itemsQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
+
+        return {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          orderDate: order.orderDate,
+          expectedDeliveryDate: order.expectedDeliveryDate,
+          customerId: order.customerId || order.customer?.id || null,
+          customerName: order.customerName || order.customer?.name || '',
+          customerEmail: order.customerEmail || order.customer?.email || '',
+          customerPhone: order.customerPhone || order.customer?.phone || '',
+          customerType: order.customerType,
+          customerCompany: order.customerCompany,
+          orderStatus: order.orderStatus,
+          paymentStatus: order.paymentStatus,
+          paymentMethod: order.paymentMethod,
+          orderType: order.orderType,
+          priority: order.priority,
+          source: order.source,
+          salesPerson: order.salesPerson,
+          shippingMethod: order.shippingMethod,
+          shippingCarrier: order.shippingCarrier,
+          shippingAddress: order.shippingAddress,
+          billingAddress: order.billingAddress,
+          subtotal: order.subtotal || 0,
+          taxTotal: order.taxTotal || 0,
+          discountTotal: order.discountTotal || 0,
+          shippingCost: order.shippingCost || 0,
+          grandTotal: order.grandTotal || 0,
+          totalItems: itemCount,
+          totalQuantity: itemsQty,
+          customerNotes: order.customerNotes,
+          items,
+        };
+      });
 
     const total = availableOrders.length;
 
@@ -859,15 +909,15 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+        pages: Math.ceil(total / parseInt(limit)) || 1,
+      },
     });
   } catch (error) {
     console.error('Get available orders error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
