@@ -27,6 +27,13 @@ const requirePageView = (...pages) => {
 
       if (allowed.length === 0) return next();
 
+      if (!prisma.userPermission?.findMany) {
+        console.error(
+          'Page permission check skipped: prisma.userPermission missing'
+        );
+        return next();
+      }
+
       const userPerms = await prisma.userPermission.findMany({
         where: {
           userId: user.id,

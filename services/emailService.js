@@ -1,5 +1,6 @@
 // services/emailService.js
 const nodemailer = require('nodemailer');
+const { getEmailFrom, getSmtpAuth } = require('../utils/emailConfig');
 
 class EmailService {
   constructor() {
@@ -8,29 +9,38 @@ class EmailService {
   }
 
   initializeTransporter() {
-    // Agar email credentials available hain to transporter initialize karo
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    const smtp = getSmtpAuth();
+    if (smtp.user && smtp.pass) {
       this.transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.EMAIL_PORT) || 587,
-        secure: process.env.EMAIL_SECURE === 'true' || false,
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
         auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
+          user: smtp.user,
+          pass: smtp.pass,
         },
       });
 
-      // Verify connection
+      const from = getEmailFrom();
       this.transporter.verify((error) => {
         if (error) {
           console.error('❌ SMTP connection error:', error);
         } else {
           console.log('✅ SMTP connection verified');
+          console.log(`📧 OTP From: ${from.fromHeader || from.address || smtp.user}`);
         }
       });
     } else {
       console.warn('⚠️ Email credentials not configured. Email service will not work.');
     }
+  }
+
+  _mailIdentity() {
+    const from = getEmailFrom();
+    if (!from.address) {
+      throw new Error('EMAIL_FROM / EMAIL_USER not configured');
+    }
+    return from;
   }
 
   /**
@@ -70,22 +80,47 @@ class EmailService {
       .join('');
 
     const isLoginOTP = type === 'login';
-    const subject = isLoginOTP 
-      ? '🔐 Your Login Verification Code — BisonsTechs' 
-      : '🔑 Password Reset OTP — BisonsTechs';
-    
+    // Avoid emojis / spammy words in subject — Gmail often filters those
+    const subject = isLoginOTP
+      ? 'Your BisonsTechs login verification code'
+      : 'Your BisonsTechs password reset code';
+
     const headerTitle = isLoginOTP ? 'Login Verification' : 'Password Reset';
-    const headerSubtitle = isLoginOTP 
+    const headerSubtitle = isLoginOTP
       ? `One-Time Password for ${firstName ? firstName + "'s" : 'your'} Login`
       : `One-Time Password for ${firstName ? firstName + "'s" : 'your'} Password Reset`;
     const securityNotice = isLoginOTP
       ? 'BisonsTechs will never ask for your OTP via phone or chat. If you did not attempt to login, please secure your account immediately.'
       : 'If you did not request a password reset, please ignore this email.';
 
+    const identity = this._mailIdentity();
+
+    const textBody = [
+      `Hello ${firstName || 'there'},`,
+      '',
+      isLoginOTP
+        ? 'Your BisonsTechs login verification code is:'
+        : 'Your BisonsTechs password reset code is:',
+      String(otp),
+      '',
+      'This code expires in 10 minutes.',
+      '',
+      securityNotice,
+      '',
+      '— BisonsTechs',
+    ].join('\n');
+
     const mailOptions = {
-      from: `"BisonsTechs" <${process.env.EMAIL_USER}>`,
+      from: identity.fromHeader,
       to: email,
-      subject: subject,
+      replyTo: identity.replyTo,
+      subject,
+      text: textBody, // plaintext alternative improves inbox placement
+      headers: {
+        'X-Entity-Ref-ID': `otp-${type}-${Date.now()}`,
+        'X-Priority': '1',
+        Importance: 'high',
+      },
       html: `
 <!DOCTYPE html>
 <html lang="en">
@@ -195,10 +230,14 @@ class EmailService {
       throw new Error('Email service not configured properly');
     }
 
+    const identity = this._mailIdentity();
+
     const mailOptions = {
-      from: `"BisonsTechs" <${process.env.EMAIL_USER}>`,
+      from: identity.fromHeader,
       to: email,
-      subject: '🎉 Welcome to BisonsTechs — Your Financial Journey Starts Here!',
+      replyTo: identity.replyTo,
+      subject: 'Welcome to BisonsTechs — your free trial has started',
+      text: `Hello ${firstName || 'there'},\n\nWelcome to BisonsTechs. Your 30-day free trial is now active.\n\n— BisonsTechs`,
       html: `
 <!DOCTYPE html>
 <html lang="en">
@@ -316,10 +355,12 @@ class EmailService {
 
     const companyName = orderData.companyName || 'WarehousePro';
     const companyLogo = orderData.companyLogo || '';
+    const identity = this._mailIdentity();
 
     const mailOptions = {
-      from: `"${companyName}" <${process.env.EMAIL_USER}>`,
+      from: `"${companyName}" <${identity.address}>`,
       to: email,
+      replyTo: identity.replyTo,
       subject: `Purchase Order ${orderData.orderNumber} - ${companyName}`,
       html: `
 <!DOCTYPE html>

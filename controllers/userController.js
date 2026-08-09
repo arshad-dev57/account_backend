@@ -481,19 +481,45 @@ exports.verifyLoginOTP = async (req, res) => {
 
     console.log('📦 [verifyLoginOTP] Updated User Business Details:', JSON.stringify(updatedUser.businessDetails, null, 2));
 
-    // Fetch user permissions
+    // Fetch user permissions (never block login if Prisma client is stale on deploy)
     console.log('🔄 [verifyLoginOTP] Fetching user permissions...');
-    const userPermissions = await prisma.userPermission.findMany({
-      where: { userId: updatedUser._id.toString() },
-      select: {
-        id: true,
-        page: true,
-        canView: true,
-        canCreate: true,
-        canEdit: true,
-        canDelete: true
+    let userPermissions = [];
+    const permissionUserId = updatedUser._id.toString();
+    try {
+      const permDelegate = prisma.userPermission;
+      if (permDelegate?.findMany) {
+        userPermissions = await permDelegate.findMany({
+          where: { userId: permissionUserId },
+          select: {
+            id: true,
+            page: true,
+            canView: true,
+            canCreate: true,
+            canEdit: true,
+            canDelete: true,
+          },
+        });
+      } else {
+        console.error(
+          '⚠️ [verifyLoginOTP] prisma.userPermission missing — falling back to raw SQL'
+        );
+        userPermissions = await prisma.$queryRaw`
+          SELECT id, page,
+                 can_view AS "canView",
+                 can_create AS "canCreate",
+                 can_edit AS "canEdit",
+                 can_delete AS "canDelete"
+          FROM user_permissions
+          WHERE user_id = ${permissionUserId}
+        `;
       }
-    });
+    } catch (permErr) {
+      console.error(
+        '⚠️ [verifyLoginOTP] Permissions fetch failed:',
+        permErr.message
+      );
+      userPermissions = [];
+    }
     console.log('📊 [verifyLoginOTP] User permissions count:', userPermissions.length);
     console.log('📊 [verifyLoginOTP] User permissions:', userPermissions);
 

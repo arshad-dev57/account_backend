@@ -1,6 +1,5 @@
-
- 
 const nodemailer = require('nodemailer');
+const { getSmtpAuth, getEmailFrom } = require('./emailConfig');
 
 let transporter = null;
 
@@ -9,11 +8,14 @@ const getTransporter = () => {
     return transporter;
   }
 
+  const smtp = getSmtpAuth();
   transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+      user: smtp.user,
+      pass: smtp.pass,
     },
     pool: true,
     maxConnections: 5,
@@ -27,7 +29,9 @@ const verifyTransporter = async () => {
   try {
     const trans = getTransporter();
     await trans.verify();
+    const from = getEmailFrom();
     console.log('✅ Email transporter verified and ready');
+    console.log(`📧 From identity: ${from.fromHeader || from.address}`);
   } catch (error) {
     console.error('❌ Email transporter verification failed:', error);
   }
