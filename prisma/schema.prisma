@@ -1831,7 +1831,8 @@ model BillItem {
 
 model Bill {
   id         String   @id @default(uuid())
-  billNumber String   @unique @map("bill_number")
+  // Unique per company only (not globally) — multi-tenant safe
+  billNumber String   @map("bill_number")
   vendorId   String   @map("vendor_id")
   vendorName String   @map("vendor_name")
   date       DateTime @default(now())

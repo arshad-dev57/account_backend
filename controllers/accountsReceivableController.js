@@ -1091,10 +1091,9 @@ const getUnpaidInvoices = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `ar:customer:${userId}:${customerId}:unpaid-invoices`;
+    // v2: includes sales invoices (not just warehouse)
+    const cacheKey = `ar:customer:${userId}:${customerId}:unpaid-invoices:v2`;
     
-    // Try to get from cache
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({
@@ -1105,7 +1104,6 @@ const getUnpaidInvoices = async (req, res) => {
       });
     }
     
-    // ─── Step 1: Check customer ──────────────────────────────
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
@@ -1121,53 +1119,78 @@ const getUnpaidInvoices = async (req, res) => {
     }
     
     console.log(`✅ [AR] Customer found: ${customer.name}`);
-    
-    // ─── Step 2: ✅ CHECK ALL INVOICES FIRST (for debugging) ──
-    const allInvoices = await prisma.warehouseInvoice.findMany({
-      where: {
-        customerId: customerId,
-        companyId: companyId,
-      }
-    });
-    
-    console.log(`📊 [AR] Total invoices for customer: ${allInvoices.length}`);
-    console.log('📊 [AR] Invoice statuses:', allInvoices.map(i => ({
-      id: i.id,
-      invoiceNumber: i.invoiceNumber,
-      invoiceStatus: i.invoiceStatus,
-      isActive: i.isActive,
-      isDeleted: i.isDeleted,
-      grandTotal: i.grandTotal,
-      paidAmount: i.paidAmount
-    })));
-    
-    // ─── Step 3: Get UNPAID invoices ──────────────────────────
-    const unpaidInvoices = await prisma.warehouseInvoice.findMany({
-      where: {
-        customerId: customerId,
-        companyId: companyId,
-        // ✅ FIX: Include Active status (not just Unpaid)
-        invoiceStatus: { in: ['Active', 'Unpaid', 'Partial'] },
-        isActive: true,
-        isDeleted: false,
-      },
-      orderBy: { dueDate: 'asc' }
-    });
-    
-    console.log(`📊 [AR] Unpaid invoices found: ${unpaidInvoices.length}`);
-    
-    const result = unpaidInvoices.map(invoice => ({
-      id: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      date: invoice.invoiceDate,
-      dueDate: invoice.dueDate,
-      totalAmount: parseFloat(invoice.grandTotal),
-      paidAmount: parseFloat(invoice.paidAmount || 0),
-      outstanding: parseFloat(invoice.grandTotal - invoice.paidAmount),
-      status: invoice.invoiceStatus,
-    }));
 
-    // Cache the result (5 minutes TTL)
+    const [warehouseInvoices, salesInvoices] = await Promise.all([
+      prisma.warehouseInvoice.findMany({
+        where: {
+          customerId,
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          invoiceStatus: { notIn: ['Paid', 'Cancelled'] },
+        },
+        orderBy: { dueDate: 'asc' },
+      }),
+      prisma.salesInvoice.findMany({
+        where: {
+          customerId,
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          invoiceStatus: { notIn: ['Cancelled'] },
+        },
+        include: salesOpenInclude,
+        orderBy: { dueDate: 'asc' },
+      }),
+    ]);
+
+    const mapWh = (invoice) => {
+      const grandTotal = parseFloat(invoice.grandTotal) || 0;
+      const paidAmount = parseFloat(invoice.paidAmount || 0);
+      const outstanding = Math.max(0, grandTotal - paidAmount);
+      return {
+        id: invoice.id,
+        source: 'warehouse',
+        invoiceNumber: invoice.invoiceNumber,
+        date: invoice.invoiceDate,
+        dueDate: invoice.dueDate,
+        totalAmount: grandTotal,
+        paidAmount,
+        outstanding,
+        status: invoice.invoiceStatus,
+      };
+    };
+
+    const mapSales = (invoice) => {
+      const { grandTotal, paidAmount, outstanding } = computeOpenBalance(invoice);
+      let status = invoice.paymentStatus || invoice.invoiceStatus || 'Unpaid';
+      if (outstanding <= 0) status = 'Paid';
+      else if (paidAmount > 0) status = 'Partial';
+      else status = 'Unpaid';
+      return {
+        id: invoice.id,
+        source: 'sales',
+        invoiceNumber: invoice.invoiceNumber,
+        date: invoice.invoiceDate,
+        dueDate: invoice.dueDate,
+        totalAmount: grandTotal,
+        paidAmount,
+        outstanding,
+        status,
+      };
+    };
+
+    const result = [
+      ...warehouseInvoices.map(mapWh),
+      ...salesInvoices.map(mapSales),
+    ]
+      .filter((inv) => inv.outstanding > 0)
+      .sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
+
+    console.log(
+      `📊 [AR] Unpaid invoices: warehouse=${warehouseInvoices.length} sales=${salesInvoices.length} open=${result.length}`
+    );
+
     await set(cacheKey, result, 300);
     
     res.status(200).json({

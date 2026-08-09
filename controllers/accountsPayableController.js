@@ -116,49 +116,38 @@ async function getOrCreateExpenseAccount(userId, companyId, tx) {
 }
 
 // ─── HELPER: Generate bill number - FIXED ─────────────────────────────────
-async function generateBillNumber(companyId) {
+async function generateBillNumber(companyId, attemptOffset = 0) {
   const prefix = 'BILL-';
-  
-  // Get all existing bill numbers for this company
+
+  // Company-scoped sequence (matches @@unique([billNumber, companyId]))
   const existingBills = await prisma.bill.findMany({
     where: {
       companyId: companyId,
-      billNumber: {
-        startsWith: prefix
-      }
+      billNumber: { startsWith: prefix },
     },
-    select: {
-      billNumber: true
-    },
-    orderBy: {
-      billNumber: 'desc'
-    }
+    select: { billNumber: true },
   });
 
-  console.log(`🔍 [AP] Found ${existingBills.length} existing bills`);
+  console.log(`🔍 [AP] Found ${existingBills.length} existing bills for company`);
 
-  if (existingBills.length === 0) {
-    return `${prefix}0001`;
-  }
-
-  // Extract numbers from existing codes and find max
   let maxNumber = 0;
   for (const bill of existingBills) {
     const parts = bill.billNumber.split('-');
-    if (parts.length === 2) {
-      const num = parseInt(parts[1]);
+    if (parts.length >= 2) {
+      const num = parseInt(parts[parts.length - 1], 10);
       if (!isNaN(num) && num > maxNumber) {
         maxNumber = num;
       }
     }
   }
 
-  // Start from max + 1
-  const nextNumber = maxNumber + 1;
-  const paddedNumber = String(nextNumber).padStart(4, '0');
-  const billNumber = `${prefix}${paddedNumber}`;
-  
-  console.log(`🔍 [AP] Generated bill number: ${billNumber} (max: ${maxNumber}, next: ${nextNumber})`);
+  // attemptOffset bumps past collisions (race / stale global unique)
+  const nextNumber = maxNumber + 1 + attemptOffset;
+  const billNumber = `${prefix}${String(nextNumber).padStart(4, '0')}`;
+
+  console.log(
+    `🔍 [AP] Generated bill number: ${billNumber} (max: ${maxNumber}, offset: ${attemptOffset})`
+  );
   return billNumber;
 }
 
@@ -475,8 +464,11 @@ exports.createBill = async (req, res) => {
     let result = null;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      // Generate number FRESH each attempt (outside tx so we can read committed data)
-      const billNumber = await generateBillNumber(companyId);
+      // Offset grows on each collision so we never retry the same number
+      const billNumber =
+        attempt === MAX_ATTEMPTS
+          ? await generateFallbackBillNumber(companyId)
+          : await generateBillNumber(companyId, attempt - 1);
       console.log(`🔍 [AP] Attempt ${attempt}: trying bill number ${billNumber}`);
 
       try {
@@ -515,7 +507,7 @@ exports.createBill = async (req, res) => {
 
           await tx.journalEntry.create({
             data: {
-              entryNumber: `JE-${Date.now()}`,
+              entryNumber: `JE-${Date.now()}-${attempt}`,
               date: new Date(),
               description: `Bill ${bill.billNumber} - ${supplier.name}`,
               reference: bill.billNumber,

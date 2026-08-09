@@ -1,9 +1,11 @@
 // controllers/paymentReceivedController.js - FIXED: Atomic transaction + retry logic for paymentNumber
 
 const PaymentReceived = require('../models/PaymentReceived');
+const SalesPaymentReceived = require('../warehouse/models/SalesPaymentReceived');
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { delPattern } = require('../utils/redisClient');
 
 // ─── HELPER: Get or create Accounts Receivable account ──────────
 async function getOrCreateReceivableAccount(userId, companyId, tx) {
@@ -87,17 +89,73 @@ async function validateBankAccount(bankAccountId, companyId, tx) {
   return bankAccount;
 }
 
-// ─── HELPER: Validate Invoice ──────────────────────────────────
+// ─── HELPER: Validate Invoice (warehouse OR sales) ──────────────
 async function validateInvoice(invoiceId, companyId, tx) {
   const db = tx || prisma;
   if (!invoiceId) throw new Error('Invoice ID is required');
 
-  const invoice = await db.warehouseInvoice.findFirst({
-    where: { id: invoiceId, invoiceStatus: { not: 'Paid' }, isDeleted: false }
+  const warehouse = await db.warehouseInvoice.findFirst({
+    where: {
+      id: invoiceId,
+      companyId,
+      invoiceStatus: { not: 'Paid' },
+      isDeleted: false,
+    },
+  });
+  if (warehouse) {
+    return { source: 'warehouse', invoice: warehouse };
+  }
+
+  const sales = await db.salesInvoice.findFirst({
+    where: {
+      id: invoiceId,
+      companyId,
+      isDeleted: false,
+      isActive: true,
+      invoiceStatus: { notIn: ['Cancelled'] },
+    },
+    include: {
+      invoicePayments: {
+        where: {
+          payment: {
+            isActive: true,
+            isDeleted: false,
+            status: 'Completed',
+          },
+        },
+        select: { amountPaid: true },
+      },
+      creditNotes: {
+        where: { status: { notIn: ['Cancelled', 'Voided'] } },
+        select: { amount: true },
+      },
+    },
   });
 
-  if (!invoice) throw new Error('Invoice not found or already paid');
-  return invoice;
+  if (sales) {
+    const paidFromPayments = (sales.invoicePayments || []).reduce(
+      (s, p) => s + (Number(p.amountPaid) || 0),
+      0
+    );
+    const paidAmount = Math.max(Number(sales.paidAmount) || 0, paidFromPayments);
+    const credited = (sales.creditNotes || []).reduce(
+      (s, c) => s + (Number(c.amount) || 0),
+      0
+    );
+    const outstanding = Math.max(
+      0,
+      (Number(sales.grandTotal) || 0) - paidAmount - credited
+    );
+    if (outstanding <= 0) {
+      throw new Error('Invoice not found or already paid');
+    }
+    return {
+      source: 'sales',
+      invoice: { ...sales, paidAmount, outstanding },
+    };
+  }
+
+  throw new Error('Invoice not found or already paid');
 }
 
 // ─── HELPER: Generate next payment number (used inside retry loop) ──
@@ -162,6 +220,80 @@ const recordPayment = async (req, res) => {
       });
     }
 
+    // Detect sales vs warehouse early (outside warehouse-only transaction path)
+    const invoiceProbe = await validateInvoice(invoiceId, companyId);
+    if (invoiceProbe.source === 'sales') {
+      console.log('📦 [recordPayment] Routing to Sales payment flow');
+
+      const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+      try {
+        await fiscalYearGuard(userId, postingDate);
+      } catch (err) {
+        if (err.code === 'FISCAL_YEAR_CLOSED') {
+          return res.status(400).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+
+      const customer = await prisma.customer.findFirst({
+        where: { id: customerId, companyId },
+      });
+      if (!customer) {
+        return res.status(404).json({ success: false, message: 'Customer not found' });
+      }
+
+      if (amount > invoiceProbe.invoice.outstanding) {
+        return res.status(400).json({
+          success: false,
+          message: `Payment amount cannot exceed outstanding balance of ${invoiceProbe.invoice.outstanding}`,
+          outstanding: invoiceProbe.invoice.outstanding,
+        });
+      }
+
+      let bankAccountName = paymentMethod === 'Cash' ? 'Cash in Hand' : '';
+      if (bankAccountId) {
+        const ba = await prisma.bankAccount.findFirst({
+          where: { id: bankAccountId, companyId, status: 'Active' },
+        });
+        if (ba) bankAccountName = ba.accountName;
+      }
+
+      const payment = await SalesPaymentReceived.receivePayment({
+        customerId: customer.id,
+        customerName: customer.name,
+        amount,
+        paymentMethod: paymentMethod || 'Cash',
+        bankAccountId: bankAccountId || null,
+        bankAccountName,
+        reference: reference || '',
+        notes: notes || '',
+        invoicePayments: [
+          {
+            invoiceId: invoiceProbe.invoice.id,
+            invoiceNumber: invoiceProbe.invoice.invoiceNumber,
+            amountPaid: amount,
+          },
+        ],
+        userId,
+        createdBy: userId,
+        companyId,
+      });
+
+      try {
+        await delPattern(`ar:customer:${userId}:${customerId}:unpaid-invoices*`);
+        await delPattern(`ar:v3:*`);
+      } catch (_) {
+        /* ignore cache errors */
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: 'Payment recorded successfully',
+        data: payment,
+        source: 'sales',
+      });
+    }
+
     // ─── Fiscal year guard ─────────────────────────────────────────
     const postingDate = paymentDate ? new Date(paymentDate) : new Date();
     console.log('🗓️  [recordPayment] postingDate:', postingDate);
@@ -188,9 +320,10 @@ const recordPayment = async (req, res) => {
           const customer = await validateCustomer(customerId, companyId, tx);
           console.log('  [tx] Customer found:', customer.id, customer.name);
 
-          // 2. Validate invoice
+          // 2. Validate invoice (warehouse)
           console.log('  [tx] Step 2: validateInvoice...');
-          const invoice = await validateInvoice(invoiceId, companyId, tx);
+          const resolved = await validateInvoice(invoiceId, companyId, tx);
+          const invoice = resolved.invoice;
           console.log('  [tx] Invoice found:', invoice.id, invoice.invoiceNumber, '| grandTotal:', invoice.grandTotal, '| paidAmount:', invoice.paidAmount);
 
           // 3. Validate amount vs outstanding
@@ -515,29 +648,88 @@ const getPayment = async (req, res) => {
 const getUnpaidInvoices = async (req, res) => {
   try {
     const { customerId } = req.params;
-    const userId = req.user.id;
-
     const companyId = req.user.companyId;
     const customer = await prisma.customer.findFirst({ where: { id: customerId, companyId: companyId} });
     if (!customer) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
-    const invoices = await prisma.warehouseInvoice.findMany({
-      where: { customerId, invoiceStatus: { not: 'Paid' }, companyId: companyId},
-      orderBy: { dueDate: 'asc' }
-    });
+    const [warehouseInvoices, salesInvoices] = await Promise.all([
+      prisma.warehouseInvoice.findMany({
+        where: {
+          customerId,
+          companyId,
+          isDeleted: false,
+          invoiceStatus: { notIn: ['Paid', 'Cancelled'] },
+        },
+        orderBy: { dueDate: 'asc' },
+      }),
+      prisma.salesInvoice.findMany({
+        where: {
+          customerId,
+          companyId,
+          isDeleted: false,
+          isActive: true,
+          invoiceStatus: { notIn: ['Cancelled'] },
+        },
+        include: {
+          invoicePayments: {
+            where: {
+              payment: { isActive: true, isDeleted: false, status: 'Completed' },
+            },
+            select: { amountPaid: true },
+          },
+          creditNotes: {
+            where: { status: { notIn: ['Cancelled', 'Voided'] } },
+            select: { amount: true },
+          },
+        },
+        orderBy: { dueDate: 'asc' },
+      }),
+    ]);
 
-    const unpaidInvoices = invoices.map(invoice => ({
-      id: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      date: invoice.invoiceDate,
-      dueDate: invoice.dueDate,
-      totalAmount: invoice.grandTotal,
-      paidAmount: invoice.paidAmount,
-      outstanding: invoice.grandTotal - invoice.paidAmount,
-      status: invoice.invoiceStatus,
-    }));
+    const unpaidInvoices = [
+      ...warehouseInvoices.map((invoice) => {
+        const outstanding = (invoice.grandTotal || 0) - (invoice.paidAmount || 0);
+        return {
+          id: invoice.id,
+          source: 'warehouse',
+          invoiceNumber: invoice.invoiceNumber,
+          date: invoice.invoiceDate,
+          dueDate: invoice.dueDate,
+          totalAmount: invoice.grandTotal,
+          paidAmount: invoice.paidAmount,
+          outstanding,
+          status: invoice.invoiceStatus,
+        };
+      }),
+      ...salesInvoices.map((invoice) => {
+        const paidFromPayments = (invoice.invoicePayments || []).reduce(
+          (s, p) => s + (Number(p.amountPaid) || 0),
+          0
+        );
+        const paidAmount = Math.max(Number(invoice.paidAmount) || 0, paidFromPayments);
+        const credited = (invoice.creditNotes || []).reduce(
+          (s, c) => s + (Number(c.amount) || 0),
+          0
+        );
+        const outstanding = Math.max(
+          0,
+          (Number(invoice.grandTotal) || 0) - paidAmount - credited
+        );
+        return {
+          id: invoice.id,
+          source: 'sales',
+          invoiceNumber: invoice.invoiceNumber,
+          date: invoice.invoiceDate,
+          dueDate: invoice.dueDate,
+          totalAmount: invoice.grandTotal,
+          paidAmount,
+          outstanding,
+          status: outstanding <= 0 ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Unpaid',
+        };
+      }),
+    ].filter((inv) => inv.outstanding > 0);
 
     const totalOutstanding = unpaidInvoices.reduce((sum, inv) => sum + inv.outstanding, 0);
 
