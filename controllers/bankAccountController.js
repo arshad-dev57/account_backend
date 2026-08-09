@@ -11,6 +11,14 @@ const {
 
 // ─── HELPER: Generate unique account code ─────────────────────────
 async function generateUniqueAccountCode(companyId) {
+  if (!prisma.chartOfAccount?.findMany) {
+    const err = new Error(
+      'Prisma chartOfAccount missing. Redeploy Vercel with cache cleared (prisma generate).'
+    );
+    err.statusCode = 503;
+    throw err;
+  }
+
   const accounts = await prisma.chartOfAccount.findMany({
     where: { companyId: companyId },
     select: { code: true },

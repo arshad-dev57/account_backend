@@ -17,6 +17,24 @@ app.get('/', (req, res) => {
   res.send('API is running 🚀');
 });
 
+// Prisma client health — use after deploy to catch stale Vercel cache
+app.get('/api/health/prisma', (req, res) => {
+  try {
+    const prisma = require('./prisma/client');
+    const { getPrismaHealth } = require('./utils/prismaHealth');
+    const health = getPrismaHealth(prisma);
+    res.status(health.ok ? 200 : 503).json({
+      success: health.ok,
+      ...health,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 const userRoutes = require('./routes/userRoutes');
 const userManagementRoutes = require('./routes/userManagementRoutes');
 const profileRoutes = require('./routes/profileRoutes');

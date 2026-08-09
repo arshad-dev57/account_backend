@@ -1,5 +1,6 @@
 // prisma/client.js — singleton (safe for Vercel serverless)
 const { PrismaClient } = require('@prisma/client');
+const { getPrismaHealth } = require('../utils/prismaHealth');
 
 const globalForPrisma = globalThis;
 
@@ -12,11 +13,23 @@ const prisma =
         : ['error'],
   });
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.__accountPrisma = prisma;
-} else {
-  // Keep one client across warm serverless invocations
-  globalForPrisma.__accountPrisma = prisma;
+globalForPrisma.__accountPrisma = prisma;
+
+// Fail loud in logs if Vercel shipped a stale generated client
+try {
+  const health = getPrismaHealth(prisma);
+  if (!health.ok) {
+    console.error(
+      '❌ [Prisma] STALE CLIENT — missing models:',
+      health.missing.join(', ')
+    );
+    console.error('❌ [Prisma]', health.hint);
+  } else if (!globalForPrisma.__accountPrismaHealthLogged) {
+    console.log('✅ [Prisma] Client OK — required models present');
+    globalForPrisma.__accountPrismaHealthLogged = true;
+  }
+} catch (e) {
+  console.error('❌ [Prisma] Health check failed:', e.message);
 }
 
 module.exports = prisma;
