@@ -116,59 +116,54 @@ async function getOrCreateExpenseAccount(userId, companyId, tx) {
 }
 
 // ─── HELPER: Generate bill number - FIXED ─────────────────────────────────
-async function generateBillNumber(companyId, attemptOffset = 0) {
+async function generateBillNumber(companyId, attemptOffset = 0, tx = null) {
+  if (!companyId) {
+    throw new Error('companyId is required to generate a bill number');
+  }
+
+  const db = tx || prisma;
   const prefix = 'BILL-';
 
-  // Company-scoped sequence (matches @@unique([billNumber, companyId]))
-  const existingBills = await prisma.bill.findMany({
+  // Serialize bill-number allocation per company (prevents Vercel race → same BILL-0001)
+  if (tx) {
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtext(${`bill-seq:${companyId}`}))
+    `;
+  }
+
+  const existingBills = await db.bill.findMany({
     where: {
-      companyId: companyId,
+      companyId,
       billNumber: { startsWith: prefix },
     },
     select: { billNumber: true },
   });
 
-  console.log(`🔍 [AP] Found ${existingBills.length} existing bills for company`);
-
   let maxNumber = 0;
   for (const bill of existingBills) {
-    const parts = bill.billNumber.split('-');
-    if (parts.length >= 2) {
-      const num = parseInt(parts[parts.length - 1], 10);
-      if (!isNaN(num) && num > maxNumber) {
-        maxNumber = num;
-      }
+    const match = String(bill.billNumber || '').match(/(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNumber) maxNumber = num;
     }
   }
 
-  // attemptOffset bumps past collisions (race / stale global unique)
   const nextNumber = maxNumber + 1 + attemptOffset;
   const billNumber = `${prefix}${String(nextNumber).padStart(4, '0')}`;
 
   console.log(
-    `🔍 [AP] Generated bill number: ${billNumber} (max: ${maxNumber}, offset: ${attemptOffset})`
+    `🔍 [AP] Bill# gen company=${companyId} existing=${existingBills.length} max=${maxNumber} offset=${attemptOffset} → ${billNumber}`
   );
   return billNumber;
 }
 
 // ─── HELPER: Generate fallback bill number ─────────────────────────────────
 async function generateFallbackBillNumber(companyId) {
-  const timestamp = Date.now().toString(36).toUpperCase();
+  const short = String(companyId || 'X').replace(/-/g, '').slice(0, 6).toUpperCase();
+  const stamp = Date.now().toString(36).toUpperCase();
   const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  const fallbackNumber = `BILL-${timestamp}${random}`.substring(0, 15);
-  
-  const existing = await prisma.bill.findFirst({
-    where: {
-      billNumber: fallbackNumber,
-      companyId: companyId
-    }
-  });
-
-  if (existing) {
-    return `BILL-${timestamp}${random}${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
-  }
-
-  return fallbackNumber;
+  // Company fragment avoids cross-tenant collisions even if a global unique still exists
+  return `BILL-${short}-${stamp}${random}`.slice(0, 32);
 }
 
 // ─── HELPER: Validate bank account ────────────────────────────────
@@ -418,12 +413,19 @@ exports.getSupplier = async (req, res) => {
 // @route   POST /api/accounts-payable/bills
 // @access  Private
 exports.createBill = async (req, res) => {
-  console.log('📦 [AP] createBill called');
+  console.log('📦 [AP] createBill called [bill-seq-v2]');
 
   try {
     const { supplierId, date, dueDate, items, discount, notes } = req.body;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company ID missing from session. Please log out and log in again.',
+      });
+    }
 
     // Validate supplier
     const supplier = await prisma.supplier.findFirst({
@@ -464,15 +466,16 @@ exports.createBill = async (req, res) => {
     let result = null;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      // Offset grows on each collision so we never retry the same number
-      const billNumber =
-        attempt === MAX_ATTEMPTS
-          ? await generateFallbackBillNumber(companyId)
-          : await generateBillNumber(companyId, attempt - 1);
-      console.log(`🔍 [AP] Attempt ${attempt}: trying bill number ${billNumber}`);
-
       try {
         result = await prisma.$transaction(async (tx) => {
+          // Allocate number INSIDE the tx under advisory lock
+          const billNumber =
+            attempt === MAX_ATTEMPTS
+              ? await generateFallbackBillNumber(companyId)
+              : await generateBillNumber(companyId, attempt - 1, tx);
+
+          console.log(`🔍 [AP] Attempt ${attempt}: creating ${billNumber}`);
+
           const bill = await tx.bill.create({
             data: {
               billNumber,
@@ -547,16 +550,13 @@ exports.createBill = async (req, res) => {
           return bill;
         });
 
-        // Transaction succeeded — break out of retry loop
         break;
 
       } catch (txError) {
-        // P2002 = unique constraint violation on bill_number
         if (txError.code === 'P2002' && attempt < MAX_ATTEMPTS) {
-          console.log(`⚠️ [AP] Bill number ${billNumber} collision, retrying (${attempt}/${MAX_ATTEMPTS})`);
+          console.log(`⚠️ [AP] Bill number collision, retrying (${attempt}/${MAX_ATTEMPTS}):`, txError.meta);
           continue;
         }
-        // Last attempt or different error — rethrow
         throw txError;
       }
     }
