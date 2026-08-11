@@ -18,6 +18,54 @@ function normalizePaymentStatus(status) {
   return s;
 }
 
+const PAYMENT_FILTERS = new Set(['paid', 'unpaid', 'partial', 'overdue']);
+
+function isPaymentFilter(value) {
+  return PAYMENT_FILTERS.has(String(value || '').toLowerCase());
+}
+
+function resolveStatusFilters(query = {}) {
+  const rawStatus = query.status;
+  const rawPayment = query.paymentStatus;
+  const statusIsPayment = isPaymentFilter(rawStatus);
+  const invoiceStatus =
+    !rawStatus || String(rawStatus).toLowerCase() === 'all' || statusIsPayment
+      ? null
+      : rawStatus;
+
+  let paymentStatus =
+    rawPayment && String(rawPayment).toLowerCase() !== 'all' ? rawPayment : null;
+  if (!paymentStatus && statusIsPayment && String(rawStatus).toLowerCase() !== 'overdue') {
+    paymentStatus = rawStatus;
+  }
+
+  const displayPaymentFilter = statusIsPayment
+    ? String(rawStatus).toLowerCase()
+    : isPaymentFilter(rawPayment)
+      ? String(rawPayment).toLowerCase()
+      : null;
+
+  return { invoiceStatus, paymentStatus, displayPaymentFilter };
+}
+
+function applyPaymentDisplayFilter(rows, filter) {
+  if (!filter) return rows;
+  const now = new Date();
+  return rows.filter((r) => {
+    const pay = normalizePaymentStatus(r.paymentStatus);
+    const overdue =
+      Boolean(r.dueDate) &&
+      new Date(r.dueDate) < now &&
+      pay !== 'Paid' &&
+      pay !== 'Cancelled';
+    if (filter === 'overdue') return overdue;
+    if (filter === 'unpaid') return pay === 'Unpaid' && !overdue;
+    if (filter === 'paid') return pay === 'Paid';
+    if (filter === 'partial') return pay === 'Partial';
+    return true;
+  });
+}
+
 function companyScope(user) {
   if (user.companyId) {
     return {
@@ -31,15 +79,16 @@ function companyScope(user) {
 }
 
 function buildSalesWhere(req) {
-  const { search, status, paymentStatus, fromDate, toDate } = req.query;
+  const { search, fromDate, toDate, startDate, endDate, customerId } = req.query;
+  const { invoiceStatus, paymentStatus } = resolveStatusFilters(req.query);
   const andClauses = [
     { isActive: true },
     { isDeleted: false },
     companyScope(req.user),
   ];
 
-  if (status && status !== 'all') andClauses.push({ invoiceStatus: status });
-  if (paymentStatus && paymentStatus !== 'all') {
+  if (invoiceStatus) andClauses.push({ invoiceStatus });
+  if (paymentStatus) {
     andClauses.push({
       OR: [
         { paymentStatus },
@@ -47,11 +96,14 @@ function buildSalesWhere(req) {
       ],
     });
   }
-  if (fromDate || toDate) {
+  if (customerId) andClauses.push({ customerId });
+  const from = fromDate || startDate;
+  const to = toDate || endDate;
+  if (from || to) {
     const invoiceDate = {};
-    if (fromDate) invoiceDate.gte = new Date(fromDate);
-    if (toDate) {
-      const end = new Date(toDate);
+    if (from) invoiceDate.gte = new Date(from);
+    if (to) {
+      const end = new Date(to);
       end.setHours(23, 59, 59, 999);
       invoiceDate.lte = end;
     }
@@ -70,22 +122,23 @@ function buildSalesWhere(req) {
 }
 
 function buildPurchaseWhere(req) {
-  const { search, status, paymentStatus, fromDate, toDate } = req.query;
+  const { search, fromDate, toDate, startDate, endDate } = req.query;
+  const { invoiceStatus, paymentStatus } = resolveStatusFilters(req.query);
   const andClauses = [
     { isActive: true },
     { isDeleted: false },
     companyScope(req.user),
   ];
 
-  if (status && status !== 'all') {
+  if (invoiceStatus) {
     andClauses.push({
       OR: [
-        { invoiceStatus: status },
-        { invoiceStatus: String(status).toLowerCase() },
+        { invoiceStatus },
+        { invoiceStatus: String(invoiceStatus).toLowerCase() },
       ],
     });
   }
-  if (paymentStatus && paymentStatus !== 'all') {
+  if (paymentStatus) {
     andClauses.push({
       OR: [
         { paymentStatus },
@@ -93,11 +146,13 @@ function buildPurchaseWhere(req) {
       ],
     });
   }
-  if (fromDate || toDate) {
+  const from = fromDate || startDate;
+  const to = toDate || endDate;
+  if (from || to) {
     const invoiceDate = {};
-    if (fromDate) invoiceDate.gte = new Date(fromDate);
-    if (toDate) {
-      const end = new Date(toDate);
+    if (from) invoiceDate.gte = new Date(from);
+    if (to) {
+      const end = new Date(to);
       end.setHours(23, 59, 59, 999);
       invoiceDate.lte = end;
     }
@@ -154,22 +209,23 @@ function mapSalesInvoice(inv, creditIssued = 0) {
 }
 
 function buildSalesInvoiceWhere(req) {
-  const { search, status, paymentStatus, fromDate, toDate } = req.query;
+  const { search, fromDate, toDate, startDate, endDate, customerId } = req.query;
+  const { invoiceStatus, paymentStatus } = resolveStatusFilters(req.query);
   const andClauses = [
     { isActive: true },
     { isDeleted: false },
     companyScope(req.user),
   ];
 
-  if (status && status !== 'all') {
+  if (invoiceStatus) {
     andClauses.push({
       OR: [
-        { invoiceStatus: status },
-        { invoiceStatus: String(status).toLowerCase() },
+        { invoiceStatus },
+        { invoiceStatus: String(invoiceStatus).toLowerCase() },
       ],
     });
   }
-  if (paymentStatus && paymentStatus !== 'all') {
+  if (paymentStatus) {
     andClauses.push({
       OR: [
         { paymentStatus },
@@ -177,11 +233,14 @@ function buildSalesInvoiceWhere(req) {
       ],
     });
   }
-  if (fromDate || toDate) {
+  if (customerId) andClauses.push({ customerId });
+  const from = fromDate || startDate;
+  const to = toDate || endDate;
+  if (from || to) {
     const invoiceDate = {};
-    if (fromDate) invoiceDate.gte = new Date(fromDate);
-    if (toDate) {
-      const end = new Date(toDate);
+    if (from) invoiceDate.gte = new Date(from);
+    if (to) {
+      const end = new Date(to);
       end.setHours(23, 59, 59, 999);
       invoiceDate.lte = end;
     }
@@ -353,7 +412,6 @@ const getInvoices = async (req, res) => {
     const type = String(invoiceType || 'all').toLowerCase();
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
-    const skip = (pageNum - 1) * limitNum;
 
     const includeSales = type === 'all' || type === 'sales';
     const includePurchase = type === 'all' || type === 'purchase';
@@ -453,13 +511,19 @@ const getInvoices = async (req, res) => {
     ];
     const mappedPurchases = purchaseRows.map(mapPurchaseInvoice);
 
-    const combined = [...mappedSales, ...mappedPurchases].sort(
-      (a, b) => new Date(b.invoiceDate) - new Date(a.invoiceDate)
+    const { displayPaymentFilter } = resolveStatusFilters(req.query);
+    const combined = applyPaymentDisplayFilter(
+      [...mappedSales, ...mappedPurchases].sort(
+        (a, b) => new Date(b.invoiceDate) - new Date(a.invoiceDate)
+      ),
+      displayPaymentFilter
     );
 
     const total = combined.length;
     const pages = Math.max(1, Math.ceil(total / limitNum) || 1);
-    const pageRows = combined.slice(skip, skip + limitNum);
+    const currentPage = Math.min(pageNum, pages);
+    const pageSkip = (currentPage - 1) * limitNum;
+    const pageRows = combined.slice(pageSkip, pageSkip + limitNum);
     const stats = computeCombinedStats(combined);
     const trend = includeSales
       ? await WarehouseInvoice.getDailyTrend(30, req.user.companyId || null)
@@ -469,18 +533,24 @@ const getInvoices = async (req, res) => {
       success: true,
       data: pageRows,
       stats,
+      summary: {
+        totalAmount: stats.grandTotal,
+        totalPaid: stats.paidAmount,
+        totalOutstanding: stats.outstanding,
+      },
       trend,
       filters: {
         invoiceType: type,
         availableTypes: ['all', 'sales', 'purchase'],
       },
       pagination: {
-        page: pageNum,
+        page: currentPage,
         limit: limitNum,
         total,
         pages,
-        hasNext: pageNum < pages,
-        hasPrev: pageNum > 1,
+        totalPages: pages,
+        hasNext: currentPage < pages,
+        hasPrev: currentPage > 1,
       },
     });
   } catch (error) {

@@ -12,11 +12,16 @@ const CREDIT_BALANCE_TYPES = ['Liability', 'Equity', 'Revenue'];
 // ─── TYPE MAPPING ──────────────────────────────────────────────────
 const TYPE_MAP = {
   'Assets': 'Asset',
+  'Asset': 'Asset',
   'Liabilities': 'Liability',
+  'Liability': 'Liability',
   'Equity': 'Equity',
   'Income': 'Revenue',
-  'Expenses': 'Expense'
+  'Revenue': 'Revenue',
+  'Expenses': 'Expense',
+  'Expense': 'Expense'
 };
+const ALLOWED_ACCOUNT_SORT = ['code', 'name', 'type', 'currentBalance', 'createdAt', 'updatedAt'];
 
 // ─── CORE LOGIC: Opening Balance Management ───────────────────────
 
@@ -742,19 +747,22 @@ const getAccounts = async (req, res) => {
       filter.type = backendType;
     }
 
-    if (search) {
+    const searchTerm = typeof search === 'string' ? search.trim() : '';
+    if (searchTerm) {
       filter.OR = [
-        { code: { contains: search, mode: 'insensitive' } },
-        { name: { contains: search, mode: 'insensitive' } }
+        { code: { contains: searchTerm, mode: 'insensitive' } },
+        { name: { contains: searchTerm, mode: 'insensitive' } }
       ];
     }
 
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
+    const safeSortBy = ALLOWED_ACCOUNT_SORT.includes(sortBy) ? sortBy : 'code';
+    const safeSortOrder = sortOrder === 'desc' ? 'desc' : 'asc';
 
-    // Build cache key with parameters (v3: balances derived from posted JEs)
-    const cacheKey = `coa:accounts:v3:${userId}:${type || 'All'}:${search || ''}:${page}:${limitNum}:${sortBy}:${sortOrder}`;
+    // Build cache key with parameters (v4: company-wide stats + clamped pagination)
+    const cacheKey = `coa:accounts:${userId}:v4:${backendType || 'All'}:${searchTerm}:${pageNum}:${limitNum}:${safeSortBy}:${safeSortOrder}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -767,9 +775,9 @@ const getAccounts = async (req, res) => {
     }
 
     const orderBy = {};
-    orderBy[sortBy] = sortOrder === 'desc' ? 'desc' : 'asc';
+    orderBy[safeSortBy] = safeSortOrder;
 
-    const [accounts, totalCount] = await Promise.all([
+    const [accounts, totalCount, typeAggregates] = await Promise.all([
       prisma.chartOfAccount.findMany({
         where: filter,
         skip,
@@ -781,7 +789,12 @@ const getAccounts = async (req, res) => {
           }
         }
       }),
-      prisma.chartOfAccount.count({ where: filter })
+      prisma.chartOfAccount.count({ where: filter }),
+      prisma.chartOfAccount.groupBy({
+        by: ['type'],
+        where: filter,
+        _sum: { currentBalance: true }
+      })
     ]);
 
     // Derive balances from posted journal lines (source of truth)
@@ -850,31 +863,43 @@ const getAccounts = async (req, res) => {
       Expenses: 0
     };
 
-    accountsWithBalances.forEach(account => {
-      const typeKey = account.type === 'Revenue' ? 'Income' : account.type;
-      if (summary[typeKey] !== undefined) {
-        summary[typeKey] += account.currentBalance;
-      }
+    typeAggregates.forEach((row) => {
+      const amount = Number(row._sum?.currentBalance || 0);
+      if (row.type === 'Asset') summary.Assets = amount;
+      else if (row.type === 'Liability') summary.Liabilities = amount;
+      else if (row.type === 'Equity') summary.Equity = amount;
+      else if (row.type === 'Revenue') summary.Income = amount;
+      else if (row.type === 'Expense') summary.Expenses = amount;
     });
 
-    const totalPages = Math.ceil(totalCount / limitNum);
+    const totalPages = Math.max(1, Math.ceil(totalCount / limitNum) || 1);
+    const startIndex = totalCount === 0 ? 0 : skip + 1;
+    const endIndex = Math.min(skip + accountsWithBalances.length, totalCount);
 
     const responseData = {
       count: accountsWithBalances.length,
       totalCount: totalCount,
       data: accountsWithBalances,
       summary,
+      stats: {
+        total: totalCount,
+        assetTotal: summary.Assets,
+        liabilityTotal: summary.Liabilities,
+        equityTotal: summary.Equity,
+        revenueTotal: summary.Income,
+        expenseTotal: summary.Expenses
+      },
       pagination: {
         total: totalCount,
         page: pageNum,
         limit: limitNum,
         pages: totalPages,
-        hasNext: pageNum < totalPages,
+        hasNext: pageNum < totalPages && skip + accountsWithBalances.length < totalCount,
         hasPrev: pageNum > 1,
         nextPage: pageNum < totalPages ? pageNum + 1 : null,
         prevPage: pageNum > 1 ? pageNum - 1 : null,
-        startIndex: skip + 1,
-        endIndex: Math.min(skip + limitNum, totalCount)
+        startIndex,
+        endIndex
       }
     };
 
