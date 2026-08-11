@@ -3,57 +3,53 @@
 const Redis = require('ioredis');
 
 let redisClient = null;
+let _initialized = false;
 
 // Initialize Redis client
 function getRedisClient() {
-  if (!redisClient) {
-    try {
-      const redisUrl = process.env.REDIS_URL;
-      
-      console.log('🔍 [Redis] REDIS_URL:', redisUrl ? 'Set' : 'Not set');
-      
-      if (redisUrl) {
-        // Use Upstash/cloud Redis URL
-        redisClient = new Redis(redisUrl, {
-          tls: {},
-          maxRetriesPerRequest: 3,
-          retryStrategy: (times) => {
-            if (times > 3) {
-              console.log('❌ [Redis] Connection failed after 3 retries');
-              return null;
-            }
-            return Math.min(times * 100, 3000);
-          },
-        });
-      } else {
-        // Use local Redis
-        redisClient = new Redis({
-          host: process.env.REDIS_HOST || 'localhost',
-          port: process.env.REDIS_PORT || 6379,
-          password: process.env.REDIS_PASSWORD || undefined,
-          maxRetriesPerRequest: 3,
-          retryStrategy: (times) => {
-            if (times > 3) {
-              console.log('❌ [Redis] Connection failed after 3 retries');
-              return null;
-            }
-            return Math.min(times * 100, 3000);
-          },
-        });
-      }
+  if (_initialized) return redisClient;
+  _initialized = true;
 
-      redisClient.on('connect', () => {
-        console.log('✅ [Redis] Connected successfully');
-      });
+  const redisUrl = process.env.REDIS_URL;
 
-      redisClient.on('error', (err) => {
-        console.log('⚠️ [Redis] Connection error:', err.message);
-      });
-    } catch (error) {
-      console.log('❌ [Redis] Failed to initialize:', error.message);
-      return null;
-    }
+  // No Redis URL configured — run without cache (graceful no-op)
+  if (!redisUrl) {
+    console.log('ℹ️ [Redis] REDIS_URL not set — caching disabled');
+    redisClient = null;
+    return null;
   }
+
+  try {
+    redisClient = new Redis(redisUrl, {
+      tls: {},
+      maxRetriesPerRequest: 1,
+      retryStrategy: (times) => {
+        if (times > 2) {
+          console.log('❌ [Redis] Connection failed — disabling cache');
+          redisClient = null;
+          return null; // stop retrying
+        }
+        return Math.min(times * 200, 1000);
+      },
+      lazyConnect: true,
+    });
+
+    redisClient.on('connect', () => {
+      console.log('✅ [Redis] Connected successfully');
+    });
+
+    redisClient.on('error', (err) => {
+      console.log('⚠️ [Redis] Error:', err.message);
+    });
+
+    redisClient.on('close', () => {
+      console.log('ℹ️ [Redis] Connection closed');
+    });
+  } catch (error) {
+    console.log('❌ [Redis] Failed to initialize:', error.message);
+    redisClient = null;
+  }
+
   return redisClient;
 }
 

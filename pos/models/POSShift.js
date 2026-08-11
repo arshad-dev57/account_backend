@@ -19,6 +19,24 @@ class POSShiftModel {
     });
     if (!terminal) throw new Error('Terminal not found or inactive');
 
+    // Prevent two cashiers opening the same terminal
+    const terminalBusy = await prisma.pOSShift.findFirst({
+      where: {
+        terminalId,
+        companyId,
+        status: { in: ['Open', 'Suspended'] },
+      },
+      include: {
+        cashier: { select: { firstName: true, lastName: true } },
+      },
+    });
+    if (terminalBusy) {
+      const name = `${terminalBusy.cashier?.firstName || ''} ${terminalBusy.cashier?.lastName || ''}`.trim();
+      throw new Error(
+        `Terminal is already in use${name ? ` by ${name}` : ''}. Close or suspend that shift first.`
+      );
+    }
+
     const shift = await prisma.pOSShift.create({
       data: { terminalId, cashierId, companyId, openingCash, notes: notes || null, status: 'Open' },
       include: { terminal: true, cashier: { select: { id:true, firstName:true, lastName:true, email:true } } }

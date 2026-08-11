@@ -114,6 +114,99 @@ const getOrderTrend = async (userId, companyId, dateFilter, days = 30) => {
   return Object.values(trendMap);
 };
 
+// ─── POS SALE FILTER (exclude cancelled/held/returned; Invoiced counted under invoices) ───
+const posSaleWhere = (companyId, dateFilter) => ({
+  companyId,
+  status: 'Completed',
+  ...(dateFilter ? { createdAt: dateFilter } : {}),
+});
+
+const getPosTrend = async (companyId, dateFilter) => {
+  const rows = await prisma.pOSSale.findMany({
+    where: posSaleWhere(companyId, dateFilter),
+    select: { createdAt: true, grandTotal: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const trendMap = {};
+  rows.forEach((sale) => {
+    const key = sale.createdAt.toISOString().split('T')[0];
+    if (!trendMap[key]) {
+      trendMap[key] = { date: key, sales: 0, revenue: 0, orderRevenue: 0 };
+    }
+    trendMap[key].sales += 1;
+    trendMap[key].revenue += toNum(sale.grandTotal);
+  });
+
+  return Object.values(trendMap);
+};
+
+const getPosStats = async (companyId, dateFilter) => {
+  const [agg, todayAgg] = await Promise.all([
+    prisma.pOSSale.aggregate({
+      where: posSaleWhere(companyId, dateFilter),
+      _sum: { grandTotal: true, discountTotal: true, taxTotal: true, paidAmount: true },
+      _count: { id: true },
+    }),
+    prisma.pOSSale.aggregate({
+      where: posSaleWhere(companyId, (() => {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        return { gte: start };
+      })()),
+      _sum: { grandTotal: true },
+      _count: { id: true },
+    }),
+  ]);
+
+  return {
+    count: agg._count.id || 0,
+    revenue: toNum(agg._sum.grandTotal),
+    discountTotal: toNum(agg._sum.discountTotal),
+    taxTotal: toNum(agg._sum.taxTotal),
+    paidAmount: toNum(agg._sum.paidAmount),
+    todayCount: todayAgg._count.id || 0,
+    todayRevenue: toNum(todayAgg._sum.grandTotal),
+  };
+};
+
+const sumPosRevenue = async (companyId, dateFilter) => {
+  const agg = await prisma.pOSSale.aggregate({
+    where: posSaleWhere(companyId, dateFilter),
+    _sum: { grandTotal: true },
+  });
+  return toNum(agg._sum.grandTotal);
+};
+
+const getRecentPosActivity = async (companyId, limit = 8) => {
+  const rows = await prisma.pOSSale.findMany({
+    where: {
+      companyId,
+      status: { in: ['Completed', 'Invoiced', 'Returned'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      invoiceNumber: true,
+      grandTotal: true,
+      customerName: true,
+      createdAt: true,
+      status: true,
+    },
+  });
+
+  return rows.map((s) => ({
+    id: s.id,
+    type: 'pos',
+    description: `POS ${s.invoiceNumber} · ${s.customerName || 'Walk-in'}`,
+    amount: toNum(s.grandTotal),
+    date: s.createdAt,
+    status: s.status,
+    timestamp: s.createdAt,
+  }));
+};
+
 // ─── GET INVOICE STATS ────────────────────────────────────
 const getInvoiceStats = async (userId, companyId, dateFilter) => {
   const baseWhere = {
@@ -448,43 +541,66 @@ const getRefundStats = async (userId, companyId, period) => {
   };
 };
 
-// ─── GET TOP PRODUCTS ─────────────────────────────────────
+// ─── GET TOP PRODUCTS (orders + POS) ──────────────────────
 const getTopProducts = async (userId, companyId, period, limit = 10) => {
   const dateFilter = getDateFilter(period);
 
-  const topProducts = await prisma.orderItem.groupBy({
-    by: ['productId', 'productName', 'sku'],
-    where: {
-      order: {
-        companyId: companyId, // 👈 User-specific
-        isActive: true,
-        isDeleted: false,
-        orderDate: dateFilter
-      }
-    },
-    _count: {
-      id: true
-    },
-    _sum: {
-      quantity: true,
-      totalPrice: true
-    },
-    orderBy: {
-      _sum: {
-        totalPrice: 'desc'
-      }
-    },
-    take: limit
-  });
+  const [orderProducts, posProducts] = await Promise.all([
+    prisma.orderItem.groupBy({
+      by: ['productId', 'productName', 'sku'],
+      where: {
+        order: {
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          orderDate: dateFilter,
+        },
+      },
+      _count: { id: true },
+      _sum: { quantity: true, totalPrice: true },
+    }),
+    prisma.pOSSaleItem.groupBy({
+      by: ['productId', 'productName', 'sku'],
+      where: {
+        posSale: posSaleWhere(companyId, dateFilter),
+      },
+      _count: { id: true },
+      _sum: { quantity: true, lineTotal: true },
+    }),
+  ]);
 
-  return topProducts.map(item => ({
-    productId: item.productId,
-    productName: item.productName,
-    sku: item.sku,
-    quantity: item._sum.quantity || 0,
-    revenue: item._sum.totalPrice || 0,
-    orderCount: item._count.id
-  }));
+  const merged = {};
+  for (const item of orderProducts) {
+    const key = item.productId || item.sku || item.productName;
+    merged[key] = {
+      productId: item.productId,
+      productName: item.productName,
+      sku: item.sku,
+      quantity: toNum(item._sum.quantity),
+      revenue: toNum(item._sum.totalPrice),
+      orderCount: item._count.id || 0,
+    };
+  }
+  for (const item of posProducts) {
+    const key = item.productId || item.sku || item.productName;
+    if (!merged[key]) {
+      merged[key] = {
+        productId: item.productId,
+        productName: item.productName,
+        sku: item.sku,
+        quantity: 0,
+        revenue: 0,
+        orderCount: 0,
+      };
+    }
+    merged[key].quantity += toNum(item._sum.quantity);
+    merged[key].revenue += toNum(item._sum.lineTotal);
+    merged[key].orderCount += item._count.id || 0;
+  }
+
+  return Object.values(merged)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, limit);
 };
 
 // ─── GET CUSTOMER STATS ──────────────────────────────────
@@ -558,20 +674,29 @@ const getSalesDashboard = async (req, res) => {
       orderDate: dateFilter
     };
 
-    const [orderCount, orderRevenue, orderStatusCounts, orderTrend] = await Promise.all([
-      prisma.order.count({ where: orderFilter }),
-      prisma.order.aggregate({ 
-        where: orderFilter, 
-        _sum: { grandTotal: true } 
-      }),
-      prisma.order.groupBy({
-        by: ['orderStatus'],
-        where: orderFilter,
-        _count: { _all: true },
-        _sum: { grandTotal: true }
-      }),
-      getOrderTrend(userId, companyId, dateFilter)
-    ]);
+    const [orderCount, orderRevenue, orderStatusCounts, orderTrend, posStats, posTrend] =
+      await Promise.all([
+        prisma.order.count({ where: orderFilter }),
+        prisma.order.aggregate({
+          where: orderFilter,
+          _sum: { grandTotal: true },
+        }),
+        prisma.order.groupBy({
+          by: ['orderStatus'],
+          where: orderFilter,
+          _count: { _all: true },
+          _sum: { grandTotal: true },
+        }),
+        getOrderTrend(userId, companyId, dateFilter),
+        getPosStats(companyId, dateFilter),
+        getPosTrend(companyId, dateFilter),
+      ]);
+
+    // Enrich order trend with orderRevenue alias for Flutter/Next clients
+    const enrichedOrderTrend = orderTrend.map((t) => ({
+      ...t,
+      orderRevenue: toNum(t.revenue),
+    }));
 
     // ─── INVOICES ─────────────────────────────────────────────
     const [invoiceStats, invoiceTrend] = await Promise.all([
@@ -595,9 +720,13 @@ const getSalesDashboard = async (req, res) => {
     const customerStats = await getCustomerStats(userId, companyId, period);
 
     // ─── SUMMARY STATS ───────────────────────────────────────
+    const orderRev = toNum(orderRevenue._sum.grandTotal);
+    const posRev = toNum(posStats.revenue);
     const summary = {
       totalOrders: orderCount,
-      totalRevenue: orderRevenue._sum.grandTotal || 0,
+      totalRevenue: orderRev + posRev,
+      totalPosSales: posStats.count,
+      totalPosRevenue: posRev,
       totalInvoices: invoiceStats.total,
       totalInvoiceRevenue: invoiceStats.revenue,
       totalReturns: returnStats.total,
@@ -607,7 +736,7 @@ const getSalesDashboard = async (req, res) => {
       creditAmount: creditNoteStats.creditAmount,
       creditRemaining: creditNoteStats.remainingAmount,
       outstandingInvoices: invoiceStats.outstanding,
-      totalCustomers: customerStats.totalCustomers
+      totalCustomers: customerStats.totalCustomers,
     };
 
     // ─── ENRICH ORDERS DATA ───────────────────────────────────
@@ -625,7 +754,7 @@ const getSalesDashboard = async (req, res) => {
     const yesterdayStart = new Date(todayStart);
     yesterdayStart.setDate(yesterdayStart.getDate() - 1);
     
-    const [todaySalesAgg, yesterdaySalesAgg] = await Promise.all([
+    const [todaySalesAgg, yesterdaySalesAgg, todayPos, yesterdayPos] = await Promise.all([
       prisma.order.aggregate({
         where: {
           companyId: companyId,
@@ -646,11 +775,13 @@ const getSalesDashboard = async (req, res) => {
           }
         },
         _sum: { grandTotal: true }
-      })
+      }),
+      sumPosRevenue(companyId, { gte: todayStart }),
+      sumPosRevenue(companyId, { gte: yesterdayStart, lt: todayStart }),
     ]);
     
-    const todaySales = todaySalesAgg._sum.grandTotal || 0;
-    const yesterdaySales = yesterdaySalesAgg._sum.grandTotal || 0;
+    const todaySales = toNum(todaySalesAgg._sum.grandTotal) + todayPos;
+    const yesterdaySales = toNum(yesterdaySalesAgg._sum.grandTotal) + yesterdayPos;
     const todaySalesChange = yesterdaySales > 0 
       ? ((todaySales - yesterdaySales) / yesterdaySales) * 100 
       : 0;
@@ -662,7 +793,7 @@ const getSalesDashboard = async (req, res) => {
     const lastWeekStart = new Date(weekStart);
     lastWeekStart.setDate(lastWeekStart.getDate() - 7);
     
-    const [weekSalesAgg, lastWeekSalesAgg] = await Promise.all([
+    const [weekSalesAgg, lastWeekSalesAgg, weekPos, lastWeekPos] = await Promise.all([
       prisma.order.aggregate({
         where: {
           companyId: companyId,
@@ -683,11 +814,13 @@ const getSalesDashboard = async (req, res) => {
           }
         },
         _sum: { grandTotal: true }
-      })
+      }),
+      sumPosRevenue(companyId, { gte: weekStart }),
+      sumPosRevenue(companyId, { gte: lastWeekStart, lt: weekStart }),
     ]);
     
-    const weekSales = weekSalesAgg._sum.grandTotal || 0;
-    const lastWeekSales = lastWeekSalesAgg._sum.grandTotal || 0;
+    const weekSales = toNum(weekSalesAgg._sum.grandTotal) + weekPos;
+    const lastWeekSales = toNum(lastWeekSalesAgg._sum.grandTotal) + lastWeekPos;
     const weekSalesChange = lastWeekSales > 0 
       ? ((weekSales - lastWeekSales) / lastWeekSales) * 100 
       : 0;
@@ -699,7 +832,7 @@ const getSalesDashboard = async (req, res) => {
     const lastMonthStart = new Date(monthStart);
     lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
     
-    const [monthSalesAgg, lastMonthSalesAgg] = await Promise.all([
+    const [monthSalesAgg, lastMonthSalesAgg, monthPos, lastMonthPos] = await Promise.all([
       prisma.order.aggregate({
         where: {
           companyId: companyId,
@@ -720,11 +853,13 @@ const getSalesDashboard = async (req, res) => {
           }
         },
         _sum: { grandTotal: true }
-      })
+      }),
+      sumPosRevenue(companyId, { gte: monthStart }),
+      sumPosRevenue(companyId, { gte: lastMonthStart, lt: monthStart }),
     ]);
     
-    const monthSales = monthSalesAgg._sum.grandTotal || 0;
-    const lastMonthSales = lastMonthSalesAgg._sum.grandTotal || 0;
+    const monthSales = toNum(monthSalesAgg._sum.grandTotal) + monthPos;
+    const lastMonthSales = toNum(lastMonthSalesAgg._sum.grandTotal) + lastMonthPos;
     const monthSalesChange = lastMonthSales > 0 
       ? ((monthSales - lastMonthSales) / lastMonthSales) * 100 
       : 0;
@@ -736,7 +871,7 @@ const getSalesDashboard = async (req, res) => {
     const lastYearStart = new Date(yearStart);
     lastYearStart.setFullYear(lastYearStart.getFullYear() - 1);
     
-    const [yearSalesAgg, lastYearSalesAgg] = await Promise.all([
+    const [yearSalesAgg, lastYearSalesAgg, yearPos, lastYearPos] = await Promise.all([
       prisma.order.aggregate({
         where: {
           companyId: companyId,
@@ -757,11 +892,13 @@ const getSalesDashboard = async (req, res) => {
           }
         },
         _sum: { grandTotal: true }
-      })
+      }),
+      sumPosRevenue(companyId, { gte: yearStart }),
+      sumPosRevenue(companyId, { gte: lastYearStart, lt: yearStart }),
     ]);
     
-    const yearSales = yearSalesAgg._sum.grandTotal || 0;
-    const lastYearSales = lastYearSalesAgg._sum.grandTotal || 0;
+    const yearSales = toNum(yearSalesAgg._sum.grandTotal) + yearPos;
+    const lastYearSales = toNum(lastYearSalesAgg._sum.grandTotal) + lastYearPos;
     const yearSalesChange = lastYearSales > 0 
       ? ((yearSales - lastYearSales) / lastYearSales) * 100 
       : 0;
@@ -841,18 +978,25 @@ const getSalesDashboard = async (req, res) => {
       }
     };
 
-    // ─── RECENT ACTIVITY (MOCK) ───────────────────────────────
-    const recentActivity = [];
+    // ─── RECENT ACTIVITY (POS sales) ──────────────────────────
+    const recentActivity = await getRecentPosActivity(companyId, 10);
 
-    // ─── REVENUE BREAKDOWN (MOCK) ─────────────────────────────
+    // ─── REVENUE BREAKDOWN (orders + POS + invoices) ──────────
+    const invoiceRev = toNum(invoiceStats.grandTotal || invoiceStats.revenue);
+    const channelTotal = orderRev + posRev + invoiceRev;
+    const pct = (v) => (channelTotal > 0 ? Math.round((v / channelTotal) * 1000) / 10 : 0);
     const revenueBreakdown = {
-      grossRevenue: summary.totalRevenue,
-      lineItemDiscounts: summary.totalRevenue * 0.05,
-      orderLevelDiscounts: summary.totalRevenue * 0.03,
-      netRevenue: summary.totalRevenue * 0.92,
-      taxAmount: summary.totalRevenue * 0.1,
-      shippingAmount: summary.totalRevenue * 0.02,
-      items: []
+      grossRevenue: orderRev + posRev,
+      lineItemDiscounts: toNum(posStats.discountTotal),
+      orderLevelDiscounts: 0,
+      netRevenue: orderRev + posRev,
+      taxAmount: toNum(posStats.taxTotal),
+      shippingAmount: 0,
+      items: [
+        { category: 'POS', amount: posRev, percentage: pct(posRev) },
+        { category: 'Orders', amount: orderRev, percentage: pct(orderRev) },
+        { category: 'Invoices', amount: invoiceRev, percentage: pct(invoiceRev) },
+      ].filter((i) => i.amount > 0),
     };
 
     res.status(200).json({
@@ -861,17 +1005,28 @@ const getSalesDashboard = async (req, res) => {
         summary,
         orders: {
           count: orderCount,
-          revenue: orderRevenue._sum.grandTotal || 0,
+          revenue: orderRev,
           byStatus: orderStatusCounts.map((s) => ({
             status: s.orderStatus,
             count: s._count._all,
             revenue: s._sum.grandTotal || 0
           })),
-          trend: orderTrend,
+          trend: enrichedOrderTrend,
           todayCount: todayOrders,
           todayRevenue: todayRevenue,
           pendingCount: pendingOrders,
           revenueGrowth: '+15%'
+        },
+        pos: {
+          count: posStats.count,
+          revenue: posRev,
+          discountTotal: posStats.discountTotal,
+          taxTotal: posStats.taxTotal,
+          paidAmount: posStats.paidAmount,
+          todayCount: posStats.todayCount,
+          todayRevenue: posStats.todayRevenue,
+          trend: posTrend,
+          revenueGrowth: posRev > 0 ? '+0%' : '0%',
         },
         invoices: {
           stats: invoiceStats,

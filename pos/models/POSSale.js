@@ -224,14 +224,16 @@ class POSSaleModel {
         include: { items: true, payments: true }
       });
 
-      // ── 4. Update customer stats ─────────────────────────────
+      // ── 4. Update customer stats + loyalty ───────────────────
       if (customerId) {
+        const loyaltyEarn = Math.max(0, Math.floor(grandTotal)); // 1 point per currency unit
         await tx.customer.update({
           where: { id: customerId },
           data: {
             totalOrders: { increment: 1 },
             totalSpent: { increment: grandTotal },
-            lastOrderDate: new Date()
+            lastOrderDate: new Date(),
+            loyaltyPoints: { increment: loyaltyEarn },
           }
         }).catch(() => { }); // Non-fatal
       }
@@ -391,6 +393,144 @@ class POSSaleModel {
       });
 
       return { posReturn, journalEntry };
+    });
+  }
+
+  // ============================================================
+  // VOID COMPLETED SALE (restore stock + reverse JE)
+  // ============================================================
+  static async voidSale({ saleId, companyId, createdBy, reason }) {
+    return await prisma.$transaction(async (tx) => {
+      const sale = await tx.pOSSale.findFirst({
+        where: { id: saleId, companyId },
+        include: { items: true, payments: true },
+      });
+      if (!sale) throw new Error('Sale not found');
+      if (sale.status !== 'Completed') {
+        throw new Error(`Only completed sales can be voided (current: ${sale.status})`);
+      }
+      if (sale.invoiceId) {
+        throw new Error('Sale already converted to invoice — void the invoice instead');
+      }
+
+      let totalCOGS = 0;
+      for (const item of sale.items) {
+        const product = await tx.product.findFirst({ where: { id: item.productId, companyId } });
+        if (!product) continue;
+        const prevStock = product.currentStock;
+        const newStock = prevStock + item.quantity;
+        await tx.product.update({
+          where: { id: product.id },
+          data: {
+            currentStock: newStock,
+            availableStock: newStock,
+            totalValue: newStock * product.costPrice,
+          },
+        });
+        totalCOGS += product.costPrice * item.quantity;
+        await tx.stockMovement.create({
+          data: {
+            productId: product.id,
+            productName: product.name,
+            type: 'stock_in',
+            quantity: item.quantity,
+            previousStock: prevStock,
+            newStock,
+            reason: 'POS Void',
+            reference: sale.invoiceNumber,
+            notes: `Void ${sale.invoiceNumber}: ${reason || ''}`,
+            createdBy,
+            companyId,
+          },
+        });
+      }
+
+      const revenueAcc = await findOrCreateSalesRevenueAccount(tx, companyId, createdBy);
+      const cogsAcc = await findOrCreateCOGSAccount(tx, companyId, createdBy);
+      const inventoryAcc = await findOrCreateInventoryAccount(tx, companyId, createdBy);
+
+      const jeLines = [];
+      // Reverse payments: credit cash/bank (money leaves drawer conceptually)
+      for (const pmt of sale.payments) {
+        const debitAcc = await resolveDebitAccountForPayment(tx, companyId, createdBy, pmt.paymentMethod);
+        jeLines.push({
+          accountId: debitAcc.id,
+          accountName: debitAcc.name,
+          accountCode: debitAcc.code,
+          debit: 0,
+          credit: pmt.amount,
+        });
+      }
+      jeLines.push({
+        accountId: revenueAcc.id,
+        accountName: revenueAcc.name,
+        accountCode: revenueAcc.code,
+        debit: sale.grandTotal,
+        credit: 0,
+      });
+      if (totalCOGS > 0) {
+        jeLines.push({
+          accountId: inventoryAcc.id,
+          accountName: inventoryAcc.name,
+          accountCode: inventoryAcc.code,
+          debit: totalCOGS,
+          credit: 0,
+        });
+        jeLines.push({
+          accountId: cogsAcc.id,
+          accountName: cogsAcc.name,
+          accountCode: cogsAcc.code,
+          debit: 0,
+          credit: totalCOGS,
+        });
+      }
+
+      const journalEntry = await tx.journalEntry.create({
+        data: {
+          entryNumber: generateJENumber(),
+          date: new Date(),
+          description: `POS Void ${sale.invoiceNumber} — ${reason || 'Voided'}`,
+          reference: sale.invoiceNumber,
+          status: 'Posted',
+          createdBy,
+          postedBy: createdBy,
+          postedAt: new Date(),
+          companyId,
+          lines: { create: jeLines },
+        },
+      });
+
+      const updated = await tx.pOSSale.update({
+        where: { id: saleId },
+        data: {
+          status: 'Cancelled',
+          notes: `${sale.notes || ''}\nVOIDED: ${reason || ''}`.trim(),
+        },
+        include: { items: true, payments: true },
+      });
+
+      if (sale.customerId) {
+        const loyaltyRevoke = Math.max(0, Math.floor(sale.grandTotal));
+        await tx.customer.update({
+          where: { id: sale.customerId },
+          data: {
+            totalOrders: { decrement: 1 },
+            totalSpent: { decrement: sale.grandTotal },
+            loyaltyPoints: { decrement: loyaltyRevoke },
+          },
+        }).catch(() => {});
+      }
+
+      await tx.pOSAuditLog.create({
+        data: {
+          action: 'Void',
+          details: `Voided POS sale ${sale.invoiceNumber} — ${reason || ''}`,
+          companyId,
+          createdBy,
+        },
+      });
+
+      return { sale: updated, journalEntry };
     });
   }
 

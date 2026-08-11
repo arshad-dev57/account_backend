@@ -499,7 +499,6 @@ const cancelSubscription = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
     const userData = await prisma.user.findUnique({
       where: { id: userId }
     });
@@ -524,9 +523,10 @@ const cancelSubscription = async (req, res) => {
     await user.expireSubscription();
 
     // ─── Mark subscription record as cancelled ────────────────
+    // Subscription model is keyed by userId (no companyId column)
     const activeSubscription = await prisma.subscription.findFirst({
       where: {
-        companyId: companyId,     // ✅ Fixed: use userId directly (string)
+        userId,
         status: 'active',
       },
       orderBy: { createdAt: 'desc' },

@@ -114,7 +114,7 @@ const deleteHeldSale = async (req, res) => {
   try {
     const { id } = req.params;
     const companyId = req.user.companyId;
-    if (!['manager','admin'].includes(req.user.role)) {
+    if (!['manager','admin','owner','superadmin'].includes(String(req.user.role||'').toLowerCase())) {
       return res.status(403).json({ success: false, message: 'Only managers or admins can delete held sales' });
     }
     const sale = await prisma.pOSSale.findFirst({ where: { id, companyId, status: 'Held' } });
@@ -175,7 +175,7 @@ const processReturn = async (req, res) => {
   try {
     const userId    = req.user.id;
     const companyId = req.user.companyId;
-    if (!['manager','admin'].includes(req.user.role)) {
+    if (!['manager','admin','owner','superadmin'].includes(String(req.user.role||'').toLowerCase())) {
       return res.status(403).json({ success: false, message: 'Only managers or admins can process returns' });
     }
     const { originalSaleId, returnItems, refundMethod, reason } = req.body;
@@ -256,7 +256,9 @@ const searchProducts = async (req, res) => {
           id: true, name: true, sku: true, barcodeNumber: true,
           sellingPrice: true, costPrice: true, currentStock: true,
           availableStock: true, mainImage: true, categoryId: true, categoryName: true,
-          taxRate: true, stockUnitName: true
+          taxRate: true, stockUnitName: true,
+          isVariant: true, parentProductId: true, variantType: true, variantAttributes: true,
+          isSerialManaged: true, isBatchManaged: true, hasExpiry: true,
         }
       }),
       prisma.product.count({ where: filter })
@@ -304,91 +306,45 @@ const convertToInvoice = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    // Fetch the POS sale
     const posSale = await prisma.pOSSale.findFirst({
       where: { id, companyId, status: 'Completed' },
-      include: { items: true, customer: true }
+      include: { items: true, customer: true },
     });
 
     if (!posSale) {
       return res.status(404).json({ success: false, message: 'POS sale not found or not completed' });
     }
-
     if (posSale.invoiceId) {
       return res.status(400).json({ success: false, message: 'This sale has already been converted to an invoice' });
     }
-
     if (!posSale.customerId) {
       return res.status(400).json({ success: false, message: 'Cannot convert sale without customer to invoice' });
     }
 
-    // Reverse the POS journal entry
-    if (posSale.journalEntryId) {
-      const journalEntry = await prisma.journalEntry.findUnique({
-        where: { id: posSale.journalEntryId },
-        include: { lines: true }
-      });
-
-      if (journalEntry) {
-        // Create reversing journal entry
-        const reversalEntry = await prisma.journalEntry.create({
-          data: {
-            entryNumber: `REV-${journalEntry.entryNumber}`,
-            entryDate: new Date(),
-            description: `Reversal of POS sale ${posSale.invoiceNumber} for invoice conversion`,
-            status: 'Posted',
-            companyId,
-            createdBy: userId,
-            lines: {
-              create: journalEntry.lines.map(line => ({
-                accountId: line.accountId,
-                debitAmount: line.creditAmount,
-                creditAmount: line.debitAmount,
-                description: `Reversal: ${line.description}`,
-                companyId
-              }))
-            }
-          }
-        });
-
-        // Mark original entry as reversed
-        await prisma.journalEntry.update({
-          where: { id: posSale.journalEntryId },
-          data: { status: 'Reversed' }
-        });
-
-        // Update POS sale
-        await prisma.pOSSale.update({
-          where: { id },
-          data: { journalEntryId: null }
-        });
-      }
-    }
-
-    // Calculate due date
+    // Paid POS sales keep existing JE — create a Paid invoice as document trail only
     let calculatedDueDate = new Date();
     if (dueDate) {
       calculatedDueDate = new Date(dueDate);
     } else if (paymentTerms) {
-      const days = parseInt(paymentTerms.replace(/\D/g, '')) || 30;
+      const days = parseInt(String(paymentTerms).replace(/\D/g, ''), 10) || 30;
       calculatedDueDate.setDate(calculatedDueDate.getDate() + days);
     }
 
-    // Generate invoice number
     const lastInvoice = await prisma.salesInvoice.findFirst({
       where: { companyId },
-      orderBy: { invoiceNumber: 'desc' },
-      select: { invoiceNumber: true }
+      orderBy: { createdAt: 'desc' },
+      select: { invoiceNumber: true },
     });
 
     let nextNumber = 1;
-    if (lastInvoice && lastInvoice.invoiceNumber) {
-      const lastNum = parseInt(lastInvoice.invoiceNumber.replace(/\D/g, ''));
-      nextNumber = lastNum + 1;
+    if (lastInvoice?.invoiceNumber) {
+      const lastNum = parseInt(String(lastInvoice.invoiceNumber).replace(/\D/g, ''), 10);
+      if (Number.isFinite(lastNum)) nextNumber = lastNum + 1;
     }
     const invoiceNumber = `INV-${String(nextNumber).padStart(6, '0')}`;
 
-    // Create Sales Invoice
+    const fullyPaid = Number(posSale.paidAmount || 0) >= Number(posSale.grandTotal || 0) - 0.01;
+
     const invoice = await prisma.salesInvoice.create({
       data: {
         invoiceNumber,
@@ -404,100 +360,214 @@ const convertToInvoice = async (req, res) => {
         discountTotal: posSale.discountTotal,
         taxTotal: posSale.taxTotal,
         grandTotal: posSale.grandTotal,
-        paidAmount: 0,
-        outstanding: posSale.grandTotal,
+        paidAmount: fullyPaid ? posSale.grandTotal : 0,
+        outstanding: fullyPaid ? 0 : posSale.grandTotal,
         invoiceStatus: 'Posted',
-        paymentStatus: 'Unpaid',
+        paymentStatus: fullyPaid ? 'Paid' : 'Unpaid',
         postedAt: new Date(),
+        paidAt: fullyPaid ? new Date() : null,
+        notes: `Converted from POS ${posSale.invoiceNumber}`,
         companyId,
         createdBy: userId,
         items: {
-          create: posSale.items.map(item => ({
+          create: posSale.items.map((item) => ({
             productId: item.productId,
             productName: item.productName,
-            sku: item.sku,
+            sku: item.sku || '',
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            discount: item.discount,
-            taxRate: item.taxRate,
-            taxAmount: item.taxAmount,
-            totalPrice: item.totalPrice,
-            companyId
-          }))
-        }
-      }
+            discount: item.discount || 0,
+            taxRate: item.taxRate || 0,
+            taxAmount: item.taxAmount || 0,
+            lineTotal: item.lineTotal,
+          })),
+        },
+      },
+      include: { items: true },
     });
 
-    // Create journal entry for the invoice (Debit AR, Credit Revenue)
-    const customer = posSale.customer;
-    const arAccount = await prisma.chartOfAccount.findFirst({
-      where: { companyId, accountName: { contains: 'Accounts Receivable', mode: 'insensitive' } }
-    });
-
-    const revenueAccount = await prisma.chartOfAccount.findFirst({
-      where: { companyId, accountName: { contains: 'Sales', mode: 'insensitive' } }
-    });
-
-    if (arAccount && revenueAccount) {
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          entryNumber: `JE-${Date.now()}`,
-          entryDate: new Date(),
-          description: `Sales Invoice ${invoiceNumber} from POS sale ${posSale.invoiceNumber}`,
-          status: 'Posted',
-          companyId,
-          createdBy: userId,
-          lines: {
-            create: [
-              {
-                accountId: arAccount.id,
-                debitAmount: posSale.grandTotal,
-                creditAmount: 0,
-                description: `Accounts Receivable - ${customer.name}`,
-                companyId
-              },
-              {
-                accountId: revenueAccount.id,
-                debitAmount: 0,
-                creditAmount: posSale.subtotal - posSale.discountTotal,
-                description: 'Sales Revenue',
-                companyId
-              }
-            ]
-          }
-        }
-      });
-
-      await prisma.salesInvoice.update({
-        where: { id: invoice.id },
-        data: { journalEntryId: journalEntry.id, arAccountId: arAccount.id, salesRevenueAccountId: revenueAccount.id }
-      });
-    }
-
-    // Update customer outstanding balance
-    if (customer) {
-      await prisma.customer.update({
-        where: { id: customer.id },
-        data: {
-          outstandingBalance: { increment: posSale.grandTotal }
-        }
-      });
-    }
-
-    // Update POS sale with invoice reference
     await prisma.pOSSale.update({
       where: { id },
-      data: { invoiceId: invoice.id, status: 'Invoiced' }
+      data: { invoiceId: invoice.id },
     });
 
-    res.status(201).json({ success: true, message: 'POS sale converted to invoice successfully', data: invoice });
+    await prisma.pOSAuditLog.create({
+      data: {
+        action: 'Sale',
+        details: `Converted POS ${posSale.invoiceNumber} → Invoice ${invoiceNumber}`,
+        companyId,
+        createdBy: userId,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'POS sale converted to invoice successfully',
+      data: invoice,
+    });
   } catch (err) {
     console.error('Convert to Invoice Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
+// @desc  Void a completed POS sale
+// @route POST /api/pos/sales/:id/void
+const voidSale = async (req, res) => {
+  try {
+    const role = String(req.user.role || '').toLowerCase();
+    if (!['manager', 'admin', 'owner', 'superadmin'].includes(role)) {
+      return res.status(403).json({ success: false, message: 'Only managers or admins can void sales' });
+    }
+    const { reason } = req.body;
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ success: false, message: 'Void reason is required' });
+    }
+    const result = await POSSaleModel.voidSale({
+      saleId: req.params.id,
+      companyId: req.user.companyId,
+      createdBy: req.user.id,
+      reason: String(reason).trim(),
+    });
+    res.json({ success: true, message: 'Sale voided', data: result.sale });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// @desc  Verify manager credentials (PIN/password override)
+// @route POST /api/pos/auth/verify-manager
+const verifyManager = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'email and password are required' });
+    }
+    const user = await prisma.user.findFirst({
+      where: {
+        email: String(email).trim().toLowerCase(),
+        companyId: req.user.companyId,
+        isActive: true,
+      },
+    });
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid manager credentials' });
+    }
+    const role = String(user.role || '').toLowerCase();
+    if (!['manager', 'admin', 'owner', 'superadmin'].includes(role)) {
+      return res.status(403).json({ success: false, message: 'User is not a manager/admin' });
+    }
+    const bcrypt = require('bcryptjs');
+    const ok = await bcrypt.compare(String(password), user.password);
+    if (!ok) {
+      return res.status(401).json({ success: false, message: 'Invalid manager credentials' });
+    }
+    await prisma.pOSAuditLog.create({
+      data: {
+        action: 'Cash Adjustment',
+        details: `Manager override approved by ${user.email}`,
+        companyId: req.user.companyId,
+        createdBy: req.user.id,
+      },
+    }).catch(() => {});
+    res.json({
+      success: true,
+      message: 'Manager verified',
+      data: {
+        managerId: user.id,
+        managerName: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// @desc  Shift Z/X report
+// @route GET /api/pos/reports/shift/:shiftId
+const getShiftReport = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { shiftId } = req.params;
+    const shift = await prisma.pOSShift.findFirst({
+      where: { id: shiftId, companyId },
+      include: {
+        terminal: true,
+        cashier: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+    if (!shift) return res.status(404).json({ success: false, message: 'Shift not found' });
+
+    const salesWhere = { shiftId, companyId, status: 'Completed' };
+    const [salesAgg, salesCount, payments, cashIn, cashOut, returns, sales] = await Promise.all([
+      prisma.pOSSale.aggregate({
+        where: salesWhere,
+        _sum: { grandTotal: true, discountTotal: true, taxTotal: true, subtotal: true },
+      }),
+      prisma.pOSSale.count({ where: salesWhere }),
+      prisma.pOSSalePayment.groupBy({
+        by: ['paymentMethod'],
+        where: { posSale: salesWhere },
+        _sum: { amount: true },
+        _count: { id: true },
+      }),
+      prisma.pOSCashTransaction.aggregate({ where: { shiftId, type: 'CASH_IN' }, _sum: { amount: true } }),
+      prisma.pOSCashTransaction.aggregate({ where: { shiftId, type: 'CASH_OUT' }, _sum: { amount: true } }),
+      prisma.pOSReturn.aggregate({
+        where: { shiftId, companyId },
+        _sum: { refundedAmount: true },
+        _count: { id: true },
+      }),
+      prisma.pOSSale.findMany({
+        where: salesWhere,
+        select: { id: true, invoiceNumber: true, grandTotal: true, createdAt: true, customerName: true },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+    ]);
+
+    const cashSales =
+      payments.find((p) => String(p.paymentMethod).toLowerCase() === 'cash')?._sum?.amount || 0;
+    const cashRefunds = returns._sum.refundedAmount || 0;
+    const expectedCash =
+      (shift.openingCash || 0) +
+      (cashIn._sum.amount || 0) +
+      cashSales -
+      (cashOut._sum.amount || 0) -
+      cashRefunds;
+
+    res.json({
+      success: true,
+      data: {
+        type: shift.status === 'Closed' ? 'Z' : 'X',
+        shift,
+        summary: {
+          salesCount,
+          subtotal: salesAgg._sum.subtotal || 0,
+          discountTotal: salesAgg._sum.discountTotal || 0,
+          taxTotal: salesAgg._sum.taxTotal || 0,
+          grandTotal: salesAgg._sum.grandTotal || 0,
+          returnsCount: returns._count.id || 0,
+          returnsTotal: cashRefunds,
+          cashIn: cashIn._sum.amount || 0,
+          cashOut: cashOut._sum.amount || 0,
+          openingCash: shift.openingCash || 0,
+          expectedCash,
+          actualCash: shift.actualCash,
+          difference: shift.difference,
+        },
+        paymentBreakdown: payments,
+        recentSales: sales,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   completeSale, syncSales, holdSale, getHeldSales, deleteHeldSale,
-  listSales, getSale, processReturn, getDailyReport, searchProducts, getAuditLogs, convertToInvoice
+  listSales, getSale, processReturn, getDailyReport, searchProducts, getAuditLogs,
+  convertToInvoice, voidSale, verifyManager, getShiftReport,
 };

@@ -237,6 +237,9 @@ class ProductModel {
       reorderPoint,
       supplierSku,
       landingCost,
+      mainImage,
+      images,
+      barcodeImage,
       createdBy,
       companyId
     } = data;
@@ -249,6 +252,7 @@ class ProductModel {
       name,
       sku: sku.toUpperCase(),
       barcodeNumber: barcodeNumber || null,
+      barcodeImage: barcodeImage || null,
       costPrice: costPrice || 0,
       sellingPrice: sellingPrice || 0,
       currentStock: currentStock || 0,
@@ -310,6 +314,8 @@ class ProductModel {
       reorderPoint: parseInt(reorderPoint) >= 0 ? parseInt(reorderPoint) : 0,
       supplierSku: supplierSku || null,
       landingCost: landingCost ? parseFloat(landingCost) : 0,
+      mainImage: mainImage || (Array.isArray(images) && images.length ? images[0] : null),
+      images: Array.isArray(images) ? images : [],
       totalValue,
       availableStock,
       // Relations (all relation-owned FKs must use connect syntax)
@@ -462,6 +468,9 @@ class ProductModel {
       reorderPoint: data.reorderPoint !== undefined ? (parseInt(data.reorderPoint) >= 0 ? parseInt(data.reorderPoint) : 0) : undefined,
       supplierSku: data.supplierSku !== undefined ? data.supplierSku : undefined,
       landingCost: data.landingCost !== undefined ? parseFloat(data.landingCost) : undefined,
+      mainImage: data.mainImage !== undefined ? data.mainImage : undefined,
+      images: data.images !== undefined ? data.images : undefined,
+      barcodeImage: data.barcodeImage !== undefined ? data.barcodeImage : undefined,
       totalValue,
       availableStock,
       updatedAt: new Date(),

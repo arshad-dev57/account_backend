@@ -84,6 +84,7 @@ model Company {
   posReturns         POSReturn[]
   posAuditLogs       POSAuditLog[]
   pdfReportSettings  PdfReportSetting[]
+  supportTickets     SupportTicket[]
 
   @@index([email])
   @@index([isActive])
@@ -207,6 +208,7 @@ model User {
 
   fiscalYearAuditLogs FiscalYearAuditLog[]
   notifications       Notification[]
+  supportTickets      SupportTicket[]      @relation("SupportTicketCreator")
   managedUsers        User[]               @relation("ManagedUsers")
   manager             User?                @relation("ManagedUsers", fields: [managerId], references: [id])
   createdUsers        User[]               @relation("CreatedUsers")
@@ -293,6 +295,39 @@ model Notification {
   @@index([isRead])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// ============================================================
+// SUPPORT TICKETS (user complaints / issues)
+// ============================================================
+
+model SupportTicket {
+  id               String    @id @default(uuid())
+  ticketNumber     String    @unique @map("ticket_number")
+  title            String
+  description      String
+  category         String    @default("General") // Bug, Crash, Performance, UI Issue, Data Error, Billing, Feature Request, General, Other
+  priority         String    @default("Medium") // Low, Medium, High, Critical
+  status           String    @default("Open") // Open, In Progress, Resolved, Closed
+  stepsToReproduce String?   @map("steps_to_reproduce")
+  attachmentUrl    String?   @map("attachment_url")
+  adminResponse    String?   @map("admin_response")
+  module           String? // sales, purchases, accounting, warehouse, pos, other
+  userId           String    @map("user_id")
+  companyId        String?   @map("company_id")
+  resolvedAt       DateTime? @map("resolved_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user    User     @relation("SupportTicketCreator", fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@map("support_tickets")
 }
 
 // ============================================================
@@ -1735,6 +1770,7 @@ model BankAccount {
   salesPaymentsReceived SalesPaymentReceived[]
   purchasePayments      PurchasePaymentMake[]
   transactions          Transaction[]          @relation("BankAccountTransactions")
+  fixedAssets           FixedAsset[]
 
   @@unique([accountNumber, companyId])
   @@index([accountNumber])
@@ -2357,6 +2393,12 @@ model FixedAsset {
   supplierId   String? @map("supplier_id")
   supplierName String  @default("") @map("supplier_name")
 
+  // Acquisition / payment flow
+  acquisitionType                 String  @default("purchase") @map("acquisition_type") // purchase | opening_balance
+  paymentMethod                   String  @default("Cash") @map("payment_method") // Cash | Bank | Credit
+  bankAccountId                   String? @map("bank_account_id")
+  openingAccumulatedDepreciation  Float   @default(0) @map("opening_accumulated_depreciation")
+
   warrantyExpiry DateTime? @map("warranty_expiry")
   notes          String    @default("")
 
@@ -2373,10 +2415,11 @@ model FixedAsset {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  supplier   Supplier?   @relation(fields: [supplierId], references: [id])
-  creator    User?       @relation("FixedAssetCreator", fields: [createdBy], references: [id])
-  company    Company?    @relation("FixedAssetCompany", fields: [companyId], references: [id])
-  fiscalYear FiscalYear? @relation("FixedAssetFiscalYear", fields: [fiscalYearId], references: [id])
+  supplier    Supplier?    @relation(fields: [supplierId], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
+  creator     User?        @relation("FixedAssetCreator", fields: [createdBy], references: [id])
+  company     Company?     @relation("FixedAssetCompany", fields: [companyId], references: [id])
+  fiscalYear  FiscalYear?  @relation("FixedAssetFiscalYear", fields: [fiscalYearId], references: [id])
 
   @@index([assetCode])
   @@index([category])
@@ -2385,6 +2428,9 @@ model FixedAsset {
   @@index([purchaseDate])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([bankAccountId])
+  @@index([acquisitionType])
+  @@index([paymentMethod])
   @@map("fixed_assets")
 }
 

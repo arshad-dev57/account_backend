@@ -34,6 +34,7 @@ router.post ('/sales/sync',       protect, saleCtrl.syncSales);
 router.get  ('/sales/:id',        protect, saleCtrl.getSale);
 router.delete('/sales/held/:id',  protect, saleCtrl.deleteHeldSale);
 router.post ('/sales/:id/convert-to-invoice', protect, saleCtrl.convertToInvoice);
+router.post ('/sales/:id/void',   protect, saleCtrl.voidSale);
 
 // ─── Returns ──────────────────────────────────────────────────────────────────
 router.post('/returns', protect, saleCtrl.processReturn);
@@ -41,8 +42,12 @@ router.post('/returns', protect, saleCtrl.processReturn);
 // ─── Products (POS-optimized search with barcode) ─────────────────────────────
 router.get('/products/search', protect, saleCtrl.searchProducts);
 
+// ─── Auth / Manager override ─────────────────────────────────────────────────
+router.post('/auth/verify-manager', protect, saleCtrl.verifyManager);
+
 // ─── Reports ──────────────────────────────────────────────────────────────────
 router.get('/reports/daily', protect, saleCtrl.getDailyReport);
+router.get('/reports/shift/:shiftId', protect, saleCtrl.getShiftReport);
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 router.get('/audit-logs', protect, saleCtrl.getAuditLogs);

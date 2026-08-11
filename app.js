@@ -98,6 +98,7 @@ const purchaseInvoiceRoutes = require('./warehouse/routes/purchaseInvoiceRoutes'
 const purchasePaymentRoutes = require('./warehouse/routes/purchasePaymentRoutes');
 const purchaseReturnRoutes = require('./warehouse/routes/purchaseReturnRoutes');
 const purchaseDashboardRoutes = require('./warehouse/routes/purchase_dashboard_routes');
+const purchaseReportRoutes = require('./warehouse/routes/purchase_report_routes');
 const expiryReportRoutes = require('./warehouse/routes/expiry_report_routes');
 const lowStockReportRoutes = require('./warehouse/routes/low_stock_report_routes');
 const emailRoutes = require('./routes/emailRoutes');
@@ -105,6 +106,7 @@ const posRoutes   = require('./pos/routes/posRoutes');
 const taxRoutes   = require('./tax/routes/taxRoutes');
 
 app.use('/api/purchase/dashboard', purchaseDashboardRoutes);
+app.use('/api/purchase/reports', purchaseReportRoutes);
 app.use('/api/purchase/returns', purchaseReturnRoutes);
 app.use('/api/purchase/payments', purchasePaymentRoutes);
 app.use('/api/purchase/invoices', purchaseInvoiceRoutes);
@@ -139,6 +141,8 @@ app.use('/api/equity', equityRoutes);
 app.use('/api/loans', loanRoutes);
 app.use('/api/fiscal-year', fiscalYearRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/support/tickets', require('./routes/supportTicketRoutes'));
+app.use('/api/accounting/reports', require('./routes/accountingReportRoutes'));
 
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/transactions', transactionRoutes);

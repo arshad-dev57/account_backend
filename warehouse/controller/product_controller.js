@@ -301,6 +301,44 @@ const createProduct = async (req, res) => {
       }
     }
 
+    // ─── Handle Cloudinary uploads (same pattern as register logo/signature) ──
+    const uploadedImageUrls = [];
+    if (req.files?.images?.length) {
+      for (const file of req.files.images) {
+        if (file.path) uploadedImageUrls.push(file.path);
+      }
+    }
+    let uploadedBarcodeImage = null;
+    if (req.files?.barcodeImage?.[0]?.path) {
+      uploadedBarcodeImage = req.files.barcodeImage[0].path;
+    }
+
+    // Client may send existingImages JSON (URLs to keep on update flows / create with none)
+    let existingImages = [];
+    if (data.existingImages) {
+      try {
+        existingImages = typeof data.existingImages === 'string'
+          ? JSON.parse(data.existingImages)
+          : data.existingImages;
+        if (!Array.isArray(existingImages)) existingImages = [];
+      } catch {
+        existingImages = [];
+      }
+    }
+    delete data.existingImages;
+    delete data.images;
+    delete data.mainImage;
+    delete data.barcodeImage;
+
+    const finalImages = [...existingImages, ...uploadedImageUrls].filter(Boolean);
+    if (finalImages.length > 0) {
+      data.images = finalImages;
+      data.mainImage = finalImages[0];
+    }
+    if (uploadedBarcodeImage) {
+      data.barcodeImage = uploadedBarcodeImage;
+    }
+
     // ─── Normalize field names (Flutter short names → Prisma names) ────
     const fieldAliases = {
       currency: 'currencyCode',
@@ -450,6 +488,46 @@ const updateProduct = async (req, res) => {
     if (req.body && typeof req.body === 'object') {
       data = { ...req.body };
     }
+
+    // ─── Cloudinary uploads ─────────────────────────────────
+    const uploadedImageUrls = [];
+    if (req.files?.images?.length) {
+      for (const file of req.files.images) {
+        if (file.path) uploadedImageUrls.push(file.path);
+      }
+    }
+    let uploadedBarcodeImage = null;
+    if (req.files?.barcodeImage?.[0]?.path) {
+      uploadedBarcodeImage = req.files.barcodeImage[0].path;
+    }
+
+    let keepImages;
+    if (data.existingImages !== undefined) {
+      try {
+        keepImages = typeof data.existingImages === 'string'
+          ? JSON.parse(data.existingImages)
+          : data.existingImages;
+        if (!Array.isArray(keepImages)) keepImages = existing.images || [];
+      } catch {
+        keepImages = existing.images || [];
+      }
+    } else {
+      keepImages = existing.images || [];
+    }
+    delete data.existingImages;
+    delete data.images;
+    delete data.mainImage;
+
+    const finalImages = [...keepImages, ...uploadedImageUrls].filter(Boolean);
+    data.images = finalImages;
+    data.mainImage = finalImages.length > 0 ? finalImages[0] : null;
+
+    if (uploadedBarcodeImage) {
+      data.barcodeImage = uploadedBarcodeImage;
+    } else if (data.barcodeImage === '' || data.clearBarcodeImage === 'true') {
+      data.barcodeImage = null;
+    }
+    delete data.clearBarcodeImage;
 
     // ─── Check duplicate SKU ──────────────────────────────
     if (data.sku && data.sku.toUpperCase() !== existing.sku) {

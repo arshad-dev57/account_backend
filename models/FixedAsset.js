@@ -177,50 +177,80 @@ class FixedAssetModel {
 
     console.log(`✅ [FA] Final asset code: ${assetCode}`);
 
-    const netBookValue = data.purchaseCost;
+    const openingAccumulated = parseFloat(data.openingAccumulatedDepreciation || 0);
+    const netBookValue = Math.max(0, data.purchaseCost - openingAccumulated);
+
+    const buildCreateData = (code) => {
+      const createData = {
+        assetCode: code,
+        name: data.name,
+        category: data.category,
+        purchaseDate: data.purchaseDate,
+        purchaseCost: data.purchaseCost,
+        usefulLife: data.usefulLife,
+        salvageValue: data.salvageValue || 0,
+        depreciationMethod: data.depreciationMethod || 'Straight Line',
+        currentDepreciation: 0,
+        accumulatedDepreciation: openingAccumulated,
+        netBookValue: netBookValue,
+        location: data.location || '',
+        supplierName: data.supplierName || '',
+        acquisitionType: data.acquisitionType || 'purchase',
+        paymentMethod: data.paymentMethod || 'Cash',
+        openingAccumulatedDepreciation: openingAccumulated,
+        warrantyExpiry: data.warrantyExpiry || null,
+        notes: data.notes || '',
+        status: 'Active',
+        creator: { connect: { id: data.createdBy } },
+      };
+
+      if (data.supplierId) {
+        createData.supplier = { connect: { id: data.supplierId } };
+      }
+      if (data.bankAccountId) {
+        createData.bankAccount = { connect: { id: data.bankAccountId } };
+      }
+      if (data.companyId) {
+        createData.company = { connect: { id: data.companyId } };
+      }
+      if (data.fiscalYearId) {
+        createData.fiscalYear = { connect: { id: data.fiscalYearId } };
+      }
+
+      return createData;
+    };
+
+    const includeOpts = {
+      supplier: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true
+        }
+      },
+      bankAccount: {
+        select: {
+          id: true,
+          accountName: true,
+          accountNumber: true,
+          bankName: true
+        }
+      },
+      creator: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      }
+    };
 
     try {
       return await prisma.fixedAsset.create({
-        data: {
-          assetCode,
-          name: data.name,
-          category: data.category,
-          purchaseDate: data.purchaseDate,
-          purchaseCost: data.purchaseCost,
-          usefulLife: data.usefulLife,
-          salvageValue: data.salvageValue || 0,
-          depreciationMethod: data.depreciationMethod || 'Straight Line',
-          currentDepreciation: 0,
-          accumulatedDepreciation: 0,
-          netBookValue: netBookValue,
-          location: data.location || '',
-          supplierId: data.supplierId || null,
-          supplierName: data.supplierName || '',
-          warrantyExpiry: data.warrantyExpiry || null,
-          notes: data.notes || '',
-          status: 'Active',
-          createdBy: data.createdBy,
-          companyId: data.companyId,
-          fiscalYearId: data.fiscalYearId || null
-        },
-        include: {
-          supplier: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true
-            }
-          },
-          creator: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          }
-        }
+        data: buildCreateData(assetCode),
+        include: includeOpts
       });
     } catch (error) {
       // If unique constraint fails, try one more time with fallback
@@ -230,46 +260,8 @@ class FixedAssetModel {
         console.log(`🔍 [FA] Fallback code: ${fallbackCode}`);
         
         return await prisma.fixedAsset.create({
-          data: {
-            assetCode: fallbackCode,
-            name: data.name,
-            category: data.category,
-            purchaseDate: data.purchaseDate,
-            purchaseCost: data.purchaseCost,
-            usefulLife: data.usefulLife,
-            salvageValue: data.salvageValue || 0,
-            depreciationMethod: data.depreciationMethod || 'Straight Line',
-            currentDepreciation: 0,
-            accumulatedDepreciation: 0,
-            netBookValue: netBookValue,
-            location: data.location || '',
-            supplierId: data.supplierId || null,
-            supplierName: data.supplierName || '',
-            warrantyExpiry: data.warrantyExpiry || null,
-            notes: data.notes || '',
-            status: 'Active',
-            createdBy: data.createdBy,
-            companyId: data.companyId,
-            fiscalYearId: data.fiscalYearId || null
-          },
-          include: {
-            supplier: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                phone: true
-              }
-            },
-            creator: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            }
-          }
+          data: buildCreateData(fallbackCode),
+          include: includeOpts
         });
       }
       throw error;
@@ -374,23 +366,30 @@ class FixedAssetModel {
       throw new Error(errors.join('; '));
     }
 
+    const updateData = {
+      name: data.name,
+      category: data.category,
+      purchaseDate: data.purchaseDate,
+      purchaseCost: data.purchaseCost,
+      usefulLife: data.usefulLife,
+      salvageValue: data.salvageValue,
+      depreciationMethod: data.depreciationMethod,
+      location: data.location,
+      supplierName: data.supplierName,
+      warrantyExpiry: data.warrantyExpiry,
+      notes: data.notes,
+      status: data.status
+    };
+
+    if (data.supplierId === null) {
+      updateData.supplier = { disconnect: true };
+    } else if (data.supplierId) {
+      updateData.supplier = { connect: { id: data.supplierId } };
+    }
+
     return await prisma.fixedAsset.update({
       where: { id },
-      data: {
-        name: data.name,
-        category: data.category,
-        purchaseDate: data.purchaseDate,
-        purchaseCost: data.purchaseCost,
-        usefulLife: data.usefulLife,
-        salvageValue: data.salvageValue,
-        depreciationMethod: data.depreciationMethod,
-        location: data.location,
-        supplierId: data.supplierId,
-        supplierName: data.supplierName,
-        warrantyExpiry: data.warrantyExpiry,
-        notes: data.notes,
-        status: data.status
-      },
+      data: updateData,
       include: {
         supplier: {
           select: {

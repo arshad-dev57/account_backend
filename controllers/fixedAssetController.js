@@ -114,41 +114,24 @@ async function getOrCreateAccumulatedDepreciationAccount(userId, companyId) {
   return accDepAccount;
 }
 
-// Helper: Get or create Depreciation Expense account
+// Helper: Get or create Depreciation Expense account (default COA uses 6700)
 async function getOrCreateDepreciationExpenseAccount(userId, companyId) {
   console.log('🔍 [FA] Getting/Creating Depreciation Expense account');
   let depExpAccount = await prisma.chartOfAccount.findFirst({
     where: {
-      code: '6100',
-      companyId: companyId
-    }
+      companyId: companyId,
+      OR: [
+        { code: '6700' },
+        { name: { equals: 'Depreciation Expense', mode: 'insensitive' } },
+      ],
+    },
   });
 
   if (!depExpAccount) {
     console.log('📝 [FA] Creating new Depreciation Expense account');
-    const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '6100', companyId: companyId }
-    });
-    
-    let newCode = '6100';
-    if (existingCode) {
-      let counter = 1;
-      let codeExists = true;
-      while (codeExists) {
-        newCode = `61${counter}0`;
-        const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, companyId: companyId }
-        });
-        if (!existing) {
-          codeExists = false;
-        }
-        counter++;
-      }
-    }
-
     depExpAccount = await prisma.chartOfAccount.create({
       data: {
-        code: newCode,
+        code: '6700',
         name: 'Depreciation Expense',
         type: 'Expenses',
         parentAccount: 'Operating Expenses',
@@ -167,47 +150,32 @@ async function getOrCreateDepreciationExpenseAccount(userId, companyId) {
   return depExpAccount;
 }
 
-// Helper: Get or create Cash account
+// Helper: Get or create Cash account (prefer default COA 1001)
 async function getOrCreateCashAccount(userId, companyId) {
   console.log('🔍 [FA] Getting/Creating Cash account');
   let cashAccount = await prisma.chartOfAccount.findFirst({
     where: {
-      code: '1010',
-      companyId: companyId
-    }
+      companyId: companyId,
+      OR: [
+        { code: '1001' },
+        { code: '1010' },
+        { name: { contains: 'Cash', mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { code: 'asc' },
   });
 
   if (!cashAccount) {
     console.log('📝 [FA] Creating new Cash account');
-    const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1010', companyId: companyId }
-    });
-    
-    let newCode = '1010';
-    if (existingCode) {
-      let counter = 1;
-      let codeExists = true;
-      while (codeExists) {
-        newCode = `101${counter}`;
-        const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, companyId: companyId }
-        });
-        if (!existing) {
-          codeExists = false;
-        }
-        counter++;
-      }
-    }
-
     cashAccount = await prisma.chartOfAccount.create({
       data: {
-        code: newCode,
+        code: '1001',
         name: 'Cash in Hand',
         type: 'Assets',
         parentAccount: 'Current Assets',
         openingBalance: 0,
         currentBalance: 0,
-        description: 'Physical cash in office',
+        description: 'Cash on hand',
         taxCode: 'N/A',
         balanceType: 'Debit',
         isActive: true,
@@ -218,6 +186,84 @@ async function getOrCreateCashAccount(userId, companyId) {
     console.log('✅ [FA] Cash account created');
   }
   return cashAccount;
+}
+
+// Helper: Get or create Accounts Payable account
+async function getOrCreatePayableAccount(userId, companyId) {
+  let apAccount = await prisma.chartOfAccount.findFirst({
+    where: {
+      companyId: companyId,
+      OR: [
+        { code: '2010' },
+        { code: '2001' },
+        { name: { equals: 'Accounts Payable', mode: 'insensitive' } },
+      ],
+    },
+  });
+
+  if (!apAccount) {
+    apAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: '2010',
+        name: 'Accounts Payable',
+        type: 'Liability',
+        parentAccount: 'Current Liabilities',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Amount due to suppliers',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId,
+        companyId: companyId,
+      },
+    });
+  }
+  return apAccount;
+}
+
+// Helper: Get or create Opening Balance Equity account
+async function getOrCreateOpeningBalanceEquity(userId, companyId) {
+  let equityAccount = await prisma.chartOfAccount.findFirst({
+    where: {
+      companyId: companyId,
+      OR: [
+        { code: '3000' },
+        { name: { contains: 'Opening Balance Equity', mode: 'insensitive' } },
+      ],
+    },
+  });
+
+  if (!equityAccount) {
+    equityAccount = await prisma.chartOfAccount.create({
+      data: {
+        code: '3000',
+        name: 'Opening Balance Equity',
+        type: 'Equity',
+        parentAccount: 'Equity',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Opening balance equity account',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId,
+        companyId: companyId,
+      },
+    });
+  }
+  return equityAccount;
+}
+
+function journalLine(account, debit, credit) {
+  return {
+    accountId: account.id,
+    accountName: account.name,
+    accountCode: account.code,
+    debit,
+    credit,
+    isReconciled: false,
+  };
 }
 
 // Helper: Get or create Gain/Loss account
@@ -318,15 +364,54 @@ exports.createFixedAsset = async (req, res) => {
       supplierId,
       warrantyExpiry,
       notes,
+      acquisitionType: rawAcquisitionType,
+      paymentMethod: rawPaymentMethod,
+      bankAccountId,
+      openingAccumulatedDepreciation,
     } = req.body;
 
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const postingDate = purchaseDate ? new Date(purchaseDate) : new Date();
-    console.log('👤 [FA] User ID:', userId);
-    console.log('🏢 [FA] Company ID:', companyId);
+    const cost = parseFloat(purchaseCost);
+    const openingAccDep = Math.max(0, parseFloat(openingAccumulatedDepreciation || 0));
 
-    // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
+    let acquisitionType = String(rawAcquisitionType || 'purchase').toLowerCase();
+    if (acquisitionType === 'opening' || acquisitionType === 'existing') {
+      acquisitionType = 'opening_balance';
+    }
+    if (!['purchase', 'opening_balance'].includes(acquisitionType)) {
+      acquisitionType = 'purchase';
+    }
+
+    let paymentMethod = String(rawPaymentMethod || 'Cash');
+    if (acquisitionType === 'opening_balance') {
+      paymentMethod = 'Opening Balance';
+    } else {
+      const normalized = paymentMethod.toLowerCase();
+      if (normalized === 'bank' || normalized === 'bank transfer') paymentMethod = 'Bank';
+      else if (normalized === 'credit' || normalized === 'on credit' || normalized === 'accounts payable') {
+        paymentMethod = 'Credit';
+      } else {
+        paymentMethod = 'Cash';
+      }
+    }
+
+    if (!name || !category || !purchaseDate || !cost || cost <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, category, purchase date and a valid purchase cost are required',
+      });
+    }
+
+    if (openingAccDep > cost) {
+      return res.status(400).json({
+        success: false,
+        message: 'Opening accumulated depreciation cannot exceed purchase cost',
+      });
+    }
+
+    // ─── Fiscal Year Guard ────────────────────────────────────────
     try {
       await fiscalYearGuard(userId, postingDate);
     } catch (err) {
@@ -336,95 +421,189 @@ exports.createFixedAsset = async (req, res) => {
       throw err;
     }
 
-    // ─── Resolve Fiscal Year ID (Req 2) ───────────────────────────────────
     const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
-    // ─── 1. Validate Supplier (only if provided) ──────────────────
+    // ─── Supplier ─────────────────────────────────────────────────
     let supplierName = '';
     let finalSupplierId = null;
-    
-    if (supplierId && supplierId !== 'null' && supplierId.trim() !== '') {
+
+    if (supplierId && supplierId !== 'null' && String(supplierId).trim() !== '') {
       const supplier = await validateSupplier(supplierId, userId, companyId);
       if (supplier) {
         supplierName = supplier.name;
         finalSupplierId = supplier.id;
-        console.log(`✅ [FA] Supplier found: ${supplierName}`);
-      } else {
-        console.log('⚠️ [FA] Supplier not found, creating asset without supplier');
       }
-    } else {
-      console.log('ℹ️ [FA] No supplier provided, creating asset without supplier');
     }
 
-    // ─── 2. Create Fixed Asset ──────────────────────────────────
+    if (paymentMethod === 'Credit' && !finalSupplierId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Supplier is required for credit purchases',
+      });
+    }
+
+    // ─── Bank account (required for Bank) ─────────────────────────
+    let bankAccountData = null;
+    let finalBankAccountId = null;
+    const rawBankId =
+      bankAccountId !== null && bankAccountId !== undefined
+        ? String(bankAccountId).trim()
+        : '';
+
+    if (paymentMethod === 'Bank') {
+      if (!rawBankId || rawBankId === 'null') {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank account is required when payment method is Bank',
+        });
+      }
+      bankAccountData = await prisma.bankAccount.findFirst({
+        where: { id: rawBankId, companyId },
+        include: { chartOfAccount: true },
+      });
+      if (!bankAccountData || !bankAccountData.chartOfAccount) {
+        return res.status(404).json({
+          success: false,
+          message: 'Selected bank account not found',
+        });
+      }
+      finalBankAccountId = bankAccountData.id;
+    }
+
+    // ─── Create Fixed Asset ───────────────────────────────────────
     const fixedAsset = await FixedAssetModel.create({
       name,
       category,
       purchaseDate: new Date(purchaseDate),
-      purchaseCost: parseFloat(purchaseCost),
+      purchaseCost: cost,
       usefulLife: parseInt(usefulLife),
       salvageValue: parseFloat(salvageValue || 0),
       depreciationMethod: depreciationMethod || 'Straight Line',
       location: location || '',
       supplierId: finalSupplierId,
-      supplierName: supplierName,
+      supplierName,
+      acquisitionType,
+      paymentMethod,
+      bankAccountId: finalBankAccountId,
+      openingAccumulatedDepreciation: acquisitionType === 'opening_balance' ? openingAccDep : 0,
       warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null,
       notes: notes || '',
       createdBy: userId,
-      companyId: companyId,
+      companyId,
       fiscalYearId,
     });
 
     console.log(`✅ [FA] Fixed asset created: ${fixedAsset.assetCode}`);
 
-    // ─── 3. Create Journal Entry ──────────────────────────────
+    // ─── Resolve credit-side account + journal lines ──────────────
     const assetAccount = await getOrCreateFixedAssetAccount(userId, companyId);
-    const cashAccount = await getOrCreateCashAccount(userId, companyId);
+    const lines = [];
+    let creditAccount = null;
+    let description = '';
 
-    console.log('📝 [FA] Creating journal entry...');
+    if (acquisitionType === 'opening_balance') {
+      const equityAccount = await getOrCreateOpeningBalanceEquity(userId, companyId);
+      const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
+      const netBook = Math.max(0, cost - openingAccDep);
+
+      lines.push(journalLine(assetAccount, cost, 0));
+      if (openingAccDep > 0) {
+        lines.push(journalLine(accDepAccount, 0, openingAccDep));
+      }
+      lines.push(journalLine(equityAccount, 0, netBook));
+      creditAccount = equityAccount;
+      description = `Opening balance fixed asset: ${name} (${fixedAsset.assetCode})`;
+
+      await prisma.chartOfAccount.update({
+        where: { id: assetAccount.id },
+        data: { currentBalance: { increment: cost } },
+      });
+      if (openingAccDep > 0) {
+        await prisma.chartOfAccount.update({
+          where: { id: accDepAccount.id },
+          data: { currentBalance: { increment: openingAccDep } },
+        });
+      }
+      await prisma.chartOfAccount.update({
+        where: { id: equityAccount.id },
+        data: { currentBalance: { increment: netBook } },
+      });
+    } else if (paymentMethod === 'Bank' && bankAccountData) {
+      creditAccount = bankAccountData.chartOfAccount;
+      lines.push(journalLine(assetAccount, cost, 0));
+      lines.push(journalLine(creditAccount, 0, cost));
+      description = `Purchase of fixed asset via bank: ${name} (${fixedAsset.assetCode})`;
+
+      await prisma.bankAccount.update({
+        where: { id: finalBankAccountId },
+        data: { currentBalance: { decrement: cost } },
+      });
+      await prisma.chartOfAccount.update({
+        where: { id: creditAccount.id },
+        data: { currentBalance: { decrement: cost } },
+      });
+      await prisma.chartOfAccount.update({
+        where: { id: assetAccount.id },
+        data: { currentBalance: { increment: cost } },
+      });
+    } else if (paymentMethod === 'Credit') {
+      creditAccount = await getOrCreatePayableAccount(userId, companyId);
+      lines.push(journalLine(assetAccount, cost, 0));
+      lines.push(journalLine(creditAccount, 0, cost));
+      description = `Credit purchase of fixed asset: ${name} (${fixedAsset.assetCode})`;
+
+      await prisma.chartOfAccount.update({
+        where: { id: assetAccount.id },
+        data: { currentBalance: { increment: cost } },
+      });
+      await prisma.chartOfAccount.update({
+        where: { id: creditAccount.id },
+        data: { currentBalance: { increment: cost } },
+      });
+    } else {
+      // Cash purchase
+      creditAccount = await getOrCreateCashAccount(userId, companyId);
+      lines.push(journalLine(assetAccount, cost, 0));
+      lines.push(journalLine(creditAccount, 0, cost));
+      description = `Cash purchase of fixed asset: ${name} (${fixedAsset.assetCode})`;
+
+      await prisma.chartOfAccount.update({
+        where: { id: assetAccount.id },
+        data: { currentBalance: { increment: cost } },
+      });
+      await prisma.chartOfAccount.update({
+        where: { id: creditAccount.id },
+        data: { currentBalance: { decrement: cost } },
+      });
+    }
+
+    console.log('📝 [FA] Creating journal entry...', {
+      acquisitionType,
+      paymentMethod,
+      credit: creditAccount?.name,
+    });
 
     await prisma.journalEntry.create({
       data: {
         entryNumber: `JE-${Date.now()}`,
         date: postingDate,
-        description: `Purchase of fixed asset: ${name} (${fixedAsset.assetCode})`,
+        description,
         reference: fixedAsset.assetCode,
         status: 'Posted',
         createdBy: userId,
         postedBy: userId,
         postedAt: new Date(),
         fiscalYearId,
-        companyId: companyId,
-        lines: {
-          create: [
-            {
-              accountId: assetAccount.id,
-              accountName: assetAccount.name,
-              accountCode: assetAccount.code,
-              debit: parseFloat(purchaseCost),
-              credit: 0,
-              isReconciled: false
-            },
-            {
-              accountId: cashAccount.id,
-              accountName: cashAccount.name,
-              accountCode: cashAccount.code,
-              debit: 0,
-              credit: parseFloat(purchaseCost),
-              isReconciled: false
-            }
-          ]
-        }
-      }
+        companyId,
+        lines: { create: lines },
+      },
     });
 
     console.log('✅ [FA] Journal entry created');
 
-    // Invalidate cache after successful fixed asset creation
     try {
       await delPattern(`fixedasset:list:${userId}:*`);
       await delPattern(`fixedasset:summary:${userId}`);
-      console.log('🗑️ [FixedAsset] Cache invalidated after fixed asset creation');
     } catch (cacheError) {
       console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
     }

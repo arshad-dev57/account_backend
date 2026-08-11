@@ -13,6 +13,7 @@ const REQUIRED_MODELS = [
   'fiscalYear',
   'creditNote',
   'notification',
+  'supportTicket',
 ];
 
 function getPrismaHealth(prisma) {
