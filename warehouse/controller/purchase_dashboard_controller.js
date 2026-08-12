@@ -2,10 +2,11 @@
 // Purchase Dashboard API — company-scoped, case-tolerant statuses
 
 const prisma = require('../../prisma/client');
+const { applyFiscalYearWindow } = require('../../utils/fiscalYearHelper');
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-const parsePeriod = (period, startDate, endDate) => {
+const parsePeriod = async (period, startDate, endDate, opts = {}) => {
   const now = new Date();
   let start;
   let end;
@@ -59,6 +60,17 @@ const parsePeriod = (period, startDate, endDate) => {
       start = new Date(now.getFullYear(), now.getMonth(), 1);
       end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
       groupBy = 'week';
+  }
+
+  if (opts.fiscalYearId && opts.companyId) {
+    const clamped = await applyFiscalYearWindow({
+      companyId: opts.companyId,
+      fiscalYearId: opts.fiscalYearId,
+      start,
+      end,
+      period: String(period || '').toLowerCase() === 'year' ? 'This Year' : period,
+    });
+    return { start: clamped.start, end: clamped.end, groupBy };
   }
 
   return { start, end, groupBy };
@@ -133,8 +145,11 @@ const getMetrics = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate } = req.query;
-    const { start, end } = parsePeriod(period, startDate, endDate);
+    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { start, end } = await parsePeriod(period, startDate, endDate, {
+      companyId,
+      fiscalYearId,
+    });
 
     const orderWhere = baseWhere(companyId, userId, {
       createdAt: { gte: start, lte: end },
@@ -262,8 +277,11 @@ const getSpendTrend = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate } = req.query;
-    const { start, end, groupBy } = parsePeriod(period, startDate, endDate);
+    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { start, end, groupBy } = await parsePeriod(period, startDate, endDate, {
+      companyId,
+      fiscalYearId,
+    });
 
     const [invoices, orders] = await Promise.all([
       prisma.purchaseInvoice.findMany({
@@ -333,8 +351,11 @@ const getOrderStatusDistribution = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate } = req.query;
-    const { start, end } = parsePeriod(period, startDate, endDate);
+    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { start, end } = await parsePeriod(period, startDate, endDate, {
+      companyId,
+      fiscalYearId,
+    });
 
     const orders = await prisma.purchaseOrder.findMany({
       where: baseWhere(companyId, userId, {
@@ -389,8 +410,11 @@ const getTopSuppliers = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate } = req.query;
-    const { start, end } = parsePeriod(period, startDate, endDate);
+    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { start, end } = await parsePeriod(period, startDate, endDate, {
+      companyId,
+      fiscalYearId,
+    });
 
     // Prefer invoices (actual spend); fall back to orders if none
     const invoices = await prisma.purchaseInvoice.findMany({

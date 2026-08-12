@@ -72,6 +72,7 @@ model Company {
   taxExemptionTypes  TaxExemptionType[]     @relation("TaxExemptionTypeCompany")
   taxExemptions      TaxExemption[]         @relation("TaxExemptionCompany")
   taxTransactions    TaxTransaction[]       @relation("TaxTransactionCompany")
+  taxProfile         CompanyTaxProfile?
   goodsReceivings    GoodsReceiving[]       @relation("GoodsReceivingCompany")
   purchaseInvoices   PurchaseInvoice[]      @relation("PurchaseInvoiceCompany")
   salesInvoices      SalesInvoice[]         @relation("SalesInvoiceCompany")
@@ -3429,13 +3430,35 @@ model POSAuditLog {
 // INTERNATIONAL TAX MANAGEMENT
 // ============================================================
 
+model CompanyTaxProfile {
+  id                    String   @id @default(uuid())
+  companyId             String   @unique @map("company_id")
+  countryCode           String   @default("US") @map("country_code")
+  regime                String   @default("SALES_TAX") // VAT, GST, SALES_TAX, MIXED
+  pricingModel          String   @default("exclusive") @map("pricing_model") // exclusive, inclusive
+  taxRegistrationNumber String?  @map("tax_registration_number")
+  filingFrequency       String   @default("quarterly") @map("filing_frequency")
+  defaultJurisdictionId String?  @map("default_jurisdiction_id")
+  recoverInputTax       Boolean  @default(true) @map("recover_input_tax")
+  taxEnabled            Boolean  @default(true) @map("tax_enabled")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  company              Company           @relation(fields: [companyId], references: [id])
+  defaultJurisdiction  TaxJurisdiction?  @relation("DefaultTaxJurisdiction", fields: [defaultJurisdictionId], references: [id])
+
+  @@index([countryCode])
+  @@map("company_tax_profiles")
+}
+
 model TaxJurisdiction {
   id          String   @id @default(uuid())
-  code        String   @unique // ISO country code or custom code
+  code        String
   name        String
   level       String // Country, State, County, City, SpecialZone
   parentId    String?  @map("parent_id")
   countryCode String   @map("country_code") // ISO 3166-1 alpha-2
+  isDefault   Boolean  @default(false) @map("is_default")
   isActive    Boolean  @default(true) @map("is_active")
   companyId   String   @map("company_id")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -3447,7 +3470,9 @@ model TaxJurisdiction {
   company         Company           @relation("TaxJurisdictionCompany", fields: [companyId], references: [id])
   taxRates        TaxRate[]
   taxTransactions TaxTransaction[]  @relation("TaxTransactionJurisdiction")
+  defaultForProfiles CompanyTaxProfile[] @relation("DefaultTaxJurisdiction")
 
+  @@unique([companyId, code])
   @@index([parentId])
   @@index([countryCode])
   @@index([companyId])
@@ -3456,7 +3481,7 @@ model TaxJurisdiction {
 
 model TaxType {
   id              String   @id @default(uuid())
-  code            String   @unique // VAT, GST, SALES_TAX, EXCISE, etc.
+  code            String // VAT, GST, SALES_TAX, EXCISE, etc.
   name            String
   description     String?
   calculationType String   @default("percentage") // percentage, flat, tiered
@@ -3471,6 +3496,7 @@ model TaxType {
   taxRates        TaxRate[]
   taxTransactions TaxTransaction[] @relation("TaxTransactionType")
 
+  @@unique([companyId, code])
   @@index([companyId])
   @@map("tax_types")
 }
@@ -3530,7 +3556,7 @@ model TaxRule {
 
 model TaxExemptionType {
   id                  String   @id @default(uuid())
-  code                String   @unique // RESALE, NON_PROFIT, EXPORT, etc.
+  code                String // RESALE, NON_PROFIT, EXPORT, etc.
   name                String
   description         String?
   percentage          Float    @default(100) // 100% = full exemption
@@ -3544,6 +3570,7 @@ model TaxExemptionType {
   company    Company        @relation("TaxExemptionTypeCompany", fields: [companyId], references: [id])
   exemptions TaxExemption[]
 
+  @@unique([companyId, code])
   @@index([companyId])
   @@map("tax_exemption_types")
 }

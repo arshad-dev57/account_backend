@@ -38,6 +38,25 @@ const completeSale = async (req, res) => {
       offlineCreatedAt: offlineCreatedAt || null
     });
 
+    try {
+      const taxCalculationService = require('../../tax/services/taxCalculationService');
+      await taxCalculationService.calculateTax({
+        items: (items || []).map((item) => ({
+          productId: item.productId,
+          categoryId: item.categoryId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          pricingModel: item.pricingModel || (String(item.taxType || '').toLowerCase().includes('inclusive') ? 'inclusive' : 'exclusive'),
+        })),
+        customer: customerId ? { id: customerId } : null,
+        companyId,
+        transactionType: 'POSSale',
+        transactionId: sale.id,
+      });
+    } catch (taxErr) {
+      console.error('POS tax ledger recording failed:', taxErr.message);
+    }
+
     res.status(201).json({ success: true, message: 'Sale completed successfully', data: { sale, journalEntry } });
   } catch (err) {
     console.error('POS Sale Error:', err);

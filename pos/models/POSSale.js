@@ -85,6 +85,9 @@ class POSSaleModel {
       companyId, createdBy, isOffline = false, offlineCreatedAt = null
     } = data;
 
+    const taxProfile = await prisma.companyTaxProfile.findUnique({ where: { companyId } }).catch(() => null);
+    const taxOn = Boolean(taxProfile?.taxEnabled);
+
     // Pre-compute totals
     let subtotal = 0;
     const processedItems = [];
@@ -92,12 +95,28 @@ class POSSaleModel {
       const lineTotal = parseFloat((item.quantity * item.unitPrice).toFixed(2));
       const discountAmt = item.discount ? parseFloat((lineTotal * item.discount / 100).toFixed(2)) : 0;
       const taxableAmt = lineTotal - discountAmt;
-      const taxAmount = item.taxRate ? parseFloat((taxableAmt * item.taxRate / 100).toFixed(2)) : 0;
-      const finalLineTotal = parseFloat((taxableAmt + taxAmount).toFixed(2));
+      const pricing = String(item.pricingModel || item.taxType || 'exclusive').toLowerCase();
+      const inclusive = taxOn && pricing.includes('inclusive');
+      let taxAmount = 0;
+      if (taxOn && item.taxRate) {
+        if (inclusive) {
+          const divisor = 1 + item.taxRate / 100;
+          taxAmount = parseFloat((taxableAmt - taxableAmt / divisor).toFixed(2));
+        } else {
+          taxAmount = parseFloat((taxableAmt * item.taxRate / 100).toFixed(2));
+        }
+      }
+      const finalLineTotal = inclusive
+        ? parseFloat(taxableAmt.toFixed(2))
+        : parseFloat((taxableAmt + taxAmount).toFixed(2));
       subtotal += lineTotal;
-      processedItems.push({ ...item, lineTotal: finalLineTotal, taxAmount, discountAmount: discountAmt });
+      processedItems.push({ ...item, lineTotal: finalLineTotal, taxAmount, discountAmount: discountAmt, inclusive });
     }
-    const grandTotal = parseFloat((subtotal - discountTotal + taxTotal).toFixed(2));
+    const anyInclusive = processedItems.some((i) => i.inclusive);
+    const appliedTaxTotal = taxOn ? taxTotal : 0;
+    const grandTotal = parseFloat(
+      (anyInclusive ? subtotal - discountTotal : subtotal - discountTotal + appliedTaxTotal).toFixed(2)
+    );
     const paidAmount = payments.reduce((s, p) => s + p.amount, 0);
     const changeAmount = parseFloat((paidAmount - grandTotal).toFixed(2));
 
@@ -187,7 +206,7 @@ class POSSaleModel {
           customerPhone: customerPhone || null,
           subtotal,
           discountTotal,
-          taxTotal,
+          taxTotal: appliedTaxTotal,
           grandTotal,
           paidAmount,
           changeAmount,

@@ -2,6 +2,7 @@
 
 const PurchaseInvoice = require('../models/PurchaseInvoice');
 const prisma = require('../../prisma/client');
+const taxCalculationService = require('../../tax/services/taxCalculationService');
 const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 
@@ -98,6 +99,13 @@ const createInvoiceFromGRN = async (req, res) => {
 
     const invoice = await PurchaseInvoice.createFromGRN(invoiceData);
 
+    await taxCalculationService.recordFromDocument({
+      companyId,
+      transactionId: invoice.id,
+      transactionType: 'PurchaseInvoice',
+      items: invoice.items || [],
+    });
+
     res.status(201).json({
       success: true,
       message: 'Purchase invoice created and posted successfully',
@@ -181,6 +189,13 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
     };
 
     const invoice = await PurchaseInvoice.createFromPurchaseOrder(invoiceData);
+
+    await taxCalculationService.recordFromDocument({
+      companyId,
+      transactionId: invoice.id,
+      transactionType: 'PurchaseInvoice',
+      items: invoice.items || [],
+    });
 
     res.status(201).json({
       success: true,

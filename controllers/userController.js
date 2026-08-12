@@ -196,6 +196,55 @@ exports.register = async (req, res) => {
     try {
       let fyStartDate, fyEndDate, fyName;
       const currentYear = new Date().getFullYear();
+      const nowDate = new Date();
+      const month = nowDate.getMonth() + 1;
+
+      const resolveFromPeriod = (periodType) => {
+        let start;
+        let end;
+        switch (periodType) {
+          case 'July - June':
+            if (month >= 7) {
+              start = new Date(currentYear, 6, 1);
+              end = new Date(currentYear + 1, 5, 30, 23, 59, 59, 999);
+            } else {
+              start = new Date(currentYear - 1, 6, 1);
+              end = new Date(currentYear, 5, 30, 23, 59, 59, 999);
+            }
+            break;
+          case 'April - March':
+            if (month >= 4) {
+              start = new Date(currentYear, 3, 1);
+              end = new Date(currentYear + 1, 2, 31, 23, 59, 59, 999);
+            } else {
+              start = new Date(currentYear - 1, 3, 1);
+              end = new Date(currentYear, 2, 31, 23, 59, 59, 999);
+            }
+            break;
+          case 'October - September':
+            if (month >= 10) {
+              start = new Date(currentYear, 9, 1);
+              end = new Date(currentYear + 1, 8, 30, 23, 59, 59, 999);
+            } else {
+              start = new Date(currentYear - 1, 9, 1);
+              end = new Date(currentYear, 8, 30, 23, 59, 59, 999);
+            }
+            break;
+          case 'January - December':
+          case 'Custom':
+          default:
+            start = new Date(currentYear, 0, 1);
+            end = new Date(currentYear, 11, 31, 23, 59, 59, 999);
+            break;
+        }
+        const startYear = start.getFullYear();
+        const endYear = end.getFullYear();
+        return {
+          start,
+          end,
+          name: startYear === endYear ? `FY ${startYear}` : `FY ${startYear}-${endYear}`,
+        };
+      };
 
       if (fiscalYearStartDate && fiscalYearEndDate) {
         fyStartDate = new Date(fiscalYearStartDate);
@@ -203,9 +252,14 @@ exports.register = async (req, res) => {
         const startYear = fyStartDate.getFullYear();
         const endYear   = fyEndDate.getFullYear();
         fyName = fiscalYearName || (startYear === endYear ? `FY ${startYear}` : `FY ${startYear}-${endYear}`);
+      } else if (fiscalYear) {
+        const resolved = resolveFromPeriod(fiscalYear);
+        fyStartDate = resolved.start;
+        fyEndDate = resolved.end;
+        fyName = fiscalYearName || resolved.name;
       } else {
-        fyStartDate = new Date(`${currentYear}-01-01T00:00:00.000Z`);
-        fyEndDate   = new Date(`${currentYear}-12-31T23:59:59.999Z`);
+        fyStartDate = new Date(currentYear, 0, 1);
+        fyEndDate   = new Date(currentYear, 11, 31, 23, 59, 59, 999);
         fyName      = fiscalYearName || `FY ${currentYear}`;
       }
 
@@ -216,10 +270,11 @@ exports.register = async (req, res) => {
           startDate: fyStartDate,
           endDate:   fyEndDate,
           status:    'Open',
+          periodType: fiscalYear || 'Custom',
         },
       });
 
-      console.log('✅ [register] FiscalYear created for user:', user._id);
+      console.log('✅ [register] FiscalYear created for user:', user._id, fyName, fyStartDate, fyEndDate);
     } catch (fyError) {
       console.error('⚠️ [register] FiscalYear creation failed (non-fatal):', fyError.message);
     }

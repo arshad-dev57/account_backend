@@ -29,9 +29,40 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
     });
   }
 
-  // Build filters using helper
-  const dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
-  const fiscalYearFilter = LedgerHelper.buildFiscalYearFilter(fiscalYearId);
+  // Build filters using helper — prefer FY date window over FK-only filter
+  let dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
+  let fiscalYearFilter = {};
+
+  if (fiscalYearId && companyId && !startDate && !endDate) {
+    const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
+    const now = new Date();
+    const clamped = await applyFiscalYearWindow({
+      companyId,
+      fiscalYearId,
+      start: new Date(now.getFullYear(), 0, 1),
+      end: now,
+      period: 'This Year',
+    });
+    dateFilter = {
+      date: { gte: clamped.start, lte: clamped.end },
+    };
+  } else if (fiscalYearId && companyId && (startDate || endDate)) {
+    const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
+    const baseStart = startDate ? new Date(startDate) : new Date(0);
+    const baseEnd = endDate ? new Date(endDate) : new Date();
+    const clamped = await applyFiscalYearWindow({
+      companyId,
+      fiscalYearId,
+      start: baseStart,
+      end: baseEnd,
+      period: 'Custom',
+    });
+    dateFilter = {
+      date: { gte: clamped.start, lte: clamped.end },
+    };
+  } else if (fiscalYearId) {
+    fiscalYearFilter = LedgerHelper.buildFiscalYearFilter(fiscalYearId);
+  }
 
   // Get posted journal entries for this user
   const journalEntries = await prisma.journalEntry.findMany({

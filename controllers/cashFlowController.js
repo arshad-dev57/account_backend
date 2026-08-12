@@ -27,58 +27,61 @@ async function resolveCashFlowPeriod({
   const now = new Date();
   now.setHours(23, 59, 59, 999);
 
-  if (startDate && endDate) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-    return { start, end, labelPeriod: period || 'Custom Range' };
-  }
-
-  if (fiscalYearId && (!period || period === 'This Year' || period === 'All Time')) {
-    const fiscalYear = await prisma.fiscalYear.findFirst({
-      where: { id: fiscalYearId, companyId },
-      select: { startDate: true, endDate: true, name: true },
-    });
-
-    if (fiscalYear) {
-      const start = new Date(fiscalYear.startDate);
-      start.setHours(0, 0, 0, 0);
-      const fyEnd = new Date(fiscalYear.endDate);
-      fyEnd.setHours(23, 59, 59, 999);
-      const end = now < fyEnd ? now : fyEnd;
-      return { start, end, labelPeriod: period || fiscalYear.name || 'Fiscal Year' };
-    }
-  }
-
   let start;
   let end = now;
+  let labelPeriod = period || 'Custom Range';
 
-  switch (period) {
-    case 'Today':
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'This Week':
-      start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
-      start.setHours(0, 0, 0, 0);
-      break;
-    case 'This Quarter': {
-      const quarter = Math.floor(now.getMonth() / 3);
-      start = new Date(now.getFullYear(), quarter * 3, 1);
-      break;
+  if (startDate && endDate) {
+    start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    labelPeriod = period || 'Custom Range';
+  } else {
+    switch (period) {
+      case 'Today':
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case 'This Week':
+        start = new Date(now);
+        start.setDate(now.getDate() - now.getDay());
+        start.setHours(0, 0, 0, 0);
+        break;
+      case 'This Quarter': {
+        const quarter = Math.floor(now.getMonth() / 3);
+        start = new Date(now.getFullYear(), quarter * 3, 1);
+        break;
+      }
+      case 'This Month':
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'This Year':
+      case 'All Time':
+      default:
+        start = new Date(now.getFullYear(), 0, 1);
+        labelPeriod = period || 'This Year';
+        break;
     }
-    case 'This Year':
-      start = new Date(now.getFullYear(), 0, 1);
-      break;
-    case 'This Month':
-    default:
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
+    start.setHours(0, 0, 0, 0);
   }
 
-  start.setHours(0, 0, 0, 0);
-  return { start, end, labelPeriod: period || 'This Month' };
+  if (fiscalYearId && companyId) {
+    const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
+    const clamped = await applyFiscalYearWindow({
+      companyId,
+      fiscalYearId,
+      start,
+      end,
+      period: labelPeriod,
+    });
+    return {
+      start: clamped.start,
+      end: clamped.end,
+      labelPeriod: clamped.fiscalYear?.name || labelPeriod,
+    };
+  }
+
+  return { start, end, labelPeriod };
 }
 
 async function getCashBalanceAsOf(companyId, asOfDate) {
@@ -307,24 +310,15 @@ exports.getCashFlowStatement = async (req, res) => {
       companyId,
     });
 
-    // Optional soft FY filter — do not require fiscalYearId on every record
-    const withOptionalFY = (extra = {}) => {
-      const where = { companyId, ...extra };
-      if (fiscalYearId) {
-        where.OR = [
-          { fiscalYearId },
-          { fiscalYearId: null },
-        ];
-      }
-      return where;
-    };
+    // Filter by date range only — FY is applied via resolveCashFlowPeriod dates
+    const withCompany = (extra = {}) => ({ companyId, ...extra });
 
     // ==================== OPERATING ====================
     const [incomes, expenses, customerPayments, billPayments] =
       await Promise.all([
         prisma.income.findMany({
           where: {
-            ...withOptionalFY({
+            ...withCompany({
               date: { gte: start, lte: end },
               status: 'Posted',
             }),
@@ -332,7 +326,7 @@ exports.getCashFlowStatement = async (req, res) => {
         }),
         prisma.expense.findMany({
           where: {
-            ...withOptionalFY({
+            ...withCompany({
               date: { gte: start, lte: end },
               status: 'Posted',
             }),
@@ -340,7 +334,7 @@ exports.getCashFlowStatement = async (req, res) => {
         }),
         prisma.paymentReceived.findMany({
           where: {
-            ...withOptionalFY({
+            ...withCompany({
               paymentDate: { gte: start, lte: end },
               status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] },
             }),
@@ -348,7 +342,7 @@ exports.getCashFlowStatement = async (req, res) => {
         }),
         prisma.paymentMade.findMany({
           where: {
-            ...withOptionalFY({
+            ...withCompany({
               paymentDate: { gte: start, lte: end },
               billId: { not: null },
               status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] },
@@ -367,12 +361,12 @@ exports.getCashFlowStatement = async (req, res) => {
     // ==================== INVESTING ====================
     const [fixedAssets, disposedAssets] = await Promise.all([
       prisma.fixedAsset.findMany({
-        where: withOptionalFY({
+        where: withCompany({
           purchaseDate: { gte: start, lte: end },
         }),
       }),
       prisma.fixedAsset.findMany({
-        where: withOptionalFY({
+        where: withCompany({
           disposedDate: { gte: start, lte: end },
           status: 'Disposed',
         }),
@@ -408,7 +402,7 @@ exports.getCashFlowStatement = async (req, res) => {
 
     // ==================== FINANCING ====================
     const newLoans = await prisma.loan.findMany({
-      where: withOptionalFY({
+      where: withCompany({
         disbursementDate: { gte: start, lte: end },
       }),
     });
