@@ -41,7 +41,7 @@ class TaxCalculationService {
           pricingModel: 'exclusive',
           taxCalculations: [],
           totalTax: 0,
-          totalWithTax: lineTotal,
+          totalWithTax: lineTotal
         };
       });
       const subtotal = itemTaxes.reduce((s, i) => s + i.lineTotal, 0);
@@ -53,7 +53,7 @@ class TaxCalculationService {
         totals: { subtotal, totalTax: 0, totalWithTax: subtotal, taxesByType: {}, exemptions: {} },
         currency,
         pricingModel: 'exclusive',
-        regime: null,
+        regime: null
       };
     }
 
@@ -120,14 +120,14 @@ class TaxCalculationService {
       totals,
       currency,
       pricingModel: defaultPricingModel,
-      regime: profile?.regime || null,
+      regime: profile?.regime || null
     };
   }
 
   async getCompanyProfile(companyId) {
     return prisma.companyTaxProfile.findUnique({
       where: { companyId },
-      include: { defaultJurisdiction: true },
+      include: { defaultJurisdiction: true }
     });
   }
 
@@ -141,10 +141,10 @@ class TaxCalculationService {
         isActive: true,
         jurisdictionId: jurisdiction.id,
         effectiveFrom: { lte: now },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }]
       },
       include: { taxType: true, jurisdiction: true },
-      orderBy: [{ isDefault: 'desc' }, { rate: 'desc' }],
+      orderBy: [{ isDefault: 'desc' }, { rate: 'desc' }]
     });
 
     const chosen = rates.filter((r) => r.isDefault);
@@ -157,7 +157,7 @@ class TaxCalculationService {
       pricingModel: profile?.pricingModel || 'exclusive',
       isCompound: taxRate.taxType?.isCompound || false,
       compoundOn: null,
-      taxRate,
+      taxRate
     }));
   }
 
@@ -171,12 +171,12 @@ class TaxCalculationService {
 
     if (!address) {
       const fallback = await prisma.taxJurisdiction.findFirst({
-        where: { companyId, isDefault: true, isActive: true },
+        where: { companyId, isDefault: true, isActive: true }
       });
       if (fallback) return fallback;
       return prisma.taxJurisdiction.findFirst({
         where: { companyId, isActive: true },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'asc' }
       });
     }
 
@@ -224,7 +224,7 @@ class TaxCalculationService {
     if (jurisdiction) return jurisdiction;
 
     return prisma.taxJurisdiction.findFirst({
-      where: { companyId, isDefault: true, isActive: true },
+      where: { companyId, isDefault: true, isActive: true }
     });
   }
 
@@ -245,7 +245,7 @@ class TaxCalculationService {
           jurisdictionId: jurisdiction.id,
           isActive: true,
           effectiveFrom: { lte: new Date() },
-          OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }],
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }]
         },
         OR: [
           { productId: { in: productIds } },
@@ -602,13 +602,13 @@ class TaxCalculationService {
           categoryId: item.categoryId,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          pricingModel: item.pricingModel || 'exclusive',
+          pricingModel: item.pricingModel || 'exclusive'
         })),
         customer: customerId ? { id: customerId } : null,
         companyId,
         transactionType,
         transactionId,
-        currency,
+        currency
       });
     } catch (error) {
       console.error('Tax ledger recording failed:', error.message);

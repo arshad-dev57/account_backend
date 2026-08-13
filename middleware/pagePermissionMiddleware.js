@@ -16,7 +16,7 @@ const requirePageView = (...pages) => {
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'Not authorized',
+          message: 'Not authorized'
         });
       }
 
@@ -37,9 +37,9 @@ const requirePageView = (...pages) => {
       const userPerms = await prisma.userPermission.findMany({
         where: {
           userId: user.id,
-          canView: true,
+          canView: true
         },
-        select: { page: true },
+        select: { page: true }
       });
 
       const pages = userPerms.map((p) => String(p.page || '').toLowerCase());
@@ -60,7 +60,7 @@ const requirePageView = (...pages) => {
         return res.status(403).json({
           success: false,
           message: 'You do not have permission to access this resource',
-          requiredPages: allowed,
+          requiredPages: allowed
         });
       }
 
@@ -69,7 +69,7 @@ const requirePageView = (...pages) => {
       console.error('Page permission check error:', error);
       return res.status(500).json({
         success: false,
-        message: 'Permission check failed',
+        message: 'Permission check failed'
       });
     }
   };

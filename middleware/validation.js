@@ -56,7 +56,7 @@ const validate = (schema) => {
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errors,
+        errors
       });
     }
 
@@ -69,28 +69,28 @@ const rules = {
   email: {
     required: true,
     pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-    message: 'Please provide a valid email address',
+    message: 'Please provide a valid email address'
   },
   password: {
     required: true,
     minLength: 6,
-    message: 'Password must be at least 6 characters',
+    message: 'Password must be at least 6 characters'
   },
   name: {
     required: true,
     minLength: 2,
     maxLength: 50,
-    message: 'Name must be between 2 and 50 characters',
+    message: 'Name must be between 2 and 50 characters'
   },
   phone: {
     pattern: /^[+]?[\d\s()-]+$/,
-    message: 'Please provide a valid phone number',
+    message: 'Please provide a valid phone number'
   },
   id: {
     required: true,
     pattern: /^[0-9a-fA-F]{24}$/,
-    message: 'Invalid ID format',
-  },
+    message: 'Invalid ID format'
+  }
 };
 
 // Pre-built validation schemas
@@ -104,38 +104,38 @@ const schemas = {
       country: { required: true, minLength: 2 },
       phone: rules.phone,
       address: { maxLength: 200 },
-      organizationName: { maxLength: 100 },
-    },
+      organizationName: { maxLength: 100 }
+    }
   },
   login: {
     body: {
       email: rules.email,
-      password: { required: true },
-    },
+      password: { required: true }
+    }
   },
   changePassword: {
     body: {
       currentPassword: { required: true },
-      newPassword: { ...rules.password, required: true },
-    },
+      newPassword: { ...rules.password, required: true }
+    }
   },
   forgotPassword: {
     body: {
-      email: rules.email,
-    },
+      email: rules.email
+    }
   },
   verifyOTP: {
     body: {
       email: rules.email,
-      otp: { required: true, pattern: /^\d{6}$/, message: 'OTP must be 6 digits' },
-    },
+      otp: { required: true, pattern: /^\d{6}$/, message: 'OTP must be 6 digits' }
+    }
   },
   resetPassword: {
     body: {
       newPassword: { ...rules.password, required: true },
-      confirmPassword: { required: true },
-    },
-  },
+      confirmPassword: { required: true }
+    }
+  }
 };
 
 module.exports = { validate, rules, schemas };

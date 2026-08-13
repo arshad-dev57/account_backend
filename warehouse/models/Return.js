@@ -77,7 +77,7 @@ class ReturnModel {
           trackingNumber: data.trackingNumber || null,
           shippingCarrier: data.shippingCarrier || null,
           returnLabel: data.returnLabel || null,
-          receivedDate: data.receivedDate || null,
+          receivedDate: data.receivedDate || null
         },
         include: {
           creator: {
@@ -110,7 +110,7 @@ class ReturnModel {
             restockStatus: item.restockStatus || 'Pending',
             returnReasonDetail: item.returnReasonDetail || null,
             replacementProductId: item.replacementProductId || null,
-            replacementProductName: item.replacementProductName || null,
+            replacementProductName: item.replacementProductName || null
           }
         });
 

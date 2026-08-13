@@ -13,7 +13,7 @@ const {
   recordPayment,
   getSummary,
   getAgedReceivables,
-  getUnpaidInvoices,
+  getUnpaidInvoices
 } = require('../controllers/accountsReceivableController');
 const { protect } = require('../middleware/authMiddleware');
 

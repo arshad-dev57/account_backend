@@ -74,7 +74,7 @@ const createGoodsReceiving = async (req, res) => {
       processedItems.push({
         purchaseOrderItemId: item.purchaseOrderItemId,
         receivingQuantity: item.receivingQuantity,
-        notes: item.notes || '',
+        notes: item.notes || ''
       });
     }
 
@@ -444,7 +444,7 @@ const updateGoodsReceiving = async (req, res) => {
         processedItems.push({
           purchaseOrderItemId: item.purchaseOrderItemId,
           receivingQuantity: item.receivingQuantity,
-          notes: item.notes || '',
+          notes: item.notes || ''
         });
       }
       updateData.items = processedItems;
@@ -605,7 +605,7 @@ const getAvailablePurchaseOrders = async (req, res) => {
           where: {
             isActive: true,
             isDeleted: false,
-            status: { in: ['Partially Received', 'Fully Received'] },
+            status: { in: ['Partially Received', 'Fully Received'] }
           },
           include: {
             items: true

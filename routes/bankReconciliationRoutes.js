@@ -2,7 +2,7 @@
 const {
   getReconciliationData,
   completeReconciliation,
-  getReconciliationHistory,
+  getReconciliationHistory
 } = require('../controllers/bankReconciliationController');
 const { protect } = require('../middleware/authMiddleware');
 

@@ -164,7 +164,7 @@ class QuotationModel {
               totalPrice: item.lineTotal,
               taxRate: item.taxRate || 0,
               taxAmount: item.taxAmount || 0,
-              discount: item.discount || 0,
+              discount: item.discount || 0
             }))
           }
         },

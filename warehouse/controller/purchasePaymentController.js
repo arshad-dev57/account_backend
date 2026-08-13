@@ -71,7 +71,7 @@ const makePayment = async (req, res) => {
       reference,
       notes,
       invoicePayments,
-      paymentDate,
+      paymentDate
     } = req.body;
 
     const postingDate = paymentDate ? new Date(paymentDate) : new Date();
@@ -190,7 +190,7 @@ const makePayment = async (req, res) => {
       userId,
       createdBy: userId,
       companyId,
-      fiscalYearId,
+      fiscalYearId
     };
 
     const payment = await PurchasePaymentMake.makePayment(paymentData);
@@ -201,7 +201,7 @@ const makePayment = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Payment made successfully',
-      data: payment,
+      data: payment
     });
   } catch (error) {
     console.error('Make payment error:', error);

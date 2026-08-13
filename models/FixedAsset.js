@@ -201,7 +201,7 @@ class FixedAssetModel {
         warrantyExpiry: data.warrantyExpiry || null,
         notes: data.notes || '',
         status: 'Active',
-        creator: { connect: { id: data.createdBy } },
+        creator: { connect: { id: data.createdBy } }
       };
 
       if (data.supplierId) {

@@ -152,7 +152,7 @@ const getInventoryValuation = async (req, res) => {
         ? valuationData.reduce((sum, item) => sum + parseFloat(item.profitMargin), 0) / valuationData.length
         : 0,
       lowStockCount: valuationData.filter(item => item.status === 'LOW').length,
-      overStockCount: valuationData.filter(item => item.status === 'OVER').length,
+      overStockCount: valuationData.filter(item => item.status === 'OVER').length
     };
 
     console.log('📊 Summary:', JSON.stringify(summary, null, 2));
@@ -246,7 +246,7 @@ const getValuationSummary = async (req, res) => {
       totalCostValue: products.reduce((sum, p) => sum + (p.currentStock * p.costPrice), 0),
       totalSellingValue: products.reduce((sum, p) => sum + (p.currentStock * p.sellingPrice), 0),
       lowStockCount: products.filter(p => p.currentStock <= p.minimumStock).length,
-      overStockCount: products.filter(p => p.currentStock >= p.maximumStock).length,
+      overStockCount: products.filter(p => p.currentStock >= p.maximumStock).length
     };
 
     summary.totalPotentialProfit = summary.totalSellingValue - summary.totalCostValue;

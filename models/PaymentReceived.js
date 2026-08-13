@@ -88,7 +88,7 @@ class PaymentReceivedModel {
           status: data.status || 'Cleared',
           clearedDate: data.status === 'Cleared' ? new Date() : null,
           createdBy: data.createdBy,
-          updatedBy: data.createdBy,
+          updatedBy: data.createdBy
         },
         include: {
           customer: {
@@ -248,7 +248,7 @@ class PaymentReceivedModel {
       data: {
         ...data,
         updatedBy: data.updatedBy,
-        updatedAt: new Date(),
+        updatedAt: new Date()
       },
       include: {
         customer: {

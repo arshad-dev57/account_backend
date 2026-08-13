@@ -1,7 +1,7 @@
 /**
  * Rate Limiter Middleware
  * Prevents brute force attacks and abuse on sensitive endpoints
- * Uses in-memory store (for production with multiple servers, use Redis)
+ * Uses in-memory store (Map). Fine for single-instance deployments.
  */
 
 class RateLimiter {
@@ -28,7 +28,7 @@ class RateLimiter {
         return res.status(429).json({
           success: false,
           message: this.message,
-          retryAfter: Math.ceil((userRequests[0] + this.windowMs - now) / 1000),
+          retryAfter: Math.ceil((userRequests[0] + this.windowMs - now) / 1000)
         });
       }
 
@@ -85,5 +85,5 @@ module.exports = {
   globalLimiter,
   authLimiter,
   otpLimiter,
-  RateLimiter,
+  RateLimiter
 };

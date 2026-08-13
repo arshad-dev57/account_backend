@@ -17,7 +17,7 @@ const COUNTRY_PACKS = [
     exemptions: [
       { code: 'EXPORT', name: 'Export of goods/services', percentage: 100, requiresCertificate: false },
       { code: 'DIPLOMATIC', name: 'Diplomatic / government', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'SA',
@@ -33,7 +33,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
   {
     countryCode: 'GB',
@@ -51,7 +51,7 @@ const COUNTRY_PACKS = [
     exemptions: [
       { code: 'EXPORT', name: 'Export / overseas supply', percentage: 100, requiresCertificate: false },
       { code: 'CHARITY', name: 'Charity', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'PK',
@@ -70,7 +70,7 @@ const COUNTRY_PACKS = [
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
       { code: 'NTN_EXEMPT', name: 'NTN / SRB exemption', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'IN',
@@ -90,7 +90,7 @@ const COUNTRY_PACKS = [
     exemptions: [
       { code: 'EXPORT', name: 'Export / SEZ', percentage: 100, requiresCertificate: true },
       { code: 'SEZ', name: 'SEZ unit', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'US',
@@ -107,7 +107,7 @@ const COUNTRY_PACKS = [
       { code: 'RESALE', name: 'Resale certificate', percentage: 100, requiresCertificate: true },
       { code: 'NON_PROFIT', name: 'Non-profit / 501(c)', percentage: 100, requiresCertificate: true },
       { code: 'GOVERNMENT', name: 'Government', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'AU',
@@ -123,7 +123,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
   {
     countryCode: 'CA',
@@ -141,7 +141,7 @@ const COUNTRY_PACKS = [
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
       { code: 'RESALE', name: 'Resale', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'NZ',
@@ -157,7 +157,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
   {
     countryCode: 'DE',
@@ -174,7 +174,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Intra-EU / export', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'FR',
@@ -192,7 +192,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export / intra-EU', percentage: 100, requiresCertificate: true },
-    ],
+    ]
   },
   {
     countryCode: 'KE',
@@ -208,7 +208,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
   {
     countryCode: 'NG',
@@ -224,7 +224,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
   {
     countryCode: 'ZA',
@@ -240,7 +240,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
   {
     countryCode: 'SG',
@@ -256,7 +256,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export / international service', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
   {
     countryCode: 'MY',
@@ -272,7 +272,7 @@ const COUNTRY_PACKS = [
     ],
     exemptions: [
       { code: 'EXPORT', name: 'Export', percentage: 100, requiresCertificate: false },
-    ],
+    ]
   },
 ];
 

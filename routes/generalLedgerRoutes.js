@@ -2,7 +2,7 @@ const express = require('express');
 const {
   getAccountSummaries,
   getLedgerEntries,
-  getAllLedgerEntries,
+  getAllLedgerEntries
 } = require('../controllers/generalLedgerController');
 const { protect } = require('../middleware/authMiddleware');
 

@@ -147,7 +147,7 @@ const createDraftReturn = async (req, res) => {
       returnReason,
       notes,
       items,
-      returnDate,
+      returnDate
     } = req.body;
 
     const postingDate = returnDate ? new Date(returnDate) : new Date();
@@ -237,7 +237,7 @@ const createDraftReturn = async (req, res) => {
       userId,
       createdBy: userId,
       companyId: companyId,
-      fiscalYearId,
+      fiscalYearId
     };
 
     console.log('🔵 [createDraftReturn] Creating return...');

@@ -35,9 +35,9 @@ function serializeTicket(ticket) {
           id: ticket.user.id,
           firstName: ticket.user.firstName,
           lastName: ticket.user.lastName,
-          email: ticket.user.email,
+          email: ticket.user.email
         }
-      : undefined,
+      : undefined
   };
 }
 
@@ -82,15 +82,15 @@ const listTickets = async (req, res) => {
         skip,
         include: {
           user: {
-            select: { id: true, firstName: true, lastName: true, email: true },
-          },
-        },
+            select: { id: true, firstName: true, lastName: true, email: true }
+          }
+        }
       }),
       prisma.supportTicket.count({ where }),
     ]);
 
     const openCount = await prisma.supportTicket.count({
-      where: { ...where, status: 'Open' },
+      where: { ...where, status: 'Open' }
     });
 
     res.status(200).json({
@@ -100,8 +100,8 @@ const listTickets = async (req, res) => {
         total,
         page: Math.max(parseInt(page, 10) || 1, 1),
         limit: take,
-        openCount,
-      },
+        openCount
+      }
     });
   } catch (error) {
     console.error('listTickets error:', error);
@@ -116,9 +116,9 @@ const getTicket = async (req, res) => {
       where: { id: req.params.id },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
-      },
+          select: { id: true, firstName: true, lastName: true, email: true }
+        }
+      }
     });
 
     if (!ticket) {
@@ -153,13 +153,13 @@ const createTicket = async (req, res) => {
       stepsToReproduce,
       steps,
       type,
-      module,
+      module
     } = req.body;
 
     if (!title?.trim() || !description?.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Title and description are required',
+        message: 'Title and description are required'
       });
     }
 
@@ -185,19 +185,19 @@ const createTicket = async (req, res) => {
         attachmentUrl,
         module: module ? String(module).trim() : null,
         userId: req.user.id,
-        companyId: req.user.companyId || null,
+        companyId: req.user.companyId || null
       },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
-      },
+          select: { id: true, firstName: true, lastName: true, email: true }
+        }
+      }
     });
 
     res.status(201).json({
       success: true,
       data: serializeTicket(ticket),
-      message: 'Support ticket created successfully',
+      message: 'Support ticket created successfully'
     });
   } catch (error) {
     console.error('createTicket error:', error);
@@ -209,7 +209,7 @@ const createTicket = async (req, res) => {
 const updateTicket = async (req, res) => {
   try {
     const existing = await prisma.supportTicket.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id }
     });
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Ticket not found' });
@@ -228,7 +228,7 @@ const updateTicket = async (req, res) => {
       status,
       stepsToReproduce,
       adminResponse,
-      module,
+      module
     } = req.body;
 
     const data = {};
@@ -238,7 +238,7 @@ const updateTicket = async (req, res) => {
       if (!['Open'].includes(existing.status)) {
         return res.status(400).json({
           success: false,
-          message: 'Only open tickets can be edited',
+          message: 'Only open tickets can be edited'
         });
       }
       if (title !== undefined) data.title = String(title).trim();
@@ -284,15 +284,15 @@ const updateTicket = async (req, res) => {
       data,
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
-      },
+          select: { id: true, firstName: true, lastName: true, email: true }
+        }
+      }
     });
 
     res.status(200).json({
       success: true,
       data: serializeTicket(ticket),
-      message: 'Ticket updated successfully',
+      message: 'Ticket updated successfully'
     });
   } catch (error) {
     console.error('updateTicket error:', error);
@@ -304,7 +304,7 @@ const updateTicket = async (req, res) => {
 const deleteTicket = async (req, res) => {
   try {
     const existing = await prisma.supportTicket.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id }
     });
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Ticket not found' });
@@ -317,7 +317,7 @@ const deleteTicket = async (req, res) => {
     if (!staff && existing.status !== 'Open') {
       return res.status(400).json({
         success: false,
-        message: 'Only open tickets can be deleted',
+        message: 'Only open tickets can be deleted'
       });
     }
 
@@ -335,5 +335,5 @@ module.exports = {
   getTicket,
   createTicket,
   updateTicket,
-  deleteTicket,
+  deleteTicket
 };

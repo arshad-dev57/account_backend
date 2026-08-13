@@ -87,7 +87,7 @@ exports.getProfitLossStatement = async (req, res) => {
         fiscalYearId,
         start,
         end,
-        period: period || (startDate && endDate ? 'Custom' : 'This Year'),
+        period: period || (startDate && endDate ? 'Custom' : 'This Year')
       });
       start = clamped.start;
       end = clamped.end;
@@ -104,7 +104,7 @@ exports.getProfitLossStatement = async (req, res) => {
         
         companyId: companyId,
         date: { gte: start, lte: end },
-        status: 'Posted',
+        status: 'Posted'
       }
     });
 
@@ -114,7 +114,7 @@ exports.getProfitLossStatement = async (req, res) => {
         
         companyId: companyId,
         date: { gte: start, lte: end },
-        status: 'Posted',
+        status: 'Posted'
       }
     });
 
@@ -755,8 +755,8 @@ exports.getJournalEntries = async (req, res) => {
         totalCredit,
         difference: Math.abs(totalDebit - totalCredit),
         postedCount,
-        draftCount,
-      },
+        draftCount
+      }
     });
   } catch (error) {
     console.error('❌ Error getting journal entries:', error);

@@ -31,12 +31,12 @@ app.get('/api/health/prisma', (req, res) => {
       database: runtime,
       tip: runtime.isPooler
         ? 'Using a pooler URL. Interactive transactions (bank/bills/products) may fail on Vercel — set DIRECT_URL to Neon Direct/Unpooled, or set PRISMA_USE_DIRECT=1.'
-        : undefined,
+        : undefined
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 });

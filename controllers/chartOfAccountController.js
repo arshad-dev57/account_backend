@@ -1,7 +1,6 @@
 // controllers/chartOfAccountController.js - COMPLETE FIXED VERSION (No Helpers)
 
 const prisma = require('../prisma/client');
-const { get, set, del, delPattern } = require('../utils/redisClient');
 const BalanceCalculator = require('../utils/balanceCalculator');
 
 // ─── CONSTANTS ─────────────────────────────────────────────────────
@@ -403,21 +402,7 @@ const createAccount = async (req, res) => {
       }
     });
 
-    // Invalidate cache after successful account creation
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:account:${userId}:*`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:search:${userId}:*`);
-      await delPattern(`coa:by-type:${userId}:*`);
-      await delPattern(`coa:stats:${userId}`);
-      await delPattern(`coa:ob-status:${userId}`);
-      await delPattern(`coa:ob-summary:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after account creation');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Create account error:', error);
     res.status(500).json({
       success: false,
@@ -435,19 +420,6 @@ const getOpeningBalanceStatus = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `coa:ob-status:${userId}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const entry = await getOpeningBalanceEntry(userId);
     const equityAccount = await getOrCreateOpeningBalanceEquity(userId);
 
@@ -509,13 +481,9 @@ const getOpeningBalanceStatus = async (req, res) => {
       status.description = entry.description;
     }
 
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, status, 120);
-
     res.status(200).json({
       success: true,
-      data: status,
-      cached: false,
+      data: status
     });
   } catch (error) {
     console.error('❌ Get opening balance status error:', error);
@@ -535,19 +503,6 @@ const getOpeningBalanceSummary = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `coa:ob-summary:${userId}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const entry = await getOpeningBalanceEntry(userId);
     
     if (!entry) {
@@ -556,13 +511,9 @@ const getOpeningBalanceSummary = async (req, res) => {
         message: 'No opening balance entry found'
       };
 
-      // Cache the result (2 minutes TTL)
-      await set(cacheKey, noDataResponse, 120);
-
       return res.status(200).json({
         success: true,
-        data: noDataResponse,
-        cached: false,
+        data: noDataResponse
       });
     }
 
@@ -618,13 +569,9 @@ const getOpeningBalanceSummary = async (req, res) => {
       }))
     };
 
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, summaryData, 120);
-
     res.status(200).json({
       success: true,
-      data: summaryData,
-      cached: false,
+      data: summaryData
     });
   } catch (error) {
     console.error('❌ Get opening balance summary error:', error);
@@ -761,19 +708,6 @@ const getAccounts = async (req, res) => {
     const safeSortBy = ALLOWED_ACCOUNT_SORT.includes(sortBy) ? sortBy : 'code';
     const safeSortOrder = sortOrder === 'desc' ? 'desc' : 'asc';
 
-    // Build cache key with parameters (v4: company-wide stats + clamped pagination)
-    const cacheKey = `coa:accounts:${userId}:v4:${backendType || 'All'}:${searchTerm}:${pageNum}:${limitNum}:${safeSortBy}:${safeSortOrder}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
-    }
-
     const orderBy = {};
     orderBy[safeSortBy] = safeSortOrder;
 
@@ -807,17 +741,17 @@ const getAccounts = async (req, res) => {
           accountId: { in: accountIds },
           journal: {
             companyId,
-            status: 'Posted',
-          },
+            status: 'Posted'
+          }
         },
-        _sum: { debit: true, credit: true },
+        _sum: { debit: true, credit: true }
       });
       debitCreditByAccount = Object.fromEntries(
         lineAggs.map((row) => [
           row.accountId,
           {
             debit: Number(row._sum.debit || 0),
-            credit: Number(row._sum.credit || 0),
+            credit: Number(row._sum.credit || 0)
           },
         ])
       );
@@ -829,7 +763,7 @@ const getAccounts = async (req, res) => {
       const jeBalance = BalanceCalculator.calculateAccountBalance({
         debit: sums.debit,
         credit: sums.credit,
-        accountType,
+        accountType
       });
       // If no JE activity yet, keep stored currentBalance (opening / manual)
       const hasJe = sums.debit !== 0 || sums.credit !== 0;
@@ -838,7 +772,7 @@ const getAccounts = async (req, res) => {
         ...account,
         currentBalance: balance,
         debitTotal: sums.debit,
-        creditTotal: sums.credit,
+        creditTotal: sums.credit
       };
     });
 
@@ -850,7 +784,7 @@ const getAccounts = async (req, res) => {
         }
         return prisma.chartOfAccount.update({
           where: { id: acc.id },
-          data: { currentBalance: acc.currentBalance },
+          data: { currentBalance: acc.currentBalance }
         });
       })
     );
@@ -903,13 +837,9 @@ const getAccounts = async (req, res) => {
       }
     };
 
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
-
     res.status(200).json({
       success: true,
-      ...responseData,
-      cached: false,
+      ...responseData
     });
   } catch (error) {
     console.error('❌ Get accounts error:', error);
@@ -930,19 +860,6 @@ const getAccount = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `coa:account:${userId}:${id}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
@@ -961,13 +878,9 @@ const getAccount = async (req, res) => {
       });
     }
 
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, account, 600);
-
     res.status(200).json({
       success: true,
-      data: account,
-      cached: false,
+      data: account
     });
   } catch (error) {
     console.error('❌ Get account error:', error);
@@ -1099,19 +1012,7 @@ const updateAccount = async (req, res) => {
       data: updated
     });
 
-    // Invalidate cache after successful account update
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:account:${userId}:${id}`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:search:${userId}:*`);
-      await delPattern(`coa:by-type:${userId}:*`);
-      await delPattern(`coa:stats:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after account update');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Update account error:', error);
     res.status(500).json({
       success: false,
@@ -1171,19 +1072,7 @@ const deleteAccount = async (req, res) => {
       message: `Account "${account.name}" deleted successfully`
     });
 
-    // Invalidate cache after successful account deletion
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:account:${userId}:${id}`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:search:${userId}:*`);
-      await delPattern(`coa:by-type:${userId}:*`);
-      await delPattern(`coa:stats:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after account deletion');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Delete account error:', error);
     res.status(500).json({
       success: false,
@@ -1236,19 +1125,7 @@ const archiveAccount = async (req, res) => {
       data: updated
     });
 
-    // Invalidate cache after successful account archive/activate
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:account:${userId}:${id}`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:search:${userId}:*`);
-      await delPattern(`coa:by-type:${userId}:*`);
-      await delPattern(`coa:stats:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after account archive');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Archive account error:', error);
     res.status(500).json({
       success: false,
@@ -1266,19 +1143,6 @@ const getAccountSummary = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `coa:summary:${userId}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
         companyId: companyId,
@@ -1308,13 +1172,9 @@ const getAccountSummary = async (req, res) => {
       summary
     };
 
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, summaryData, 120);
-
     res.status(200).json({
       success: true,
-      data: summaryData,
-      cached: false,
+      data: summaryData
     });
   } catch (error) {
     console.error('❌ Get account summary error:', error);
@@ -1342,19 +1202,6 @@ const searchAccounts = async (req, res) => {
       });
     }
 
-    // Build cache key with parameters
-    const cacheKey = `coa:search:${userId}:${q}:${limit}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
-    }
-
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
         companyId: companyId,
@@ -1373,13 +1220,9 @@ const searchAccounts = async (req, res) => {
       data: accounts
     };
 
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
-
     res.status(200).json({
       success: true,
-      ...responseData,
-      cached: false,
+      ...responseData
     });
   } catch (error) {
     console.error('❌ Search accounts error:', error);
@@ -1452,17 +1295,7 @@ const updateAccountBalance = async (req, res) => {
       }
     });
 
-    // Invalidate cache after successful balance update
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:account:${userId}:${id}`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:stats:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after balance update');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Update balance error:', error);
     res.status(500).json({
       success: false,
@@ -1492,19 +1325,6 @@ const getAccountsByType = async (req, res) => {
       });
     }
 
-    // Build cache key
-    const cacheKey = `coa:by-type:${userId}:${type}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
-    }
-
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
         type,
@@ -1519,13 +1339,9 @@ const getAccountsByType = async (req, res) => {
       data: accounts
     };
 
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
-
     res.status(200).json({
       success: true,
-      ...responseData,
-      cached: false,
+      ...responseData
     });
   } catch (error) {
     console.error('❌ Get accounts by type error:', error);
@@ -1593,19 +1409,7 @@ const fixAccountType = async (req, res) => {
       warning: '⚠️ This is a force update. Please verify the balance is now correct.'
     });
 
-    // Invalidate cache after successful account type fix
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:account:${userId}:${id}`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:search:${userId}:*`);
-      await delPattern(`coa:by-type:${userId}:*`);
-      await delPattern(`coa:stats:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after account type fix');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Fix account type error:', error);
     res.status(500).json({
       success: false,
@@ -1675,18 +1479,7 @@ const fixCashAccounts = async (req, res) => {
       data: results
     });
 
-    // Invalidate cache after successful cash accounts fix
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:search:${userId}:*`);
-      await delPattern(`coa:by-type:${userId}:*`);
-      await delPattern(`coa:stats:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after cash accounts fix');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Fix cash accounts error:', error);
     res.status(500).json({
       success: false,
@@ -1704,19 +1497,6 @@ const getAccountTypeStats = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `coa:stats:${userId}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const stats = {};
     for (const type of VALID_ACCOUNT_TYPES) {
       const count = await prisma.chartOfAccount.count({
@@ -1768,13 +1548,9 @@ const getAccountTypeStats = async (req, res) => {
       }
     };
 
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, statsData, 120);
-
     res.status(200).json({
       success: true,
-      data: statsData,
-      cached: false,
+      data: statsData
     });
   } catch (error) {
     console.error('❌ Get account type stats error:', error);
@@ -1862,19 +1638,7 @@ const bulkImportAccounts = async (req, res) => {
       data: results
     });
 
-    // Invalidate cache after successful bulk import
-    try {
-      await delPattern(`coa:accounts:${userId}:*`);
-      await delPattern(`coa:account:${userId}:*`);
-      await delPattern(`coa:summary:${userId}`);
-      await delPattern(`coa:search:${userId}:*`);
-      await delPattern(`coa:by-type:${userId}:*`);
-      await delPattern(`coa:stats:${userId}`);
-      console.log('🗑️ [COA] Cache invalidated after bulk import');
-    } catch (cacheError) {
-      console.log('⚠️ [COA] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Bulk import error:', error);
     res.status(500).json({
       success: false,

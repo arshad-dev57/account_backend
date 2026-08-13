@@ -30,7 +30,7 @@ const DEFAULTS = {
   copyLabel: 'ORIGINAL CUSTOMER COPY',
   servedByPrefix: 'You were served by',
   poweredBy: 'Powered by BisonTechs POS',
-  thermalPaperWidthMm: 80,
+  thermalPaperWidthMm: 80
 };
 
 function canEdit(user) {
@@ -63,7 +63,7 @@ function mergeTemplate(metadata) {
     showSku: src.showSku !== false,
     showLoyalty: src.showLoyalty !== false,
     showCashier: src.showCashier !== false,
-    showTerminal: src.showTerminal !== false,
+    showTerminal: src.showTerminal !== false
   };
 }
 
@@ -76,7 +76,7 @@ exports.getReceiptSettings = async (req, res) => {
     const row = await findSetting(req.user);
     res.json({
       success: true,
-      data: mergeTemplate(row?.metadata),
+      data: mergeTemplate(row?.metadata)
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -88,7 +88,7 @@ exports.updateReceiptSettings = async (req, res) => {
     if (!canEdit(req.user)) {
       return res.status(403).json({
         success: false,
-        message: 'Only admins can edit the POS receipt template',
+        message: 'Only admins can edit the POS receipt template'
       });
     }
 
@@ -102,8 +102,8 @@ exports.updateReceiptSettings = async (req, res) => {
         data: {
           metadata: next,
           updatedBy: req.user.id,
-          isActive: true,
-        },
+          isActive: true
+        }
       });
     } else {
       row = await prisma.setting.create({
@@ -116,15 +116,15 @@ exports.updateReceiptSettings = async (req, res) => {
           isActive: true,
           createdBy: req.user.id,
           updatedBy: req.user.id,
-          companyId: req.user.companyId || null,
-        },
+          companyId: req.user.companyId || null
+        }
       });
     }
 
     res.json({
       success: true,
       message: 'Receipt template saved',
-      data: mergeTemplate(row.metadata),
+      data: mergeTemplate(row.metadata)
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

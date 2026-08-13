@@ -2,7 +2,7 @@ const express = require('express');
 const {
   transferMoney,
   getTransferHistory,
-  getTransferDetails,
+  getTransferDetails
 } = require('../controllers/transferController');
 const { protect } = require('../middleware/authMiddleware');
 

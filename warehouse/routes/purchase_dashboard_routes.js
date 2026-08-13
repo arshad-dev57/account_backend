@@ -8,7 +8,7 @@ const {
   getSpendTrend,
   getOrderStatusDistribution,
   getTopSuppliers,
-  getRecentActivities,
+  getRecentActivities
 } = require('../controller/purchase_dashboard_controller');
 
 // All routes protected

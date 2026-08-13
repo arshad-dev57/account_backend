@@ -5,8 +5,6 @@ const CreditNoteModel = require('../models/CreditNote');
 const Order = require('../warehouse/models/Order');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
-const { get, set, del, delPattern } = require('../utils/redisClient');
-
 // ============================================================
 // ACCOUNTING CONSTANTS
 // ============================================================
@@ -214,7 +212,7 @@ async function validateCustomer(customerId, userId, companyId) {
       OR: [
         { companyId: companyId },
         { createdBy: userId },
-      ],
+      ]
     }
   });
 
@@ -231,7 +229,7 @@ async function validateWarehouseInvoice(invoiceId, userId, companyId) {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId },
-      ],
+      ]
     },
     select: {
       id: true,
@@ -246,7 +244,7 @@ async function validateWarehouseInvoice(invoiceId, userId, companyId) {
       invoiceDate: true,
       dueDate: true,
       taxTotal: true,
-      orderId: true,
+      orderId: true
     }
   });
 
@@ -271,7 +269,7 @@ async function validateSalesInvoice(invoiceId, userId, companyId) {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId },
-      ],
+      ]
     },
     include: {
       items: {
@@ -285,10 +283,10 @@ async function validateSalesInvoice(invoiceId, userId, companyId) {
           taxRate: true,
           taxAmount: true,
           discount: true,
-          lineTotal: true,
-        },
-      },
-    },
+          lineTotal: true
+        }
+      }
+    }
   });
 
   if (!invoice) return null;
@@ -310,7 +308,7 @@ async function resolveInvoiceForCredit(invoiceId, userId, companyId) {
       source: 'warehouse',
       invoice: warehouse,
       warehouseInvoiceId: warehouse.id,
-      salesInvoiceId: null,
+      salesInvoiceId: null
     };
   }
 
@@ -320,7 +318,7 @@ async function resolveInvoiceForCredit(invoiceId, userId, companyId) {
       source: 'sales',
       invoice: sales,
       warehouseInvoiceId: null,
-      salesInvoiceId: sales.id,
+      salesInvoiceId: sales.id
     };
   }
 
@@ -334,7 +332,7 @@ async function sumCreditsOnInvoice(invoiceId, source) {
 
   const agg = await prisma.creditNote.aggregate({
     where,
-    _sum: { amount: true },
+    _sum: { amount: true }
   });
   return agg._sum.amount || 0;
 }
@@ -346,7 +344,7 @@ async function updateInvoiceAfterCredit(tx, { source, invoiceId, grandTotal, pai
       ? applyReduceOutstanding
       : statusUpdate.outstanding,
     invoiceStatus: statusUpdate.invoiceStatus,
-    paymentStatus: statusUpdate.paymentStatus,
+    paymentStatus: statusUpdate.paymentStatus
   };
 
   if (source === 'sales') {
@@ -358,7 +356,7 @@ async function updateInvoiceAfterCredit(tx, { source, invoiceId, grandTotal, pai
 
 async function getOrCreateCustomerCreditAccount(userId, companyId) {
   let account = await prisma.chartOfAccount.findFirst({
-    where: { code: '2130', companyId: companyId },
+    where: { code: '2130', companyId: companyId }
   });
 
   if (!account) {
@@ -375,8 +373,8 @@ async function getOrCreateCustomerCreditAccount(userId, companyId) {
         balanceType: 'Credit',
         isActive: true,
         createdBy: userId,
-        companyId: companyId,
-      },
+        companyId: companyId
+      }
     });
   }
   return account;
@@ -394,7 +392,7 @@ async function generateCreditNoteNumber(tx, userId, companyId) {
   const latest = await tx.creditNote.findFirst({
     where: scopeWhere,
     orderBy: { creditNumber: 'desc' },
-    select: { creditNumber: true },
+    select: { creditNumber: true }
   });
 
   let next = 1;
@@ -410,7 +408,7 @@ async function generateCreditNoteNumber(tx, userId, companyId) {
       : { createdBy: userId, creditNumber: candidate };
     const exists = await tx.creditNote.findFirst({
       where: existsWhere,
-      select: { id: true },
+      select: { id: true }
     });
     if (!exists) return candidate;
   }
@@ -489,7 +487,7 @@ exports.createCreditNote = async (req, res) => {
       items,          // line items for Return/Damaged Goods
       notes,
       expiryDays,
-      taxRate = 0,
+      taxRate = 0
     } = req.body;
 
     const userId = req.user.id;
@@ -527,14 +525,14 @@ exports.createCreditNote = async (req, res) => {
     if (eligibleCredit <= 0) {
       return res.status(400).json({
         success: false,
-        message: `Invoice ${invoice.invoiceNumber} has already been fully credited. Total invoice: ${invoice.grandTotal}, already credited: ${previousCredits}.`,
+        message: `Invoice ${invoice.invoiceNumber} has already been fully credited. Total invoice: ${invoice.grandTotal}, already credited: ${previousCredits}.`
       });
     }
 
     if (amount > eligibleCredit) {
       return res.status(400).json({
         success: false,
-        message: `Credit note amount (${amount}) exceeds eligible credit amount (${eligibleCredit}). Invoice total: ${invoice.grandTotal}, already credited: ${previousCredits}.`,
+        message: `Credit note amount (${amount}) exceeds eligible credit amount (${eligibleCredit}). Invoice total: ${invoice.grandTotal}, already credited: ${previousCredits}.`
       });
     }
 
@@ -575,23 +573,23 @@ exports.createCreditNote = async (req, res) => {
           notes: notes || '',
           createdBy: userId,
           companyId: companyId || null,
-          fiscalYearId: fiscalYearId || null,
+          fiscalYearId: fiscalYearId || null
         },
         include: {
           customer: { select: { id: true, name: true, email: true, phone: true } },
           originalInvoice: {
             select: {
               id: true, invoiceNumber: true, grandTotal: true,
-              paidAmount: true, outstanding: true, invoiceStatus: true, paymentStatus: true,
-            },
+              paidAmount: true, outstanding: true, invoiceStatus: true, paymentStatus: true
+            }
           },
           salesInvoice: {
             select: {
               id: true, invoiceNumber: true, grandTotal: true,
-              paidAmount: true, outstanding: true, invoiceStatus: true, paymentStatus: true,
-            },
-          },
-        },
+              paidAmount: true, outstanding: true, invoiceStatus: true, paymentStatus: true
+            }
+          }
+        }
       });
 
       // 2. Journal Entry: Dr Contra-Revenue / Dr Tax  Cr AR
@@ -616,7 +614,7 @@ exports.createCreditNote = async (req, res) => {
                 accountCode: contraRevenueAccount.code,
                 debit: netAmount,
                 credit: 0,
-                isReconciled: false,
+                isReconciled: false
               },
               // Dr Tax reversal (if applicable)
               ...(taxAmount > 0 ? [{
@@ -625,7 +623,7 @@ exports.createCreditNote = async (req, res) => {
                 accountCode: taxAccount.code,
                 debit: taxAmount,
                 credit: 0,
-                isReconciled: false,
+                isReconciled: false
               }] : []),
               // Cr Accounts Receivable (full credit amount)
               {
@@ -634,11 +632,11 @@ exports.createCreditNote = async (req, res) => {
                 accountCode: arAccount.code,
                 debit: 0,
                 credit: amount,
-                isReconciled: false,
+                isReconciled: false
               },
-            ],
-          },
-        },
+            ]
+          }
+        }
       });
 
       // 3. Inventory stock return for Return/Damaged Goods
@@ -649,7 +647,7 @@ exports.createCreditNote = async (req, res) => {
 
           const product = await tx.product.findUnique({
             where: { id: item.productId },
-            select: { id: true, name: true, currentStock: true },
+            select: { id: true, name: true, currentStock: true }
           });
           if (!product) continue;
 
@@ -658,7 +656,7 @@ exports.createCreditNote = async (req, res) => {
 
           await tx.product.update({
             where: { id: item.productId },
-            data: { currentStock: newStock },
+            data: { currentStock: newStock }
           });
 
           await tx.stockMovement.create({
@@ -676,8 +674,8 @@ exports.createCreditNote = async (req, res) => {
               status:       'Completed',
               notes:        notes || '',
               createdBy:    userId,
-              companyId:    companyId || null,
-            },
+              companyId:    companyId || null
+            }
           });
         }
       }
@@ -685,7 +683,7 @@ exports.createCreditNote = async (req, res) => {
       // 4. Reduce customer AR balance
       await tx.customer.update({
         where: { id: customer.id },
-        data: { outstandingBalance: { decrement: amount } },
+        data: { outstandingBalance: { decrement: amount } }
       });
 
       // 5. Recompute invoice balances — CN is NOT a cash payment
@@ -695,7 +693,7 @@ exports.createCreditNote = async (req, res) => {
         invoiceId: source === 'sales' ? resolved.salesInvoiceId : resolved.warehouseInvoiceId,
         grandTotal: invoice.grandTotal || 0,
         paidAmount: invoice.paidAmount || 0,
-        totalCredited: totalCreditedNow,
+        totalCredited: totalCreditedNow
       });
 
       // 6. Sync linked sales order payment badge (credits count as settled)
@@ -714,34 +712,17 @@ exports.createCreditNote = async (req, res) => {
     res.status(201).json({
       success: true,
       data: creditNote,
-      message: 'Credit note created successfully',
+      message: 'Credit note created successfully'
     });
 
-    // Invalidate cache
     try {
-      await delPattern(`cn:list:${userId}:*`);
-      await delPattern(`cn:detail:${userId}:*`);
-      await delPattern(`cn:summary:${userId}:*`);
-      await delPattern(`cn:unpaid-invoices:${userId}:*`);
-      await delPattern(`cn:invoices:${userId}:*`);
-      await delPattern(`cn:by-number:${userId}:*`);
-      await delPattern(`ar:customers:${userId}:*`);
-      await delPattern(`ar:v2:customers:${userId}:*`);
-      await delPattern(`ar:v3:customers:${userId}:*`);
-      await delPattern(`ar:summary:${userId}:*`);
-      await delPattern(`ar:v2:summary:${userId}:*`);
-      await delPattern(`ar:v3:summary:${userId}:*`);
-      await delPattern(`ar:v2:aged:${userId}:*`);
-      await delPattern(`ar:v3:aged:${userId}:*`);
-      console.log('🗑️ [CN] Cache invalidated after credit note creation');
     } catch (e) {
-      console.log('⚠️ [CN] Cache invalidation error:', e.message);
     }
   } catch (error) {
     console.error('❌ [CN] Create credit note error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Error creating credit note',
+      message: error.message || 'Error creating credit note'
     });
   }
 };
@@ -757,24 +738,11 @@ exports.getCreditNotes = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `cn:list:${userId}:${customerId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${search || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
-    }
-
     const filter = {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId },
-      ],
+      ]
     };
 
     if (customerId) filter.customerId = customerId;
@@ -836,22 +804,18 @@ exports.getCreditNotes = async (req, res) => {
 
     const responseData = {
       count: creditNotes.length,
-      data: creditNotes,
+      data: creditNotes
     };
-
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
 
     res.status(200).json({
       success: true,
-      ...responseData,
-      cached: false,
+      ...responseData
     });
   } catch (error) {
     console.error('❌ [CN] Get credit notes error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -867,26 +831,13 @@ exports.getCreditNote = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `cn:detail:${userId}:${id}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id,
         OR: [
           { companyId: companyId },
           { companyId: null, createdBy: userId },
-        ],
+        ]
       },
       include: {
         customer: {
@@ -905,7 +856,7 @@ exports.getCreditNote = async (req, res) => {
             paidAmount: true,
             outstanding: true,
             invoiceStatus: true,
-            paymentStatus: true,
+            paymentStatus: true
           }
         }
       }
@@ -914,23 +865,19 @@ exports.getCreditNote = async (req, res) => {
     if (!creditNote) {
       return res.status(404).json({
         success: false,
-        message: 'Credit note not found',
+        message: 'Credit note not found'
       });
     }
 
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, creditNote, 600);
-
     res.status(200).json({
       success: true,
-      data: creditNote,
-      cached: false,
+      data: creditNote
     });
   } catch (error) {
     console.error('❌ [CN] Get credit note error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -946,24 +893,11 @@ exports.getSummary = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `cn:summary:${userId}:${startDate || ''}:${endDate || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const filter = {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId },
-      ],
+      ]
     };
 
     if (startDate && endDate) {
@@ -1019,22 +953,18 @@ exports.getSummary = async (req, res) => {
       thisMonth: thisMonth._sum.amount || 0,
       thisMonthCount: thisMonth._count || 0,
       thisWeek: thisWeek._sum.amount || 0,
-      thisWeekCount: thisWeek._count || 0,
+      thisWeekCount: thisWeek._count || 0
     };
-
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, summaryData, 120);
 
     res.status(200).json({
       success: true,
-      data: summaryData,
-      cached: false,
+      data: summaryData
     });
   } catch (error) {
     console.error('❌ [CN] Get summary error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1058,12 +988,7 @@ exports.getUnpaidInvoices = async (req, res) => {
     const source = (req.query.source || 'all').toLowerCase();
 
     // Skip cache for create/sales so filters stay fresh after status changes
-    const cacheKey = `cn:invoices:${userId}:${customerId}:${purpose}:${source}`;
     if (purpose !== 'create' || source !== 'sales') {
-      const cached = await get(cacheKey);
-      if (cached) {
-        return res.status(200).json({ success: true, ...cached, cached: true });
-      }
     }
 
     const customer = await prisma.customer.findFirst({
@@ -1072,8 +997,8 @@ exports.getUnpaidInvoices = async (req, res) => {
         OR: [
           { companyId: companyId },
           { createdBy: userId },
-        ],
-      },
+        ]
+      }
     });
 
     if (!customer) {
@@ -1104,7 +1029,7 @@ exports.getUnpaidInvoices = async (req, res) => {
         taxRate: item.taxRate,
         taxAmount: item.taxAmount,
         discount: item.discount,
-        totalPrice: item.totalPrice != null ? item.totalPrice : (item.lineTotal || 0),
+        totalPrice: item.totalPrice != null ? item.totalPrice : (item.lineTotal || 0)
       }));
 
       return {
@@ -1124,7 +1049,7 @@ exports.getUnpaidInvoices = async (req, res) => {
         items,
         taxTotal:         invoice.taxTotal || 0,
         subtotal:         invoice.subtotal || 0,
-        invoiceSource,
+        invoiceSource
       };
     };
 
@@ -1142,7 +1067,7 @@ exports.getUnpaidInvoices = async (req, res) => {
           OR: [
             { companyId: companyId },
             { companyId: null },
-          ],
+          ]
         },
         orderBy: { invoiceDate: 'desc' },
         include: {
@@ -1157,24 +1082,24 @@ exports.getUnpaidInvoices = async (req, res) => {
               taxRate: true,
               taxAmount: true,
               discount: true,
-              lineTotal: true,
-            },
+              lineTotal: true
+            }
           },
           creditNotes: {
             where: { status: { notIn: ['Cancelled', 'Voided'] } },
-            select: { id: true, creditNumber: true, amount: true, status: true, date: true },
+            select: { id: true, creditNumber: true, amount: true, status: true, date: true }
           },
           invoicePayments: {
             where: {
               payment: {
                 isActive: true,
                 isDeleted: false,
-                status: 'Completed',
-              },
+                status: 'Completed'
+              }
             },
-            select: { amountPaid: true },
-          },
-        },
+            select: { amountPaid: true }
+          }
+        }
       });
 
       mappedInvoices.push(
@@ -1199,7 +1124,7 @@ exports.getUnpaidInvoices = async (req, res) => {
           OR: [
             { companyId: companyId },
             { companyId: null, createdBy: userId },
-          ],
+          ]
         },
         orderBy: { invoiceDate: 'desc' },
         include: {
@@ -1214,14 +1139,14 @@ exports.getUnpaidInvoices = async (req, res) => {
               taxRate: true,
               taxAmount: true,
               discount: true,
-              totalPrice: true,
-            },
+              totalPrice: true
+            }
           },
           creditNotes: {
             where: { status: { notIn: ['Cancelled', 'Voided'] } },
-            select: { id: true, creditNumber: true, amount: true, status: true, date: true },
-          },
-        },
+            select: { id: true, creditNumber: true, amount: true, status: true, date: true }
+          }
+        }
       });
 
       // Avoid duplicates when same invoice number exists in sales
@@ -1251,15 +1176,13 @@ exports.getUnpaidInvoices = async (req, res) => {
 
     const responseData = { count: filteredInvoices.length, data: filteredInvoices };
 
-    await set(cacheKey, responseData, 60);
-
-    res.status(200).json({ success: true, ...responseData, cached: false });
+    res.status(200).json({ success: true, ...responseData });
 
   } catch (error) {
     console.error('❌ [CN] Get unpaid invoices error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1284,7 +1207,7 @@ exports.applyCreditNote = async (req, res) => {
     if (!creditNoteId || appList.some(a => !a.invoiceId || !a.amount || a.amount <= 0)) {
       return res.status(400).json({
         success: false,
-        message: 'Valid credit note ID and application amounts are required',
+        message: 'Valid credit note ID and application amounts are required'
       });
     }
 
@@ -1310,8 +1233,8 @@ exports.applyCreditNote = async (req, res) => {
         OR: [
           { companyId: companyId },
           { companyId: null, createdBy: userId },
-        ],
-      },
+        ]
+      }
     });
 
     if (!creditNote) {
@@ -1321,21 +1244,21 @@ exports.applyCreditNote = async (req, res) => {
     if (['Applied', 'Expired', 'Voided', 'Cancelled'].includes(creditNote.status)) {
       return res.status(400).json({
         success: false,
-        message: `Credit note cannot be applied (status: ${creditNote.status})`,
+        message: `Credit note cannot be applied (status: ${creditNote.status})`
       });
     }
 
     if (new Date() > new Date(creditNote.expiryDate)) {
       return res.status(400).json({
         success: false,
-        message: 'Credit note has expired and cannot be applied',
+        message: 'Credit note has expired and cannot be applied'
       });
     }
 
     if (totalApplyAmount > creditNote.remainingAmount) {
       return res.status(400).json({
         success: false,
-        message: `Total apply amount (${totalApplyAmount}) exceeds remaining credit (${creditNote.remainingAmount})`,
+        message: `Total apply amount (${totalApplyAmount}) exceeds remaining credit (${creditNote.remainingAmount})`
       });
     }
 
@@ -1385,7 +1308,7 @@ exports.applyCreditNote = async (req, res) => {
           grandTotal: invoice.grandTotal,
           paidAmount: (invoice.paidAmount || 0) + applyAmount,
           totalCredited,
-          applyReduceOutstanding: Math.max(0, invoiceOutstanding - applyAmount),
+          applyReduceOutstanding: Math.max(0, invoiceOutstanding - applyAmount)
         });
 
         if (invoice.orderId) {
@@ -1397,7 +1320,7 @@ exports.applyCreditNote = async (req, res) => {
           invoiceNumber: invoice.invoiceNumber,
           invoiceSource: source,
           amount: applyAmount,
-          appliedAt: new Date().toISOString(),
+          appliedAt: new Date().toISOString()
         });
       }
 
@@ -1411,8 +1334,8 @@ exports.applyCreditNote = async (req, res) => {
           appliedAmount: newAppliedAmount,
           remainingAmount: newRemainingAmount,
           status: newStatus,
-          appliedToInvoices: [...existingApps, ...newAppliedEntries],
-        },
+          appliedToInvoices: [...existingApps, ...newAppliedEntries]
+        }
       });
 
       // AR netting entry — no duplicate revenue impact
@@ -1437,7 +1360,7 @@ exports.applyCreditNote = async (req, res) => {
                 accountCode: customerCreditAccount.code,
                 debit: totalApplyAmount,
                 credit: 0,
-                isReconciled: false,
+                isReconciled: false
               },
               {
                 accountId: arAccount.id,
@@ -1445,16 +1368,16 @@ exports.applyCreditNote = async (req, res) => {
                 accountCode: arAccount.code,
                 debit: 0,
                 credit: totalApplyAmount,
-                isReconciled: false,
+                isReconciled: false
               },
-            ],
-          },
-        },
+            ]
+          }
+        }
       });
 
       await tx.customer.update({
         where: { id: creditNote.customerId },
-        data: { outstandingBalance: { increment: totalApplyAmount } },
+        data: { outstandingBalance: { increment: totalApplyAmount } }
       });
     });
 
@@ -1463,23 +1386,17 @@ exports.applyCreditNote = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Credit note applied successfully',
+      message: 'Credit note applied successfully'
     });
 
     try {
-      await delPattern(`cn:list:${userId}:*`);
-      await delPattern(`cn:detail:${userId}:${creditNoteId}`);
-      await delPattern(`cn:summary:${userId}:*`);
-      await delPattern(`cn:unpaid-invoices:${userId}:*`);
-      await delPattern(`cn:invoices:${userId}:*`);
     } catch (e) {
-      console.log('⚠️ [CN] Cache invalidation error:', e.message);
     }
   } catch (error) {
     console.error('❌ [CN] Apply credit note error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Error applying credit note',
+      message: error.message || 'Error applying credit note'
     });
   }
 };
@@ -1517,24 +1434,16 @@ exports.expireCreditNotes = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        updated: expiredNotes.length,
+        updated: expiredNotes.length
       },
-      message: `${expiredNotes.length} credit notes expired`,
+      message: `${expiredNotes.length} credit notes expired`
     });
 
-    // Invalidate cache after successful credit note expiration
-    try {
-      await delPattern(`cn:list:${userId}:*`);
-      await delPattern(`cn:summary:${userId}:*`);
-      console.log('🗑️ [CN] Cache invalidated after credit note expiration');
-    } catch (cacheError) {
-      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ [CN] Expire credit notes error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1559,14 +1468,14 @@ exports.deleteCreditNote = async (req, res) => {
     if (!creditNote) {
       return res.status(404).json({
         success: false,
-        message: 'Credit note not found',
+        message: 'Credit note not found'
       });
     }
 
     if (creditNote.appliedAmount > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete credit note that has been applied',
+        message: 'Cannot delete credit note that has been applied'
       });
     }
 
@@ -1576,25 +1485,14 @@ exports.deleteCreditNote = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Credit note deleted successfully',
+      message: 'Credit note deleted successfully'
     });
 
-    // Invalidate cache after successful credit note deletion
-    try {
-      await delPattern(`cn:list:${userId}:*`);
-      await delPattern(`cn:detail:${userId}:${id}`);
-      await delPattern(`cn:summary:${userId}:*`);
-      await delPattern(`cn:unpaid-invoices:${userId}:*`);
-      await delPattern(`cn:by-number:${userId}:*`);
-      console.log('🗑️ [CN] Cache invalidated after credit note deletion');
-    } catch (cacheError) {
-      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ [CN] Delete credit note error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1620,21 +1518,21 @@ exports.voidCreditNote = async (req, res) => {
     if (!creditNote) {
       return res.status(404).json({
         success: false,
-        message: 'Credit note not found',
+        message: 'Credit note not found'
       });
     }
 
     if (creditNote.status === 'Voided') {
       return res.status(400).json({
         success: false,
-        message: 'Credit note is already voided',
+        message: 'Credit note is already voided'
       });
     }
 
     if (creditNote.appliedAmount > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot void credit note that has been applied',
+        message: 'Cannot void credit note that has been applied'
       });
     }
 
@@ -1648,25 +1546,14 @@ exports.voidCreditNote = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Credit note voided successfully',
+      message: 'Credit note voided successfully'
     });
 
-    // Invalidate cache after successful credit note void
-    try {
-      await delPattern(`cn:list:${userId}:*`);
-      await delPattern(`cn:detail:${userId}:${id}`);
-      await delPattern(`cn:summary:${userId}:*`);
-      await delPattern(`cn:unpaid-invoices:${userId}:*`);
-      await delPattern(`cn:by-number:${userId}:*`);
-      console.log('🗑️ [CN] Cache invalidated after credit note void');
-    } catch (cacheError) {
-      console.log('⚠️ [CN] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ [CN] Void credit note error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1682,19 +1569,6 @@ exports.getCreditNoteByNumber = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `cn:by-number:${userId}:${creditNumber}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         creditNumber: creditNumber,
@@ -1722,23 +1596,19 @@ exports.getCreditNoteByNumber = async (req, res) => {
     if (!creditNote) {
       return res.status(404).json({
         success: false,
-        message: 'Credit note not found',
+        message: 'Credit note not found'
       });
     }
 
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, creditNote, 600);
-
     res.status(200).json({
       success: true,
-      data: creditNote,
-      cached: false,
+      data: creditNote
     });
   } catch (error) {
     console.error('❌ [CN] Get credit note by number error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };

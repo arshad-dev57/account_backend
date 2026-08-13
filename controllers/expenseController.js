@@ -3,8 +3,6 @@ const ExpenseModel = require('../models/Expense');
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
-const { get, set, del, delPattern } = require('../utils/redisClient');
-
 const EXPENSE_ACCOUNT_MAPPING = {
   'Rent': { code: '5100', name: 'Rent Expense' },
   'Utilities': { code: '5200', name: 'Utilities Expense' },
@@ -17,7 +15,7 @@ const EXPENSE_ACCOUNT_MAPPING = {
   'Maintenance': { code: '5900', name: 'Maintenance Expense' },
   'Software': { code: '6000', name: 'Software Expense' },
   'Taxes': { code: '6100', name: 'Taxes Expense' },
-  'Other': { code: '6900', name: 'Other Expenses' },
+  'Other': { code: '6900', name: 'Other Expenses' }
 };
 
 const DEFAULT_EXPENSE_ACCOUNT = { code: '6900', name: 'Other Expenses' };
@@ -37,7 +35,7 @@ const createExpenseFromPurchasePayment = async ({
   userId,
   companyId,
   payment,
-  fiscalYearId = null,
+  fiscalYearId = null
 }) => {
   if (!payment || !userId || !companyId) {
     throw new Error('Missing data for purchase expense creation');
@@ -51,8 +49,8 @@ const createExpenseFromPurchasePayment = async ({
     where: {
       companyId,
       reference,
-      status: { not: 'Cancelled' },
-    },
+      status: { not: 'Cancelled' }
+    }
   });
   if (existing) {
     console.log(`ℹ️ Expense already exists for ${reference}: ${existing.expenseNumber}`);
@@ -65,9 +63,9 @@ const createExpenseFromPurchasePayment = async ({
       where: {
         companyId,
         type: 'Expense',
-        isActive: true,
+        isActive: true
       },
-      orderBy: { code: 'asc' },
+      orderBy: { code: 'asc' }
     });
   }
   if (!expenseAccount) {
@@ -111,19 +109,10 @@ const createExpenseFromPurchasePayment = async ({
     postedBy: userId,
     postedAt: new Date(),
     createdBy: userId,
-    companyId,
+    companyId
   });
 
-  try {
-    await delPattern(`expense:list:${userId}:*`);
-    await delPattern(`expense:accounts:${userId}`);
-    await delPattern(`expense:summary:${userId}:*`);
-    await delPattern(`dashboard:summary:v8:${userId}:*`);
-  } catch (cacheError) {
-    console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
-  }
-
-  console.log(
+console.log(
     `✅ Expense ${expense.expenseNumber} created from purchase payment ${paymentNumber}`
   );
   return expense;
@@ -276,28 +265,11 @@ const getExpenseAccounts = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `expense:accounts:${userId}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const accounts = await getExpenseAccountsForDropdown(userId, companyId);
-
-    // Cache the result (10 minutes TTL - accounts change infrequently)
-    await set(cacheKey, accounts, 600);
 
     res.status(200).json({
       success: true,
-      data: accounts,
-      cached: false,
+      data: accounts
     });
   } catch (error) {
     console.error('❌ Get expense accounts error:', error);
@@ -326,7 +298,7 @@ const createExpense = async (req, res) => {
       description,
       reference,
       paymentMethod,
-      bankAccountId,
+      bankAccountId
     } = req.body;
 
     const userId = req.user.id;
@@ -435,7 +407,7 @@ const createExpense = async (req, res) => {
         description: item.description,
         quantity: item.quantity || 1,
         unitPrice: item.unitPrice || 0,
-        amount: (item.quantity || 1) * (item.unitPrice || 0),
+        amount: (item.quantity || 1) * (item.unitPrice || 0)
       }));
       subtotal = finalItems.reduce((sum, item) => sum + (item.amount || 0), 0);
       taxAmount = subtotal * (taxRate || 0) / 100;
@@ -563,20 +535,7 @@ const createExpense = async (req, res) => {
       message: finalBankAccountId ? 'Expense recorded (Bank Transfer)' : 'Expense recorded (Cash)'
     });
 
-    // Invalidate cache after successful expense creation
-    try {
-      await delPattern(`expense:list:${userId}:*`);
-      await delPattern(`expense:accounts:${userId}`);
-      await delPattern(`expense:summary:${userId}:*`);
-      // Bust bank account cache so updated balance is visible immediately
-      if (companyId) {
-        await delPattern(`bank:accounts:${companyId}:*`);
-      }
-      console.log('🗑️ [Expense] Cache invalidated after expense creation');
-    } catch (cacheError) {
-      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error("🔥 ERROR in createExpense:", error);
 
     if (error.code === 'P2002') {
@@ -608,19 +567,6 @@ const getExpenses = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `expense:list:${userId}:${expenseType || 'All'}:${status || 'All'}:${startDate || ''}:${endDate || ''}:${search || ''}:${page}:${limit}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
-    }
-
     // Company scoping: show this company's expenses + old records without companyId (backward compat)
     const companyFilter = {
       OR: [
@@ -677,13 +623,9 @@ const getExpenses = async (req, res) => {
       data: expenses
     };
 
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
-
     res.status(200).json({
       success: true,
-      ...responseData,
-      cached: false,
+      ...responseData
     });
   } catch (error) {
     console.error('❌ Get expenses error:', error);
@@ -700,19 +642,6 @@ const getExpense = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `expense:detail:${userId}:${id}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const expense = await prisma.expense.findFirst({
       where: {
         id,
@@ -771,13 +700,9 @@ const getExpense = async (req, res) => {
       });
     }
 
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, expense, 600);
-
     res.status(200).json({
       success: true,
-      data: expense,
-      cached: false,
+      data: expense
     });
   } catch (error) {
     console.error('❌ Get expense error:', error);
@@ -922,7 +847,7 @@ const updateExpense = async (req, res) => {
         description: item.description,
         quantity: item.quantity || 1,
         unitPrice: item.unitPrice || 0,
-        amount: (item.quantity || 1) * (item.unitPrice || 0),
+        amount: (item.quantity || 1) * (item.unitPrice || 0)
       }));
       subtotal = finalItems.reduce((sum, item) => sum + (item.amount || 0), 0);
       taxAmount = subtotal * (updateData.taxRate || 0) / 100;
@@ -956,17 +881,7 @@ const updateExpense = async (req, res) => {
       message: 'Expense record updated successfully'
     });
 
-    // Invalidate cache after successful expense update
-    try {
-      await delPattern(`expense:list:${userId}:*`);
-      await delPattern(`expense:detail:${userId}:${id}`);
-      await delPattern(`expense:accounts:${userId}`);
-      await delPattern(`expense:summary:${userId}:*`);
-      console.log('🗑️ [Expense] Cache invalidated after expense update');
-    } catch (cacheError) {
-      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Update expense error:', error);
     res.status(500).json({
       success: false,
@@ -1070,17 +985,7 @@ const deleteExpense = async (req, res) => {
       message: 'Expense record deleted successfully'
     });
 
-    // Invalidate cache after successful expense deletion
-    try {
-      await delPattern(`expense:list:${userId}:*`);
-      await delPattern(`expense:detail:${userId}:${id}`);
-      await delPattern(`expense:accounts:${userId}`);
-      await delPattern(`expense:summary:${userId}:*`);
-      console.log('🗑️ [Expense] Cache invalidated after expense deletion');
-    } catch (cacheError) {
-      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Delete expense error:', error);
     res.status(500).json({
       success: false,
@@ -1100,19 +1005,6 @@ const getSummary = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `expense:summary:${userId}:${startDate || ''}:${endDate || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const filter = {
       OR: [
         { companyId: companyId },
@@ -1134,13 +1026,9 @@ const getSummary = async (req, res) => {
 
     const summary = await ExpenseModel.getSummary(allExpenses);
 
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, summary, 120);
-
     res.status(200).json({
       success: true,
-      data: summary,
-      cached: false,
+      data: summary
     });
   } catch (error) {
     console.error('❌ Get expense summary error:', error);
@@ -1260,17 +1148,7 @@ const postExpense = async (req, res) => {
       message: 'Expense posted successfully'
     });
 
-    // Invalidate cache after successful expense posting
-    try {
-      await delPattern(`expense:list:${userId}:*`);
-      await delPattern(`expense:detail:${userId}:${id}`);
-      await delPattern(`expense:accounts:${userId}`);
-      await delPattern(`expense:summary:${userId}:*`);
-      console.log('🗑️ [Expense] Cache invalidated after expense posting');
-    } catch (cacheError) {
-      console.log('⚠️ [Expense] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ Post expense error:', error);
     res.status(500).json({
       success: false,

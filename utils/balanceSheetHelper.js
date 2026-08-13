@@ -105,7 +105,7 @@ async function resolveEarningsWindow({
   reportDate,
   period,
   fyStart,
-  fyEnd,
+  fyEnd
 }) {
   if (startDate && endDate) {
     let start = startOfDay(startDate);
@@ -180,7 +180,7 @@ function emptyBalanceSheetPayload(asOf, period, earnings) {
     empty: true,
     earningsPeriod: {
       startDate: earnings?.start || asOf,
-      endDate: earnings?.end || asOf,
+      endDate: earnings?.end || asOf
     },
     assets: { current: [], fixed: [], other: [] },
     liabilities: { current: [], longTerm: [], other: [] },
@@ -189,10 +189,10 @@ function emptyBalanceSheetPayload(asOf, period, earnings) {
       totalAssets: 0,
       totalLiabilities: 0,
       totalEquity: 0,
-      totalLiabilitiesAndEquity: 0,
+      totalLiabilitiesAndEquity: 0
     },
     isBalanced: true,
-    difference: 0,
+    difference: 0
   };
 }
 
@@ -266,7 +266,7 @@ async function buildBalanceSheetFromLedger(
   if (fyStart && fyStart > now) {
     return emptyBalanceSheetPayload(fyStart, period, {
       start: fyStart,
-      end: fyStart,
+      end: fyStart
     });
   }
 
@@ -290,7 +290,7 @@ async function buildBalanceSheetFromLedger(
     reportDate: effectiveAsOf,
     period,
     fyStart,
-    fyEnd,
+    fyEnd
   });
 
   if (fyStart && earningsWindow.start > earningsWindow.end) {
@@ -300,9 +300,9 @@ async function buildBalanceSheetFromLedger(
   const accounts = await prisma.chartOfAccount.findMany({
     where: {
       companyId,
-      isActive: true,
+      isActive: true
     },
-    orderBy: { code: 'asc' },
+    orderBy: { code: 'asc' }
   });
 
   const dateFilter = { lte: effectiveAsOf };
@@ -312,10 +312,10 @@ async function buildBalanceSheetFromLedger(
     where: {
       companyId,
       status: 'Posted',
-      date: dateFilter,
+      date: dateFilter
     },
     include: { lines: true },
-    orderBy: { date: 'asc' },
+    orderBy: { date: 'asc' }
   });
 
   const assetsData = { current: [], fixed: [], other: [] };
@@ -342,7 +342,7 @@ async function buildBalanceSheetFromLedger(
     }
 
     const balance = accountBalanceAsOf(account, allPostedEntries, effectiveAsOf, {
-      includeOpening: !fyStart,
+      includeOpening: !fyStart
     });
     if (Math.abs(balance) < 0.0001) continue;
 
@@ -350,7 +350,7 @@ async function buildBalanceSheetFromLedger(
       code: account.code,
       name: account.name,
       balance,
-      parent: account.parentAccount || '',
+      parent: account.parentAccount || ''
     };
 
     if (account.type === 'Asset') {
@@ -375,7 +375,7 @@ async function buildBalanceSheetFromLedger(
       code: 'RE-CY',
       name: 'Current Year Earnings',
       balance: retainedEarnings,
-      parent: 'Owners Equity',
+      parent: 'Owners Equity'
     });
     addedCurrentEarnings = retainedEarnings;
   }
@@ -394,22 +394,22 @@ async function buildBalanceSheetFromLedger(
     empty: false,
     earningsPeriod: {
       startDate: earningsWindow.start,
-      endDate: earningsWindow.end,
+      endDate: earningsWindow.end
     },
     assets: assetsData,
     liabilities: liabilitiesData,
     equity: {
       owners: equityItems,
-      retainedEarnings: addedCurrentEarnings,
+      retainedEarnings: addedCurrentEarnings
     },
     totals: {
       totalAssets: finalTotalAssets,
       totalLiabilities: finalTotalLiabilities,
       totalEquity: finalTotalEquity,
-      totalLiabilitiesAndEquity: finalTotalLiabilitiesAndEquity,
+      totalLiabilitiesAndEquity: finalTotalLiabilitiesAndEquity
     },
     isBalanced,
-    difference,
+    difference
   };
 }
 
@@ -452,12 +452,12 @@ async function getBalanceSheetSummary(
       currentRatio:
         currentLiabilities > 0 ? currentAssets / currentLiabilities : 0,
       debtToEquity: totalEquity > 0 ? totalLiabilities / totalEquity : 0,
-      equityToAssets: totalAssets > 0 ? totalEquity / totalAssets : 0,
-    },
+      equityToAssets: totalAssets > 0 ? totalEquity / totalAssets : 0
+    }
   };
 }
 
 module.exports = {
   buildBalanceSheetFromLedger,
-  getBalanceSheetSummary,
+  getBalanceSheetSummary
 };

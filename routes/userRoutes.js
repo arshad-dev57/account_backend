@@ -10,7 +10,7 @@
     refreshToken,
     verifyLoginOTP,
     resetPassword,
-    updateCurrency,
+    updateCurrency
   } = require('../controllers/userController');
   const { upload } = require('../config/cloudinary');
 

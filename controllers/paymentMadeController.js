@@ -229,7 +229,7 @@ const recordPayment = async (req, res) => {
       reference,
       bankAccountId,
       notes,
-      allocations,
+      allocations
     } = req.body;
 
     const userId = req.user?.id;
@@ -387,7 +387,7 @@ const recordPayment = async (req, res) => {
           status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
           createdBy: userId,
           companyId: companyId,
-          fiscalYearId: fiscalYearId,
+          fiscalYearId: fiscalYearId
         },
         include: {
           supplier: {
@@ -485,9 +485,9 @@ const recordPayment = async (req, res) => {
           billNumber: b.billNumber,
           paidAmount: b.paidAmount,
           outstanding: b.outstanding,
-          status: b.status,
-        })),
-      },
+          status: b.status
+        }))
+      }
     });
 
     console.log('📦 [PM] ========== recordPayment END ==========');
@@ -497,7 +497,7 @@ const recordPayment = async (req, res) => {
     console.error('❌ [PM] Error stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -577,7 +577,7 @@ const deletePayment = async (req, res) => {
     console.error('❌ [PM] Delete payment error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -653,7 +653,7 @@ const clearChequePayment = async (req, res) => {
     console.error('❌ [PM] Clear cheque error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -743,13 +743,13 @@ const getPayments = async (req, res) => {
       total,
       page: pageNum,
       pages: totalPages,
-      data: payments,
+      data: payments
     });
   } catch (error) {
     console.error('❌ [PM] Get payments error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -799,7 +799,7 @@ const getPayment = async (req, res) => {
       console.log('❌ [PM] Payment not found');
       return res.status(404).json({
         success: false,
-        message: 'Payment not found',
+        message: 'Payment not found'
       });
     }
 
@@ -807,13 +807,13 @@ const getPayment = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: payment,
+      data: payment
     });
   } catch (error) {
     console.error('❌ [PM] Get payment error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -843,7 +843,7 @@ const getUnpaidBills = async (req, res) => {
       console.log('❌ [PM] Supplier not found');
       return res.status(404).json({
         success: false,
-        message: 'Supplier not found',
+        message: 'Supplier not found'
       });
     }
 
@@ -868,19 +868,19 @@ const getUnpaidBills = async (req, res) => {
       totalAmount: bill.totalAmount,
       paidAmount: bill.paidAmount,
       outstanding: bill.totalAmount - bill.paidAmount,
-      status: bill.status,
+      status: bill.status
     }));
 
     res.status(200).json({
       success: true,
       count: unpaidBills.length,
-      data: unpaidBills,
+      data: unpaidBills
     });
   } catch (error) {
     console.error('❌ [PM] Get unpaid bills error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -954,14 +954,14 @@ const getSummary = async (req, res) => {
         thisWeek: thisWeek._sum.amount || 0,
         thisMonth: thisMonth._sum.amount || 0,
         today: today._sum.amount || 0,
-        pending,
-      },
+        pending
+      }
     });
   } catch (error) {
     console.error('❌ [PM] Get summary error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };

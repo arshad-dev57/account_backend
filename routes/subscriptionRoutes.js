@@ -11,7 +11,7 @@ const {
   validateAccess,
   getSubscriptionDetails,
   getSubscriptionStats,
-  searchSubscriptions,
+  searchSubscriptions
 } = require('../controllers/subscriptionController');
 
 const { protect, protectOnly } = require('../middleware/authMiddleware');

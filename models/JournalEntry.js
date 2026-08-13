@@ -34,7 +34,7 @@ class JournalEntryModel {
             accountCode: line.accountCode,
             debit: line.debit || 0,
             credit: line.credit || 0,
-            isReconciled: line.isReconciled || false,
+            isReconciled: line.isReconciled || false
           }))
         }
       },
@@ -171,7 +171,7 @@ class JournalEntryModel {
               accountCode: line.accountCode,
               debit: line.debit || 0,
               credit: line.credit || 0,
-              isReconciled: line.isReconciled || false,
+              isReconciled: line.isReconciled || false
             }))
           }
         },

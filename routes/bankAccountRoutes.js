@@ -7,7 +7,7 @@ const {
   deleteBankAccount,
   updateBalance,
   depositToBankAccount,
-  repairOpeningBalances,
+  repairOpeningBalances
 } = require('../controllers/bankAccountController');
 const { protect } = require('../middleware/authMiddleware');
 

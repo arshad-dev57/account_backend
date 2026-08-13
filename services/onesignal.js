@@ -29,8 +29,8 @@ async function sendToUser({ mongoUserId, subscriptionId, title, message, data = 
         message,
         type,
         category,
-        data,
-      },
+        data
+      }
     });
     console.log('🔔 [OneSignal] Notification stored in database successfully');
   } catch (dbError) {
@@ -43,7 +43,7 @@ async function sendToUser({ mongoUserId, subscriptionId, title, message, data = 
     headings: { en: title || "Templink" },
     contents: { en: message || "" },
     data,
-    ...(collapseId ? { collapse_id: collapseId } : {}),
+    ...(collapseId ? { collapse_id: collapseId } : {})
   };
   
   if (subscriptionId) {
@@ -65,9 +65,9 @@ async function sendToUser({ mongoUserId, subscriptionId, title, message, data = 
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Basic ${process.env.ONESIGNAL_REST_API_KEY}`,
+          Authorization: `Basic ${process.env.ONESIGNAL_REST_API_KEY}`
         },
-        timeout: 15000,
+        timeout: 15000
       }
     );
 

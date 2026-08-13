@@ -201,7 +201,7 @@ const createJournalEntry = async (req, res) => {
     if (!lines || lines.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'At least one journal line is required',
+        message: 'At least one journal line is required'
       });
     }
 
@@ -212,7 +212,7 @@ const createJournalEntry = async (req, res) => {
       if (!line.accountId || line.accountId === '' || line.accountId === 'null') {
         return res.status(400).json({
           success: false,
-          message: `Account ID is required for line ${i + 1}`,
+          message: `Account ID is required for line ${i + 1}`
         });
       }
       // ✅ FIXED: Pass companyId to validateAccount
@@ -225,7 +225,7 @@ const createJournalEntry = async (req, res) => {
         currentBalance: account.currentBalance,
         debit: parseFloat(line.debit) || 0,
         credit: parseFloat(line.credit) || 0,
-        isReconciled: line.isReconciled || false,
+        isReconciled: line.isReconciled || false
       });
     }
 
@@ -234,7 +234,7 @@ const createJournalEntry = async (req, res) => {
       const totalCredit = validatedLines.reduce((sum, l) => sum + l.credit, 0);
       return res.status(400).json({
         success: false,
-        message: `Total Debit (${totalDebit}) must equal Total Credit (${totalCredit})`,
+        message: `Total Debit (${totalDebit}) must equal Total Credit (${totalCredit})`
       });
     }
 
@@ -253,7 +253,7 @@ const createJournalEntry = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Balance validation failed',
-        errors: balanceErrors,
+        errors: balanceErrors
       });
     }
 
@@ -279,7 +279,7 @@ const createJournalEntry = async (req, res) => {
               accountCode: line.accountCode,
               debit: line.debit,
               credit: line.credit,
-              isReconciled: line.isReconciled || false,
+              isReconciled: line.isReconciled || false
             }))
           }
         },
@@ -367,7 +367,7 @@ const createJournalEntry = async (req, res) => {
     console.error('❌ Create journal entry error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Server Error',
+      message: error.message || 'Server Error'
     });
   }
 };
@@ -496,14 +496,14 @@ const getJournalEntries = async (req, res) => {
         totalCredit,
         difference: Math.abs(totalDebit - totalCredit),
         postedCount,
-        draftCount,
+        draftCount
       },
       stats: {
         totalDebit,
         totalCredit,
         difference: Math.abs(totalDebit - totalCredit),
         postedCount,
-        draftCount,
+        draftCount
       }
     });
   } catch (error) {
@@ -511,7 +511,7 @@ const getJournalEntries = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -547,20 +547,20 @@ const getJournalEntry = async (req, res) => {
     if (!journalEntry) {
       return res.status(404).json({
         success: false,
-        message: 'Journal entry not found',
+        message: 'Journal entry not found'
       });
     }
 
     res.status(200).json({
       success: true,
-      data: journalEntry,
+      data: journalEntry
     });
   } catch (error) {
     console.error('❌ Get journal entry error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -591,7 +591,7 @@ const deleteJournalEntry = async (req, res) => {
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Journal entry not found',
+        message: 'Journal entry not found'
       });
     }
 
@@ -650,7 +650,7 @@ const deleteJournalEntry = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -692,7 +692,7 @@ const getJournalEntryStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -733,7 +733,7 @@ const getJournalEntriesByAccount = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -755,7 +755,7 @@ const postJournalEntry = async (req, res) => {
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Journal entry not found or already posted',
+        message: 'Journal entry not found or already posted'
       });
     }
 
@@ -793,7 +793,7 @@ const postJournalEntry = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };

@@ -350,7 +350,7 @@ const createProduct = async (req, res) => {
       zone: 'zoneName',
       storageCondition: 'storageConditionName',
       countryOfOrigin: 'countryOfOriginName',
-      stockUnit: 'stockUnitName',
+      stockUnit: 'stockUnitName'
     };
     Object.entries(fieldAliases).forEach(([alias, canonical]) => {
       if (data[alias] !== undefined) {
@@ -568,7 +568,7 @@ const updateProduct = async (req, res) => {
       zone: 'zoneName',
       storageCondition: 'storageConditionName',
       countryOfOrigin: 'countryOfOriginName',
-      stockUnit: 'stockUnitName',
+      stockUnit: 'stockUnitName'
     };
     Object.entries(fieldAliasesUpdate).forEach(([alias, canonical]) => {
       if (data[alias] !== undefined) {

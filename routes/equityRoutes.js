@@ -9,7 +9,7 @@ const {
   recordDrawings,
   transferToRetainedEarnings,
   getSummary,
-  getAllTransactions,
+  getAllTransactions
 } = require('../controllers/equityController');
 const { protect } = require('../middleware/authMiddleware');
 

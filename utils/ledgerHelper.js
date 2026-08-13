@@ -142,7 +142,7 @@ class LedgerHelper {
       return {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
+          lte: new Date(endDate)
         }
       };
     }
@@ -237,7 +237,7 @@ class LedgerHelper {
         nextPage: pageNum < totalPages ? pageNum + 1 : null,
         prevPage: pageNum > 1 ? pageNum - 1 : null,
         startIndex: totalCount === 0 ? 0 : skip + 1,
-        endIndex: Math.min(skip + paginatedData.length, totalCount),
+        endIndex: Math.min(skip + paginatedData.length, totalCount)
       }
     };
   }
@@ -257,7 +257,7 @@ class LedgerHelper {
       totalDebit,
       totalCredit,
       netDifference,
-      isBalanced,
+      isBalanced
     };
   }
 }

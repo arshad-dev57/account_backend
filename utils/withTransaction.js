@@ -118,5 +118,5 @@ module.exports = {
   withTransaction,
   patchPrismaTransactions,
   isTransientTxError,
-  DEFAULT_OPTIONS,
+  DEFAULT_OPTIONS
 };

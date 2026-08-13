@@ -146,7 +146,7 @@ class IncomeModel {
       reference: data.reference || '',
       paymentMethod: data.paymentMethod || 'Cash',
       status: data.status || 'Posted',
-      postedAt: data.postedAt || new Date(),
+      postedAt: data.postedAt || new Date()
     };
 
     // ─── Add creator relation ──────────────────────────────────
@@ -414,7 +414,7 @@ class IncomeModel {
         description: item.description,
         quantity: item.quantity || 1,
         unitPrice: item.unitPrice || 0,
-        amount: (item.quantity || 1) * (item.unitPrice || 0),
+        amount: (item.quantity || 1) * (item.unitPrice || 0)
       }));
       subtotal = items.reduce((sum, item) => sum + (item.amount || 0), 0);
     } else if (data.amount !== undefined) {
@@ -442,7 +442,7 @@ class IncomeModel {
       description: data.description !== undefined ? data.description : existing.description,
       reference: data.reference !== undefined ? data.reference : existing.reference,
       paymentMethod: data.paymentMethod || existing.paymentMethod,
-      status: data.status || existing.status,
+      status: data.status || existing.status
     };
 
     // ─── Handle customer relation ──────────────────────────────

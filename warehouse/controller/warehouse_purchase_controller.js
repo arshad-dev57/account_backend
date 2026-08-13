@@ -49,7 +49,7 @@ const getPurchases = async (req, res) => {
       paymentStatus,
       supplierId,
       fromDate,
-      toDate,
+      toDate
     } = req.query;
 
     const filter = { 
@@ -127,8 +127,8 @@ const getPurchases = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get purchases error:', error);
@@ -254,7 +254,7 @@ const createPurchase = async (req, res) => {
       notes,
       internalNotes,
       paymentMethod,
-      purchaseStatus,
+      purchaseStatus
     } = req.body;
 
     if (!supplierId) {
@@ -306,7 +306,7 @@ const createPurchase = async (req, res) => {
         taxRate,
         taxAmount,
         totalCost: lineSub + taxAmount,
-        notes: item.notes || '',
+        notes: item.notes || ''
       });
     }
 
@@ -494,7 +494,7 @@ const receivePurchase = async (req, res) => {
             purchaseId: purchase.id,
             purchaseNumber: purchase.purchaseNumber,
             supplierId: purchase.supplierId,
-            supplierName: purchase.supplierName,
+            supplierName: purchase.supplierName
           },
           reason: 'Purchase Receive',
           reference: purchase.purchaseNumber,
@@ -602,5 +602,5 @@ module.exports = {
   createPurchase,
   updatePurchaseStatus,
   receivePurchase,
-  deletePurchase,
+  deletePurchase
 };

@@ -123,7 +123,7 @@ class ExpenseModel {
         description: item.description,
         quantity: item.quantity || 1,
         unitPrice: item.unitPrice || 0,
-        amount: (item.quantity || 1) * (item.unitPrice || 0),
+        amount: (item.quantity || 1) * (item.unitPrice || 0)
       }));
       subtotal = itemsData.reduce((sum, item) => sum + (item.amount || 0), 0);
       taxAmount = subtotal * (data.taxRate || 0) / 100;
@@ -165,7 +165,7 @@ class ExpenseModel {
       reference: data.reference || '',
       paymentMethod: data.paymentMethod || 'Cash',
       status: data.status || 'Posted',
-      postedAt: data.postedAt || new Date(),
+      postedAt: data.postedAt || new Date()
     };
 
     // ✅ Relations
@@ -424,7 +424,7 @@ class ExpenseModel {
         description: item.description,
         quantity: item.quantity || 1,
         unitPrice: item.unitPrice || 0,
-        amount: (item.quantity || 1) * (item.unitPrice || 0),
+        amount: (item.quantity || 1) * (item.unitPrice || 0)
       }));
       subtotal = itemsData.reduce((sum, item) => sum + (item.amount || 0), 0);
       taxAmount = subtotal * (data.taxRate || existing.taxRate || 0) / 100;
@@ -462,7 +462,7 @@ class ExpenseModel {
       description: data.description !== undefined ? data.description : existing.description,
       reference: data.reference !== undefined ? data.reference : existing.reference,
       paymentMethod: data.paymentMethod || existing.paymentMethod,
-      status: data.status || existing.status,
+      status: data.status || existing.status
     };
 
     // ✅ Handle relations only

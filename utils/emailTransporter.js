@@ -15,11 +15,11 @@ const getTransporter = () => {
     secure: smtp.secure,
     auth: {
       user: smtp.user,
-      pass: smtp.pass,
+      pass: smtp.pass
     },
     pool: true,
     maxConnections: 5,
-    maxMessages: 100,
+    maxMessages: 100
   });
 
   return transporter;

@@ -3,30 +3,30 @@ const mongoose = require('mongoose');
 const InvoiceItemSchema = new mongoose.Schema({
   description: {
     type: String,
-    required: true,
+    required: true
   },
   quantity: {
     type: Number,
     required: true,
-    min: 1,
+    min: 1
   },
   unitPrice: {
     type: Number,
     required: true,
-    min: 0,
+    min: 0
   },
   amount: {
     type: Number,
-    required: true,
+    required: true
   },
   taxRate: {
     type: Number,
-    default: 0,
+    default: 0
   },
   taxAmount: {
     type: Number,
-    default: 0,
-  },
+    default: 0
+  }
 });
 
 const InvoiceSchema = new mongoose.Schema(
@@ -34,77 +34,77 @@ const InvoiceSchema = new mongoose.Schema(
     invoiceNumber: {
       type: String,
       required: true,
-      unique: true,
+      unique: true
     },
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Customer',
-      required: true,
+      required: true
     },
     customerName: {
       type: String,
-      required: true,
+      required: true
     },
     date: {
       type: Date,
       required: true,
-      default: Date.now,
+      default: Date.now
     },
     dueDate: {
       type: Date,
-      required: true,
+      required: true
     },
     items: [InvoiceItemSchema],
     subtotal: {
       type: Number,
-      required: true,
+      required: true
     },
     taxTotal: {
       type: Number,
-      default: 0,
+      default: 0
     },
     discount: {
       type: Number,
-      default: 0,
+      default: 0
     },
     totalAmount: {
       type: Number,
-      required: true,
+      required: true
     },
     paidAmount: {
       type: Number,
-      default: 0,
+      default: 0
     },
     outstanding: {
       type: Number,
       default: function() {
         return this.totalAmount - this.paidAmount;
-      },
+      }
     },
     status: {
       type: String,
       enum: ['Draft', 'Unpaid', 'Partial', 'Paid', 'Overdue'],
-      default: 'Unpaid',
+      default: 'Unpaid'
     },
     notes: {
       type: String,
-      default: '',
+      default: ''
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: true
     },
     posted: {
       type: Boolean,
-      default: false,
+      default: false
     },
     postedAt: {
-      type: Date,
-    },
+      type: Date
+    }
   },
   {
-    timestamps: true,
+    timestamps: true
   }
 );
 

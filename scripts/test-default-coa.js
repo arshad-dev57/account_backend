@@ -28,7 +28,7 @@ async function testDefaultCOA() {
         subscriptionPlan: 'trial',
         subscriptionStatus: 'active',
         trialStartDate: new Date(),
-        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
       }
     });
     console.log(`✅ Test company created: ${testCompany.id}`);
@@ -57,7 +57,7 @@ async function testDefaultCOA() {
         subscriptionStatus: 'active',
         subscriptionStartDate: new Date(),
         trialStartDate: new Date(),
-        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
       }
     });
     console.log(`✅ Test user created: ${testUser.id}`);

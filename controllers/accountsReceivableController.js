@@ -2,7 +2,6 @@
 
 const prisma = require('../prisma/client');
 const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
-const { get, set, del, delPattern } = require('../utils/redisClient');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
 
 /**
@@ -15,7 +14,7 @@ async function warehouseInvoiceFyDateFilter(companyId, fiscalYearId) {
   if (!fy) return null;
   return {
     gte: new Date(fy.startDate),
-    lte: new Date(fy.endDate),
+    lte: new Date(fy.endDate)
   };
 }
 
@@ -44,15 +43,15 @@ const salesOpenInclude = {
       payment: {
         isActive: true,
         isDeleted: false,
-        status: 'Completed',
-      },
+        status: 'Completed'
+      }
     },
-    select: { amountPaid: true },
+    select: { amountPaid: true }
   },
   creditNotes: {
     where: { status: { notIn: ['Cancelled', 'Voided'] } },
-    select: { amount: true },
-  },
+    select: { amount: true }
+  }
 };
 
 // ─── HELPER: Get or create Accounts Receivable account ──────────
@@ -287,7 +286,7 @@ const createCustomer = async (req, res) => {
       address,
       shippingAddress,
       billingAddress,
-      notes,
+      notes
     } = req.body;
 
     const userId = req.user.id;
@@ -334,23 +333,15 @@ const createCustomer = async (req, res) => {
 
     console.log(`✅ [AR] Customer created: ${customer.name}`);
 
-    // Invalidate cache after successful customer creation
-    try {
-      await delPattern(`ar:customers:${userId}:*`);
-      console.log('🗑️ [AR] Cache invalidated after customer creation');
-    } catch (cacheError) {
-      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(201).json({
+res.status(201).json({
       success: true,
-      data: customer,
+      data: customer
     });
   } catch (error) {
     console.error('❌ [AR] Create customer error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -363,33 +354,10 @@ const getCustomers = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `ar:v3:customers:${userId}:${search || ''}:${status || ''}`;
-    
-    // Try to get from cache (unless refresh is requested)
     if (refresh !== 'true') {
-      const cached = await get(cacheKey);
-      if (cached) {
-        console.log('📦 [AR] Returning cached customers data');
-        return res.status(200).json({
-          success: true,
-          count: cached.length,
-          data: cached,
-          cached: true,
-        });
-      }
     } else {
-      console.log('🔄 [AR] Cache refresh requested, bypassing cache');
       // Clear the cache
-      try {
-        await delPattern(`ar:customers:${userId}:*`);
-        await delPattern(`ar:v2:customers:${userId}:*`);
-        await delPattern(`ar:v3:customers:${userId}:*`);
-        console.log('🗑️ [AR] Cache cleared for refresh');
-      } catch (cacheError) {
-        console.log('⚠️ [AR] Cache clear error:', cacheError.message);
-      }
-    }
+}
 
     const filter = { companyId: companyId };
 
@@ -429,17 +397,17 @@ const getCustomers = async (req, res) => {
         where: {
           companyId: companyId,
           isDeleted: false,
-          invoiceStatus: { not: 'Cancelled' },
-        },
+          invoiceStatus: { not: 'Cancelled' }
+        }
       }),
       prisma.salesInvoice.findMany({
         where: {
           companyId: companyId,
           isDeleted: false,
           isActive: true,
-          invoiceStatus: { not: 'Cancelled' },
+          invoiceStatus: { not: 'Cancelled' }
         },
-        include: salesOpenInclude,
+        include: salesOpenInclude
       }),
     ]);
 
@@ -460,7 +428,7 @@ const getCustomers = async (req, res) => {
         paidAmount,
         outstanding,
         status,
-        invoiceStatus: inv.invoiceStatus,
+        invoiceStatus: inv.invoiceStatus
       };
     };
 
@@ -491,24 +459,20 @@ const getCustomers = async (req, res) => {
         outstandingAmount,
         invoiceCount: customerInvoices.length,
         invoices: customerInvoices,
-        lastPaymentDate: customer.lastOrderDate || null,
+        lastPaymentDate: customer.lastOrderDate || null
       };
     });
-
-    // Cache the result (2 minutes TTL — balances change often)
-    await set(cacheKey, customersWithOutstanding, 120);
 
     res.status(200).json({
       success: true,
       count: customersWithOutstanding.length,
-      data: customersWithOutstanding,
-      cached: false,
+      data: customersWithOutstanding
     });
   } catch (error) {
     console.error('❌ [AR] Get customers error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -521,19 +485,6 @@ const getCustomer = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `ar:customer:${userId}:${id}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const customer = await prisma.customer.findFirst({
       where: {
         id,
@@ -553,7 +504,7 @@ const getCustomer = async (req, res) => {
     if (!customer) {
       return res.status(404).json({
         success: false,
-        message: 'Customer not found',
+        message: 'Customer not found'
       });
     }
 
@@ -561,7 +512,7 @@ const getCustomer = async (req, res) => {
       where: {
         customerId: customer.id,
         companyId: companyId,
-        isDeleted: false,
+        isDeleted: false
       },
       orderBy: { invoiceDate: 'desc' }
     });
@@ -571,7 +522,7 @@ const getCustomer = async (req, res) => {
         customerId: customer.id,
         companyId: companyId,
         isDeleted: false,
-        isActive: true,
+        isActive: true
       },
       orderBy: { invoiceDate: 'desc' },
       include: {
@@ -580,12 +531,12 @@ const getCustomer = async (req, res) => {
             payment: {
               isActive: true,
               isDeleted: false,
-              status: 'Completed',
-            },
+              status: 'Completed'
+            }
           },
-          select: { amountPaid: true },
-        },
-      },
+          select: { amountPaid: true }
+        }
+      }
     });
 
     const invoices = [
@@ -597,7 +548,7 @@ const getCustomer = async (req, res) => {
         totalAmount: inv.grandTotal || 0,
         paidAmount: inv.paidAmount || 0,
         status: inv.paymentStatus || inv.invoiceStatus,
-        outstanding: Math.max(0, (inv.grandTotal || 0) - (inv.paidAmount || 0)),
+        outstanding: Math.max(0, (inv.grandTotal || 0) - (inv.paidAmount || 0))
       })),
       ...invoicesSi.map((inv) => {
         const paidFromPayments = (inv.invoicePayments || []).reduce(
@@ -613,7 +564,7 @@ const getCustomer = async (req, res) => {
           totalAmount: inv.grandTotal || 0,
           paidAmount,
           status: inv.paymentStatus || inv.invoiceStatus,
-          outstanding: Math.max(0, (inv.grandTotal || 0) - paidAmount),
+          outstanding: Math.max(0, (inv.grandTotal || 0) - paidAmount)
         };
       }),
     ];
@@ -631,22 +582,18 @@ const getCustomer = async (req, res) => {
       totalAmount,
       paidAmount,
       outstandingAmount,
-      invoiceCount: invoices.length,
+      invoiceCount: invoices.length
     };
-
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, customerData, 600);
 
     res.status(200).json({
       success: true,
-      data: customerData,
-      cached: false,
+      data: customerData
     });
   } catch (error) {
     console.error('❌ [AR] Get customer error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -669,7 +616,7 @@ const updateCustomer = async (req, res) => {
       billingAddress,
       notes,
       status,
-      isActive,
+      isActive
     } = req.body;
 
     const existing = await prisma.customer.findFirst({
@@ -681,7 +628,7 @@ const updateCustomer = async (req, res) => {
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Customer not found',
+        message: 'Customer not found'
       });
     }
 
@@ -700,7 +647,7 @@ const updateCustomer = async (req, res) => {
         billingAddress: billingAddress !== undefined ? billingAddress : existing.billingAddress,
         notes: notes !== undefined ? notes : existing.notes,
         status: status || existing.status,
-        isActive: isActive !== undefined ? isActive : existing.isActive,
+        isActive: isActive !== undefined ? isActive : existing.isActive
       },
       include: {
         creator: {
@@ -714,24 +661,15 @@ const updateCustomer = async (req, res) => {
       }
     });
 
-    // Invalidate cache after successful customer update
-    try {
-      await delPattern(`ar:customers:${userId}:*`);
-      await delPattern(`ar:customer:${userId}:${id}`);
-      console.log('🗑️ [AR] Cache invalidated after customer update');
-    } catch (cacheError) {
-      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
-      data: customer,
+      data: customer
     });
   } catch (error) {
     console.error('❌ [AR] Update customer error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -751,7 +689,7 @@ const deleteCustomer = async (req, res) => {
     if (hasInvoices) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete customer with existing invoices',
+        message: 'Cannot delete customer with existing invoices'
       });
     }
 
@@ -764,28 +702,19 @@ const deleteCustomer = async (req, res) => {
     if (customer.count === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Customer not found',
+        message: 'Customer not found'
       });
     }
 
-    // Invalidate cache after successful customer deletion
-    try {
-      await delPattern(`ar:customers:${userId}:*`);
-      await delPattern(`ar:customer:${userId}:${id}`);
-      console.log('🗑️ [AR] Cache invalidated after customer deletion');
-    } catch (cacheError) {
-      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
-      message: 'Customer deleted successfully',
+      message: 'Customer deleted successfully'
     });
   } catch (error) {
     console.error('❌ [AR] Delete customer error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -804,7 +733,7 @@ const createInvoice = async (req, res) => {
       dueDate,
       items,
       discount,
-      notes,
+      notes
     } = req.body;
 
     const userId = req.user.id;
@@ -826,7 +755,7 @@ const createInvoice = async (req, res) => {
       return {
         ...item,
         amount,
-        taxAmount,
+        taxAmount
       };
     });
 
@@ -847,31 +776,20 @@ const createInvoice = async (req, res) => {
       grandTotal: totalAmount,
       items: processedItems,
       notes: notes || '',
-      createdBy: userId,
+      createdBy: userId
     });
 
     res.status(201).json({
       success: true,
       message: 'Invoice created successfully',
-      data: invoice,
+      data: invoice
     });
 
-    // Invalidate cache after successful invoice creation
-    try {
-      await delPattern(`ar:invoices:${userId}:*`);
-      await delPattern(`ar:summary:${userId}:*`);
-      await delPattern(`ar:aged:${userId}:*`);
-      await delPattern(`ar:customer:${userId}:${customerId}:unpaid-invoices`);
-      await delPattern(`ar:customer:${userId}:${customerId}`);
-      console.log('🗑️ [AR] Cache invalidated after invoice creation');
-    } catch (cacheError) {
-      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
-    }
-  } catch (error) {
+} catch (error) {
     console.error('❌ [AR] Create invoice error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -884,20 +802,6 @@ const getInvoices = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key with parameters
-    const cacheKey = `ar:invoices:${userId}:${customerId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        count: cached.length,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const filter = { companyId: companyId };
 
     if (customerId) {
@@ -927,7 +831,7 @@ const getInvoices = async (req, res) => {
       if (filter.invoiceDate) {
         filter.invoiceDate = {
           gte: filter.invoiceDate.gte > fyDates.gte ? filter.invoiceDate.gte : fyDates.gte,
-          lte: filter.invoiceDate.lte < fyDates.lte ? filter.invoiceDate.lte : fyDates.lte,
+          lte: filter.invoiceDate.lte < fyDates.lte ? filter.invoiceDate.lte : fyDates.lte
         };
       } else {
         filter.invoiceDate = fyDates;
@@ -957,20 +861,16 @@ const getInvoices = async (req, res) => {
       }
     });
 
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, invoices, 300);
-
     res.status(200).json({
       success: true,
       count: invoices.length,
-      data: invoices,
-      cached: false,
+      data: invoices
     });
   } catch (error) {
     console.error('❌ [AR] Get invoices error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -983,19 +883,6 @@ const getInvoice = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    // Build cache key
-    const cacheKey = `ar:invoice:${userId}:${id}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const invoice = await prisma.warehouseInvoice.findFirst({
       where: {
         id,
@@ -1024,23 +911,19 @@ const getInvoice = async (req, res) => {
     if (!invoice) {
       return res.status(404).json({
         success: false,
-        message: 'Invoice not found',
+        message: 'Invoice not found'
       });
     }
 
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, invoice, 600);
-
     res.status(200).json({
       success: true,
-      data: invoice,
-      cached: false,
+      data: invoice
     });
   } catch (error) {
     console.error('❌ [AR] Get invoice error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1115,18 +998,6 @@ const getUnpaidInvoices = async (req, res) => {
 
     const companyId = req.user.companyId;
     // v2: includes sales invoices (not just warehouse)
-    const cacheKey = `ar:customer:${userId}:${customerId}:unpaid-invoices:v2`;
-    
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        count: cached.length,
-        data: cached,
-        cached: true,
-      });
-    }
-    
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
@@ -1137,7 +1008,7 @@ const getUnpaidInvoices = async (req, res) => {
       console.log('❌ [AR] Customer not found');
       return res.status(404).json({
         success: false,
-        message: 'Customer not found',
+        message: 'Customer not found'
       });
     }
     
@@ -1150,9 +1021,9 @@ const getUnpaidInvoices = async (req, res) => {
           companyId,
           isActive: true,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Paid', 'Cancelled'] },
+          invoiceStatus: { notIn: ['Paid', 'Cancelled'] }
         },
-        orderBy: { dueDate: 'asc' },
+        orderBy: { dueDate: 'asc' }
       }),
       prisma.salesInvoice.findMany({
         where: {
@@ -1160,10 +1031,10 @@ const getUnpaidInvoices = async (req, res) => {
           companyId,
           isActive: true,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Cancelled'] },
+          invoiceStatus: { notIn: ['Cancelled'] }
         },
         include: salesOpenInclude,
-        orderBy: { dueDate: 'asc' },
+        orderBy: { dueDate: 'asc' }
       }),
     ]);
 
@@ -1180,7 +1051,7 @@ const getUnpaidInvoices = async (req, res) => {
         totalAmount: grandTotal,
         paidAmount,
         outstanding,
-        status: invoice.invoiceStatus,
+        status: invoice.invoiceStatus
       };
     };
 
@@ -1199,7 +1070,7 @@ const getUnpaidInvoices = async (req, res) => {
         totalAmount: grandTotal,
         paidAmount,
         outstanding,
-        status,
+        status
       };
     };
 
@@ -1214,19 +1085,16 @@ const getUnpaidInvoices = async (req, res) => {
       `📊 [AR] Unpaid invoices: warehouse=${warehouseInvoices.length} sales=${salesInvoices.length} open=${result.length}`
     );
 
-    await set(cacheKey, result, 300);
-    
     res.status(200).json({
       success: true,
       count: result.length,
-      data: result,
-      cached: false,
+      data: result
     });
   } catch (error) {
     console.error('❌ [AR] getUnpaidInvoices error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1257,7 +1125,7 @@ const recordPayment = async (req, res) => {
       paymentMethod,
       reference,
       bankAccountId,
-      notes,
+      notes
     } = req.body;
 
     const userId = req.user.id;
@@ -1384,7 +1252,7 @@ const recordPayment = async (req, res) => {
               status: paymentMethod === 'Cheque' ? 'Pending' : 'Cleared',
               clearedDate: paymentMethod === 'Cheque' ? null : new Date(),
               createdBy: userId,
-              companyId: companyId,
+              companyId: companyId
             }
           });
           console.log('✅ [AR] Payment record created:', payment.paymentNumber);
@@ -1461,10 +1329,10 @@ const recordPayment = async (req, res) => {
               invoiceNumber: result.updatedInvoice.invoiceNumber,
               paidAmount: result.updatedInvoice.paidAmount,
               outstanding: result.updatedInvoice.grandTotal - result.updatedInvoice.paidAmount,
-              status: result.updatedInvoice.invoiceStatus,
+              status: result.updatedInvoice.invoiceStatus
             },
-            payment: result.payment,
-          },
+            payment: result.payment
+          }
         });
 
       } catch (error) {
@@ -1477,19 +1345,7 @@ const recordPayment = async (req, res) => {
       }
     }
 
-    // Invalidate cache after successful payment recording
-    try {
-      await delPattern(`ar:invoices:${userId}:*`);
-      await delPattern(`ar:invoice:${userId}:${invoiceId}`);
-      await delPattern(`ar:summary:${userId}:*`);
-      await delPattern(`ar:aged:${userId}:*`);
-      await delPattern(`ar:customers:${userId}:*`);
-      console.log('🗑️ [AR] Cache invalidated after payment recording');
-    } catch (cacheError) {
-      console.log('⚠️ [AR] Cache invalidation error:', cacheError.message);
-    }
-
-    const statusCode = lastError && lastError.statusCode ? lastError.statusCode : 500;
+const statusCode = lastError && lastError.statusCode ? lastError.statusCode : 500;
     return res.status(statusCode).json({
       success: false,
       message: lastError ? lastError.message : 'Failed to record payment'
@@ -1499,7 +1355,7 @@ const recordPayment = async (req, res) => {
     console.error('❌ [AR] Record payment error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1516,29 +1372,16 @@ const getSummary = async (req, res) => {
     const companyId = req.user.companyId;
     const { fiscalYearId } = req.query;
 
-    // Build cache key with parameters
-    const cacheKey = `ar:v3:summary:${userId}:${fiscalYearId || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const baseWh = {
       companyId: companyId,
       isDeleted: false,
-      invoiceStatus: { not: 'Cancelled' },
+      invoiceStatus: { not: 'Cancelled' }
     };
     const baseSi = {
       companyId: companyId,
       isDeleted: false,
       isActive: true,
-      invoiceStatus: { not: 'Cancelled' },
+      invoiceStatus: { not: 'Cancelled' }
     };
 
     // WarehouseInvoice has no fiscalYearId — use invoiceDate window.
@@ -1555,7 +1398,7 @@ const getSummary = async (req, res) => {
       prisma.warehouseInvoice.findMany({ where: baseWh }),
       prisma.salesInvoice.findMany({
         where: baseSi,
-        include: salesOpenInclude,
+        include: salesOpenInclude
       }),
     ]);
 
@@ -1564,7 +1407,7 @@ const getSummary = async (req, res) => {
       return {
         dueDate: inv.dueDate,
         invoiceStatus: inv.invoiceStatus,
-        outstanding,
+        outstanding
       };
     };
 
@@ -1607,22 +1450,18 @@ const getSummary = async (req, res) => {
       overdue,
       dueThisWeek,
       dueThisMonth,
-      activeCustomers,
+      activeCustomers
     };
-
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, summaryData, 120);
 
     res.status(200).json({
       success: true,
-      data: summaryData,
-      cached: false,
+      data: summaryData
     });
   } catch (error) {
     console.error('❌ [AR] Get AR summary error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1634,23 +1473,10 @@ const getAgedReceivables = async (req, res) => {
     const companyId = req.user.companyId;
     const { fiscalYearId } = req.query;
 
-    // Build cache key with parameters
-    const cacheKey = `ar:v3:aged:${userId}:${fiscalYearId || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const filter = {
       companyId: companyId,
       isDeleted: false,
-      invoiceStatus: { not: 'Cancelled' },
+      invoiceStatus: { not: 'Cancelled' }
     };
 
     const fyDates = await warehouseInvoiceFyDateFilter(companyId, fiscalYearId);
@@ -1678,7 +1504,7 @@ const getAgedReceivables = async (req, res) => {
         isDeleted: false,
         isActive: true,
         invoiceStatus: { not: 'Cancelled' },
-        ...(fyDates ? { invoiceDate: fyDates } : fiscalYearId ? { fiscalYearId } : {}),
+        ...(fyDates ? { invoiceDate: fyDates } : fiscalYearId ? { fiscalYearId } : {})
       },
       include: {
         customer: {
@@ -1689,8 +1515,8 @@ const getAgedReceivables = async (req, res) => {
             phone: true
           }
         },
-        ...salesOpenInclude,
-      },
+        ...salesOpenInclude
+      }
     });
 
     const now = new Date();
@@ -1716,7 +1542,7 @@ const getAgedReceivables = async (req, res) => {
           days31to60: 0,
           days61to90: 0,
           days90plus: 0,
-          totalOutstanding: 0,
+          totalOutstanding: 0
         });
       }
 
@@ -1746,7 +1572,7 @@ const getAgedReceivables = async (req, res) => {
         amount: invoice.grandTotal,
         paidAmount: invoice.paidAmount || 0,
         outstanding,
-        daysPastDue: Math.max(0, daysPastDue),
+        daysPastDue: Math.max(0, daysPastDue)
       });
     };
 
@@ -1771,26 +1597,22 @@ const getAgedReceivables = async (req, res) => {
         days31to60: acc.days31to60 + c.days31to60,
         days61to90: acc.days61to90 + c.days61to90,
         days90plus: acc.days90plus + c.days90plus,
-        totalOutstanding: acc.totalOutstanding + c.totalOutstanding,
+        totalOutstanding: acc.totalOutstanding + c.totalOutstanding
       }),
       { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0, totalOutstanding: 0 }
     );
 
     const agedData = { customers, summary };
 
-    // Cache the result (2 minutes TTL)
-    await set(cacheKey, agedData, 120);
-
     res.status(200).json({
       success: true,
-      data: agedData,
-      cached: false,
+      data: agedData
     });
   } catch (error) {
     console.error('❌ [AR] Get aged receivables error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1810,5 +1632,5 @@ module.exports = {
   getSummary,
   getAgedReceivables,
   getUnpaidInvoices,
-getUnpaidInvoices,
+getUnpaidInvoices
 };

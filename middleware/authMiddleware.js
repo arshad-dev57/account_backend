@@ -91,7 +91,7 @@ exports.protectOnly = async (req, res, next) => {
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: 'Not authorized to access this route',
+      message: 'Not authorized to access this route'
     });
   }
 
@@ -101,7 +101,7 @@ exports.protectOnly = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid token format',
+        message: 'Invalid token format'
       });
     }
 
@@ -150,7 +150,7 @@ exports.protect = async (req, res, next) => {
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: 'Not authorized to access this route. No token provided.',
+      message: 'Not authorized to access this route. No token provided.'
     });
   }
 
@@ -159,7 +159,7 @@ exports.protect = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid token format',
+        message: 'Invalid token format'
       });
     }
 
@@ -179,7 +179,7 @@ exports.protect = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         message: 'Subscription required. Please subscribe to access this feature.',
-        code: 'SUBSCRIPTION_REQUIRED',
+        code: 'SUBSCRIPTION_REQUIRED'
       });
     }
 

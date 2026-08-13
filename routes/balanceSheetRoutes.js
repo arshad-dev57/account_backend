@@ -1,7 +1,7 @@
 const express = require('express');
 const {
   getBalanceSheet,
-  getSummary,
+  getSummary
 } = require('../controllers/balanceSheetController');
 const { protect } = require('../middleware/authMiddleware');
 

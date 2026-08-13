@@ -155,7 +155,7 @@ const sendInvoiceEmail = async (req, res) => {
     const mailOptions = {
       to: email,
       subject: `Invoice - ${invoice.invoiceNumber} - ${companyName}`,
-      html: invoiceHtml,
+      html: invoiceHtml
     };
 
     await emailSenderService.sendRawEmail(email, mailOptions.subject, invoiceHtml, null, null);

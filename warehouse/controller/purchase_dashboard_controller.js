@@ -68,7 +68,7 @@ const parsePeriod = async (period, startDate, endDate, opts = {}) => {
       fiscalYearId: opts.fiscalYearId,
       start,
       end,
-      period: String(period || '').toLowerCase() === 'year' ? 'This Year' : period,
+      period: String(period || '').toLowerCase() === 'year' ? 'This Year' : period
     });
     return { start: clamped.start, end: clamped.end, groupBy };
   }
@@ -79,7 +79,7 @@ const parsePeriod = async (period, startDate, endDate, opts = {}) => {
 const companyScope = (companyId, userId) => {
   if (companyId) {
     return {
-      OR: [{ companyId }, { companyId: null, createdBy: userId }],
+      OR: [{ companyId }, { companyId: null, createdBy: userId }]
     };
   }
   return { createdBy: userId };
@@ -91,7 +91,7 @@ const baseWhere = (companyId, userId, extra = {}) => ({
     { isActive: true },
     { isDeleted: false },
     extra,
-  ],
+  ]
 });
 
 const getLabelFromDate = (dateStr, groupBy) => {
@@ -148,28 +148,28 @@ const getMetrics = async (req, res) => {
     const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
-      fiscalYearId,
+      fiscalYearId
     });
 
     const orderWhere = baseWhere(companyId, userId, {
-      createdAt: { gte: start, lte: end },
+      createdAt: { gte: start, lte: end }
     });
     const invoiceWhere = baseWhere(companyId, userId, {
       invoiceDate: { gte: start, lte: end },
-      invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
     });
     const returnWhere = baseWhere(companyId, userId, {
-      createdAt: { gte: start, lte: end },
+      createdAt: { gte: start, lte: end }
     });
     const paymentWhere = baseWhere(companyId, userId, {
       paymentDate: { gte: start, lte: end },
-      status: { not: 'Cancelled' },
+      status: { not: 'Cancelled' }
     });
 
     const [orders, invoices, returnsRows, paymentsAgg] = await Promise.all([
       prisma.purchaseOrder.findMany({
         where: orderWhere,
-        select: { status: true, grandTotal: true },
+        select: { status: true, grandTotal: true }
       }),
       prisma.purchaseInvoice.findMany({
         where: invoiceWhere,
@@ -178,19 +178,19 @@ const getMetrics = async (req, res) => {
           invoiceStatus: true,
           grandTotal: true,
           paidAmount: true,
-          outstanding: true,
-        },
+          outstanding: true
+        }
       }),
       prisma.purchaseReturn.findMany({
         where: {
           ...returnWhere,
-          status: 'Processed',
+          status: 'Processed'
         },
-        select: { grandTotal: true },
+        select: { grandTotal: true }
       }),
       prisma.purchasePaymentMake.aggregate({
         where: paymentWhere,
-        _sum: { amount: true },
+        _sum: { amount: true }
       }),
     ]);
 
@@ -207,7 +207,7 @@ const getMetrics = async (req, res) => {
       draft: 0,
       sent: 0,
       received: 0,
-      cancelled: 0,
+      cancelled: 0
     };
 
     orders.forEach((o) => {
@@ -258,12 +258,12 @@ const getMetrics = async (req, res) => {
           paidAmount,
           outstanding,
           totalSpend: netSpend,
-          grossSpend: totalSpend,
+          grossSpend: totalSpend
         },
         returns: { total: returnsCount, amount: returnsAmount },
         payments: { totalPaid: toNum(paymentsAgg._sum.amount) },
-        period: { start, end, key: period },
-      },
+        period: { start, end, key: period }
+      }
     });
   } catch (err) {
     console.error('Purchase dashboard metrics error:', err);
@@ -280,28 +280,28 @@ const getSpendTrend = async (req, res) => {
     const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
     const { start, end, groupBy } = await parsePeriod(period, startDate, endDate, {
       companyId,
-      fiscalYearId,
+      fiscalYearId
     });
 
     const [invoices, orders] = await Promise.all([
       prisma.purchaseInvoice.findMany({
         where: baseWhere(companyId, userId, {
-          invoiceDate: { gte: start, lte: end },
+          invoiceDate: { gte: start, lte: end }
         }),
         select: {
           invoiceDate: true,
           grandTotal: true,
           paidAmount: true,
-          paymentStatus: true,
+          paymentStatus: true
         },
-        orderBy: { invoiceDate: 'asc' },
+        orderBy: { invoiceDate: 'asc' }
       }),
       prisma.purchaseOrder.findMany({
         where: baseWhere(companyId, userId, {
-          createdAt: { gte: start, lte: end },
+          createdAt: { gte: start, lte: end }
         }),
         select: { createdAt: true, grandTotal: true },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'asc' }
       }),
     ]);
 
@@ -335,7 +335,7 @@ const getSpendTrend = async (req, res) => {
       label: getLabelFromDate(date, groupBy),
       invoiceAmount: invoiceMap[date]?.invoiceAmount || 0,
       paidAmount: invoiceMap[date]?.paidAmount || 0,
-      orderValue: orderMap[date]?.orderValue || 0,
+      orderValue: orderMap[date]?.orderValue || 0
     }));
 
     res.json({ success: true, data: trend });
@@ -354,14 +354,14 @@ const getOrderStatusDistribution = async (req, res) => {
     const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
-      fiscalYearId,
+      fiscalYearId
     });
 
     const orders = await prisma.purchaseOrder.findMany({
       where: baseWhere(companyId, userId, {
-        createdAt: { gte: start, lte: end },
+        createdAt: { gte: start, lte: end }
       }),
-      select: { status: true, grandTotal: true },
+      select: { status: true, grandTotal: true }
     });
 
     const bucket = {
@@ -371,20 +371,20 @@ const getOrderStatusDistribution = async (req, res) => {
         status: 'approved',
         count: 0,
         value: 0,
-        color: getColorForIndex(2),
+        color: getColorForIndex(2)
       },
       received: {
         status: 'received',
         count: 0,
         value: 0,
-        color: getColorForIndex(3),
+        color: getColorForIndex(3)
       },
       cancelled: {
         status: 'cancelled',
         count: 0,
         value: 0,
-        color: getColorForIndex(4),
-      },
+        color: getColorForIndex(4)
+      }
     };
 
     orders.forEach((o) => {
@@ -396,7 +396,7 @@ const getOrderStatusDistribution = async (req, res) => {
 
     res.json({
       success: true,
-      data: Object.values(bucket).filter((r) => r.count > 0),
+      data: Object.values(bucket).filter((r) => r.count > 0)
     });
   } catch (err) {
     console.error('Purchase order status error:', err);
@@ -413,15 +413,15 @@ const getTopSuppliers = async (req, res) => {
     const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
-      fiscalYearId,
+      fiscalYearId
     });
 
     // Prefer invoices (actual spend); fall back to orders if none
     const invoices = await prisma.purchaseInvoice.findMany({
       where: baseWhere(companyId, userId, {
-        invoiceDate: { gte: start, lte: end },
+        invoiceDate: { gte: start, lte: end }
       }),
-      select: { supplierId: true, supplierName: true, grandTotal: true },
+      select: { supplierId: true, supplierName: true, grandTotal: true }
     });
 
     const map = {};
@@ -432,7 +432,7 @@ const getTopSuppliers = async (req, res) => {
           supplierId: inv.supplierId,
           supplierName: inv.supplierName || 'Unknown',
           totalOrders: 0,
-          totalValue: 0,
+          totalValue: 0
         };
       }
       map[id].totalOrders += 1;
@@ -442,9 +442,9 @@ const getTopSuppliers = async (req, res) => {
     if (Object.keys(map).length === 0) {
       const orders = await prisma.purchaseOrder.findMany({
         where: baseWhere(companyId, userId, {
-          createdAt: { gte: start, lte: end },
+          createdAt: { gte: start, lte: end }
         }),
-        select: { supplierId: true, supplierName: true, grandTotal: true },
+        select: { supplierId: true, supplierName: true, grandTotal: true }
       });
       orders.forEach((o) => {
         const id = o.supplierId || o.supplierName || 'unknown';
@@ -453,7 +453,7 @@ const getTopSuppliers = async (req, res) => {
             supplierId: o.supplierId,
             supplierName: o.supplierName || 'Unknown',
             totalOrders: 0,
-            totalValue: 0,
+            totalValue: 0
           };
         }
         map[id].totalOrders += 1;
@@ -491,10 +491,10 @@ const getRecentActivities = async (req, res) => {
             supplierName: true,
             grandTotal: true,
             status: true,
-            createdAt: true,
+            createdAt: true
           },
           orderBy: { createdAt: 'desc' },
-          take: 5,
+          take: 5
         }),
         prisma.purchaseInvoice.findMany({
           where: scope,
@@ -505,10 +505,10 @@ const getRecentActivities = async (req, res) => {
             grandTotal: true,
             paymentStatus: true,
             invoiceDate: true,
-            createdAt: true,
+            createdAt: true
           },
           orderBy: { createdAt: 'desc' },
-          take: 5,
+          take: 5
         }),
         prisma.purchaseReturn.findMany({
           where: scope,
@@ -519,10 +519,10 @@ const getRecentActivities = async (req, res) => {
             grandTotal: true,
             returnAmount: true,
             status: true,
-            createdAt: true,
+            createdAt: true
           },
           orderBy: { createdAt: 'desc' },
-          take: 3,
+          take: 3
         }),
         prisma.purchasePaymentMake.findMany({
           where: {
@@ -530,7 +530,7 @@ const getRecentActivities = async (req, res) => {
               companyScope(companyId, userId),
               { isActive: true },
               { isDeleted: false },
-            ],
+            ]
           },
           select: {
             id: true,
@@ -539,10 +539,10 @@ const getRecentActivities = async (req, res) => {
             amount: true,
             status: true,
             paymentDate: true,
-            createdAt: true,
+            createdAt: true
           },
           orderBy: { createdAt: 'desc' },
-          take: 5,
+          take: 5
         }),
       ]);
 
@@ -553,7 +553,7 @@ const getRecentActivities = async (req, res) => {
         action: `Purchase Order ${o.orderNumber}`,
         details: `${o.supplierName} • ${o.status}`,
         amount: toNum(o.grandTotal),
-        createdAt: o.createdAt.toISOString(),
+        createdAt: o.createdAt.toISOString()
       })),
       ...recentInvoices.map((inv) => ({
         id: inv.id,
@@ -561,7 +561,7 @@ const getRecentActivities = async (req, res) => {
         action: `Invoice ${inv.invoiceNumber}`,
         details: `${inv.supplierName} • ${inv.paymentStatus}`,
         amount: toNum(inv.grandTotal),
-        createdAt: (inv.createdAt || inv.invoiceDate).toISOString(),
+        createdAt: (inv.createdAt || inv.invoiceDate).toISOString()
       })),
       ...recentReturns.map((r) => ({
         id: r.id,
@@ -569,7 +569,7 @@ const getRecentActivities = async (req, res) => {
         action: `Return ${r.returnNumber}`,
         details: `${r.supplierName} • ${r.status}`,
         amount: toNum(r.grandTotal) || toNum(r.returnAmount),
-        createdAt: r.createdAt.toISOString(),
+        createdAt: r.createdAt.toISOString()
       })),
       ...recentPayments.map((p) => ({
         id: p.id,
@@ -577,7 +577,7 @@ const getRecentActivities = async (req, res) => {
         action: `Payment ${p.paymentNumber}`,
         details: `${p.supplierName} • ${p.status}`,
         amount: toNum(p.amount),
-        createdAt: (p.createdAt || p.paymentDate).toISOString(),
+        createdAt: (p.createdAt || p.paymentDate).toISOString()
       })),
     ]
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
@@ -595,5 +595,5 @@ module.exports = {
   getSpendTrend,
   getOrderStatusDistribution,
   getTopSuppliers,
-  getRecentActivities,
+  getRecentActivities
 };

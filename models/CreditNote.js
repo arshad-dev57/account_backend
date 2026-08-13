@@ -80,7 +80,7 @@ class CreditNoteModel {
           expiryDate: expiryDate,
           notes: data.notes || '',
           createdBy: data.createdBy,
-          companyId: data.companyId || null,
+          companyId: data.companyId || null
         },
         include: {
           customer: {

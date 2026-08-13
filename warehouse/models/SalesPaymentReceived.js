@@ -785,7 +785,7 @@ class SalesPaymentReceivedModel {
               }))
             }
           },
-          include: { lines: true },
+          include: { lines: true }
         });
 
         await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);

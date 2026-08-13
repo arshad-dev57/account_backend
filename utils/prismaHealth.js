@@ -39,7 +39,7 @@ function getPrismaHealth(prisma) {
     hint:
       missing.length > 0
         ? 'Stale Prisma Client on deploy. Redeploy Vercel with "Clear cache", ensure postinstall runs prisma generate.'
-        : null,
+        : null
   };
 }
 
@@ -59,5 +59,5 @@ function assertPrismaModels(prisma, modelNames = REQUIRED_MODELS) {
 module.exports = {
   REQUIRED_MODELS,
   getPrismaHealth,
-  assertPrismaModels,
+  assertPrismaModels
 };

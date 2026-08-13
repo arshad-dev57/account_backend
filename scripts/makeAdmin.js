@@ -12,7 +12,7 @@ async function makeUserAdmin() {
         lastName: true,
         email: true,
         role: true,
-        createdAt: true,
+        createdAt: true
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -37,7 +37,7 @@ async function makeUserAdmin() {
           firstName: true,
           lastName: true,
           email: true,
-          role: true,
+          role: true
         }
       });
 

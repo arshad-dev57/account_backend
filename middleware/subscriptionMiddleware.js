@@ -20,14 +20,14 @@ exports.checkActiveSubscription = async (req, res, next) => {
         subscriptionStartDate: true,
         subscriptionEndDate: true,
         trialStartDate: true,
-        trialEndDate: true,
+        trialEndDate: true
       }
     });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -61,7 +61,7 @@ exports.checkActiveSubscription = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         message: 'Subscription required. Please subscribe to access this feature.',
-        code: 'SUBSCRIPTION_REQUIRED',
+        code: 'SUBSCRIPTION_REQUIRED'
       });
     }
 
@@ -70,7 +70,7 @@ exports.checkActiveSubscription = async (req, res, next) => {
     console.error('Subscription middleware error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error checking subscription',
+      message: 'Server error checking subscription'
     });
   }
 };

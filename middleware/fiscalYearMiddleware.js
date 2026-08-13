@@ -20,7 +20,7 @@ async function findFiscalYearForDate(userId, date) {
     const d = new Date(date);
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { companyId: true },
+      select: { companyId: true }
     });
     if (!user?.companyId) return null;
 
@@ -28,8 +28,8 @@ async function findFiscalYearForDate(userId, date) {
       where: {
         companyId: user.companyId,
         startDate: { lte: d },
-        endDate: { gte: d },
-      },
+        endDate: { gte: d }
+      }
     });
   } catch {
     return null;

@@ -9,7 +9,7 @@ const {
   createInvoiceFromOrder,
   updateInvoiceStatus,
   recordPayment,
-  deleteInvoice,
+  deleteInvoice
 } = require('../controller/warehouse_invoice_controller');
 
 router.use(protect);

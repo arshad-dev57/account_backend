@@ -66,7 +66,7 @@ const createInvoiceFromOrder = async (req, res) => {
       transactionId: invoice.id,
       transactionType: 'SalesInvoice',
       items: invoice.items || [],
-      customerId: invoice.customerId,
+      customerId: invoice.customerId
     });
 
     res.status(201).json({
@@ -102,7 +102,7 @@ const createManualInvoice = async (req, res) => {
       dueDate,
       paymentTerms,
       notes,
-      invoiceDate,
+      invoiceDate
     } = req.body;
 
     const postingDate = invoiceDate ? new Date(invoiceDate) : new Date();
@@ -173,7 +173,7 @@ const createManualInvoice = async (req, res) => {
         unitPrice: item.unitPrice || product.sellingPrice,
         discount: item.discount || 0,
         taxRate: item.taxRate || product.taxRate || 0,
-        notes: item.notes || '',
+        notes: item.notes || ''
       });
     }
 
@@ -202,7 +202,7 @@ const createManualInvoice = async (req, res) => {
       transactionId: invoice.id,
       transactionType: 'SalesInvoice',
       items: processedItems,
-      customerId,
+      customerId
     });
 
     res.status(201).json({
@@ -623,7 +623,7 @@ const updateSalesInvoice = async (req, res) => {
           unitPrice: item.unitPrice || product.sellingPrice,
           discount: item.discount || 0,
           taxRate: item.taxRate || product.taxRate || 0,
-          notes: item.notes || '',
+          notes: item.notes || ''
         });
       }
       updateData.items = processedItems;
@@ -828,7 +828,7 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId },
-      ],
+      ]
     };
 
     if (search && String(search).trim()) {
@@ -840,7 +840,7 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
             { customerName: { contains: q, mode: 'insensitive' } },
             { customerEmail: { contains: q, mode: 'insensitive' } },
             { customerPhone: { contains: q, mode: 'insensitive' } },
-          ],
+          ]
         },
       ];
     }
@@ -859,20 +859,20 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
             totalPrice: true,
             discount: true,
             taxRate: true,
-            taxAmount: true,
-          },
+            taxAmount: true
+          }
         },
         customer: {
-          select: { id: true, name: true, email: true, phone: true },
+          select: { id: true, name: true, email: true, phone: true }
         },
         salesInvoices: {
           where: { isActive: true, isDeleted: false },
-          select: { id: true },
-        },
+          select: { id: true }
+        }
       },
       skip: (parseInt(page) - 1) * parseInt(limit),
       take: parseInt(limit),
-      orderBy: { orderDate: 'desc' },
+      orderBy: { orderDate: 'desc' }
     });
 
     const availableOrders = orders
@@ -912,7 +912,7 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
           totalItems: itemCount,
           totalQuantity: itemsQty,
           customerNotes: order.customerNotes,
-          items,
+          items
         };
       });
 
@@ -926,15 +926,15 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / parseInt(limit)) || 1,
-      },
+        pages: Math.ceil(total / parseInt(limit)) || 1
+      }
     });
   } catch (error) {
     console.error('Get available orders error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

@@ -64,8 +64,8 @@ function emptySummary() {
       income: { count: 0, debitTotal: 0, creditTotal: 0 },
       payments: { count: 0, debitTotal: 0, creditTotal: 0 },
       pos: { count: 0, debitTotal: 0, creditTotal: 0 },
-      transfers: { count: 0, debitTotal: 0, creditTotal: 0 },
-    },
+      transfers: { count: 0, debitTotal: 0, creditTotal: 0 }
+    }
   };
 }
 
@@ -84,7 +84,7 @@ function mapEntry(entry) {
     type: entry.type || 'Normal',
     debit,
     credit,
-    grandTotal: Math.max(debit, credit),
+    grandTotal: Math.max(debit, credit)
   };
 }
 
@@ -104,7 +104,7 @@ const getAccountingReports = async (req, res) => {
       startDate,
       endDate,
       page = 1,
-      limit = 50,
+      limit = 50
     } = req.query;
 
     const dateFilter = getDateFilter(period, startDate, endDate);
@@ -113,7 +113,7 @@ const getAccountingReports = async (req, res) => {
 
     const where = {
       companyId,
-      date: dateFilter,
+      date: dateFilter
     };
 
     if (status && status !== 'all') {
@@ -141,8 +141,8 @@ const getAccountingReports = async (req, res) => {
         purchaseReturn: { select: { id: true } },
         posSale: { select: { id: true } },
         posReturn: { select: { id: true } },
-        transaction: { select: { id: true } },
-      },
+        transaction: { select: { id: true } }
+      }
     });
 
     let rows = entries.map(mapEntry);
@@ -180,7 +180,7 @@ const getAccountingReports = async (req, res) => {
           startDate: startDate || null,
           endDate: endDate || null,
           status,
-          search: search || '',
+          search: search || ''
         },
         summary,
         rows: paged,
@@ -188,9 +188,9 @@ const getAccountingReports = async (req, res) => {
           page: pageNum,
           limit: take,
           total,
-          totalPages,
-        },
-      },
+          totalPages
+        }
+      }
     });
   } catch (error) {
     console.error('getAccountingReports error:', error);

@@ -100,7 +100,7 @@ exports.getProfitLossStatement = async (req, res) => {
         fiscalYearId,
         start,
         end,
-        period: period || (startDate && endDate ? 'Custom' : 'This Year'),
+        period: period || (startDate && endDate ? 'Custom' : 'This Year')
       });
       start = clamped.start;
       end = clamped.end;
@@ -116,7 +116,7 @@ exports.getProfitLossStatement = async (req, res) => {
           gte: start,
           lte: end
         },
-        status: 'Posted',
+        status: 'Posted'
       }
     });
 
@@ -129,7 +129,7 @@ exports.getProfitLossStatement = async (req, res) => {
           gte: start,
           lte: end
         },
-        status: 'Posted',
+        status: 'Posted'
       }
     });
 
@@ -143,7 +143,7 @@ exports.getProfitLossStatement = async (req, res) => {
         },
         status: {
           not: 'Draft'
-        },
+        }
       }
     });
 
@@ -154,7 +154,7 @@ exports.getProfitLossStatement = async (req, res) => {
         date: {
           gte: start,
           lte: end
-        },
+        }
       }
     });
 
@@ -165,7 +165,7 @@ exports.getProfitLossStatement = async (req, res) => {
         date: {
           gte: start,
           lte: end
-        },
+        }
       }
     });
 

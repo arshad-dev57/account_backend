@@ -24,8 +24,8 @@ async function findAPAccount(tx, companyId) {
         { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
         { name: { contains: 'Trade Payables', mode: 'insensitive' } },
         { name: { contains: 'Creditors', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 }
 
@@ -38,8 +38,8 @@ async function findInventoryAccount(tx, companyId) {
         { code: '1300' },
         { name: { equals: 'Inventory', mode: 'insensitive' } },
         { name: { contains: 'Inventory', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 }
 
@@ -60,8 +60,8 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
       taxCode: 'N/A',
       isActive: true,
       createdBy: userId || 'SYSTEM',
-      companyId,
-    },
+      companyId
+    }
   });
   return account;
 }
@@ -76,8 +76,8 @@ async function findOrCreateCashAccount(tx, companyId, userId) {
         { name: { equals: 'Cash', mode: 'insensitive' } },
         { name: { contains: 'Cash in Hand', mode: 'insensitive' } },
         { name: { contains: 'Cash', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 
   if (!account) {
@@ -94,8 +94,8 @@ async function findOrCreateCashAccount(tx, companyId, userId) {
         taxCode: 'N/A',
         isActive: true,
         createdBy: userId || 'SYSTEM',
-        companyId,
-      },
+        companyId
+      }
     });
   }
   return account;
@@ -118,8 +118,8 @@ async function findOrCreateAPAccount(tx, companyId, userId) {
       taxCode: 'N/A',
       isActive: true,
       createdBy: userId || 'SYSTEM',
-      companyId,
-    },
+      companyId
+    }
   });
   return account;
 }
@@ -392,21 +392,21 @@ class PurchaseReturnModel {
           id,
           companyId: companyId,
           isActive: true,
-          isDeleted: false,
+          isDeleted: false
         },
         include: {
           items: {
             include: {
-              product: true,
-            },
+              product: true
+            }
           },
           supplier: true,
           purchaseInvoice: {
             include: {
-              accountsPayable: true,
-            },
-          },
-        },
+              accountsPayable: true
+            }
+          }
+        }
       });
 
       if (!purchaseReturn) {
@@ -464,19 +464,19 @@ class PurchaseReturnModel {
                 accountName: debitAccount.name,
                 accountCode: debitAccount.code,
                 debit: amount,
-                credit: 0,
+                credit: 0
               },
               {
                 accountId: inventoryAccount.id,
                 accountName: inventoryAccount.name,
                 accountCode: inventoryAccount.code,
                 debit: 0,
-                credit: amount,
+                credit: amount
               },
-            ],
-          },
+            ]
+          }
         },
-        include: { lines: true },
+        include: { lines: true }
       });
 
       await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
@@ -489,13 +489,13 @@ class PurchaseReturnModel {
           journalEntryId: journalEntry.id,
           processedBy: userId,
           processedAt: new Date(),
-          updatedBy: userId,
+          updatedBy: userId
         },
         include: {
           items: {
             include: {
-              product: true,
-            },
+              product: true
+            }
           },
           supplier: true,
           purchaseInvoice: true,
@@ -503,18 +503,18 @@ class PurchaseReturnModel {
             include: {
               lines: {
                 include: {
-                  account: true,
-                },
-              },
-            },
-          },
-        },
+                  account: true
+                }
+              }
+            }
+          }
+        }
       });
 
       // ─── Update Inventory Stock ──────────────────────────────
       for (const item of purchaseReturn.items) {
         const product = await tx.product.findUnique({
-          where: { id: item.productId },
+          where: { id: item.productId }
         });
 
         if (!product) continue;
@@ -525,8 +525,8 @@ class PurchaseReturnModel {
           where: { id: item.productId },
           data: {
             currentStock: newStock,
-            availableStock: newStock,
-          },
+            availableStock: newStock
+          }
         });
 
         await tx.stockMovement.create({
@@ -545,8 +545,8 @@ class PurchaseReturnModel {
             status: 'Completed',
             notes: `Returned ${item.returnQuantity} ${item.productName} - ${purchaseReturn.returnReason}`,
             createdBy: userId,
-            companyId: companyId,
-          },
+            companyId: companyId
+          }
         });
       }
 
@@ -560,8 +560,8 @@ class PurchaseReturnModel {
             where: { id: invoice.id },
             data: {
               paidAmount: newPaid,
-              notes: `${invoice.notes || ''}\nReturn ${purchaseReturn.returnNumber} refund ${amount}`.trim(),
-            },
+              notes: `${invoice.notes || ''}\nReturn ${purchaseReturn.returnNumber} refund ${amount}`.trim()
+            }
           });
         } else {
           const newOutstanding = Math.max(
@@ -584,16 +584,16 @@ class PurchaseReturnModel {
             data: {
               outstanding: newOutstanding,
               invoiceStatus,
-              paymentStatus,
-            },
+              paymentStatus
+            }
           });
 
           await tx.accountsPayable.updateMany({
             where: { invoiceId: invoice.id },
             data: {
               outstanding: newOutstanding,
-              status: newOutstanding <= 0.01 ? 'Paid' : 'Current',
-            },
+              status: newOutstanding <= 0.01 ? 'Paid' : 'Current'
+            }
           });
         }
       }

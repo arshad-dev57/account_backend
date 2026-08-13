@@ -11,7 +11,7 @@ const createNotification = async (req, res) => {
     if (!userId || !title || !message) {
       return res.status(400).json({
         success: false,
-        message: 'userId, title, and message are required',
+        message: 'userId, title, and message are required'
       });
     }
 
@@ -22,14 +22,14 @@ const createNotification = async (req, res) => {
         message,
         type: type || 'info',
         category: category || 'System',
-        data: data || {},
-      },
+        data: data || {}
+      }
     });
 
     res.status(201).json({
       success: true,
       data: notification,
-      message: 'Notification created successfully',
+      message: 'Notification created successfully'
     });
   } catch (error) {
     console.error('Error creating notification:', error);
@@ -45,7 +45,7 @@ const getUserNotifications = async (req, res) => {
     const { unreadOnly = false, limit = 50, offset = 0 } = req.query;
 
     const where = {
-      userId,
+      userId
     };
 
     if (unreadOnly === 'true') {
@@ -55,15 +55,15 @@ const getUserNotifications = async (req, res) => {
     const notifications = await prisma.notification.findMany({
       where,
       orderBy: {
-        createdAt: 'desc',
+        createdAt: 'desc'
       },
       take: parseInt(limit),
-      skip: parseInt(offset),
+      skip: parseInt(offset)
     });
 
     const totalCount = await prisma.notification.count({ where });
     const unreadCount = await prisma.notification.count({
-      where: { userId, isRead: false },
+      where: { userId, isRead: false }
     });
 
     res.status(200).json({
@@ -73,8 +73,8 @@ const getUserNotifications = async (req, res) => {
         total: totalCount,
         unread: unreadCount,
         limit: parseInt(limit),
-        offset: parseInt(offset),
-      },
+        offset: parseInt(offset)
+      }
     });
   } catch (error) {
     console.error('Error getting notifications:', error);
@@ -92,24 +92,24 @@ const markAsRead = async (req, res) => {
     const notification = await prisma.notification.updateMany({
       where: {
         id,
-        userId,
+        userId
       },
       data: {
         isRead: true,
-        readAt: new Date(),
-      },
+        readAt: new Date()
+      }
     });
 
     if (notification.count === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Notification not found',
+        message: 'Notification not found'
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'Notification marked as read',
+      message: 'Notification marked as read'
     });
   } catch (error) {
     console.error('Error marking notification as read:', error);
@@ -126,17 +126,17 @@ const markAllAsRead = async (req, res) => {
     await prisma.notification.updateMany({
       where: {
         userId,
-        isRead: false,
+        isRead: false
       },
       data: {
         isRead: true,
-        readAt: new Date(),
-      },
+        readAt: new Date()
+      }
     });
 
     res.status(200).json({
       success: true,
-      message: 'All notifications marked as read',
+      message: 'All notifications marked as read'
     });
   } catch (error) {
     console.error('Error marking all notifications as read:', error);
@@ -154,20 +154,20 @@ const deleteNotification = async (req, res) => {
     const notification = await prisma.notification.deleteMany({
       where: {
         id,
-        userId,
-      },
+        userId
+      }
     });
 
     if (notification.count === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Notification not found',
+        message: 'Notification not found'
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'Notification deleted successfully',
+      message: 'Notification deleted successfully'
     });
   } catch (error) {
     console.error('Error deleting notification:', error);
@@ -183,13 +183,13 @@ const getUnreadCount = async (req, res) => {
     const count = await prisma.notification.count({
       where: {
         userId,
-        isRead: false,
-      },
+        isRead: false
+      }
     });
 
     res.status(200).json({
       success: true,
-      data: { count },
+      data: { count }
     });
   } catch (error) {
     console.error('Error getting unread count:', error);
@@ -205,5 +205,5 @@ module.exports = {
   markAsRead,
   markAllAsRead,
   deleteNotification,
-  getUnreadCount,
+  getUnreadCount
 };

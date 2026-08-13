@@ -63,8 +63,8 @@ async function findOrCreateAPAccount(tx, companyId, userId) {
         { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
         { name: { contains: 'Creditors', mode: 'insensitive' } },
         { name: { contains: 'Trade Payables', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 
   if (!account) {
@@ -80,8 +80,8 @@ async function findOrCreateAPAccount(tx, companyId, userId) {
         description: 'Accounts Payable - Auto-created for Purchase Invoices',
         isActive: true,
         createdBy: userId || 'SYSTEM',
-        companyId: companyId,
-      },
+        companyId: companyId
+      }
     });
     console.log('✅ Auto-created Accounts Payable Account (2000)');
   }
@@ -348,7 +348,7 @@ class PurchaseInvoiceModel {
             where: {
               isActive: true,
               isDeleted: false,
-              status: { in: ['Partially Received', 'Fully Received'] },
+              status: { in: ['Partially Received', 'Fully Received'] }
             },
             include: { items: true }
           }
@@ -814,7 +814,7 @@ class PurchaseInvoiceModel {
                 }))
               }
             },
-            include: { lines: true },
+            include: { lines: true }
           });
           await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);
         }

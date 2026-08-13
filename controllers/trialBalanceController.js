@@ -7,7 +7,7 @@ const FRONTEND_TYPE_MAP = {
   Liability: 'Liabilities',
   Equity: 'Equity',
   Revenue: 'Income',
-  Expense: 'Expenses',
+  Expense: 'Expenses'
 };
 
 const BACKEND_TYPE_MAP = {
@@ -15,7 +15,7 @@ const BACKEND_TYPE_MAP = {
   Liabilities: 'Liability',
   Equity: 'Equity',
   Income: 'Revenue',
-  Expenses: 'Expense',
+  Expenses: 'Expense'
 };
 
 function hasOpeningBalanceJournalEntry(allEntries, accountId) {
@@ -73,20 +73,20 @@ async function resolvePeriodBounds({ startDate, endDate, fiscalYearId, companyId
   if (startDate && endDate) {
     return {
       periodStart: new Date(startDate),
-      periodEnd: new Date(endDate),
+      periodEnd: new Date(endDate)
     };
   }
 
   if (fiscalYearId) {
     const fiscalYear = await prisma.fiscalYear.findFirst({
       where: { id: fiscalYearId, companyId },
-      select: { startDate: true, endDate: true },
+      select: { startDate: true, endDate: true }
     });
 
     if (fiscalYear) {
       return {
         periodStart: fiscalYear.startDate,
-        periodEnd: fiscalYear.endDate,
+        periodEnd: fiscalYear.endDate
       };
     }
   }
@@ -139,7 +139,7 @@ function buildAccountTrialBalance(account, allPostedEntries, priorEntries, perio
     debitBalance: finalDebitBalance,
     creditBalance: finalCreditBalance,
     openingBalance: account.openingBalance,
-    currentBalance: account.currentBalance,
+    currentBalance: account.currentBalance
   };
 }
 
@@ -158,15 +158,15 @@ exports.getTrialBalance = async (req, res) => {
       startDate,
       endDate,
       fiscalYearId,
-      companyId,
+      companyId
     });
 
     const allPostedEntries = await prisma.journalEntry.findMany({
       where: {
         companyId,
-        status: 'Posted',
+        status: 'Posted'
       },
-      include: { lines: true },
+      include: { lines: true }
     });
 
     let priorEntries = [];
@@ -181,7 +181,7 @@ exports.getTrialBalance = async (req, res) => {
 
     let accountsQuery = {
       companyId,
-      isActive: true,
+      isActive: true
     };
 
     if (accountType && accountType !== 'All') {
@@ -190,7 +190,7 @@ exports.getTrialBalance = async (req, res) => {
 
     const accounts = await prisma.chartOfAccount.findMany({
       where: accountsQuery,
-      orderBy: { code: 'asc' },
+      orderBy: { code: 'asc' }
     });
 
     let trialBalanceData = accounts.map((account) =>
@@ -229,20 +229,20 @@ exports.getTrialBalance = async (req, res) => {
         isBalanced,
         message: isBalanced
           ? '✅ Trial Balance is balanced'
-          : '⚠️ Trial Balance is NOT balanced. Please check entries.',
+          : '⚠️ Trial Balance is NOT balanced. Please check entries.'
       },
       period: {
         startDate: periodStart ? periodStart.toISOString() : startDate || null,
         endDate: periodEnd ? periodEnd.toISOString() : endDate || null,
-        fiscalYearId: fiscalYearId || null,
-      },
+        fiscalYearId: fiscalYearId || null
+      }
     });
   } catch (error) {
     console.error('❌ Get trial balance error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -264,7 +264,7 @@ exports.getTrialBalanceSummary = async (req, res) => {
       dateFilter = {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
+          lte: new Date(endDate)
         }
       };
     }
@@ -295,7 +295,7 @@ exports.getTrialBalanceSummary = async (req, res) => {
       Liabilities: { debit: 0, credit: 0, count: 0 },
       Equity: { debit: 0, credit: 0, count: 0 },
       Income: { debit: 0, credit: 0, count: 0 },
-      Expenses: { debit: 0, credit: 0, count: 0 },
+      Expenses: { debit: 0, credit: 0, count: 0 }
     };
 
     // Map backend type to frontend type
@@ -364,7 +364,7 @@ exports.getTrialBalanceSummary = async (req, res) => {
         ...t,
         total,
         percentage: grandTotal > 0 ? (total / grandTotal) * 100 : 0,
-        isDebitType: ['Assets', 'Expenses'].includes(key),
+        isDebitType: ['Assets', 'Expenses'].includes(key)
       };
     });
 
@@ -386,14 +386,14 @@ exports.getTrialBalanceSummary = async (req, res) => {
           startDate: startDate || null,
           endDate: endDate || null
         }
-      },
+      }
     });
   } catch (error) {
     console.error('❌ Get trial balance summary error:', error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -426,7 +426,7 @@ exports.getTrialBalanceByType = async (req, res) => {
       dateFilter = {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
+          lte: new Date(endDate)
         }
       };
     }
@@ -510,7 +510,7 @@ exports.getTrialBalanceByType = async (req, res) => {
         creditBalance: finalCreditBalance,
         netBalance: netBalance,
         openingBalance: account.openingBalance,
-        currentBalance: account.currentBalance,
+        currentBalance: account.currentBalance
       };
     });
 
@@ -539,7 +539,7 @@ exports.getTrialBalanceByType = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -561,7 +561,7 @@ exports.exportTrialBalance = async (req, res) => {
       dateFilter = {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
+          lte: new Date(endDate)
         }
       };
     }
@@ -657,7 +657,7 @@ exports.exportTrialBalance = async (req, res) => {
         debitBalance: finalDebitBalance,
         creditBalance: finalCreditBalance,
         netBalance: netBalance,
-        currentBalance: account.currentBalance,
+        currentBalance: account.currentBalance
       };
     });
 
@@ -694,7 +694,7 @@ exports.exportTrialBalance = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -725,7 +725,7 @@ exports.compareTrialBalance = async (req, res) => {
       const dateFilter = {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
+          lte: new Date(endDate)
         }
       };
 
@@ -785,7 +785,7 @@ exports.compareTrialBalance = async (req, res) => {
           accountType: account.type,
           debitBalance: netBalance > 0 ? netBalance : 0,
           creditBalance: netBalance < 0 ? Math.abs(netBalance) : 0,
-          netBalance: netBalance,
+          netBalance: netBalance
         };
       });
 
@@ -828,16 +828,16 @@ exports.compareTrialBalance = async (req, res) => {
         period1: {
           debitBalance: p1.debitBalance,
           creditBalance: p1.creditBalance,
-          netBalance: p1.netBalance,
+          netBalance: p1.netBalance
         },
         period2: {
           debitBalance: p2.debitBalance,
           creditBalance: p2.creditBalance,
-          netBalance: p2.netBalance,
+          netBalance: p2.netBalance
         },
         change: change,
         changePercent: changePercent,
-        direction: change > 0 ? 'increase' : change < 0 ? 'decrease' : 'no_change',
+        direction: change > 0 ? 'increase' : change < 0 ? 'decrease' : 'no_change'
       });
     });
 
@@ -880,7 +880,7 @@ exports.compareTrialBalance = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -902,7 +902,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
       dateFilter = {
         date: {
           gte: new Date(startDate),
-          lte: new Date(endDate),
+          lte: new Date(endDate)
         }
       };
     }
@@ -934,7 +934,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
       Liabilities: { accounts: [], totalDebit: 0, totalCredit: 0 },
       Equity: { accounts: [], totalDebit: 0, totalCredit: 0 },
       Income: { accounts: [], totalDebit: 0, totalCredit: 0 },
-      Expenses: { accounts: [], totalDebit: 0, totalCredit: 0 },
+      Expenses: { accounts: [], totalDebit: 0, totalCredit: 0 }
     };
 
     const typeMap = {
@@ -995,7 +995,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
           creditBalance: finalCredit,
           netBalance: netBalance,
           openingBalance: account.openingBalance,
-          currentBalance: account.currentBalance,
+          currentBalance: account.currentBalance
         });
         hierarchy[typeKey].totalDebit += finalDebit;
         hierarchy[typeKey].totalCredit += finalCredit;
@@ -1025,7 +1025,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };

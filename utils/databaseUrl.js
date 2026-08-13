@@ -127,7 +127,7 @@ function resolveDatabaseUrl() {
   })();
 
   const resolved = applyServerlessParams(chosen, {
-    forcePoolerFlags: isPoolerChosen,
+    forcePoolerFlags: isPoolerChosen
   });
 
   if (!globalThis.__prismaUrlLogged) {
@@ -153,7 +153,7 @@ function describeDatabaseUrl(raw = process.env.DATABASE_URL) {
       port: url.port || '5432',
       pgbouncer: url.searchParams.get('pgbouncer'),
       connection_limit: url.searchParams.get('connection_limit'),
-      isPooler: looksLikePooler(url),
+      isPooler: looksLikePooler(url)
     };
   } catch {
     return { host: null, invalid: true };
@@ -165,5 +165,5 @@ module.exports = {
   describeDatabaseUrl,
   deriveNeonDirectUrl,
   applyServerlessParams,
-  isServerlessRuntime,
+  isServerlessRuntime
 };

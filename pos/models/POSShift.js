@@ -24,11 +24,11 @@ class POSShiftModel {
       where: {
         terminalId,
         companyId,
-        status: { in: ['Open', 'Suspended'] },
+        status: { in: ['Open', 'Suspended'] }
       },
       include: {
-        cashier: { select: { firstName: true, lastName: true } },
-      },
+        cashier: { select: { firstName: true, lastName: true } }
+      }
     });
     if (terminalBusy) {
       const name = `${terminalBusy.cashier?.firstName || ''} ${terminalBusy.cashier?.lastName || ''}`.trim();

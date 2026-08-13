@@ -31,8 +31,8 @@ class WarehousePurchaseModel {
           reference: data.reference || '',
           notes: data.notes || '',
           internalNotes: data.internalNotes || '',
-          createdBy: data.createdBy,
-        },
+          createdBy: data.createdBy
+        }
       });
 
       for (const item of data.items || []) {
@@ -48,8 +48,8 @@ class WarehousePurchaseModel {
             taxRate: item.taxRate || 0,
             taxAmount: item.taxAmount || 0,
             totalCost: item.totalCost,
-            notes: item.notes || '',
-          },
+            notes: item.notes || ''
+          }
         });
       }
 
@@ -58,8 +58,8 @@ class WarehousePurchaseModel {
         include: {
           items: true,
           supplier: true,
-          creator: { select: { id: true, firstName: true, lastName: true, email: true } },
-        },
+          creator: { select: { id: true, firstName: true, lastName: true, email: true } }
+        }
       });
     });
   }
@@ -74,8 +74,8 @@ class WarehousePurchaseModel {
       include: {
         items: true,
         supplier: { select: { id: true, name: true, companyName: true } },
-        creator: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
+        creator: { select: { id: true, firstName: true, lastName: true, email: true } }
+      }
     });
   }
 
@@ -90,8 +90,8 @@ class WarehousePurchaseModel {
         items: true,
         supplier: true,
         stockMovements: true,
-        creator: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
+        creator: { select: { id: true, firstName: true, lastName: true, email: true } }
+      }
     });
   }
 
@@ -99,14 +99,14 @@ class WarehousePurchaseModel {
     return prisma.warehousePurchase.update({
       where: { id },
       data,
-      include: { items: true },
+      include: { items: true }
     });
   }
 
   static async softDelete(id, userId) {
     return prisma.warehousePurchase.update({
       where: { id },
-      data: { isActive: false, isDeleted: true, updatedBy: userId, purchaseStatus: 'Cancelled' },
+      data: { isActive: false, isDeleted: true, updatedBy: userId, purchaseStatus: 'Cancelled' }
     });
   }
 
@@ -114,7 +114,7 @@ class WarehousePurchaseModel {
     return prisma.$transaction(async (tx) => {
       const purchase = await tx.warehousePurchase.findUnique({
         where: { id },
-        include: { items: true },
+        include: { items: true }
       });
       if (!purchase) throw new Error('Purchase not found');
       if (purchase.purchaseStatus === 'Cancelled') throw new Error('Cannot receive cancelled PO');
@@ -141,8 +141,8 @@ class WarehousePurchaseModel {
             currentStock: newStock,
             availableStock: newStock,
             costPrice: line.unitCost,
-            totalValue: newStock * line.unitCost,
-          },
+            totalValue: newStock * line.unitCost
+          }
         });
 
         await tx.stockMovement.create({
@@ -161,14 +161,14 @@ class WarehousePurchaseModel {
             reference: purchase.purchaseNumber,
             purchaseId: purchase.id,
             notes: recv.notes || purchase.reference || '',
-            createdBy: userId,
-          },
+            createdBy: userId
+          }
         });
 
         const newReceived = line.receivedQty + qty;
         await tx.warehousePurchaseItem.update({
           where: { id: line.id },
-          data: { receivedQty: newReceived },
+          data: { receivedQty: newReceived }
         });
         if (newReceived < line.quantity) allReceived = false;
       }
@@ -181,9 +181,9 @@ class WarehousePurchaseModel {
         data: {
           purchaseStatus: allReceived ? 'Received' : 'PartiallyReceived',
           receivedDate: allReceived ? new Date() : purchase.receivedDate,
-          updatedBy: userId,
+          updatedBy: userId
         },
-        include: { items: true, stockMovements: true },
+        include: { items: true, stockMovements: true }
       });
     });
   }
@@ -217,11 +217,11 @@ class WarehousePurchaseModel {
 
     const financial = await prisma.warehousePurchase.aggregate({
       where: base,
-      _sum: { grandTotal: true, taxTotal: true },
+      _sum: { grandTotal: true, taxTotal: true }
     });
 
     const unpaid = await prisma.warehousePurchase.count({
-      where: { ...base, paymentStatus: { in: ['Unpaid', 'Partial'] } },
+      where: { ...base, paymentStatus: { in: ['Unpaid', 'Partial'] } }
     });
 
     return {
@@ -233,7 +233,7 @@ class WarehousePurchaseModel {
       cancelled,
       unpaid,
       grandTotal: financial._sum.grandTotal || 0,
-      taxTotal: financial._sum.taxTotal || 0,
+      taxTotal: financial._sum.taxTotal || 0
     };
   }
 
@@ -247,10 +247,10 @@ class WarehousePurchaseModel {
         isActive: true,
         isDeleted: false,
         purchaseDate: { gte: start },
-        purchaseStatus: { not: 'Cancelled' },
+        purchaseStatus: { not: 'Cancelled' }
       },
       select: { purchaseDate: true, grandTotal: true },
-      orderBy: { purchaseDate: 'asc' },
+      orderBy: { purchaseDate: 'asc' }
     });
 
     const map = {};

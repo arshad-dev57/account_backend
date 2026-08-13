@@ -7,7 +7,7 @@ const {
   markAsRead,
   markAllAsRead,
   deleteNotification,
-  getUnreadCount,
+  getUnreadCount
 } = require('../controllers/notificationController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -44,7 +44,7 @@ router.post('/send', async (req, res) => {
       console.error('❌ [Notification Route] Missing userId in request');
       return res.status(400).json({
         success: false,
-        message: 'userId is required',
+        message: 'userId is required'
       });
     }
 
@@ -54,7 +54,7 @@ router.post('/send', async (req, res) => {
       subscriptionId: subscriptionId,
       title: title || 'Notification',
       message: message || '',
-      data: data || {},
+      data: data || {}
     });
 
     console.log('🔔 [Notification Route] OneSignal result:', JSON.stringify(result, null, 2));
@@ -63,7 +63,7 @@ router.post('/send', async (req, res) => {
     res.status(200).json({
       success: true,
       result: result,
-      message: 'Notification sent successfully',
+      message: 'Notification sent successfully'
     });
   } catch (error) {
     console.error('❌ [Notification Route] Error:', error.message);
@@ -73,7 +73,7 @@ router.post('/send', async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
-      error: error.toString(),
+      error: error.toString()
     });
   }
 });

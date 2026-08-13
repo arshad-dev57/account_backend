@@ -5,43 +5,43 @@ const VendorSchema = new mongoose.Schema(
     name: {
       type: String,
       required: [true, 'Vendor name is required'],
-      trim: true,
+      trim: true
     },
     email: {
       type: String,
       lowercase: true,
-      trim: true,
+      trim: true
     },
     phone: {
       type: String,
       required: [true, 'Phone number is required'],
-      trim: true,
+      trim: true
     },
     address: {
       type: String,
-      default: '',
+      default: ''
     },
     taxId: {
       type: String,
-      default: '',
+      default: ''
     },
     paymentTerms: {
       type: String,
       enum: ['Due on Receipt', 'Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60'],
-      default: 'Net 30',
+      default: 'Net 30'
     },
     isActive: {
       type: Boolean,
-      default: true,
+      default: true
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
-    },
+      required: true
+    }
   },
   {
-    timestamps: true,
+    timestamps: true
   }
 );
 

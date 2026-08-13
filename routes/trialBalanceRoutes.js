@@ -1,7 +1,7 @@
 const express = require('express');
 const {
   getTrialBalance,
-  getTrialBalanceSummary,
+  getTrialBalanceSummary
 } = require('../controllers/trialBalanceController');
 const { protect } = require('../middleware/authMiddleware');
 

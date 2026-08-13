@@ -5,7 +5,7 @@
       getAccount,
       updateAccount,
       deleteAccount,
-      createDefaultAccounts,
+      createDefaultAccounts
     } = require('../controllers/chartOfAccountController');
     const { protect } = require('../middleware/authMiddleware');
     const router = express.Router();

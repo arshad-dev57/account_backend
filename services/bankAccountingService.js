@@ -51,8 +51,8 @@ async function resolveFyId(userId, companyId, postingDate) {
         where: {
           companyId,
           startDate: { lte: date },
-          endDate: { gte: date },
-        },
+          endDate: { gte: date }
+        }
       });
       if (fy) return fy.id;
     }
@@ -85,20 +85,20 @@ async function getOrCreateOpeningBalanceEquity(userId, companyId, tx = prisma) {
     where: {
       companyId,
       OR: [{ code: '3010' }, { name: 'Opening Balance Equity' }],
-      isActive: true,
-    },
+      isActive: true
+    }
   });
 
   if (equity) return equity;
 
   const taken = await tx.chartOfAccount.findFirst({
-    where: { companyId, code: '3010' },
+    where: { companyId, code: '3010' }
   });
   let code = '3010';
   if (taken) {
     const maxCode = await tx.chartOfAccount.aggregate({
       where: { companyId },
-      _max: { code: true },
+      _max: { code: true }
     });
     const num = parseInt(maxCode._max.code, 10);
     code = Number.isFinite(num) ? String(num + 1) : `3010-${Date.now()}`;
@@ -117,8 +117,8 @@ async function getOrCreateOpeningBalanceEquity(userId, companyId, tx = prisma) {
       balanceType: 'Credit',
       isActive: true,
       createdBy: userId,
-      companyId,
-    },
+      companyId
+    }
   });
 
   return equity;
@@ -127,7 +127,7 @@ async function getOrCreateOpeningBalanceEquity(userId, companyId, tx = prisma) {
 async function applyLineBalanceChanges(tx, lines, companyId, invert = false) {
   for (const line of lines) {
     const account = await tx.chartOfAccount.findFirst({
-      where: { id: line.accountId, companyId },
+      where: { id: line.accountId, companyId }
     });
     if (!account) {
       throw new Error(`Chart of account not found: ${line.accountId}`);
@@ -137,7 +137,7 @@ async function applyLineBalanceChanges(tx, lines, companyId, invert = false) {
     if (change !== 0) {
       await tx.chartOfAccount.update({
         where: { id: account.id },
-        data: { currentBalance: { increment: change } },
+        data: { currentBalance: { increment: change } }
       });
     }
   }
@@ -147,12 +147,12 @@ async function syncBankBalancesFromCoa(tx, accountIds, companyId) {
   const unique = [...new Set(accountIds.filter(Boolean))];
   for (const accountId of unique) {
     const coa = await tx.chartOfAccount.findFirst({
-      where: { id: accountId, companyId },
+      where: { id: accountId, companyId }
     });
     if (!coa) continue;
     await tx.bankAccount.updateMany({
       where: { chartOfAccountId: accountId, companyId },
-      data: { currentBalance: coa.currentBalance },
+      data: { currentBalance: coa.currentBalance }
     });
   }
 }
@@ -160,7 +160,7 @@ async function syncBankBalancesFromCoa(tx, accountIds, companyId) {
 async function findBankOwned(bankAccountId, companyId, tx = prisma) {
   const bank = await tx.bankAccount.findFirst({
     where: { id: bankAccountId, companyId },
-    include: { chartOfAccount: true },
+    include: { chartOfAccount: true }
   });
   if (!bank) {
     const err = new Error('Bank account not found');
@@ -177,7 +177,7 @@ async function findBankOwned(bankAccountId, companyId, tx = prisma) {
 
 async function findCoaOwned(accountId, companyId, tx = prisma) {
   const account = await tx.chartOfAccount.findFirst({
-    where: { id: accountId, companyId, isActive: true },
+    where: { id: accountId, companyId, isActive: true }
   });
   if (!account) {
     const err = new Error('Chart of account not found or inactive');
@@ -197,7 +197,7 @@ async function upsertBankOpeningBalance({
   bankAccountId,
   amount,
   postingDate = new Date(),
-  balancesAlreadySet = false,
+  balancesAlreadySet = false
 }) {
   const amt = toNum(amount);
   if (amt < 0) {
@@ -217,7 +217,7 @@ async function upsertBankOpeningBalance({
 
     let existing = await tx.journalEntry.findFirst({
       where: { companyId, reference },
-      include: { lines: true },
+      include: { lines: true }
     });
 
     if (!existing) {
@@ -227,14 +227,14 @@ async function upsertBankOpeningBalance({
           journal: {
             companyId,
             description: { contains: 'Opening Balance', mode: 'insensitive' },
-            status: 'Posted',
-          },
-        },
+            status: 'Posted'
+          }
+        }
       });
       if (legacyLine) {
         existing = await tx.journalEntry.findFirst({
           where: { id: legacyLine.journalId },
-          include: { lines: true },
+          include: { lines: true }
         });
       }
     }
@@ -250,11 +250,11 @@ async function upsertBankOpeningBalance({
       }
       await tx.chartOfAccount.update({
         where: { id: bankCoa.id },
-        data: { openingBalance: 0 },
+        data: { openingBalance: 0 }
       });
       await tx.bankAccount.update({
         where: { id: bank.id },
-        data: { openingBalance: 0 },
+        data: { openingBalance: 0 }
       });
       if (!balancesAlreadySet) {
         await syncBankBalancesFromCoa(tx, [bankCoa.id, equity.id], companyId);
@@ -270,7 +270,7 @@ async function upsertBankOpeningBalance({
         accountCode: bankCoa.code,
         debit: amt,
         credit: 0,
-        isReconciled: false,
+        isReconciled: false
       },
       {
         accountId: equity.id,
@@ -278,7 +278,7 @@ async function upsertBankOpeningBalance({
         accountCode: equity.code,
         debit: 0,
         credit: amt,
-        isReconciled: false,
+        isReconciled: false
       },
     ];
 
@@ -297,9 +297,9 @@ async function upsertBankOpeningBalance({
           postedAt: new Date(),
           companyId,
           fiscalYearId,
-          lines: { create: lines },
+          lines: { create: lines }
         },
-        include: { lines: true },
+        include: { lines: true }
       });
     } else {
       const entryNumber = await generateEntryNumber(tx);
@@ -316,19 +316,19 @@ async function upsertBankOpeningBalance({
           postedAt: new Date(),
           companyId,
           fiscalYearId,
-          lines: { create: lines },
+          lines: { create: lines }
         },
-        include: { lines: true },
+        include: { lines: true }
       });
     }
 
     await tx.chartOfAccount.update({
       where: { id: bankCoa.id },
-      data: { openingBalance: amt },
+      data: { openingBalance: amt }
     });
     await tx.bankAccount.update({
       where: { id: bank.id },
-      data: { openingBalance: amt },
+      data: { openingBalance: amt }
     });
 
     if (!balancesAlreadySet) {
@@ -338,8 +338,8 @@ async function upsertBankOpeningBalance({
       const equityLines = await tx.journalLine.findMany({
         where: {
           accountId: equity.id,
-          journal: { companyId, status: 'Posted' },
-        },
+          journal: { companyId, status: 'Posted' }
+        }
       });
       const equityBal = equityLines.reduce(
         (s, l) => s + toNum(l.credit) - toNum(l.debit),
@@ -347,7 +347,7 @@ async function upsertBankOpeningBalance({
       );
       await tx.chartOfAccount.update({
         where: { id: equity.id },
-        data: { currentBalance: equityBal },
+        data: { currentBalance: equityBal }
       });
     }
 
@@ -364,7 +364,7 @@ async function createBankDeposit({
   postingDate = new Date(),
   description,
   reference,
-  notes,
+  notes
 }) {
   const amt = toNum(amount);
   if (amt <= 0) {
@@ -384,7 +384,7 @@ async function createBankDeposit({
 
   const existing = await prisma.journalEntry.findFirst({
     where: { companyId, reference: ref },
-    include: { lines: true },
+    include: { lines: true }
   });
   if (existing) {
     return { journalEntry: existing, duplicate: true };
@@ -413,7 +413,7 @@ async function createBankDeposit({
         accountCode: bankCoa.code,
         debit: amt,
         credit: 0,
-        isReconciled: false,
+        isReconciled: false
       },
       {
         accountId: source.id,
@@ -421,7 +421,7 @@ async function createBankDeposit({
         accountCode: source.code,
         debit: 0,
         credit: amt,
-        isReconciled: false,
+        isReconciled: false
       },
     ];
 
@@ -439,9 +439,9 @@ async function createBankDeposit({
         postedAt: new Date(),
         companyId,
         fiscalYearId,
-        lines: { create: lines },
+        lines: { create: lines }
       },
-      include: { lines: true },
+      include: { lines: true }
     });
 
     await applyLineBalanceChanges(tx, lines, companyId, false);
@@ -449,7 +449,7 @@ async function createBankDeposit({
 
     const updatedBank = await tx.bankAccount.findFirst({
       where: { id: bank.id },
-      include: { chartOfAccount: true },
+      include: { chartOfAccount: true }
     });
 
     return { journalEntry, bankAccount: updatedBank, duplicate: false };
@@ -464,7 +464,7 @@ async function createBankTransfer({
   amount,
   postingDate = new Date(),
   description,
-  reference,
+  reference
 }) {
   const amt = toNum(amount);
   if (amt <= 0) {
@@ -489,7 +489,7 @@ async function createBankTransfer({
 
   const existing = await prisma.journalEntry.findFirst({
     where: { companyId, reference: ref },
-    include: { lines: true },
+    include: { lines: true }
   });
   if (existing) {
     return { journalEntry: existing, duplicate: true };
@@ -520,7 +520,7 @@ async function createBankTransfer({
         accountCode: toCoa.code,
         debit: amt,
         credit: 0,
-        isReconciled: false,
+        isReconciled: false
       },
       {
         accountId: fromCoa.id,
@@ -528,7 +528,7 @@ async function createBankTransfer({
         accountCode: fromCoa.code,
         debit: 0,
         credit: amt,
-        isReconciled: false,
+        isReconciled: false
       },
     ];
 
@@ -546,9 +546,9 @@ async function createBankTransfer({
         postedAt: new Date(),
         companyId,
         fiscalYearId,
-        lines: { create: lines },
+        lines: { create: lines }
       },
-      include: { lines: true },
+      include: { lines: true }
     });
 
     await applyLineBalanceChanges(tx, lines, companyId, false);
@@ -563,7 +563,7 @@ async function createBankTransfer({
       journalEntry,
       fromAccount: fromUpdated,
       toAccount: toUpdated,
-      duplicate: false,
+      duplicate: false
     };
   });
 }
@@ -574,14 +574,14 @@ async function createBankTransfer({
 async function repairCompanyBankOpeningBalances(userId, companyId) {
   const banks = await prisma.bankAccount.findMany({
     where: { companyId, openingBalance: { gt: 0 } },
-    include: { chartOfAccount: true },
+    include: { chartOfAccount: true }
   });
 
   const results = [];
   for (const bank of banks) {
     const ref = openingBalanceReference(bank.id);
     const proper = await prisma.journalEntry.findFirst({
-      where: { companyId, reference: ref, status: 'Posted' },
+      where: { companyId, reference: ref, status: 'Posted' }
     });
     if (proper) {
       results.push({ bankId: bank.id, status: 'ok' });
@@ -594,10 +594,10 @@ async function repairCompanyBankOpeningBalances(userId, companyId) {
         debit: { gt: 0 },
         journal: {
           description: { contains: 'Opening Balance', mode: 'insensitive' },
-          status: 'Posted',
-        },
+          status: 'Posted'
+        }
       },
-      include: { journal: true },
+      include: { journal: true }
     });
 
     if (orphanLine?.journal && !orphanLine.journal.companyId) {
@@ -607,13 +607,13 @@ async function repairCompanyBankOpeningBalances(userId, companyId) {
           companyId,
           reference: ref,
           type: 'OpeningBalance',
-          description: `Opening Balance - ${bank.accountName}`,
-        },
+          description: `Opening Balance - ${bank.accountName}`
+        }
       });
 
       const equity = await getOrCreateOpeningBalanceEquity(userId, companyId);
       const lines = await prisma.journalLine.findMany({
-        where: { journalId: orphanLine.journalId },
+        where: { journalId: orphanLine.journalId }
       });
       const totalDebit = lines.reduce((s, l) => s + toNum(l.debit), 0);
       const totalCredit = lines.reduce((s, l) => s + toNum(l.credit), 0);
@@ -627,16 +627,16 @@ async function repairCompanyBankOpeningBalances(userId, companyId) {
             accountName: equity.name,
             accountCode: equity.code,
             debit: diff < 0 ? Math.abs(diff) : 0,
-            credit: diff > 0 ? diff : 0,
-          },
+            credit: diff > 0 ? diff : 0
+          }
         });
       } else if (Math.abs(diff) > 0.01) {
         await prisma.journalLine.update({
           where: { id: equityLine.id },
           data: {
             debit: diff < 0 ? Math.abs(diff) : 0,
-            credit: diff > 0 ? diff : 0,
-          },
+            credit: diff > 0 ? diff : 0
+          }
         });
       }
       results.push({ bankId: bank.id, status: 'repaired-orphan' });
@@ -649,7 +649,7 @@ async function repairCompanyBankOpeningBalances(userId, companyId) {
       bankAccountId: bank.id,
       amount: bank.openingBalance,
       postingDate: bank.createdAt || new Date(),
-      balancesAlreadySet: true,
+      balancesAlreadySet: true
     });
     results.push({ bankId: bank.id, status: 'created' });
   }
@@ -664,5 +664,5 @@ module.exports = {
   createBankTransfer,
   repairCompanyBankOpeningBalances,
   openingBalanceReference,
-  calculateBalanceChange,
+  calculateBalanceChange
 };

@@ -13,7 +13,7 @@ const buckets = {
   dataUserIdCreate: [],   // `userId: <x>` as an audit field on create (KEEP)
   targetUserIdDecl: [],   // `const targetUserId = ...` (manager/createdBy logic - REMOVE)
   reqUserId: [],          // `const userId = req.user.id` (KEEP)
-  other: [],
+  other: []
 };
 
 for (const dir of dirs) {
