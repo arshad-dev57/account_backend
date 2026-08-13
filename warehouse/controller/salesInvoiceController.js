@@ -2,6 +2,7 @@
 
 const SalesInvoice = require('../models/SalesInvoice');
 const prisma = require('../../prisma/client');
+const taxCalculationService = require('../../tax/services/taxCalculationService');
 const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 
@@ -59,6 +60,14 @@ const createInvoiceFromOrder = async (req, res) => {
       paymentTerms,
       fiscalYearId
     );
+
+    await taxCalculationService.recordFromDocument({
+      companyId,
+      transactionId: invoice.id,
+      transactionType: 'SalesInvoice',
+      items: invoice.items || [],
+      customerId: invoice.customerId,
+    });
 
     res.status(201).json({
       success: true,
@@ -187,6 +196,14 @@ const createManualInvoice = async (req, res) => {
     };
 
     const invoice = await SalesInvoice.createManual(invoiceData);
+
+    await taxCalculationService.recordFromDocument({
+      companyId,
+      transactionId: invoice.id,
+      transactionType: 'SalesInvoice',
+      items: processedItems,
+      customerId,
+    });
 
     res.status(201).json({
       success: true,

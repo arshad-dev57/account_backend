@@ -44,18 +44,57 @@ function classifyLiabilityBucket(parentAccount = '') {
   return 'other';
 }
 
-function resolvePeriodAsOfDate(period, asOfDate) {
-  if (asOfDate) {
-    const d = new Date(asOfDate);
-    d.setHours(23, 59, 59, 999);
-    return d;
-  }
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
 
-  // Balance sheet is a point-in-time statement — default as-of is today.
-  // Period only affects the earnings window (current year earnings).
-  const now = new Date();
-  now.setHours(23, 59, 59, 999);
-  return now;
+function endOfDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+/**
+ * Point-in-time as-of date.
+ * Period is evaluated against [anchor] (today, or FY end for a past year)
+ * so "This Month" on a closed FY means the last month of that year.
+ */
+function resolvePeriodAsOfDate(period, asOfDate, anchor) {
+  const a = endOfDay(anchor || new Date());
+  const label = String(period || 'All Time').trim();
+  const preferFyAnchor =
+    !label || /^(this year|all time|fiscal year|year)$/i.test(label);
+
+  // Full-year views are pinned to the FY/today anchor. Client asOfDate
+  // must not override the selected fiscal year (Flutter was sending today).
+  if (preferFyAnchor) return a;
+
+  if (asOfDate) return endOfDay(new Date(asOfDate));
+
+  if (label === 'This Month') {
+    const monthEnd = endOfDay(new Date(a.getFullYear(), a.getMonth() + 1, 0));
+    return monthEnd < a ? monthEnd : a;
+  }
+  if (label === 'This Quarter') {
+    const q = Math.floor(a.getMonth() / 3);
+    const quarterEnd = endOfDay(new Date(a.getFullYear(), q * 3 + 3, 0));
+    return quarterEnd < a ? quarterEnd : a;
+  }
+  return a;
+}
+
+function earningsStartForPeriod(period, asOf) {
+  const label = String(period || 'All Time').trim();
+  if (label === 'This Month') {
+    return startOfDay(new Date(asOf.getFullYear(), asOf.getMonth(), 1));
+  }
+  if (label === 'This Quarter') {
+    const q = Math.floor(asOf.getMonth() / 3);
+    return startOfDay(new Date(asOf.getFullYear(), q * 3, 1));
+  }
+  return startOfDay(new Date(asOf.getFullYear(), 0, 1));
 }
 
 async function resolveEarningsWindow({
@@ -65,43 +104,31 @@ async function resolveEarningsWindow({
   endDate,
   reportDate,
   period,
+  fyStart,
+  fyEnd,
 }) {
   if (startDate && endDate) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    let start = startOfDay(startDate);
+    let end = endOfDay(endDate);
+    if (fyStart && start < fyStart) start = fyStart;
+    if (fyEnd && end > fyEnd) end = fyEnd;
+    if (reportDate && end > reportDate) end = reportDate;
+    if (start > end) start = startOfDay(end);
     return { start, end };
   }
 
-  if (fiscalYearId) {
-    const fiscalYear = await prisma.fiscalYear.findFirst({
-      where: { id: fiscalYearId, companyId },
-      select: { startDate: true, endDate: true },
-    });
+  const label = String(period || 'All Time').trim();
+  const preferFullFy =
+    !label || /^(this year|all time|fiscal year|year)$/i.test(label);
 
-    if (fiscalYear) {
-      const start = new Date(fiscalYear.startDate);
-      start.setHours(0, 0, 0, 0);
-      const fyEnd = new Date(fiscalYear.endDate);
-      fyEnd.setHours(23, 59, 59, 999);
-      const end = reportDate < fyEnd ? reportDate : fyEnd;
-      return { start, end };
-    }
+  let start;
+  if (preferFullFy && fyStart) {
+    start = fyStart;
+  } else {
+    start = earningsStartForPeriod(period, reportDate);
+    if (fyStart && start < fyStart) start = fyStart;
   }
-
-  let start = new Date(reportDate.getFullYear(), 0, 1);
-  start.setHours(0, 0, 0, 0);
-
-  if (period === 'This Month') {
-    start = new Date(reportDate.getFullYear(), reportDate.getMonth(), 1);
-    start.setHours(0, 0, 0, 0);
-  } else if (period === 'This Quarter') {
-    const quarter = Math.floor(reportDate.getMonth() / 3);
-    start = new Date(reportDate.getFullYear(), quarter * 3, 1);
-    start.setHours(0, 0, 0, 0);
-  }
-
+  if (start > reportDate) start = startOfDay(reportDate);
   return { start, end: reportDate };
 }
 
@@ -146,13 +173,36 @@ function sumLinesInRange(entries, accountId, start, end) {
   return { debit, credit };
 }
 
-function accountBalanceAsOf(account, allEntries, asOfDate) {
+function emptyBalanceSheetPayload(asOf, period, earnings) {
+  return {
+    asOfDate: asOf,
+    period: period || 'All Time',
+    empty: true,
+    earningsPeriod: {
+      startDate: earnings?.start || asOf,
+      endDate: earnings?.end || asOf,
+    },
+    assets: { current: [], fixed: [], other: [] },
+    liabilities: { current: [], longTerm: [], other: [] },
+    equity: { owners: [], retainedEarnings: 0 },
+    totals: {
+      totalAssets: 0,
+      totalLiabilities: 0,
+      totalEquity: 0,
+      totalLiabilitiesAndEquity: 0,
+    },
+    isBalanced: true,
+    difference: 0,
+  };
+}
+
+function accountBalanceAsOf(account, allEntries, asOfDate, { includeOpening = true } = {}) {
   const { debit, credit } = sumLinesUpTo(allEntries, account.id, asOfDate);
   let runningDebit = debit;
   let runningCredit = credit;
 
   const hasOB = hasOpeningBalanceJournalEntry(allEntries, account.id);
-  if (!hasOB && account.openingBalance) {
+  if (includeOpening && !hasOB && account.openingBalance) {
     if (account.type === 'Asset' || account.type === 'Expense') {
       runningDebit += account.openingBalance;
     } else {
@@ -199,15 +249,53 @@ async function buildBalanceSheetFromLedger(
     throw new Error('companyId is required to build balance sheet');
   }
 
-  const reportDate = resolvePeriodAsOfDate(period, asOfDate);
+  let fyStart = null;
+  let fyEnd = null;
+  if (fiscalYearId) {
+    const { getCompanyFiscalYear } = require('./fiscalYearHelper');
+    const fy = await getCompanyFiscalYear(companyId, fiscalYearId);
+    if (fy) {
+      fyStart = startOfDay(fy.startDate);
+      fyEnd = endOfDay(fy.endDate);
+    }
+  }
+
+  const now = endOfDay(new Date());
+
+  // Future FY has not started — do not carry current-year history into it.
+  if (fyStart && fyStart > now) {
+    return emptyBalanceSheetPayload(fyStart, period, {
+      start: fyStart,
+      end: fyStart,
+    });
+  }
+
+  let anchor = now;
+  if (fyStart && fyEnd) {
+    anchor = now < fyEnd ? now : fyEnd;
+  }
+
+  let effectiveAsOf = resolvePeriodAsOfDate(period, asOfDate, anchor);
+  if (fyStart && effectiveAsOf < fyStart) effectiveAsOf = fyStart;
+  if (fyEnd && effectiveAsOf > fyEnd) effectiveAsOf = fyEnd;
+  if (effectiveAsOf > now) {
+    effectiveAsOf = fyEnd && now > fyEnd ? fyEnd : now;
+  }
+
   const earningsWindow = await resolveEarningsWindow({
     companyId,
     fiscalYearId,
     startDate,
     endDate,
-    reportDate,
+    reportDate: effectiveAsOf,
     period,
+    fyStart,
+    fyEnd,
   });
+
+  if (fyStart && earningsWindow.start > earningsWindow.end) {
+    return emptyBalanceSheetPayload(effectiveAsOf, period, earningsWindow);
+  }
 
   const accounts = await prisma.chartOfAccount.findMany({
     where: {
@@ -217,11 +305,14 @@ async function buildBalanceSheetFromLedger(
     orderBy: { code: 'asc' },
   });
 
+  const dateFilter = { lte: effectiveAsOf };
+  if (fyStart) dateFilter.gte = fyStart;
+
   const allPostedEntries = await prisma.journalEntry.findMany({
     where: {
       companyId,
       status: 'Posted',
-      date: { lte: reportDate },
+      date: dateFilter,
     },
     include: { lines: true },
     orderBy: { date: 'asc' },
@@ -250,7 +341,9 @@ async function buildBalanceSheetFromLedger(
       continue;
     }
 
-    const balance = accountBalanceAsOf(account, allPostedEntries, reportDate);
+    const balance = accountBalanceAsOf(account, allPostedEntries, effectiveAsOf, {
+      includeOpening: !fyStart,
+    });
     if (Math.abs(balance) < 0.0001) continue;
 
     const item = {
@@ -296,8 +389,9 @@ async function buildBalanceSheetFromLedger(
   const isBalanced = Math.abs(difference) < 0.01;
 
   return {
-    asOfDate: reportDate,
+    asOfDate: effectiveAsOf,
     period: period || 'All Time',
+    empty: false,
     earningsPeriod: {
       startDate: earningsWindow.start,
       endDate: earningsWindow.end,

@@ -1,33 +1,19 @@
-// tax/services/taxCalculationService.js
-// Professional International Tax Calculation Engine for Global ERP
 
 const prisma = require('../../prisma/client');
-
-/**
- * Tax Calculation Engine
- * Handles complex international tax scenarios including:
- * - Multi-jurisdiction support
- * - Tax-inclusive vs tax-exclusive pricing
- * - Compound taxes
- * - Tax exemptions
- * - Multi-currency support
- * - Various tax types (VAT, GST, Sales Tax, Excise, etc.)
- */
 
 class TaxCalculationService {
   
   /**
-   * Calculate taxes for a transaction
    * @param {Object} params - Calculation parameters
    * @param {Array} params.items - Line items with product info, quantity, price
    * @param {Object} params.customer - Customer information
-   * @param {Object} params.shippingAddress - Shipping address for jurisdiction
-   * @param {Object} params.billingAddress - Billing address
-   * @param {String} params.currency - Transaction currency
-   * @param {String} params.companyId - Company ID
-   * @param {String} params.transactionType - POSSale, SalesInvoice, Order
-   * @param {String} params.transactionId - Transaction ID
-   * @returns {Promise<Object>} Tax calculation result
+   * @param {Object} params.shippingAddress -   
+   * @param {Object} params.billingAddress -  
+   * @param {String} params.currency  
+   * @param {String} params.companyId 
+   * @param {String} params.transactionType 
+   * @param {String} params.transactionId 
+   * @returns {Promise<Object>} 
    */
   async calculateTax(params) {
     const {
@@ -41,17 +27,54 @@ class TaxCalculationService {
       transactionId
     } = params;
 
+    const persist = Boolean(transactionId);
+    const profile = await this.getCompanyProfile(companyId);
+
+    if (!profile?.taxEnabled) {
+      const itemTaxes = (items || []).map((item) => {
+        const lineTotal = (item.quantity || 0) * (item.unitPrice || 0);
+        return {
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          lineTotal,
+          pricingModel: 'exclusive',
+          taxCalculations: [],
+          totalTax: 0,
+          totalWithTax: lineTotal,
+        };
+      });
+      const subtotal = itemTaxes.reduce((s, i) => s + i.lineTotal, 0);
+      return {
+        enabled: false,
+        jurisdiction: null,
+        itemTaxes,
+        compoundTaxes: [],
+        totals: { subtotal, totalTax: 0, totalWithTax: subtotal, taxesByType: {}, exemptions: {} },
+        currency,
+        pricingModel: 'exclusive',
+        regime: null,
+      };
+    }
+
     // Determine tax jurisdiction based on shipping address
-    const jurisdiction = await this.determineJurisdiction(shippingAddress, companyId);
+    const jurisdiction = await this.determineJurisdiction(shippingAddress, companyId, profile);
     
     // Get applicable tax rules for the jurisdiction
-    const taxRules = await this.getApplicableTaxRules(jurisdiction, items, customer, companyId);
+    let taxRules = await this.getApplicableTaxRules(jurisdiction, items, customer, companyId);
+
+    // If no product/category rules exist, apply the company's default rates
+    if (!taxRules.length) {
+      taxRules = await this.buildDefaultRules(jurisdiction, companyId, profile);
+    }
     
     // Check for customer exemptions
     const customerExemptions = await this.getCustomerExemptions(customer?.id, companyId);
     
     // Check for product exemptions
     const productExemptions = await this.getProductExemptions(items.map(i => i.productId), companyId);
+
+    const defaultPricingModel = profile?.pricingModel || 'exclusive';
     
     // Calculate taxes for each item
     const itemTaxes = await Promise.all(
@@ -61,7 +84,8 @@ class TaxCalculationService {
         customerExemptions,
         productExemptions,
         jurisdiction,
-        currency
+        currency,
+        defaultPricingModel
       ))
     );
     
@@ -76,39 +100,84 @@ class TaxCalculationService {
     // Aggregate totals
     const totals = this.aggregateTaxTotals(itemTaxes, compoundTaxes);
     
-    // Record tax transactions for audit trail
-    await this.recordTaxTransactions({
-      transactionId,
-      transactionType,
-      itemTaxes,
-      compoundTaxes,
-      totals,
-      jurisdiction,
-      currency,
-      companyId
-    });
+    if (persist) {
+      await this.recordTaxTransactions({
+        transactionId,
+        transactionType,
+        itemTaxes,
+        compoundTaxes,
+        totals,
+        jurisdiction,
+        currency,
+        companyId
+      });
+    }
     
     return {
       jurisdiction,
       itemTaxes,
       compoundTaxes,
       totals,
-      currency
+      currency,
+      pricingModel: defaultPricingModel,
+      regime: profile?.regime || null,
     };
+  }
+
+  async getCompanyProfile(companyId) {
+    return prisma.companyTaxProfile.findUnique({
+      where: { companyId },
+      include: { defaultJurisdiction: true },
+    });
+  }
+
+  async buildDefaultRules(jurisdiction, companyId, profile) {
+    if (!jurisdiction) return [];
+
+    const now = new Date();
+    const rates = await prisma.taxRate.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        jurisdictionId: jurisdiction.id,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+      },
+      include: { taxType: true, jurisdiction: true },
+      orderBy: [{ isDefault: 'desc' }, { rate: 'desc' }],
+    });
+
+    const chosen = rates.filter((r) => r.isDefault);
+    const apply = chosen.length ? chosen : rates.slice(0, 1);
+
+    return apply.map((taxRate) => ({
+      productId: null,
+      productCategoryId: null,
+      exemptionAllowed: true,
+      pricingModel: profile?.pricingModel || 'exclusive',
+      isCompound: taxRate.taxType?.isCompound || false,
+      compoundOn: null,
+      taxRate,
+    }));
   }
 
   /**
    * Determine tax jurisdiction based on address
    */
-  async determineJurisdiction(address, companyId) {
+  async determineJurisdiction(address, companyId, profile) {
+    if (profile?.defaultJurisdiction) {
+      if (!address?.country) return profile.defaultJurisdiction;
+    }
+
     if (!address) {
-      // Default to company's primary jurisdiction
-      const company = await prisma.company.findUnique({
-        where: { id: companyId },
-        include: { taxJurisdictions: { where: { isDefault: true } } }
+      const fallback = await prisma.taxJurisdiction.findFirst({
+        where: { companyId, isDefault: true, isActive: true },
       });
-      
-      return company?.taxJurisdictions[0] || null;
+      if (fallback) return fallback;
+      return prisma.taxJurisdiction.findFirst({
+        where: { companyId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+      });
     }
 
     // Try to match jurisdiction by address components
@@ -152,7 +221,11 @@ class TaxCalculationService {
       if (cityJurisdiction) jurisdiction = cityJurisdiction;
     }
 
-    return jurisdiction;
+    if (jurisdiction) return jurisdiction;
+
+    return prisma.taxJurisdiction.findFirst({
+      where: { companyId, isDefault: true, isActive: true },
+    });
   }
 
   /**
@@ -171,11 +244,8 @@ class TaxCalculationService {
         taxRate: {
           jurisdictionId: jurisdiction.id,
           isActive: true,
-          OR: [
-            { effectiveFrom: { lte: new Date() } },
-            { effectiveTo: null },
-            { effectiveTo: { gte: new Date() } }
-          ]
+          effectiveFrom: { lte: new Date() },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }],
         },
         OR: [
           { productId: { in: productIds } },
@@ -244,8 +314,8 @@ class TaxCalculationService {
   /**
    * Calculate tax for a single item
    */
-  async calculateItemTax(item, taxRules, customerExemptions, productExemptions, jurisdiction, currency) {
-    const { productId, quantity, unitPrice, pricingModel = 'exclusive' } = item;
+  async calculateItemTax(item, taxRules, customerExemptions, productExemptions, jurisdiction, currency, defaultPricingModel = 'exclusive') {
+    const { productId, quantity, unitPrice, pricingModel = defaultPricingModel } = item;
     
     // Find applicable rules for this item
     const applicableRules = taxRules.filter(rule => 
@@ -475,10 +545,10 @@ class TaxCalculationService {
       });
     }
 
-    // Bulk insert tax transactions
-    if (taxTransactions.length > 0) {
+    const valid = taxTransactions.filter((t) => t.transactionId && t.jurisdictionId && t.taxTypeId && t.taxRateId);
+    if (valid.length > 0) {
       await prisma.taxTransaction.createMany({
-        data: taxTransactions,
+        data: valid,
         skipDuplicates: true
       });
     }
@@ -522,6 +592,27 @@ class TaxCalculationService {
     await prisma.taxTransaction.createMany({
       data: reversalTransactions
     });
+  }
+
+  async recordFromDocument({ companyId, transactionId, transactionType, items, customerId, currency }) {
+    try {
+      await this.calculateTax({
+        items: (items || []).map((item) => ({
+          productId: item.productId,
+          categoryId: item.categoryId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          pricingModel: item.pricingModel || 'exclusive',
+        })),
+        customer: customerId ? { id: customerId } : null,
+        companyId,
+        transactionType,
+        transactionId,
+        currency,
+      });
+    } catch (error) {
+      console.error('Tax ledger recording failed:', error.message);
+    }
   }
 }
 

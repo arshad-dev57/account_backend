@@ -16,7 +16,7 @@ exports.getBalanceSheet = async (req, res) => {
       });
     }
 
-    const cacheKey = `bs:balance-sheet:${companyId}:${period || ''}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
+    const cacheKey = `bs:balance-sheet:v3:${companyId}:${period || ''}:${asOfDate || ''}:${fiscalYearId || ''}:${startDate || ''}:${endDate || ''}`;
 
     const cached = await get(cacheKey);
     if (cached) {

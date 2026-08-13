@@ -38,6 +38,25 @@ const completeSale = async (req, res) => {
       offlineCreatedAt: offlineCreatedAt || null
     });
 
+    try {
+      const taxCalculationService = require('../../tax/services/taxCalculationService');
+      await taxCalculationService.calculateTax({
+        items: (items || []).map((item) => ({
+          productId: item.productId,
+          categoryId: item.categoryId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          pricingModel: item.pricingModel || (String(item.taxType || '').toLowerCase().includes('inclusive') ? 'inclusive' : 'exclusive'),
+        })),
+        customer: customerId ? { id: customerId } : null,
+        companyId,
+        transactionType: 'POSSale',
+        transactionId: sale.id,
+      });
+    } catch (taxErr) {
+      console.error('POS tax ledger recording failed:', taxErr.message);
+    }
+
     res.status(201).json({ success: true, message: 'Sale completed successfully', data: { sale, journalEntry } });
   } catch (err) {
     console.error('POS Sale Error:', err);
@@ -265,6 +284,43 @@ const searchProducts = async (req, res) => {
     ]);
 
     res.json({ success: true, data: products, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// @desc  Exact barcode / SKU lookup for hardware scanners
+// @route GET /api/pos/products/barcode/:code
+const getProductByBarcode = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const code = decodeURIComponent(req.params.code || '').trim();
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Barcode is required' });
+    }
+
+    const product = await prisma.product.findFirst({
+      where: {
+        companyId,
+        isActive: true,
+        OR: [
+          { barcodeNumber: { equals: code, mode: 'insensitive' } },
+          { sku: { equals: code, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true, name: true, sku: true, barcodeNumber: true,
+        sellingPrice: true, costPrice: true, currentStock: true,
+        availableStock: true, mainImage: true, categoryId: true, categoryName: true,
+        taxRate: true, stockUnitName: true,
+      },
+    });
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: `No product found for barcode ${code}` });
+    }
+
+    res.json({ success: true, data: product });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -568,6 +624,6 @@ const getShiftReport = async (req, res) => {
 
 module.exports = {
   completeSale, syncSales, holdSale, getHeldSales, deleteHeldSale,
-  listSales, getSale, processReturn, getDailyReport, searchProducts, getAuditLogs,
+  listSales, getSale, processReturn, getDailyReport, searchProducts, getProductByBarcode, getAuditLogs,
   convertToInvoice, voidSale, verifyManager, getShiftReport,
 };

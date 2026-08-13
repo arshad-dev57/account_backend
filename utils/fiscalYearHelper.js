@@ -129,9 +129,15 @@ async function getFiscalYearOrCalendarFallback(
   // ── Step 1: fiscalYearId provided ────────────────────────────────────────
   if (fiscalYearId) {
     try {
-      const fy = await prisma.fiscalYear.findFirst({
-        where: { id: fiscalYearId, userId },
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { companyId: true },
       });
+      const fy = user?.companyId
+        ? await prisma.fiscalYear.findFirst({
+            where: { id: fiscalYearId, companyId: user.companyId },
+          })
+        : null;
       if (fy) {
         const start = new Date(fy.startDate);
         start.setHours(0, 0, 0, 0);
@@ -139,7 +145,7 @@ async function getFiscalYearOrCalendarFallback(
         end.setHours(23, 59, 59, 999);
         return { start, end, fiscalYear: fy };
       }
-      // Not found for this user → fall through to step 2
+      // Not found for this company → fall through to step 2
     } catch {
       // DB error → fall through to step 2
     }
@@ -175,9 +181,145 @@ async function getFiscalYearOrCalendarFallback(
   return { start, end, fiscalYear: null };
 }
 
+/**
+ * Load a fiscal year owned by companyId (or null).
+ */
+async function getCompanyFiscalYear(companyId, fiscalYearId) {
+  if (!companyId || !fiscalYearId) return null;
+  try {
+    return await prisma.fiscalYear.findFirst({
+      where: { id: fiscalYearId, companyId },
+    });
+  } catch {
+    return null;
+  }
+}
+
+function toDayStart(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function toDayEnd(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+/**
+ * Intersect two inclusive date ranges. empty=true when no overlap.
+ */
+function intersectRanges(aStart, aEnd, bStart, bEnd) {
+  const start = aStart > bStart ? aStart : bStart;
+  const end = aEnd < bEnd ? aEnd : bEnd;
+  return { start, end, empty: start > end };
+}
+
+/**
+ * Clamp a resolved report window to the selected fiscal year.
+ *
+ * Filtering by FY date range (not only fiscalYearId FK) so older rows with
+ * null fiscalYearId still appear in the correct year.
+ *
+ * - period This Year / All Time / Fiscal Year / empty → use FY window
+ * - other periods → intersect calendar period with FY
+ * - end is never after "now" for open years still in progress
+ */
+async function applyFiscalYearWindow({
+  companyId,
+  fiscalYearId,
+  start,
+  end,
+  period,
+}) {
+  if (!fiscalYearId || !companyId) {
+    return { start, end, fiscalYear: null, empty: false };
+  }
+
+  const fy = await getCompanyFiscalYear(companyId, fiscalYearId);
+  if (!fy) {
+    return { start, end, fiscalYear: null, empty: false };
+  }
+
+  const fyStart = toDayStart(fy.startDate);
+  let fyEnd = toDayEnd(fy.endDate);
+  const now = toDayEnd(new Date());
+  if (fyEnd > now) fyEnd = now;
+
+  const periodLabel = String(period || '').trim();
+  const preferFullFy =
+    !periodLabel ||
+    /^(this year|all time|fiscal year|year)$/i.test(periodLabel);
+
+  if (preferFullFy) {
+    // Future FY (starts after today) → empty window
+    if (fyStart > now) {
+      return { start: fyStart, end: fyStart, fiscalYear: fy, empty: true };
+    }
+    return { start: fyStart, end: fyEnd, fiscalYear: fy, empty: fyStart > fyEnd };
+  }
+
+  const hit = intersectRanges(start, end, fyStart, fyEnd);
+  return { ...hit, fiscalYear: fy };
+}
+
+/**
+ * Resolve a { gte, lte } Prisma date filter from period + optional FY.
+ */
+async function resolveQueryDateFilter({
+  period,
+  startDate,
+  endDate,
+  fiscalYearId,
+  companyId,
+}) {
+  const now = toDayEnd(new Date());
+  let start;
+  let end = now;
+  const p = String(period || 'month').toLowerCase();
+
+  if (p === 'custom' && startDate && endDate) {
+    start = toDayStart(startDate);
+    end = toDayEnd(endDate);
+  } else if (p === 'today') {
+    start = toDayStart(now);
+  } else if (p === 'week' || p === 'last_week') {
+    start = toDayStart(now);
+    start.setDate(start.getDate() - 6);
+  } else if (p === 'last_month') {
+    start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    start.setHours(0, 0, 0, 0);
+    end = toDayEnd(new Date(now.getFullYear(), now.getMonth(), 0));
+  } else if (p === 'quarter' || p === 'this_quarter') {
+    const q = Math.floor(now.getMonth() / 3);
+    start = new Date(now.getFullYear(), q * 3, 1);
+    start.setHours(0, 0, 0, 0);
+  } else if (p === 'year') {
+    start = new Date(now.getFullYear(), 0, 1);
+    start.setHours(0, 0, 0, 0);
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    start.setHours(0, 0, 0, 0);
+  }
+
+  const clamped = await applyFiscalYearWindow({
+    companyId,
+    fiscalYearId,
+    start,
+    end,
+    period: p === 'year' ? 'This Year' : period,
+  });
+  return { gte: clamped.start, lte: clamped.end };
+}
+
 module.exports = {
   resolveFiscalYearId,
   getFiscalYearDateRange,
   lookupActiveFiscalYear,
   getFiscalYearOrCalendarFallback,
+  getCompanyFiscalYear,
+  applyFiscalYearWindow,
+  intersectRanges,
+  resolveQueryDateFilter,
 };

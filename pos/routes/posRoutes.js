@@ -8,6 +8,7 @@ const emailService = require('../../services/emailService');
 const terminalCtrl = require('../controllers/posTerminalController');
 const shiftCtrl    = require('../controllers/posShiftController');
 const saleCtrl     = require('../controllers/posSaleController');
+const receiptCtrl  = require('../controllers/posReceiptSettingsController');
 
 // ─── Terminal Routes ─────────────────────────────────────────────────────────
 router.get   ('/terminals',     protect, terminalCtrl.listTerminals);
@@ -41,6 +42,7 @@ router.post('/returns', protect, saleCtrl.processReturn);
 
 // ─── Products (POS-optimized search with barcode) ─────────────────────────────
 router.get('/products/search', protect, saleCtrl.searchProducts);
+router.get('/products/barcode/:code', protect, saleCtrl.getProductByBarcode);
 
 // ─── Auth / Manager override ─────────────────────────────────────────────────
 router.post('/auth/verify-manager', protect, saleCtrl.verifyManager);
@@ -52,92 +54,141 @@ router.get('/reports/shift/:shiftId', protect, saleCtrl.getShiftReport);
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 router.get('/audit-logs', protect, saleCtrl.getAuditLogs);
 
+// ─── Receipt template (company-wide, edited from POS admin) ───────────────────
+router.get('/receipt-settings', protect, receiptCtrl.getReceiptSettings);
+router.put('/receipt-settings', protect, receiptCtrl.updateReceiptSettings);
+
 // ─── Send Receipt Email ────────────────────────────────────────────────────────
 router.post('/send-receipt', protect, async (req, res) => {
   try {
-    const { email, sale, companyProfile } = req.body;
+    const { email, sale, companyProfile, receiptMeta = {} } = req.body;
     
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
-    const companyName = companyProfile?.organizationName || companyProfile?.personName || 'BisonTechs';
-    const companyLogo = companyProfile?.businessDetails?.logo || companyProfile?.logo || '';
+    const companyName =
+      companyProfile?.organizationName ||
+      companyProfile?.company?.name ||
+      'Bisonstechs';
+    const companyLogo =
+      companyProfile?.businessDetails?.logo ||
+      companyProfile?.company?.logo ||
+      companyProfile?.logo ||
+      '';
+    const companyAddress = [companyProfile?.address, companyProfile?.country].filter(Boolean).join(', ');
+    const companyPhone = companyProfile?.phone || companyProfile?.contactNo || '';
+    const companyEmail = companyProfile?.email || '';
+    const taxId = companyProfile?.businessDetails?.taxRegistrationNumber || '';
+    const website = (companyProfile?.websiteLink || '').replace(/^https?:\/\//, '');
+    const money = (n) => {
+      const symbol = receiptMeta.currencySymbol || '$';
+      return `${symbol} ${Number(n || 0).toFixed(2)}`;
+    };
+    const header = receiptMeta.header || 'TAX INVOICE / SALES RECEIPT';
+    const footer = receiptMeta.footer || 'Thank you for shopping with us! Please visit again.';
+    const returnPolicy = receiptMeta.returnPolicy || '';
+    const extraNotes = receiptMeta.notes || '';
+    const cashierName = receiptMeta.cashierName || '';
+    const terminalName = receiptMeta.terminalName || '';
+    const itemRows = (sale.items || []).map((item) => `
+      <tr>
+        <td style="padding:10px 0;border-bottom:1px dashed #e5e7eb;font-size:13px;color:#111827;">
+          <div style="font-weight:700;">${item.productName || 'Item'}</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:2px;">
+            ${item.sku ? `SKU ${item.sku}` : ''}
+            ${item.quantity || 0} × ${money(item.unitPrice)}
+            ${item.discount ? ` · Disc ${item.discount}%` : ''}
+            ${item.taxRate ? ` · Tax ${item.taxRate}%` : ''}
+          </div>
+        </td>
+        <td style="padding:10px 0;border-bottom:1px dashed #e5e7eb;font-size:13px;font-weight:700;color:#111827;text-align:right;vertical-align:top;">
+          ${money(item.lineTotal)}
+        </td>
+      </tr>
+    `).join('');
+    const paymentRows = (sale.payments || []).map((pmt) => `
+      <tr>
+        <td style="padding:4px 0;font-size:13px;color:#4b5563;">${pmt.paymentMethod || 'Payment'}${pmt.reference ? ` (${pmt.reference})` : ''}</td>
+        <td style="padding:4px 0;font-size:13px;color:#111827;text-align:right;">${money(pmt.amount)}</td>
+      </tr>
+    `).join('');
 
-    // Generate receipt HTML
     const receiptHtml = `
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:40px 16px;">
+<body style="margin:0;padding:0;background-color:#eef2f7;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eef2f7;padding:32px 16px;">
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" border="0"
-        style="max-width:560px;width:100%;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.12);">
+        style="max-width:560px;width:100%;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 16px 40px rgba(1,69,130,0.12);">
         <tr>
-          <td style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 55%,#0f2744 100%);padding:48px 40px 36px;text-align:center;">
-            ${companyLogo ? `
-              <img src="${companyLogo}" alt="${companyName}" style="width:80px;height:80px;border-radius:12px;object-fit:cover;margin-bottom:20px;" />
-            ` : ''}
-            <div style="font-size:36px;margin-bottom:8px;">🏪</div>
-            <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;line-height:1.2;">RECEIPT</div>
-            <div style="margin-top:8px;font-size:15px;color:rgba(255,255,255,0.7);font-weight:300;">
-              ${companyName}
+          <td style="background:#014582;padding:32px 36px 24px;text-align:center;">
+            ${companyLogo ? `<img src="${companyLogo}" alt="${companyName}" style="height:56px;object-fit:contain;margin-bottom:12px;" />` : ''}
+            <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:0.4px;">${companyName}</div>
+            <div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,0.85);line-height:1.6;">
+              ${companyAddress ? `${companyAddress}<br/>` : ''}
+              ${companyPhone ? `Tel: ${companyPhone}<br/>` : ''}
+              ${companyEmail || ''}
+              ${website ? `<br/>${website}` : ''}
+              ${taxId ? `<br/><strong>NTN / Tax ID: ${taxId}</strong>` : ''}
             </div>
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px;margin-bottom:-2px;">
-              <tr><td>
-                <svg viewBox="0 0 560 36" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" width="100%" height="36">
-                  <path d="M0,36 C140,0 420,0 560,36 L560,36 L0,36 Z" fill="#ffffff"/>
-                </svg>
-              </td></tr>
-            </table>
+            <div style="margin-top:16px;display:inline-block;background:rgba(255,255,255,0.12);color:#fff;font-size:11px;font-weight:700;letter-spacing:1.4px;padding:6px 12px;border-radius:999px;">
+              ${header}
+            </div>
           </td>
         </tr>
         <tr>
-          <td style="background:#ffffff;padding:36px 40px 28px;">
-            <p style="font-size:15px;color:#374151;line-height:1.8;margin:0 0 28px 0;">
+          <td style="background:#ffffff;padding:28px 36px;">
+            <p style="font-size:14px;color:#374151;line-height:1.7;margin:0 0 20px 0;">
               Dear <strong style="color:#111827;">${sale.customerName || 'Customer'}</strong>,<br/>
-              Thank you for your purchase at <strong style="color:#111827;">${companyName}</strong>.
-              Below is your receipt for reference.
+              Thank you for your purchase at <strong>${companyName}</strong>. This email is your official sales receipt.
             </p>
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #22c55e;border-radius:10px;margin-bottom:28px;">
-              <tr><td style="padding:16px 20px;">
-                <table cellpadding="0" cellspacing="0"><tr>
-                  <td style="padding-right:12px;vertical-align:top;font-size:18px;">📋</td>
-                  <td style="font-size:14px;color:#14532d;line-height:1.7;">
-                    <strong>Receipt Details:</strong><br/>
-                    Invoice: ${sale.invoiceNumber}<br/>
-                    Date: ${new Date(sale.createdAt || Date.now()).toLocaleString()}<br/>
-                    Total: $${sale.grandTotal?.toFixed(2)}
-                  </td>
-                </tr></table>
-              </td></tr>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:18px;font-size:13px;color:#374151;">
+              <tr><td style="padding:4px 0;">Receipt #</td><td style="padding:4px 0;text-align:right;font-weight:700;color:#111827;">${sale.invoiceNumber}</td></tr>
+              <tr><td style="padding:4px 0;">Date</td><td style="padding:4px 0;text-align:right;">${new Date(sale.createdAt || Date.now()).toLocaleString()}</td></tr>
+              ${terminalName ? `<tr><td style="padding:4px 0;">Terminal</td><td style="padding:4px 0;text-align:right;">${terminalName}</td></tr>` : ''}
+              ${cashierName ? `<tr><td style="padding:4px 0;">Cashier</td><td style="padding:4px 0;text-align:right;">${cashierName}</td></tr>` : ''}
+              ${sale.customerPhone ? `<tr><td style="padding:4px 0;">Phone</td><td style="padding:4px 0;text-align:right;">${sale.customerPhone}</td></tr>` : ''}
             </table>
-            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:20px;margin-bottom:28px;">
-              <div style="font-size:12px;color:#6b7280;margin-bottom:12px;font-weight:600;">ITEMS</div>
-              ${sale.items?.map((item, i) => `
-                <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb;">
-                  <span style="color:#374151;font-size:13px;">${item.productName} x${item.quantity}</span>
-                  <span style="color:#111827;font-weight:600;font-size:13px;">$${item.lineTotal?.toFixed(2)}</span>
-                </div>
-              `).join('') || ''}
-              <div style="display:flex;justify-content:space-between;padding:12px 0 8px;margin-top:8px;border-top:2px solid #e5e7eb;">
-                <span style="color:#374151;font-weight:600;font-size:14px;">TOTAL</span>
-                <span style="color:#111827;font-weight:800;font-size:16px;">$${sale.grandTotal?.toFixed(2)}</span>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+              <tr>
+                <td style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.8px;padding-bottom:8px;border-bottom:1px solid #e5e7eb;">ITEM</td>
+                <td style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.8px;padding-bottom:8px;border-bottom:1px solid #e5e7eb;text-align:right;">AMOUNT</td>
+              </tr>
+              ${itemRows}
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;font-size:13px;">
+              <tr><td style="padding:4px 0;color:#4b5563;">Subtotal</td><td style="padding:4px 0;text-align:right;">${money(sale.subtotal)}</td></tr>
+              ${Number(sale.discountTotal) > 0 ? `<tr><td style="padding:4px 0;color:#4b5563;">Discount</td><td style="padding:4px 0;text-align:right;">-${money(sale.discountTotal)}</td></tr>` : ''}
+              ${Number(sale.taxTotal) > 0 ? `<tr><td style="padding:4px 0;color:#4b5563;">Tax</td><td style="padding:4px 0;text-align:right;">${money(sale.taxTotal)}</td></tr>` : ''}
+              <tr><td style="padding:10px 0 4px;font-size:16px;font-weight:800;color:#014582;">TOTAL</td><td style="padding:10px 0 4px;font-size:16px;font-weight:800;color:#014582;text-align:right;">${money(sale.grandTotal)}</td></tr>
+            </table>
+            ${paymentRows ? `
+              <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.8px;margin-bottom:6px;">PAYMENT</div>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">${paymentRows}</table>
+            ` : ''}
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:18px;font-size:13px;">
+              <tr><td style="padding:4px 0;color:#4b5563;">Amount paid</td><td style="padding:4px 0;text-align:right;font-weight:700;">${money(sale.paidAmount)}</td></tr>
+              ${Number(sale.changeAmount) > 0 ? `<tr><td style="padding:4px 0;color:#4b5563;">Change</td><td style="padding:4px 0;text-align:right;">${money(sale.changeAmount)}</td></tr>` : ''}
+            </table>
+            ${receiptMeta.barcodeDataUrl ? `
+              <div style="text-align:center;margin:8px 0 18px;">
+                <img src="${receiptMeta.barcodeDataUrl}" alt="${sale.invoiceNumber}" style="max-width:280px;height:auto;" />
+                <div style="font-size:11px;color:#6b7280;margin-top:4px;">Scan to look up receipt ${sale.invoiceNumber}</div>
               </div>
-            </div>
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;">
-              <tr><td style="height:1px;background:linear-gradient(90deg,transparent,#e5e7eb,transparent);"></td></tr>
-            </table>
-            <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:0;">
-              Questions? <span style="color:#6366f1;">support@bisontechs.com</span>
-            </p>
+            ` : ''}
+            ${returnPolicy ? `<p style="font-size:11px;color:#6b7280;line-height:1.6;text-align:center;margin:0 0 10px 0;">${returnPolicy}</p>` : ''}
+            ${extraNotes ? `<p style="font-size:11px;color:#9ca3af;line-height:1.6;text-align:center;margin:0 0 10px 0;">${extraNotes}</p>` : ''}
+            <p style="font-size:13px;color:#111827;text-align:center;font-weight:700;margin:12px 0 0 0;">${footer}</p>
+            ${companyEmail ? `<p style="font-size:12px;color:#9ca3af;text-align:center;margin:12px 0 0 0;">Questions? ${companyEmail}</p>` : ''}
           </td>
         </tr>
         <tr>
-          <td style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:22px 40px;">
-            <p style="font-size:12px;color:#9ca3af;line-height:1.7;margin:0 0 12px 0;">
-              © ${new Date().getFullYear()} ${companyName}. All rights reserved.<br/>Point of Sale System
+          <td style="background:#f8fafc;border-top:1px solid #eef2f7;padding:18px 36px;">
+            <p style="font-size:11px;color:#9ca3af;line-height:1.7;margin:0;text-align:center;">
+              © ${new Date().getFullYear()} ${companyName}. All rights reserved.<br/>This is a computer-generated receipt from BisonTechs POS.
             </p>
           </td>
         </tr>

@@ -3,6 +3,21 @@
 const prisma = require('../prisma/client');
 const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
 const { get, set, del, delPattern } = require('../utils/redisClient');
+const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
+
+/**
+ * WarehouseInvoice has no fiscalYearId column — filter by invoiceDate within the FY window.
+ * Returns a Prisma date filter or null.
+ */
+async function warehouseInvoiceFyDateFilter(companyId, fiscalYearId) {
+  if (!fiscalYearId) return null;
+  const fy = await getCompanyFiscalYear(companyId, fiscalYearId);
+  if (!fy) return null;
+  return {
+    gte: new Date(fy.startDate),
+    lte: new Date(fy.endDate),
+  };
+}
 
 /**
  * Live AR balance — do not trust invoiceStatus / stored outstanding alone.
@@ -907,8 +922,16 @@ const getInvoices = async (req, res) => {
       };
     }
 
-    if (fiscalYearId) {
-      filter.fiscalYearId = fiscalYearId;
+    const fyDates = await warehouseInvoiceFyDateFilter(companyId, fiscalYearId);
+    if (fyDates) {
+      if (filter.invoiceDate) {
+        filter.invoiceDate = {
+          gte: filter.invoiceDate.gte > fyDates.gte ? filter.invoiceDate.gte : fyDates.gte,
+          lte: filter.invoiceDate.lte < fyDates.lte ? filter.invoiceDate.lte : fyDates.lte,
+        };
+      } else {
+        filter.invoiceDate = fyDates;
+      }
     }
 
     const invoices = await prisma.warehouseInvoice.findMany({
@@ -1518,8 +1541,13 @@ const getSummary = async (req, res) => {
       invoiceStatus: { not: 'Cancelled' },
     };
 
-    // fiscalYear only on sales invoices in schema; keep optional
-    if (fiscalYearId) {
+    // WarehouseInvoice has no fiscalYearId — use invoiceDate window.
+    // SalesInvoice has the FK; also clamp by date so null-FY legacy rows still match.
+    const fyDates = await warehouseInvoiceFyDateFilter(companyId, fiscalYearId);
+    if (fyDates) {
+      baseWh.invoiceDate = fyDates;
+      baseSi.invoiceDate = fyDates;
+    } else if (fiscalYearId) {
       baseSi.fiscalYearId = fiscalYearId;
     }
 
@@ -1625,8 +1653,9 @@ const getAgedReceivables = async (req, res) => {
       invoiceStatus: { not: 'Cancelled' },
     };
 
-    if (fiscalYearId) {
-      filter.fiscalYearId = fiscalYearId;
+    const fyDates = await warehouseInvoiceFyDateFilter(companyId, fiscalYearId);
+    if (fyDates) {
+      filter.invoiceDate = fyDates;
     }
 
     const invoices = await prisma.warehouseInvoice.findMany({
@@ -1649,7 +1678,7 @@ const getAgedReceivables = async (req, res) => {
         isDeleted: false,
         isActive: true,
         invoiceStatus: { not: 'Cancelled' },
-        ...(fiscalYearId ? { fiscalYearId } : {}),
+        ...(fyDates ? { invoiceDate: fyDates } : fiscalYearId ? { fiscalYearId } : {}),
       },
       include: {
         customer: {

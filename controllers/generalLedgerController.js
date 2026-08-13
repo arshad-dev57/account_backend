@@ -29,9 +29,40 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
     });
   }
 
-  // Build filters using helper
-  const dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
-  const fiscalYearFilter = LedgerHelper.buildFiscalYearFilter(fiscalYearId);
+  // Build filters using helper — prefer FY date window over FK-only filter
+  let dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
+  let fiscalYearFilter = {};
+
+  if (fiscalYearId && companyId && !startDate && !endDate) {
+    const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
+    const now = new Date();
+    const clamped = await applyFiscalYearWindow({
+      companyId,
+      fiscalYearId,
+      start: new Date(now.getFullYear(), 0, 1),
+      end: now,
+      period: 'This Year',
+    });
+    dateFilter = {
+      date: { gte: clamped.start, lte: clamped.end },
+    };
+  } else if (fiscalYearId && companyId && (startDate || endDate)) {
+    const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
+    const baseStart = startDate ? new Date(startDate) : new Date(0);
+    const baseEnd = endDate ? new Date(endDate) : new Date();
+    const clamped = await applyFiscalYearWindow({
+      companyId,
+      fiscalYearId,
+      start: baseStart,
+      end: baseEnd,
+      period: 'Custom',
+    });
+    dateFilter = {
+      date: { gte: clamped.start, lte: clamped.end },
+    };
+  } else if (fiscalYearId) {
+    fiscalYearFilter = LedgerHelper.buildFiscalYearFilter(fiscalYearId);
+  }
 
   // Get posted journal entries for this user
   const journalEntries = await prisma.journalEntry.findMany({
@@ -308,12 +339,20 @@ exports.getSingleAccountSummary = asyncHandler(async (req, res) => {
 // ============================================================
 exports.getLedgerEntries = asyncHandler(async (req, res) => {
   const { accountId } = req.params;
-  const { startDate, endDate, search } = req.query;
+  const {
+    startDate,
+    endDate,
+    search,
+    page = 1,
+    limit = 10,
+    showDebitOnly,
+    showCreditOnly,
+  } = req.query;
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
   // Build cache key with parameters
-  const cacheKey = `gl:entries:${userId}:${accountId}:${startDate || ''}:${endDate || ''}:${search || ''}`;
+  const cacheKey = `gl:entries:${userId}:${accountId}:${startDate || ''}:${endDate || ''}:${search || ''}:${page}:${limit}:${showDebitOnly || ''}:${showCreditOnly || ''}`;
   
   // Try to get from cache
   const cached = await get(cacheKey);
@@ -382,7 +421,9 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
       });
 
       ledgerEntries.push({
-        id: entry.entryNumber,
+        id: accountLine.id || `${entry.id}-${account.id}`,
+        journalId: entry.id,
+        entryNumber: entry.entryNumber,
         date: entry.date,
         accountId: account.id,
         accountName: account.name,
@@ -397,7 +438,18 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
     }
   });
 
-  const filteredLedger = LedgerHelper.filterBySearch(ledgerEntries, search);
+  let filteredLedger = LedgerHelper.filterBySearch(ledgerEntries, search);
+  if (showDebitOnly === 'true' || showDebitOnly === true) {
+    filteredLedger = filteredLedger.filter((entry) => Number(entry.debit) > 0);
+  }
+  if (showCreditOnly === 'true' || showCreditOnly === true) {
+    filteredLedger = filteredLedger.filter((entry) => Number(entry.credit) > 0);
+  }
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+  const summary = LedgerHelper.calculateSummary(filteredLedger);
+  const paginatedResult = LedgerHelper.paginate(filteredLedger, pageNum, limitNum);
 
   const response = {
     account: {
@@ -409,8 +461,11 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
       currentBalance: account.currentBalance,
       hasOpeningBalanceEntry: hasOBEntry,
     },
-    count: filteredLedger.length,
-    data: filteredLedger,
+    count: paginatedResult.data.length,
+    totalCount: filteredLedger.length,
+    data: paginatedResult.data,
+    summary,
+    pagination: paginatedResult.pagination,
   };
 
   // Cache the result (2 minutes TTL)
@@ -434,18 +489,20 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
     accountId,
     search,
     page = 1,
-    limit = 20,
+    limit = 10,
     sortBy = 'date',
-    sortOrder = 'desc'
+    sortOrder = 'desc',
+    showDebitOnly,
+    showCreditOnly,
   } = req.query;
 
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
   // Build cache key with parameters (skip for large datasets, only cache first page)
-  const pageNum = parseInt(page) || 1;
-  const limitNum = parseInt(limit) || 20;
-  const cacheKey = `gl:all-entries:${userId}:${startDate || ''}:${endDate || ''}:${accountId || ''}:${search || ''}:${pageNum}:${limitNum}:${sortBy}:${sortOrder}`;
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+  const cacheKey = `gl:all-entries:${userId}:${startDate || ''}:${endDate || ''}:${accountId || ''}:${search || ''}:${pageNum}:${limitNum}:${sortBy}:${sortOrder}:${showDebitOnly || ''}:${showCreditOnly || ''}`;
   
   // Only cache first page to avoid large cache entries
   if (pageNum === 1) {
@@ -548,7 +605,9 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
         }
 
         allEntries.push({
-          id: entry.entryNumber,
+          id: line.id || `${entry.id}-${accountIdStr}`,
+          journalId: entry.id,
+          entryNumber: entry.entryNumber,
           date: entry.date,
           accountId: accountIdStr,
           accountName: accountData.name,
@@ -566,15 +625,21 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
   });
 
   let filteredResult = LedgerHelper.filterBySearch(allEntries, search);
+  if (showDebitOnly === 'true' || showDebitOnly === true) {
+    filteredResult = filteredResult.filter((entry) => Number(entry.debit) > 0);
+  }
+  if (showCreditOnly === 'true' || showCreditOnly === true) {
+    filteredResult = filteredResult.filter((entry) => Number(entry.credit) > 0);
+  }
   filteredResult = LedgerHelper.sortEntries(filteredResult, sortBy, sortOrder);
 
   const totalCount = filteredResult.length;
+  const summary = LedgerHelper.calculateSummary(filteredResult);
 
   if (req.query.page === 'all' || req.query.limit === 'all') {
-    const summary = LedgerHelper.calculateSummary(filteredResult);
-    
     return ApiResponse.ok(res, 'All ledger entries retrieved successfully', {
       count: filteredResult.length,
+      totalCount,
       data: filteredResult,
       summary: {
         ...summary,
@@ -583,6 +648,7 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
       pagination: {
         total: filteredResult.length,
         page: 1,
+        limit: filteredResult.length,
         pages: 1,
         hasNext: false,
         hasPrev: false,
@@ -593,7 +659,6 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
   }
 
   const paginatedResult = LedgerHelper.paginate(filteredResult, pageNum, limitNum);
-  const summary = LedgerHelper.calculateSummary(paginatedResult.data);
 
   const response = {
     count: paginatedResult.data.length,

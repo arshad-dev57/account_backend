@@ -173,7 +173,6 @@ class BillModel {
         postedAt: data.posted !== false ? new Date() : null,
         createdBy: data.createdBy,
         companyId: data.companyId,
-        fiscalYearId: data.fiscalYearId || null
       },
       include: {
         vendor: {

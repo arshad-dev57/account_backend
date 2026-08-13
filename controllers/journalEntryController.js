@@ -399,31 +399,30 @@ const getJournalEntries = async (req, res) => {
       filter.status = status;
     }
 
-    if (startDate && endDate) {
-      filter.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
-      };
-    }
-
-    if (search) {
+    const searchTerm = typeof search === 'string' ? search.trim() : '';
+    if (searchTerm) {
       filter.OR = [
-        { entryNumber: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-        { reference: { contains: search, mode: 'insensitive' } },
+        { entryNumber: { contains: searchTerm, mode: 'insensitive' } },
+        { description: { contains: searchTerm, mode: 'insensitive' } },
+        { reference: { contains: searchTerm, mode: 'insensitive' } },
       ];
     }
 
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
 
-    console.log('Pagination values:', { pageNum, limitNum, skip });
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      filter.date = { gte: start, lte: end };
+    }
 
-    const [journalEntries, total] = await Promise.all([
+    const [journalEntries, total, lineSums, statusCounts] = await Promise.all([
       prisma.journalEntry.findMany({
         where: filter,
-        orderBy: { date: 'desc' },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
         skip,
         take: limitNum,
         include: {
@@ -442,37 +441,64 @@ const getJournalEntries = async (req, res) => {
           }
         }
       }),
-      prisma.journalEntry.count({ where: filter })
+      prisma.journalEntry.count({ where: filter }),
+      prisma.journalLine.aggregate({
+        where: { journal: filter },
+        _sum: { debit: true, credit: true }
+      }),
+      prisma.journalEntry.groupBy({
+        by: ['status'],
+        where: filter,
+        _count: { _all: true }
+      })
     ]);
 
-    let totalDebit = 0;
-    let totalCredit = 0;
+    const totalDebit = Number(lineSums._sum?.debit || 0);
+    const totalCredit = Number(lineSums._sum?.credit || 0);
+    const statusCount = (statusName) => {
+      const row = statusCounts.find((item) => item.status === statusName);
+      if (!row) return 0;
+      if (typeof row._count === 'number') return row._count;
+      return row._count?._all || 0;
+    };
+    const postedCount = statusCount('Posted');
+    const draftCount = statusCount('Draft');
+    const totalPages = Math.max(1, Math.ceil(total / limitNum) || 1);
+    const hasNext = pageNum < totalPages && skip + journalEntries.length < total;
+    const hasPrev = pageNum > 1;
 
-    const allEntries = await prisma.journalEntry.findMany({
-      where: filter,
-      include: { lines: true }
-    });
-
-    allEntries.forEach(entry => {
-      const entryDebit = entry.lines.reduce((sum, line) => sum + line.debit, 0);
-      const entryCredit = entry.lines.reduce((sum, line) => sum + line.credit, 0);
-      totalDebit += entryDebit;
-      totalCredit += entryCredit;
-    });
-
-    const totalPages = Math.ceil(total / limitNum);
-
-    const postedCount = allEntries.filter(e => e.status === 'Posted').length;
-    const draftCount = allEntries.filter(e => e.status === 'Draft').length;
+    const pagination = {
+      total,
+      page: pageNum,
+      limit: limitNum,
+      pages: totalPages,
+      hasNext,
+      hasPrev,
+      nextPage: hasNext ? pageNum + 1 : null,
+      prevPage: hasPrev ? pageNum - 1 : null,
+      startIndex: total === 0 ? 0 : skip + 1,
+      endIndex: Math.min(skip + journalEntries.length, total)
+    };
 
     res.status(200).json({
       success: true,
       count: journalEntries.length,
-      total: total,
+      total,
       page: pageNum,
       pages: totalPages,
+      limit: limitNum,
+      hasNext,
+      hasPrev,
       data: journalEntries,
+      pagination,
       summary: {
+        totalDebit,
+        totalCredit,
+        difference: Math.abs(totalDebit - totalCredit),
+        postedCount,
+        draftCount,
+      },
+      stats: {
         totalDebit,
         totalCredit,
         difference: Math.abs(totalDebit - totalCredit),

@@ -35,6 +35,18 @@ exports.getProfile = async (req, res) => {
         businessDetails: true,
         createdAt: true,
         updatedAt: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+            logo: true,
+            address: true,
+            phone: true,
+            email: true,
+            website: true,
+            taxRegistrationNumber: true,
+          },
+        },
       }
     });
 
@@ -49,17 +61,23 @@ exports.getProfile = async (req, res) => {
 
     const profile = {
       id: user.id,
-      organizationName: user.organizationName || '',
+      organizationName: user.organizationName || user.company?.name || '',
       personName: `${user.firstName} ${user.lastName}`.trim(),
       firstName: user.firstName,
       lastName: user.lastName,
-      address: user.address || '',
+      address: user.address || user.company?.address || '',
       email: user.email,
       phone: user.phone || '',
-      contactNo: user.contactNo || user.phone || '',
-      websiteLink: user.websiteLink || '',
+      contactNo: user.contactNo || user.phone || user.company?.phone || '',
+      websiteLink: user.websiteLink || user.company?.website || '',
       country: user.country || '',
-      businessDetails: formatBusinessDetails(businessDetails),
+      company: user.company || null,
+      businessDetails: formatBusinessDetails({
+        ...businessDetails,
+        logo: businessDetails.logo || user.company?.logo || '',
+        taxRegistrationNumber:
+          businessDetails.taxRegistrationNumber || user.company?.taxRegistrationNumber || '',
+      }),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

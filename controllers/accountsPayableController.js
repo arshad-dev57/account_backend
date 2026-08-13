@@ -1,5 +1,25 @@
 const prisma = require('../prisma/client');
 const { get, set, del, delPattern } = require('../utils/redisClient');
+const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
+
+/** Bill has no fiscalYearId column — filter by bill date within the FY window. */
+async function applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId) {
+  if (!fiscalYearId) return;
+  const fy = await getCompanyFiscalYear(companyId, fiscalYearId);
+  if (!fy) return;
+  const fyRange = {
+    gte: new Date(fy.startDate),
+    lte: new Date(fy.endDate),
+  };
+  if (filter.date?.gte || filter.date?.lte) {
+    filter.date = {
+      gte: filter.date.gte && filter.date.gte > fyRange.gte ? filter.date.gte : fyRange.gte,
+      lte: filter.date.lte && filter.date.lte < fyRange.lte ? filter.date.lte : fyRange.lte,
+    };
+  } else {
+    filter.date = fyRange;
+  }
+}
 
 // ─── HELPER: Get or create Accounts Payable account ──────────────
 async function getOrCreatePayableAccount(userId, companyId, tx) {
@@ -635,9 +655,7 @@ exports.getBills = async (req, res) => {
       };
     }
 
-    if (fiscalYearId) {
-      filter.fiscalYearId = fiscalYearId;
-    }
+    await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
     const bills = await prisma.bill.findMany({
       where: filter,
@@ -1200,9 +1218,7 @@ exports.getSummary = async (req, res) => {
       status: { not: 'Paid' }
     };
 
-    if (fiscalYearId) {
-      filter.fiscalYearId = fiscalYearId;
-    }
+    await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
     const bills = await prisma.bill.findMany({
       where: filter
@@ -1288,9 +1304,7 @@ exports.getAgedPayables = async (req, res) => {
       status: { not: 'Paid' }
     };
 
-    if (fiscalYearId) {
-      filter.fiscalYearId = fiscalYearId;
-    }
+    await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
     const bills = await prisma.bill.findMany({
       where: filter,

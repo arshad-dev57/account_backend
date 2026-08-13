@@ -217,15 +217,14 @@ class LedgerHelper {
    * @param {number} limit - Items per page
    * @returns {Object} Paginated result with metadata
    */
-  static paginate(data, page = 1, limit = 20) {
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 20;
-    const totalCount = data.length;
-    const totalPages = Math.ceil(totalCount / limitNum);
+  static paginate(data, page = 1, limit = 10) {
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+    const totalCount = Array.isArray(data) ? data.length : 0;
+    const totalPages = Math.max(totalCount === 0 ? 0 : 1, Math.ceil(totalCount / limitNum) || 0);
     const skip = (pageNum - 1) * limitNum;
-    
-    const paginatedData = data.slice(skip, skip + limitNum);
-    
+    const paginatedData = (data || []).slice(skip, skip + limitNum);
+
     return {
       data: paginatedData,
       pagination: {
@@ -237,8 +236,8 @@ class LedgerHelper {
         hasPrev: pageNum > 1,
         nextPage: pageNum < totalPages ? pageNum + 1 : null,
         prevPage: pageNum > 1 ? pageNum - 1 : null,
-        startIndex: skip + 1,
-        endIndex: Math.min(skip + limitNum, totalCount),
+        startIndex: totalCount === 0 ? 0 : skip + 1,
+        endIndex: Math.min(skip + paginatedData.length, totalCount),
       }
     };
   }

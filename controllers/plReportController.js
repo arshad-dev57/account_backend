@@ -91,17 +91,22 @@ exports.getProfitLossStatement = async (req, res) => {
 
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { start, end } = getDateRange(period, startDate, endDate);
+    let { start, end } = getDateRange(period, startDate, endDate);
+
+    if (fiscalYearId && companyId) {
+      const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
+      const clamped = await applyFiscalYearWindow({
+        companyId,
+        fiscalYearId,
+        start,
+        end,
+        period: period || (startDate && endDate ? 'Custom' : 'This Year'),
+      });
+      start = clamped.start;
+      end = clamped.end;
+    }
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
-
-    // ─── Build fiscal year filter ────────────────────────────────
-    let fiscalYearFilter = {};
-    if (fiscalYearId) {
-      fiscalYearFilter = {
-        fiscalYearId: fiscalYearId
-      };
-    }
 
     // ─── GET INCOMES ──────────────────────────────────────────────
     const incomes = await prisma.income.findMany({
@@ -112,7 +117,6 @@ exports.getProfitLossStatement = async (req, res) => {
           lte: end
         },
         status: 'Posted',
-        ...fiscalYearFilter
       }
     });
 
@@ -126,7 +130,6 @@ exports.getProfitLossStatement = async (req, res) => {
           lte: end
         },
         status: 'Posted',
-        ...fiscalYearFilter
       }
     });
 
@@ -141,7 +144,6 @@ exports.getProfitLossStatement = async (req, res) => {
         status: {
           not: 'Draft'
         },
-        ...fiscalYearFilter
       }
     });
 
@@ -153,7 +155,6 @@ exports.getProfitLossStatement = async (req, res) => {
           gte: start,
           lte: end
         },
-        ...fiscalYearFilter
       }
     });
 
@@ -165,7 +166,6 @@ exports.getProfitLossStatement = async (req, res) => {
           gte: start,
           lte: end
         },
-        ...fiscalYearFilter
       }
     });
 

@@ -143,24 +143,54 @@ function getPreviousPeriod(startDate, endDate) {
 /**
  * Named periods (Today, Last Week, …) are resolved on the server so
  * Flutter / web clients cannot drift. Custom ranges use startDate + endDate.
+ * When fiscalYearId is set, the window is clamped to that fiscal year.
  */
-function resolveDateRange(query = {}) {
+async function resolveDateRange(query = {}, companyId = null) {
   const timePeriod = String(query.timePeriod || 'This Month').trim() || 'This Month';
   const isCustom =
     timePeriod === 'Custom' ||
     timePeriod.toLowerCase() === 'custom';
 
+  let start;
+  let end;
+  let label = timePeriod;
+
   if (isCustom && query.startDate && query.endDate) {
-    const start = startOfDay(parseLocalDate(query.startDate));
-    const end = endOfDay(parseLocalDate(query.endDate));
-    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start <= end) {
-      return { start, end, timePeriod: 'Custom' };
+    start = startOfDay(parseLocalDate(query.startDate));
+    end = endOfDay(parseLocalDate(query.endDate));
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      const range = getDateRangeFromTimePeriod('This Month');
+      start = range.start;
+      end = range.end;
+      label = 'This Month';
+    } else {
+      label = 'Custom';
     }
+  } else {
+    const range = getDateRangeFromTimePeriod(timePeriod);
+    start = range.start;
+    end = range.end;
   }
 
-  // Named period → backend calendar window (ignore client start/end)
-  const range = getDateRangeFromTimePeriod(timePeriod);
-  return { ...range, timePeriod };
+  if (query.fiscalYearId && companyId) {
+    const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
+    const clamped = await applyFiscalYearWindow({
+      companyId,
+      fiscalYearId: query.fiscalYearId,
+      start,
+      end,
+      period: label === 'Custom' ? 'Custom' : timePeriod,
+    });
+    return {
+      start: clamped.start,
+      end: clamped.end,
+      timePeriod: label,
+      fiscalYearId: query.fiscalYearId,
+      empty: clamped.empty,
+    };
+  }
+
+  return { start, end, timePeriod: label, fiscalYearId: query.fiscalYearId || null, empty: false };
 }
 
 function incomeAmt(d) {
@@ -1073,10 +1103,15 @@ const getDashboardOverview = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
+    const {
+      start: startDate,
+      end: endDate,
+      timePeriod,
+      fiscalYearId,
+    } = await resolveDateRange(req.query, companyId);
     const txnLimit = parseInt(req.query.limit, 10) || 10;
 
-    const cacheKey = `dashboard:overview:v3:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${txnLimit}`;
+    const cacheKey = `dashboard:overview:v4:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${fiscalYearId || ''}:${txnLimit}`;
     const cached = await get(cacheKey);
     if (cached) {
       return res.status(200).json({ success: true, data: cached, cached: true });
@@ -1106,9 +1141,12 @@ const getDashboardSummary = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
+    const { start: startDate, end: endDate, timePeriod, fiscalYearId } = await resolveDateRange(
+      req.query,
+      companyId
+    );
 
-    const cacheKey = `dashboard:summary:v11:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}`;
+    const cacheKey = `dashboard:summary:v12:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${fiscalYearId || ''}`;
 
     const cached = await get(cacheKey);
     if (cached) {
@@ -1154,7 +1192,10 @@ const getChartData = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
+    const { start: startDate, end: endDate, timePeriod } = await resolveDateRange(
+      req.query,
+      companyId
+    );
 
     const overview = await buildDashboardOverview({
       userId,
@@ -1181,7 +1222,10 @@ const getExpenseCategories = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { start: startDate, end: endDate, timePeriod } = resolveDateRange(req.query);
+    const { start: startDate, end: endDate, timePeriod } = await resolveDateRange(
+      req.query,
+      companyId
+    );
 
     const overview = await buildDashboardOverview({
       userId,

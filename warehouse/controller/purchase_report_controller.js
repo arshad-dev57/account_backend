@@ -1,5 +1,6 @@
 // warehouse/controller/purchase_report_controller.js
 const prisma = require('../../prisma/client');
+const { resolveQueryDateFilter } = require('../../utils/fiscalYearHelper');
 
 function toNum(v) {
   const n = Number(v);
@@ -314,13 +315,20 @@ const getPurchaseReport = async (req, res) => {
       period = 'month',
       startDate,
       endDate,
+      fiscalYearId,
       status = 'all',
       search = '',
       page = '1',
       limit = '50',
     } = req.query;
 
-    const dateFilter = getDateFilter(period, startDate, endDate);
+    const dateFilter = await resolveQueryDateFilter({
+      period,
+      startDate,
+      endDate,
+      fiscalYearId,
+      companyId,
+    });
     const filters = {
       status: status || 'all',
       search: String(search || '').trim(),

@@ -17,6 +17,16 @@ function getIpAddress(req) {
   );
 }
 
+/** List cache key is exact `fiscal:list:${companyId}` (no suffix). */
+async function invalidateFiscalYearCache(companyId, fiscalYearId) {
+  await del(`fiscal:list:${companyId}`);
+  await del(`fiscal:active:${companyId}`);
+  if (fiscalYearId) {
+    await del(`fiscal:detail:${companyId}:${fiscalYearId}`);
+  }
+  await delPattern(`fiscal:audit-log:${companyId}*`);
+}
+
 // ─── Helper: write a single audit log entry (must be called with tx) ───────
 async function writeAuditLog(tx, fiscalYearId, userId, action, details, ipAddress) {
   return tx.fiscalYearAuditLog.create({
@@ -30,12 +40,12 @@ async function writeAuditLog(tx, fiscalYearId, userId, action, details, ipAddres
   });
 }
 
-// ─── Helper: check date-range overlap for a user ───────────────────────────
+// ─── Helper: check date-range overlap for a company ───────────────────────
 // Returns the first conflicting FiscalYear or null.
 // excludeId: omit this id from the search (used on updates).
-async function checkOverlap(userId, companyId, startDate, endDate, excludeId) {
+async function checkOverlap(companyId, startDate, endDate, excludeId) {
+  if (!companyId) return null;
   const where = {
-    userId,
     companyId,
     startDate: { lt: new Date(endDate) },
     endDate:   { gt: new Date(startDate) },
@@ -56,6 +66,13 @@ exports.createFiscalYear = async (req, res) => {
     const { name, startDate, endDate, status } = req.body;
     const ipAddress = getIpAddress(req);
 
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context required',
+      });
+    }
+
     // Validate dates
     if (!startDate || !endDate || new Date(startDate) >= new Date(endDate)) {
       return res.status(400).json({
@@ -72,8 +89,8 @@ exports.createFiscalYear = async (req, res) => {
       });
     }
 
-    // Check overlap
-    const conflict = await checkOverlap(userId, startDate, endDate, null);
+    // Check overlap within this company
+    const conflict = await checkOverlap(companyId, startDate, endDate, null);
     if (conflict) {
       return res.status(409).json({
         success: false,
@@ -85,11 +102,12 @@ exports.createFiscalYear = async (req, res) => {
     const fiscalYear = await prisma.$transaction(async (tx) => {
       const fy = await tx.fiscalYear.create({
         data: {
-          userId,
+          companyId,
           name,
           startDate: new Date(startDate),
           endDate:   new Date(endDate),
           status:    'Open',  // always Open on creation regardless of body
+          periodType: req.body.periodType || null,
         },
       });
 
@@ -99,9 +117,7 @@ exports.createFiscalYear = async (req, res) => {
 
     // Invalidate cache after successful fiscal year creation
     try {
-      await delPattern(`fiscal:list:${userId}:*`);
-      await delPattern(`fiscal:active:${userId}`);
-      await delPattern(`fiscal:audit-log:${userId}:*`);
+      await invalidateFiscalYearCache(companyId);
       console.log('🗑️ [FiscalYear] Cache invalidated after fiscal year creation');
     } catch (cacheError) {
       console.log('⚠️ [FiscalYear] Cache invalidation error:', cacheError.message);
@@ -110,7 +126,7 @@ exports.createFiscalYear = async (req, res) => {
     return res.status(201).json({ success: true, data: fiscalYear });
   } catch (err) {
     console.error('createFiscalYear error:', err);
-    // Unique constraint on (userId, name)
+    // Unique constraint on (companyId, name)
     if (err.code === 'P2002') {
       return res.status(409).json({ success: false, message: 'A fiscal year with this name already exists' });
     }
@@ -123,11 +139,13 @@ exports.createFiscalYear = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 exports.listFiscalYears = async (req, res) => {
   try {
-    const userId    = req.user.id;
     const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
 
     // Build cache key
-    const cacheKey = `fiscal:list:${userId}`;
+    const cacheKey = `fiscal:list:${companyId}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -140,7 +158,7 @@ exports.listFiscalYears = async (req, res) => {
     }
 
     const fiscalYears = await prisma.fiscalYear.findMany({
-      where:   { companyId: companyId },
+      where:   { companyId },
       orderBy: { startDate: 'desc' },
       include: {
         _count: { select: { auditLogs: true } },
@@ -171,10 +189,13 @@ exports.listFiscalYears = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 exports.getActiveFiscalYear = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
 
     // Build cache key
-    const cacheKey = `fiscal:active:${userId}`;
+    const cacheKey = `fiscal:active:${companyId}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -190,7 +211,7 @@ exports.getActiveFiscalYear = async (req, res) => {
 
     const fy = await prisma.fiscalYear.findFirst({
       where: {
-        userId,
+        companyId,
         status:    'Open',
         startDate: { lte: now },
         endDate:   { gte: now },
@@ -216,11 +237,14 @@ exports.getActiveFiscalYear = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 exports.getFiscalYearById = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const companyId = req.user.companyId;
     const { id } = req.params;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
 
     // Build cache key
-    const cacheKey = `fiscal:detail:${userId}:${id}`;
+    const cacheKey = `fiscal:detail:${companyId}:${id}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -232,9 +256,9 @@ exports.getFiscalYearById = async (req, res) => {
       });
     }
 
-    // Ownership enforced via userId — return 404 (never 403) per Req 10.6
+    // Ownership enforced via companyId — return 404 (never 403) per Req 10.6
     const fy = await prisma.fiscalYear.findFirst({
-      where: { id, companyId: companyId },
+      where: { id, companyId },
     });
 
     if (!fy) {
@@ -261,12 +285,17 @@ exports.getFiscalYearById = async (req, res) => {
 exports.updateFiscalYear = async (req, res) => {
   try {
     const userId    = req.user.id;
+    const companyId = req.user.companyId;
     const { id }    = req.params;
     const ipAddress = getIpAddress(req);
     const { name, startDate, endDate } = req.body;
 
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
+
     // Ownership check — 404 on mismatch (Req 10.6)
-    const existing = await prisma.fiscalYear.findFirst({ where: { id, companyId: companyId } });
+    const existing = await prisma.fiscalYear.findFirst({ where: { id, companyId } });
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Fiscal year not found' });
     }
@@ -285,7 +314,7 @@ exports.updateFiscalYear = async (req, res) => {
     }
 
     // Overlap check excluding self
-    const conflict = await checkOverlap(userId, effectiveStart, effectiveEnd, id);
+    const conflict = await checkOverlap(companyId, effectiveStart, effectiveEnd, id);
     if (conflict) {
       return res.status(409).json({
         success: false,
@@ -315,10 +344,7 @@ exports.updateFiscalYear = async (req, res) => {
 
     // Invalidate cache after successful fiscal year update
     try {
-      await delPattern(`fiscal:list:${userId}:*`);
-      await delPattern(`fiscal:active:${userId}`);
-      await delPattern(`fiscal:detail:${userId}:${id}`);
-      await delPattern(`fiscal:audit-log:${userId}:*`);
+      await invalidateFiscalYearCache(companyId, id);
       console.log('🗑️ [FiscalYear] Cache invalidated after fiscal year update');
     } catch (cacheError) {
       console.log('⚠️ [FiscalYear] Cache invalidation error:', cacheError.message);
@@ -340,11 +366,16 @@ exports.updateFiscalYear = async (req, res) => {
 exports.closeFiscalYear = async (req, res) => {
   try {
     const userId    = req.user.id;
+    const companyId = req.user.companyId;
     const { id }    = req.params;
     const ipAddress = getIpAddress(req);
 
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
+
     // ── PRE-CHECK a: Fetch fiscal year with ownership ──────────────────────
-    const fy = await prisma.fiscalYear.findFirst({ where: { id, companyId: companyId } });
+    const fy = await prisma.fiscalYear.findFirst({ where: { id, companyId } });
     if (!fy) {
       return res.status(404).json({ success: false, message: 'Fiscal year not found' });
     }
@@ -358,7 +389,7 @@ exports.closeFiscalYear = async (req, res) => {
     const tbAgg = await prisma.journalLine.aggregate({
       where: {
         journal: {
-          userId,
+          companyId,
           status: 'Posted',
           date:   { gte: fy.startDate, lte: fy.endDate },
         },
@@ -380,7 +411,7 @@ exports.closeFiscalYear = async (req, res) => {
     // ── PRE-CHECK d: Unposted journal entries check (Req A2) ─────────────
     const unpostedCount = await prisma.journalEntry.count({
       where: {
-        userId,
+        companyId,
         date:   { gte: fy.startDate, lte: fy.endDate },
         status: { not: 'Posted' },
       },
@@ -396,7 +427,7 @@ exports.closeFiscalYear = async (req, res) => {
     // ── PRE-CHECK e: Locate Retained Earnings account ─────────────────────
     const retainedEarnings = await prisma.chartOfAccount.findFirst({
       where: {
-        userId,
+        companyId,
         type: 'Equity',
         name: { contains: 'retained earnings', mode: 'insensitive' },
       },
@@ -414,7 +445,7 @@ exports.closeFiscalYear = async (req, res) => {
 
       // ── e. Aggregate Revenue net balances ───────────────────────────────
       const revenueAccounts = await tx.chartOfAccount.findMany({
-        where: { companyId: companyId, type: 'Revenue', isActive: true },
+        where: { companyId, type: 'Revenue', isActive: true },
       });
 
       const revenueBalances = await Promise.all(
@@ -423,7 +454,7 @@ exports.closeFiscalYear = async (req, res) => {
             where: {
               accountId: acct.id,
               journal: {
-                userId,
+                companyId,
                 status: 'Posted',
                 date:   { gte: fy.startDate, lte: fy.endDate },
               },
@@ -440,7 +471,7 @@ exports.closeFiscalYear = async (req, res) => {
 
       // ── f. Aggregate Expense net balances ───────────────────────────────
       const expenseAccounts = await tx.chartOfAccount.findMany({
-        where: { companyId: companyId, type: 'Expense', isActive: true },
+        where: { companyId, type: 'Expense', isActive: true },
       });
 
       const expenseBalances = await Promise.all(
@@ -449,7 +480,7 @@ exports.closeFiscalYear = async (req, res) => {
             where: {
               accountId: acct.id,
               journal: {
-                userId,
+                companyId,
                 status: 'Posted',
                 date:   { gte: fy.startDate, lte: fy.endDate },
               },
@@ -479,14 +510,14 @@ exports.closeFiscalYear = async (req, res) => {
       const closingLines = [];
 
       // Debit each revenue account (zero its credit balance)
+      // JournalLine has no `description` field — only accountId/name/code + debit/credit
       for (const acct of revenueWithBalance) {
         closingLines.push({
           accountId:   acct.id,
           accountName: acct.name,
-          accountCode: acct.code || null,
+          accountCode: acct.code || '',
           debit:       acct.netBalance.toNumber(),
           credit:      0,
-          description: `Close Revenue: ${acct.name}`,
         });
       }
 
@@ -495,10 +526,9 @@ exports.closeFiscalYear = async (req, res) => {
         closingLines.push({
           accountId:   acct.id,
           accountName: acct.name,
-          accountCode: acct.code || null,
+          accountCode: acct.code || '',
           debit:       0,
           credit:      acct.netBalance.toNumber(),
-          description: `Close Expense: ${acct.name}`,
         });
       }
 
@@ -507,10 +537,9 @@ exports.closeFiscalYear = async (req, res) => {
         closingLines.push({
           accountId:   retainedEarnings.id,
           accountName: retainedEarnings.name,
-          accountCode: retainedEarnings.code || null,
+          accountCode: retainedEarnings.code || '',
           debit:       netIncome.lt(new Prisma.Decimal('0')) ? netIncome.abs().toNumber() : 0,
           credit:      netIncome.gt(new Prisma.Decimal('0')) ? netIncome.toNumber() : 0,
-          description: `Net Income transfer to Retained Earnings`,
         });
       }
 
@@ -529,7 +558,7 @@ exports.closeFiscalYear = async (req, res) => {
           createdBy:   userId,
           postedBy:    userId,
           postedAt:    new Date(),
-          userId,
+          companyId,
           fiscalYearId: fy.id,
           lines:       { create: closingLines },
         },
@@ -538,7 +567,7 @@ exports.closeFiscalYear = async (req, res) => {
 
       // ── k. Find next fiscal year ─────────────────────────────────────────
       const nextFY = await tx.fiscalYear.findFirst({
-        where:   { companyId: companyId, startDate: { gt: fy.endDate } },
+        where:   { companyId, startDate: { gt: fy.endDate } },
         orderBy: { startDate: 'asc' },
       });
 
@@ -556,7 +585,7 @@ exports.closeFiscalYear = async (req, res) => {
           // Check for existing Opening Balance entry using type field (Req A6)
           const existingOBByType = await tx.journalEntry.findFirst({
             where: {
-              userId,
+              companyId,
               type: 'OpeningBalance',
               fiscalYearId: nextFY.id,
             },
@@ -569,7 +598,7 @@ exports.closeFiscalYear = async (req, res) => {
             // Fallback: check by description for backward compatibility (Req A6)
             const existingOBByDesc = await tx.journalEntry.findFirst({
               where: {
-                userId,
+                companyId,
                 description: {
                   startsWith: `Opening Balance - FY`,
                   mode:       'insensitive',
@@ -585,7 +614,7 @@ exports.closeFiscalYear = async (req, res) => {
               // Collect Asset, Liability, Equity accounts
               const balanceAccounts = await tx.chartOfAccount.findMany({
                 where: {
-                  userId,
+                  companyId,
                   isActive: true,
                   type:     { in: ['Asset', 'Liability', 'Equity'] },
                 },
@@ -601,20 +630,18 @@ exports.closeFiscalYear = async (req, res) => {
                   obLines.push({
                     accountId:   acct.id,
                     accountName: acct.name,
-                    accountCode: acct.code || null,
+                    accountCode: acct.code || '',
                     debit:       balance,
                     credit:      0,
-                    description: `Opening Balance: ${acct.name}`,
                   });
                 } else {
                   // Liability or Equity
                   obLines.push({
                     accountId:   acct.id,
                     accountName: acct.name,
-                    accountCode: acct.code || null,
+                    accountCode: acct.code || '',
                     debit:       0,
                     credit:      balance,
-                    description: `Opening Balance: ${acct.name}`,
                   });
                 }
               }
@@ -631,7 +658,7 @@ exports.closeFiscalYear = async (req, res) => {
                     createdBy:   userId,
                     postedBy:    userId,
                     postedAt:    new Date(),
-                    userId,
+                    companyId,
                     fiscalYearId: nextFY.id,
                     lines:       { create: obLines },
                   },
@@ -674,10 +701,7 @@ exports.closeFiscalYear = async (req, res) => {
 
     // Invalidate cache after successful fiscal year close
     try {
-      await delPattern(`fiscal:list:${userId}:*`);
-      await delPattern(`fiscal:active:${userId}`);
-      await delPattern(`fiscal:detail:${userId}:${id}`);
-      await delPattern(`fiscal:audit-log:${userId}:*`);
+      await invalidateFiscalYearCache(companyId, id);
       console.log('🗑️ [FiscalYear] Cache invalidated after fiscal year close');
     } catch (cacheError) {
       console.log('⚠️ [FiscalYear] Cache invalidation error:', cacheError.message);
@@ -694,7 +718,12 @@ exports.closeFiscalYear = async (req, res) => {
     });
   } catch (err) {
     console.error('closeFiscalYear error:', err);
-    return res.status(500).json({ success: false, message: err.message || 'Internal server error' });
+    const msg = String(err.message || '');
+    const clean =
+      msg.includes('Unknown argument') || msg.includes('Invalid `')
+        ? 'Year-end close failed while creating journal entries. Please try again.'
+        : msg || 'Internal server error';
+    return res.status(500).json({ success: false, message: clean });
   }
 };
 
@@ -704,12 +733,17 @@ exports.closeFiscalYear = async (req, res) => {
 exports.reopenFiscalYear = async (req, res) => {
   try {
     const userId    = req.user.id;
+    const companyId = req.user.companyId;
     const { id }    = req.params;
     const ipAddress = getIpAddress(req);
     const { reason } = req.body;
 
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
+
     // Ownership check — 404 on mismatch (Req 10.6)
-    const existing = await prisma.fiscalYear.findFirst({ where: { id, companyId: companyId } });
+    const existing = await prisma.fiscalYear.findFirst({ where: { id, companyId } });
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Fiscal year not found' });
     }
@@ -735,10 +769,7 @@ exports.reopenFiscalYear = async (req, res) => {
 
     // Invalidate cache after successful fiscal year reopen
     try {
-      await delPattern(`fiscal:list:${userId}:*`);
-      await delPattern(`fiscal:active:${userId}`);
-      await delPattern(`fiscal:detail:${userId}:${id}`);
-      await delPattern(`fiscal:audit-log:${userId}:*`);
+      await invalidateFiscalYearCache(companyId, id);
       console.log('🗑️ [FiscalYear] Cache invalidated after fiscal year reopen');
     } catch (cacheError) {
       console.log('⚠️ [FiscalYear] Cache invalidation error:', cacheError.message);
@@ -758,11 +789,15 @@ exports.reopenFiscalYear = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 exports.getAuditLog = async (req, res) => {
   try {
-    const userId       = req.user.id;
+    const companyId    = req.user.companyId;
     const fiscalYearId = req.params.id || null; // present when route is /:id/audit-log
 
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
+
     // Build cache key with parameters
-    const cacheKey = `fiscal:audit-log:${userId}:${fiscalYearId || 'all'}`;
+    const cacheKey = `fiscal:audit-log:${companyId}:${fiscalYearId || 'all'}`;
     
     // Try to get from cache
     const cached = await get(cacheKey);
@@ -774,10 +809,13 @@ exports.getAuditLog = async (req, res) => {
       });
     }
 
-    const where = { companyId: companyId };
+    // Audit logs are scoped through the fiscal year → company relation
+    const where = {
+      fiscalYear: { companyId },
+    };
     if (fiscalYearId) {
-      // Ownership verification: the FY must belong to this user
-      const fy = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, companyId: companyId } });
+      // Ownership verification: the FY must belong to this company
+      const fy = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, companyId } });
       if (!fy) {
         return res.status(404).json({ success: false, message: 'Fiscal year not found' });
       }

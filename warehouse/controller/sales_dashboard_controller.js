@@ -1,6 +1,7 @@
 // warehouse/controller/sales_dashboard_controller.js - MULTI-TENANT VERSION
 
 const prisma = require('../../prisma/client');
+const { applyFiscalYearWindow } = require('../../utils/fiscalYearHelper');
 
 function toNum(v) {
   const n = Number(v);
@@ -43,35 +44,56 @@ function mergeSalesInvoiceRows(warehouseRows = [], moduleRows = []) {
 
 // ─── HELPERS ────────────────────────────────────────────────
 const getDateFilter = (period, startDate, endDate) => {
-  // Handle custom date range
   if (period === 'custom' && startDate && endDate) {
     const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
     const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999); // Include end date fully
+    end.setHours(23, 59, 59, 999);
     return { gte: start, lte: end };
   }
 
   const now = new Date();
-  let start = new Date(now);
-  
+  now.setHours(23, 59, 59, 999);
+  let start = new Date();
+
   if (period === 'today') {
     start.setHours(0, 0, 0, 0);
   } else if (period === 'week') {
     start.setDate(start.getDate() - 7);
     start.setHours(0, 0, 0, 0);
   } else if (period === 'month') {
-    start.setMonth(start.getMonth() - 1);
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
     start.setHours(0, 0, 0, 0);
   } else if (period === 'year') {
-    start.setFullYear(start.getFullYear() - 1);
+    start = new Date(now.getFullYear(), 0, 1);
     start.setHours(0, 0, 0, 0);
   } else {
-    start.setMonth(start.getMonth() - 1);
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
     start.setHours(0, 0, 0, 0);
   }
-  
-  return { gte: start };
+
+  return { gte: start, lte: now };
 };
+
+async function resolveSalesDateFilter({
+  period,
+  startDate,
+  endDate,
+  fiscalYearId,
+  companyId,
+}) {
+  const raw = getDateFilter(period, startDate, endDate);
+  if (!fiscalYearId || !companyId) return raw;
+
+  const clamped = await applyFiscalYearWindow({
+    companyId,
+    fiscalYearId,
+    start: raw.gte,
+    end: raw.lte,
+    period: period === 'year' ? 'This Year' : period,
+  });
+  return { gte: clamped.start, lte: clamped.end };
+}
 
 // ─── GET ORDER TREND ──────────────────────────────────────
 const getOrderTrend = async (userId, companyId, dateFilter, days = 30) => {
@@ -367,8 +389,7 @@ const getInvoiceTrend = async (userId, companyId, days = 30) => {
 };
 
 // ─── GET RETURN STATS ─────────────────────────────────────
-const getReturnStats = async (userId, companyId, period) => {
-  const dateFilter = getDateFilter(period);
+const getReturnStats = async (userId, companyId, dateFilter) => {
 
   const [total, pending, approved, rejected, completed] = await Promise.all([
     prisma.return.count({
@@ -438,8 +459,7 @@ const getReturnStats = async (userId, companyId, period) => {
 };
 
 // ─── GET CREDIT NOTE (SALES CREDITS) STATS ────────────────
-const getCreditNoteStats = async (userId, companyId, period) => {
-  const dateFilter = getDateFilter(period);
+const getCreditNoteStats = async (userId, companyId, dateFilter) => {
   const baseWhere = {
     companyId,
     date: dateFilter,
@@ -480,8 +500,7 @@ const getCreditNoteStats = async (userId, companyId, period) => {
 };
 
 // ─── GET REFUND STATS ─────────────────────────────────────
-const getRefundStats = async (userId, companyId, period) => {
-  const dateFilter = getDateFilter(period);
+const getRefundStats = async (userId, companyId, dateFilter) => {
 
   const [total, pending, completed, failed] = await Promise.all([
     prisma.refund.count({
@@ -542,8 +561,7 @@ const getRefundStats = async (userId, companyId, period) => {
 };
 
 // ─── GET TOP PRODUCTS (orders + POS) ──────────────────────
-const getTopProducts = async (userId, companyId, period, limit = 10) => {
-  const dateFilter = getDateFilter(period);
+const getTopProducts = async (userId, companyId, dateFilter, limit = 10) => {
 
   const [orderProducts, posProducts] = await Promise.all([
     prisma.orderItem.groupBy({
@@ -604,8 +622,7 @@ const getTopProducts = async (userId, companyId, period, limit = 10) => {
 };
 
 // ─── GET CUSTOMER STATS ──────────────────────────────────
-const getCustomerStats = async (userId, companyId, period) => {
-  const dateFilter = getDateFilter(period);
+const getCustomerStats = async (userId, companyId, dateFilter) => {
 
   const [totalCustomers, newCustomers, topCustomers] = await Promise.all([
     prisma.customer.count({
@@ -664,7 +681,14 @@ const getSalesDashboard = async (req, res) => {
     const period = req.query.period || 'month';
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
-    const dateFilter = getDateFilter(period, startDate, endDate);
+    const fiscalYearId = req.query.fiscalYearId;
+    const dateFilter = await resolveSalesDateFilter({
+      period,
+      startDate,
+      endDate,
+      fiscalYearId,
+      companyId,
+    });
 
     // ─── ORDERS ──────────────────────────────────────────────
     const orderFilter = {
@@ -705,19 +729,19 @@ const getSalesDashboard = async (req, res) => {
     ]);
 
     // ─── RETURNS ──────────────────────────────────────────────
-    const returnStats = await getReturnStats(userId, companyId, period);
+    const returnStats = await getReturnStats(userId, companyId, dateFilter);
 
     // ─── REFUNDS ──────────────────────────────────────────────
-    const refundStats = await getRefundStats(userId, companyId, period);
+    const refundStats = await getRefundStats(userId, companyId, dateFilter);
 
     // ─── SALES CREDITS (CREDIT NOTES) ─────────────────────────
-    const creditNoteStats = await getCreditNoteStats(userId, companyId, period);
+    const creditNoteStats = await getCreditNoteStats(userId, companyId, dateFilter);
 
     // ─── TOP PRODUCTS ─────────────────────────────────────────
-    const topProducts = await getTopProducts(userId, companyId, period);
+    const topProducts = await getTopProducts(userId, companyId, dateFilter);
 
     // ─── CUSTOMER STATS ──────────────────────────────────────
-    const customerStats = await getCustomerStats(userId, companyId, period);
+    const customerStats = await getCustomerStats(userId, companyId, dateFilter);
 
     // ─── SUMMARY STATS ───────────────────────────────────────
     const orderRev = toNum(orderRevenue._sum.grandTotal);
@@ -1064,8 +1088,14 @@ const getSalesSummary = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month' } = req.query;
-    const dateFilter = getDateFilter(period);
+    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const dateFilter = await resolveSalesDateFilter({
+      period,
+      startDate,
+      endDate,
+      fiscalYearId,
+      companyId,
+    });
 
     // ✅ All queries with userId filter
     const [
@@ -1275,8 +1305,14 @@ const getSalesPerformance = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month' } = req.query;
-    const dateFilter = getDateFilter(period);
+    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const dateFilter = await resolveSalesDateFilter({
+      period,
+      startDate,
+      endDate,
+      fiscalYearId,
+      companyId,
+    });
 
     // ✅ All queries with userId filter
     const [
@@ -1385,8 +1421,14 @@ const getSalesPerformance = async (req, res) => {
 const getCombinedRevenue = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate } = req.query;
-    const dateFilter = getDateFilter(period, startDate, endDate);
+    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const dateFilter = await resolveSalesDateFilter({
+      period,
+      startDate,
+      endDate,
+      fiscalYearId,
+      companyId,
+    });
 
     // Get POS sales data
     const posSalesData = await prisma.pOSSale.aggregate({
