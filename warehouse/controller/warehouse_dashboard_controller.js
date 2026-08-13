@@ -128,7 +128,7 @@ const getDashboardMetrics = async (req, res) => {
         periodStockIn,
         periodStockOut,
         pendingOrders: 0,
-        todayRevenue: 0,
+        todayRevenue: 0
       }
     });
   } catch (error) {
@@ -150,7 +150,7 @@ const getRecentActivities = async (req, res) => {
     const movements = await prisma.stockMovement.findMany({
       where: { companyId },
       orderBy: { createdAt: 'desc' },
-      take: parseInt(limit),
+      take: parseInt(limit)
     });
 
     const activities = movements.map(m => ({
@@ -163,7 +163,7 @@ const getRecentActivities = async (req, res) => {
       status: m.status || 'Completed',
       user: {
         id: req.user.id,
-        name: (req.user.firstName || '') + ' ' + (req.user.lastName || ''),
+        name: (req.user.firstName || '') + ' ' + (req.user.lastName || '')
       }
     }));
 
@@ -268,7 +268,7 @@ const getStockMovementChart = async (req, res) => {
         chartData.push({
           label,
           stockIn:  inMonth.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
-          stockOut: inMonth.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
+          stockOut: inMonth.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0)
         });
       }
     } else if (groupBy === 'week') {
@@ -282,7 +282,7 @@ const getStockMovementChart = async (req, res) => {
         chartData.push({
           label: `W${w+1}`,
           stockIn:  inWeek.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
-          stockOut: inWeek.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
+          stockOut: inWeek.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0)
         });
       }
     } else if (groupBy === 'hour') {
@@ -292,7 +292,7 @@ const getStockMovementChart = async (req, res) => {
         chartData.push({
           label: `${h}:00`,
           stockIn:  inHour.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
-          stockOut: inHour.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
+          stockOut: inHour.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0)
         });
       }
     } else {
@@ -311,7 +311,7 @@ const getStockMovementChart = async (req, res) => {
           label,
           stockIn:  inDay.filter(mv => mv.type === 'stock_in').reduce((s,mv) => s + mv.quantity, 0),
           stockOut: inDay.filter(mv => mv.type === 'stock_out').reduce((s,mv) => s + mv.quantity, 0),
-          date: date.toISOString(),
+          date: date.toISOString()
         });
       }
     }

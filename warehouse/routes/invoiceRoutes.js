@@ -11,7 +11,7 @@ const {
   applyPayment,
   markOverdueInvoices,
   deleteInvoice,
-  getInvoiceStats,
+  getInvoiceStats
 } = require('../../warehouse/controller/invoiceController');
 
 router.use(protect);

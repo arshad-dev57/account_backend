@@ -6,7 +6,7 @@ const { protect } = require('../middleware/authMiddleware');
 const { upload } = require('../config/cloudinary');
 const {
   getPdfReportSettings,
-  updatePdfReportSettings,
+  updatePdfReportSettings
 } = require('../controllers/pdfReportSettingsController');
 
 router.use(protect);

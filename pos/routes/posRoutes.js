@@ -202,7 +202,7 @@ router.post('/send-receipt', protect, async (req, res) => {
       from: `"${companyName}" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: `Receipt - ${sale.invoiceNumber} - ${companyName}`,
-      html: receiptHtml,
+      html: receiptHtml
     };
 
     await emailService.transporter.sendMail(mailOptions);

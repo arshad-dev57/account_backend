@@ -14,7 +14,7 @@ const formatUserResponse = (user) => {
     role: user.role,
     isActive: user.isActive,
     createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
+    updatedAt: user.updatedAt
   };
 
   // Add subscription data if available
@@ -27,7 +27,7 @@ const formatUserResponse = (user) => {
       startDate: user.subscription.startDate,
       endDate: user.subscription.endDate,
       trialStartDate: user.subscription.trialStartDate,
-      trialEndDate: user.subscription.trialEndDate,
+      trialEndDate: user.subscription.trialEndDate
     };
   }
 
@@ -43,7 +43,7 @@ const formatRegisterResponse = (user, token, refreshToken) => {
     message: 'User registered successfully. Free trial started for 30 days!',
     token,
     refreshToken,
-    user: formatUserResponse(user),
+    user: formatUserResponse(user)
   };
 };
 
@@ -56,7 +56,7 @@ const formatLoginResponse = (user, token, refreshToken) => {
     message: 'Login successful',
     token,
     refreshToken,
-    user: formatUserResponse(user),
+    user: formatUserResponse(user)
   };
 };
 
@@ -66,7 +66,7 @@ const formatLoginResponse = (user, token, refreshToken) => {
 const formatGetMeResponse = (user) => {
   return {
     success: true,
-    user: formatUserResponse(user),
+    user: formatUserResponse(user)
   };
 };
 
@@ -74,5 +74,5 @@ module.exports = {
   formatUserResponse,
   formatRegisterResponse,
   formatLoginResponse,
-  formatGetMeResponse,
+  formatGetMeResponse
 };

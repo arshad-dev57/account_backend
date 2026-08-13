@@ -48,7 +48,7 @@ const autoGenerateInvoice = async (order, userId, companyId) => {
             totalPrice: item.totalPrice,
             taxRate: item.taxRate || 0,
             taxAmount: item.taxAmount || 0,
-            discount: item.discount || 0,
+            discount: item.discount || 0
           }))
         }
       },
@@ -98,21 +98,21 @@ const createSalesOrder = async (req, res) => {
       discountTotal,
       customerNotes,
       internalNotes,
-      tags,
+      tags
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
     if (!customerName) {
       return res.status(400).json({
         success: false,
-        message: 'Customer name is required',
+        message: 'Customer name is required'
       });
     }
 
     if (!items || items.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Sales order must have at least one item',
+        message: 'Sales order must have at least one item'
       });
     }
 
@@ -151,14 +151,14 @@ const createSalesOrder = async (req, res) => {
       if (!product) {
         return res.status(404).json({
           success: false,
-          message: `Product not found: ${item.productName || item.sku || item.productId}`,
+          message: `Product not found: ${item.productName || item.sku || item.productId}`
         });
       }
 
       if (product.currentStock < item.quantity) {
         return res.status(400).json({
           success: false,
-          message: `Insufficient stock for ${product.name}. Available: ${product.currentStock}`,
+          message: `Insufficient stock for ${product.name}. Available: ${product.currentStock}`
         });
       }
 
@@ -182,7 +182,7 @@ const createSalesOrder = async (req, res) => {
         discount: item.discount || 0,
         batchNumber: item.batchNumber || '',
         serialNumber: item.serialNumber || '',
-        notes: item.notes || '',
+        notes: item.notes || ''
       });
 
       subtotal += totalPrice;
@@ -242,14 +242,14 @@ const createSalesOrder = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Sales Order created successfully',
-      data: order,
+      data: order
     });
   } catch (error) {
     console.error('Create sales order error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -270,7 +270,7 @@ const getSalesOrders = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'orderDate',
-      sortOrder = 'desc',
+      sortOrder = 'desc'
     } = req.query;
 
     // ✅ FIXED: Use createdBy instead of userId
@@ -318,7 +318,7 @@ const getSalesOrders = async (req, res) => {
     const syncedOrders = await Order.findSalesOrders(filter, {
       skip,
       take: limitNum,
-      orderBy,
+      orderBy
     });
 
     const kpi = await Order.getStatusCounts(userId, 'Sales Order');
@@ -334,8 +334,8 @@ const getSalesOrders = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get sales orders error:', error);
@@ -372,21 +372,21 @@ const createPurchaseOrder = async (req, res) => {
       couponCode,
       discountTotal,
       internalNotes,
-      tags,
+      tags
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
     if (!supplierName) {
       return res.status(400).json({
         success: false,
-        message: 'Supplier name is required',
+        message: 'Supplier name is required'
       });
     }
 
     if (!items || items.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Purchase order must have at least one item',
+        message: 'Purchase order must have at least one item'
       });
     }
 
@@ -425,7 +425,7 @@ const createPurchaseOrder = async (req, res) => {
       if (!product) {
         return res.status(404).json({
           success: false,
-          message: `Product not found: ${item.productName || item.sku || item.productId}`,
+          message: `Product not found: ${item.productName || item.sku || item.productId}`
         });
       }
 
@@ -449,7 +449,7 @@ const createPurchaseOrder = async (req, res) => {
         discount: item.discount || 0,
         batchNumber: item.batchNumber || '',
         serialNumber: item.serialNumber || '',
-        notes: item.notes || '',
+        notes: item.notes || ''
       });
 
       subtotal += totalPrice;
@@ -506,14 +506,14 @@ const createPurchaseOrder = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Purchase Order created successfully',
-      data: order,
+      data: order
     });
   } catch (error) {
     console.error('Create purchase order error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -534,7 +534,7 @@ const getPurchaseOrders = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'orderDate',
-      sortOrder = 'desc',
+      sortOrder = 'desc'
     } = req.query;
 
     // ✅ FIXED: Use createdBy instead of userId
@@ -590,8 +590,8 @@ const getPurchaseOrders = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get purchase orders error:', error);
@@ -653,26 +653,26 @@ const getOrderById = async (req, res) => {
         items: {
           include: {
             product: {
-              select: { id: true, name: true, sku: true },
-            },
-          },
+              select: { id: true, name: true, sku: true }
+            }
+          }
         },
         creator: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: { id: true, firstName: true, lastName: true, email: true }
         },
         picker: {
-          select: { id: true, firstName: true, lastName: true },
+          select: { id: true, firstName: true, lastName: true }
         },
         packer: {
-          select: { id: true, firstName: true, lastName: true },
+          select: { id: true, firstName: true, lastName: true }
         },
         shipper: {
-          select: { id: true, firstName: true, lastName: true },
+          select: { id: true, firstName: true, lastName: true }
         },
         updater: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
-      },
+          select: { id: true, firstName: true, lastName: true, email: true }
+        }
+      }
     });
 
     res.status(200).json({ success: true, data: synced || order });
@@ -714,13 +714,13 @@ const updateOrderStatus = async (req, res) => {
       Delivered: ['Returned'],
       Cancelled: [],
       Returned: [],
-      'On Hold': ['Pending', 'Processing', 'Cancelled'],
+      'On Hold': ['Pending', 'Processing', 'Cancelled']
     };
 
     if (!validTransitions[order.orderStatus]?.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `Cannot transition from ${order.orderStatus} to ${status}`,
+        message: `Cannot transition from ${order.orderStatus} to ${status}`
       });
     }
 
@@ -783,7 +783,7 @@ const cancelOrder = async (req, res) => {
     if (!['Draft', 'Pending', 'Processing'].includes(order.orderStatus)) {
       return res.status(400).json({
         success: false,
-        message: 'Order cannot be cancelled in current status',
+        message: 'Order cannot be cancelled in current status'
       });
     }
 
@@ -815,7 +815,7 @@ const deleteOrder = async (req, res) => {
     if (!['Draft', 'Cancelled'].includes(order.orderStatus)) {
       return res.status(400).json({
         success: false,
-        message: 'Only draft or cancelled orders can be deleted',
+        message: 'Only draft or cancelled orders can be deleted'
       });
     }
 

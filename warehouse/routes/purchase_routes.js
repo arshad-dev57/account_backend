@@ -8,7 +8,7 @@ const {
   createPurchase,
   updatePurchaseStatus,
   receivePurchase,
-  deletePurchase,
+  deletePurchase
 } = require('../controller/warehouse_purchase_controller');
 
 router.use(protect);

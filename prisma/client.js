@@ -12,13 +12,13 @@ function createClient() {
   const client = new PrismaClient({
     datasources: url
       ? {
-          db: { url },
+          db: { url }
         }
       : undefined,
     log:
       process.env.NODE_ENV === 'development'
         ? ['error', 'warn']
-        : ['error'],
+        : ['error']
   });
 
   // Every $transaction call site gets longer timeouts + transient retries

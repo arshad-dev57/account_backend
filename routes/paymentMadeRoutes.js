@@ -4,7 +4,7 @@ const {
   getPayments,
   getPayment,
   getUnpaidBills,
-  getSummary,
+  getSummary
 } = require('../controllers/paymentMadeController');
 const { protect } = require('../middleware/authMiddleware');
 

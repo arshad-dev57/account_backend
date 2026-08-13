@@ -15,7 +15,7 @@ async function getOrCreateAdjustmentAccounts(userId) {
       openingBalance: 0,
       description: 'Bank service charges and fees',
       taxCode: 'N/A',
-      createdBy: userId,
+      createdBy: userId
     });
   }
   
@@ -30,7 +30,7 @@ async function getOrCreateAdjustmentAccounts(userId) {
       openingBalance: 0,
       description: 'Interest earned on bank deposits',
       taxCode: 'N/A',
-      createdBy: userId,
+      createdBy: userId
     });
   }
   
@@ -52,7 +52,7 @@ exports.getReconciliationData = async (req, res) => {
     if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
     
@@ -62,15 +62,15 @@ exports.getReconciliationData = async (req, res) => {
       dateFilter = {
         date: {
           $gte: new Date(startDate),
-          $lte: new Date(endDate),
+          $lte: new Date(endDate)
         },
-        status: 'Posted',
+        status: 'Posted'
       };
     } else if (bankAccount.lastReconciled) {
       // Get transactions since last reconciliation
       dateFilter = {
         date: { $gte: bankAccount.lastReconciled },
-        status: 'Posted',
+        status: 'Posted'
       };
     } else {
       dateFilter = { status: 'Posted' };
@@ -92,7 +92,7 @@ exports.getReconciliationData = async (req, res) => {
             reference: entry.reference,
             amount: line.debit || line.credit,
             type: line.debit > 0 ? 'Deposit' : 'Payment',
-            isCleared: entry.isReconciled || false,
+            isCleared: entry.isReconciled || false
           });
         }
       });
@@ -120,18 +120,18 @@ exports.getReconciliationData = async (req, res) => {
           number: bankAccount.accountNumber,
           openingBalance: bankAccount.openingBalance,
           currentBalance: bankAccount.currentBalance,
-          lastReconciled: bankAccount.lastReconciled,
+          lastReconciled: bankAccount.lastReconciled
         },
         transactions,
-        bookBalance,
-      },
+        bookBalance
+      }
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -155,7 +155,7 @@ exports.completeReconciliation = async (req, res) => {
     if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
     
@@ -211,8 +211,8 @@ exports.completeReconciliation = async (req, res) => {
           reconciledBalance,
           difference,
           unclearedDeposits,
-          unclearedPayments,
-        },
+          unclearedPayments
+        }
       });
     }
     
@@ -233,20 +233,20 @@ exports.completeReconciliation = async (req, res) => {
             accountName: bankChargesAccount.name,
             accountCode: bankChargesAccount.code,
             debit: serviceCharge,
-            credit: 0,
+            credit: 0
           },
           {
             accountId: bankAccount.chartOfAccountId,
             accountName: bankAccount.accountName,
             accountCode: bankAccount.accountCode || '1020',
             debit: 0,
-            credit: serviceCharge,
+            credit: serviceCharge
           },
         ],
         status: 'Posted',
         createdBy: req.user.id,
         postedBy: req.user.id,
-        postedAt: adjustmentDate,
+        postedAt: adjustmentDate
       });
       adjustmentEntries.push(serviceChargeEntry);
       
@@ -266,20 +266,20 @@ exports.completeReconciliation = async (req, res) => {
             accountName: bankAccount.accountName,
             accountCode: bankAccount.accountCode || '1020',
             debit: interestEarned,
-            credit: 0,
+            credit: 0
           },
           {
             accountId: interestIncomeAccount._id,
             accountName: interestIncomeAccount.name,
             accountCode: interestIncomeAccount.code,
             debit: 0,
-            credit: interestEarned,
+            credit: interestEarned
           },
         ],
         status: 'Posted',
         createdBy: req.user.id,
         postedBy: req.user.id,
-        postedAt: adjustmentDate,
+        postedAt: adjustmentDate
       });
       adjustmentEntries.push(interestEntry);
       
@@ -293,7 +293,7 @@ exports.completeReconciliation = async (req, res) => {
     
     // 8. Update Chart of Accounts balance
     await ChartOfAccount.findByIdAndUpdate(bankAccount.chartOfAccountId, {
-      currentBalance: bankAccount.currentBalance,
+      currentBalance: bankAccount.currentBalance
     });
     
     // 9. Mark transactions as reconciled
@@ -309,18 +309,18 @@ exports.completeReconciliation = async (req, res) => {
           id: bankAccount._id,
           name: bankAccount.accountName,
           currentBalance: bankAccount.currentBalance,
-          lastReconciled: bankAccount.lastReconciled,
+          lastReconciled: bankAccount.lastReconciled
         },
         adjustments: adjustmentEntries.length,
-        clearedTransactions: clearedTransactions.length,
-      },
+        clearedTransactions: clearedTransactions.length
+      }
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -336,7 +336,7 @@ exports.getReconciliationHistory = async (req, res) => {
     if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        message: 'Bank account not found',
+        message: 'Bank account not found'
       });
     }
     
@@ -344,7 +344,7 @@ exports.getReconciliationHistory = async (req, res) => {
     const reconciliationEntries = await JournalEntry.find({
       description: { $regex: 'Bank reconciliation adjustment', $options: 'i' },
       'lines.accountId': bankAccount.chartOfAccountId,
-      status: 'Posted',
+      status: 'Posted'
     }).sort({ date: -1 });
     
     const history = reconciliationEntries.map(entry => ({
@@ -353,20 +353,20 @@ exports.getReconciliationHistory = async (req, res) => {
       description: entry.description,
       reference: entry.reference,
       serviceCharge: entry.lines.find(l => l.accountName?.includes('Bank Charges'))?.debit || 0,
-      interestEarned: entry.lines.find(l => l.accountName?.includes('Interest'))?.credit || 0,
+      interestEarned: entry.lines.find(l => l.accountName?.includes('Interest'))?.credit || 0
     }));
     
     res.status(200).json({
       success: true,
       count: history.length,
-      data: history,
+      data: history
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({
       success: false,
       message: 'Server Error',
-      error: error.message,
+      error: error.message
     });
   }
 };

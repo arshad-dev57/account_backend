@@ -22,7 +22,7 @@ const createInvoice = async (req, res) => {
       dueDate,
       items,
       discountTotal,
-      notes,
+      notes
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
@@ -59,7 +59,7 @@ const createInvoice = async (req, res) => {
         taxRate,
         taxAmount,
         discount,
-        totalPrice: totalPrice + taxAmount - discount,
+        totalPrice: totalPrice + taxAmount - discount
       };
     });
 
@@ -106,20 +106,20 @@ const createInvoice = async (req, res) => {
       grandTotal,
       notes: notes || '',
       createdBy: userId,
-      companyId: companyId,
+      companyId: companyId
     });
 
     res.status(201).json({
       success: true,
       message: 'Invoice created successfully',
-      data: invoice,
+      data: invoice
     });
   } catch (error) {
     console.error('Create invoice error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to create invoice',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -143,7 +143,7 @@ const getInvoices = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'invoiceDate',
-      sortOrder = 'desc',
+      sortOrder = 'desc'
     } = req.query;
 
     const filter = { companyId: companyId, isActive: true, isDeleted: false };
@@ -195,8 +195,8 @@ const getInvoices = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get invoices error:', error);
@@ -281,7 +281,7 @@ const updateInvoice = async (req, res) => {
       dueDate,
       items,
       discountTotal,
-      notes,
+      notes
     } = req.body;
 
     const updateData = { updatedBy: req.user.id };
@@ -320,7 +320,7 @@ const updateInvoice = async (req, res) => {
           taxRate,
           taxAmount,
           discount,
-          totalPrice: totalPrice + taxAmount - discount,
+          totalPrice: totalPrice + taxAmount - discount
         };
       });
 
@@ -349,7 +349,7 @@ const updateInvoice = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Invoice updated successfully',
-      data: updated,
+      data: updated
     });
   } catch (error) {
     console.error('Update invoice error:', error);
@@ -384,7 +384,7 @@ const applyPayment = async (req, res) => {
     if (amount > outstanding) {
       return res.status(400).json({
         success: false,
-        message: `Payment amount exceeds outstanding balance (Rs. ${outstanding})`,
+        message: `Payment amount exceeds outstanding balance (Rs. ${outstanding})`
       });
     }
 
@@ -393,7 +393,7 @@ const applyPayment = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Payment applied successfully',
-      data: updated,
+      data: updated
     });
   } catch (error) {
     console.error('Apply payment error:', error);
@@ -412,7 +412,7 @@ const markOverdueInvoices = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `${result.count} invoices marked as overdue`,
-      data: result,
+      data: result
     });
   } catch (error) {
     console.error('Mark overdue error:', error);
@@ -441,7 +441,7 @@ const deleteInvoice = async (req, res) => {
     if (invoice.paidAmount > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete invoice with partial payment',
+        message: 'Cannot delete invoice with partial payment'
       });
     }
 
@@ -492,5 +492,5 @@ module.exports = {
   applyPayment,
   markOverdueInvoices,
   deleteInvoice,
-  getInvoiceStats,
+  getInvoiceStats
 };

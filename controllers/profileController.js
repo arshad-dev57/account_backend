@@ -10,7 +10,7 @@ function formatBusinessDetails(businessDetails = {}) {
     industry: bd.industry || '',
     businessType: bd.businessType || '',
     currencyCode: bd.currencyCode || '',
-    currencySymbol: bd.currencySymbol || '',
+    currencySymbol: bd.currencySymbol || ''
   };
 }
 
@@ -44,16 +44,16 @@ exports.getProfile = async (req, res) => {
             phone: true,
             email: true,
             website: true,
-            taxRegistrationNumber: true,
-          },
-        },
+            taxRegistrationNumber: true
+          }
+        }
       }
     });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -76,22 +76,22 @@ exports.getProfile = async (req, res) => {
         ...businessDetails,
         logo: businessDetails.logo || user.company?.logo || '',
         taxRegistrationNumber:
-          businessDetails.taxRegistrationNumber || user.company?.taxRegistrationNumber || '',
+          businessDetails.taxRegistrationNumber || user.company?.taxRegistrationNumber || ''
       }),
       createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
+      updatedAt: user.updatedAt
     };
 
     res.status(200).json({
       success: true,
-      data: profile,
+      data: profile
     });
   } catch (error) {
     console.error('Error getting profile:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -114,7 +114,7 @@ exports.updateProfile = async (req, res) => {
       fiscalYear,
       taxRegistrationNumber,
       industry,
-      businessType,
+      businessType
     } = req.body;
 
     let logo = req.body.logo;
@@ -137,7 +137,7 @@ exports.updateProfile = async (req, res) => {
     if (!existingUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -169,7 +169,7 @@ exports.updateProfile = async (req, res) => {
       if (emailExists) {
         return res.status(400).json({
           success: false,
-          message: 'Email already exists',
+          message: 'Email already exists'
         });
       }
       updateData.email = email.toLowerCase();
@@ -200,7 +200,7 @@ exports.updateProfile = async (req, res) => {
       taxRegistrationNumber: taxRegistrationNumber || existingBusinessDetails.taxRegistrationNumber || '',
       signature: signature || existingBusinessDetails.signature || '',
       industry: industry || existingBusinessDetails.industry || '',
-      businessType: businessType || existingBusinessDetails.businessType || '',
+      businessType: businessType || existingBusinessDetails.businessType || ''
     };
 
     // Only update if any business detail is provided
@@ -226,7 +226,7 @@ exports.updateProfile = async (req, res) => {
         websiteLink: true,
         contactNo: true,
         businessDetails: true,
-        updatedAt: true,
+        updatedAt: true
       }
     });
 
@@ -248,20 +248,20 @@ exports.updateProfile = async (req, res) => {
       
       businessDetails: formatBusinessDetails(businessDetails),
       
-      updatedAt: updatedUser.updatedAt,
+      updatedAt: updatedUser.updatedAt
     };
 
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      data: profile,
+      data: profile
     });
   } catch (error) {
     console.error('Error updating profile:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -274,7 +274,7 @@ exports.updateBusinessDetails = async (req, res) => {
       fiscalYear,
       taxRegistrationNumber,
       industry,
-      businessType,
+      businessType
     } = req.body;
 
     let logo = req.body.logo;
@@ -296,7 +296,7 @@ exports.updateBusinessDetails = async (req, res) => {
     if (!existingUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -309,18 +309,18 @@ exports.updateBusinessDetails = async (req, res) => {
       taxRegistrationNumber: taxRegistrationNumber || existingBusinessDetails.taxRegistrationNumber || '',
       signature: signature || existingBusinessDetails.signature || '',
       industry: industry || existingBusinessDetails.industry || '',
-      businessType: businessType || existingBusinessDetails.businessType || '',
+      businessType: businessType || existingBusinessDetails.businessType || ''
     };
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
-        businessDetails: updatedBusinessDetails,
+        businessDetails: updatedBusinessDetails
       },
       select: {
         id: true,
         businessDetails: true,
-        updatedAt: true,
+        updatedAt: true
       }
     });
 
@@ -331,7 +331,7 @@ exports.updateBusinessDetails = async (req, res) => {
       message: 'Business details updated successfully',
       data: {
         businessDetails: formatBusinessDetails(businessDetails),
-        updatedAt: updatedUser.updatedAt,
+        updatedAt: updatedUser.updatedAt
       }
     });
   } catch (error) {
@@ -339,7 +339,7 @@ exports.updateBusinessDetails = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -359,14 +359,14 @@ exports.getBusinessDetails = async (req, res) => {
         address: true,
         phone: true,
         country: true,
-        businessDetails: true,
+        businessDetails: true
       }
     });
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -381,7 +381,7 @@ exports.getBusinessDetails = async (req, res) => {
         address: user.address || '',
         phone: user.phone || '',
         country: user.country || '',
-        businessDetails: formatBusinessDetails(businessDetails),
+        businessDetails: formatBusinessDetails(businessDetails)
       }
     });
   } catch (error) {
@@ -389,7 +389,7 @@ exports.getBusinessDetails = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -412,7 +412,7 @@ exports.updateProfileImage = async (req, res) => {
     if (!logo && !signature) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide logo or signature to update',
+        message: 'Please provide logo or signature to update'
       });
     }
 
@@ -423,7 +423,7 @@ exports.updateProfileImage = async (req, res) => {
     if (!existingUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -432,18 +432,18 @@ exports.updateProfileImage = async (req, res) => {
     const updatedBusinessDetails = {
       ...existingBusinessDetails,
       logo: logo || existingBusinessDetails.logo || '',
-      signature: signature || existingBusinessDetails.signature || '',
+      signature: signature || existingBusinessDetails.signature || ''
     };
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
-        businessDetails: updatedBusinessDetails,
+        businessDetails: updatedBusinessDetails
       },
       select: {
         id: true,
         businessDetails: true,
-        updatedAt: true,
+        updatedAt: true
       }
     });
 
@@ -455,7 +455,7 @@ exports.updateProfileImage = async (req, res) => {
       data: {
         logo: businessDetails.logo || '',
         signature: businessDetails.signature || '',
-        updatedAt: updatedUser.updatedAt,
+        updatedAt: updatedUser.updatedAt
       }
     });
   } catch (error) {
@@ -463,7 +463,7 @@ exports.updateProfileImage = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };

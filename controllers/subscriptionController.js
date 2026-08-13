@@ -19,7 +19,7 @@ const PLANS = [
       'Email support',
       'Data backup & security',
     ],
-    isPopular: false,
+    isPopular: false
   },
   {
     id: 'yearly',
@@ -38,7 +38,7 @@ const PLANS = [
       'Save 2 months FREE!',
     ],
     isPopular: true,
-    savings: 'Save 16%',
+    savings: 'Save 16%'
   },
 ];
 
@@ -51,13 +51,13 @@ const getPlans = async (req, res) => {
   try {
     res.status(200).json({
       success: true,
-      data: PLANS,
+      data: PLANS
     });
   } catch (error) {
     console.error('Error getting plans:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -81,7 +81,7 @@ const subscribeDirect = async (req, res) => {
     if (!plan || (plan !== 'monthly' && plan !== 'yearly')) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid subscription plan. Must be "monthly" or "yearly"',
+        message: 'Invalid subscription plan. Must be "monthly" or "yearly"'
       });
     }
 
@@ -93,7 +93,7 @@ const subscribeDirect = async (req, res) => {
     if (!userData) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -111,7 +111,7 @@ const subscribeDirect = async (req, res) => {
     if (isAlreadyPaid) {
       return res.status(400).json({
         success: false,
-        message: 'You already have an active paid subscription. Please cancel it first to change plans.',
+        message: 'You already have an active paid subscription. Please cancel it first to change plans.'
       });
     }
 
@@ -148,8 +148,8 @@ const subscribeDirect = async (req, res) => {
       paymentDetails: {
         method: 'direct',
         timestamp: new Date().toISOString(),
-        ...(req.body.paymentDetails || {}),
-      },
+        ...(req.body.paymentDetails || {})
+      }
     });
 
     res.status(201).json({
@@ -160,15 +160,15 @@ const subscribeDirect = async (req, res) => {
         endDate: updatedUser.subscription.endDate,
         startDate: updatedUser.subscription.startDate,
         plan: updatedUser.subscription.plan,
-        status: updatedUser.subscription.status,
+        status: updatedUser.subscription.status
       },
-      subscription,
+      subscription
     });
   } catch (error) {
     console.error('🔥 [subscribeDirect] Error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Failed to activate subscription',
+      message: error.message || 'Failed to activate subscription'
     });
   }
 };
@@ -199,7 +199,7 @@ const startTrial = async (req, res) => {
     if (!userData) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -210,7 +210,7 @@ const startTrial = async (req, res) => {
       const daysLeft = user.getTrialDaysRemaining();
       return res.status(400).json({
         success: false,
-        message: `You already have an active trial with ${daysLeft} day(s) remaining.`,
+        message: `You already have an active trial with ${daysLeft} day(s) remaining.`
       });
     }
 
@@ -218,7 +218,7 @@ const startTrial = async (req, res) => {
     if (user.subscription.plan === 'trial' && user.subscription.status === 'expired') {
       return res.status(400).json({
         success: false,
-        message: 'Your trial has already expired. Please subscribe to a paid plan to continue.',
+        message: 'Your trial has already expired. Please subscribe to a paid plan to continue.'
       });
     }
 
@@ -229,7 +229,7 @@ const startTrial = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: 'You already have an active subscription. Trial is only for new users.',
+        message: 'You already have an active subscription. Trial is only for new users.'
       });
     }
 
@@ -254,8 +254,8 @@ const startTrial = async (req, res) => {
       transactionId: `TRIAL-${Date.now()}`,
       paymentDetails: {
         method: 'free_trial',
-        timestamp: new Date().toISOString(),
-      },
+        timestamp: new Date().toISOString()
+      }
     });
 
     res.status(201).json({
@@ -266,15 +266,15 @@ const startTrial = async (req, res) => {
         trialEndDate: updatedUser.subscription.trialEndDate,
         trialStartDate: updatedUser.subscription.trialStartDate,
         plan: updatedUser.subscription.plan,
-        status: updatedUser.subscription.status,
+        status: updatedUser.subscription.status
       },
-      subscription,
+      subscription
     });
   } catch (error) {
     console.error('Error starting trial:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -296,7 +296,7 @@ const checkSubscription = async (req, res) => {
     if (!userData) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -354,9 +354,9 @@ const checkSubscription = async (req, res) => {
             startDate: updatedUser.subscription.startDate,
             endDate: updatedUser.subscription.endDate,
             trialStartDate: updatedUser.subscription.trialStartDate,
-            trialEndDate: updatedUser.subscription.trialEndDate,
-          },
-        },
+            trialEndDate: updatedUser.subscription.trialEndDate
+          }
+        }
       });
     }
 
@@ -377,15 +377,15 @@ const checkSubscription = async (req, res) => {
           startDate: user.subscription.startDate,
           endDate: user.subscription.endDate,
           trialStartDate: user.subscription.trialStartDate,
-          trialEndDate: user.subscription.trialEndDate,
-        },
-      },
+          trialEndDate: user.subscription.trialEndDate
+        }
+      }
     });
   } catch (error) {
     console.error('Error checking subscription:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -408,7 +408,7 @@ const validateAccess = async (req, res) => {
       return res.status(404).json({
         success: false,
         hasAccess: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -423,15 +423,15 @@ const validateAccess = async (req, res) => {
         status: user.subscription.status,
         daysRemaining: user.subscription.plan === 'trial'
           ? user.getTrialDaysRemaining()
-          : user.getSubscriptionDaysRemaining(),
-      },
+          : user.getSubscriptionDaysRemaining()
+      }
     });
   } catch (error) {
     console.error('Error validating access:', error);
     res.status(500).json({
       success: false,
       hasAccess: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -453,7 +453,7 @@ const getSubscriptionDetails = async (req, res) => {
     if (!userData) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -475,17 +475,17 @@ const getSubscriptionDetails = async (req, res) => {
           trialEndDate: user.subscription.trialEndDate,
           trialDaysRemaining: user.getTrialDaysRemaining(),
           subscriptionDaysRemaining: user.getSubscriptionDaysRemaining(),
-          hasAccess: user.hasActiveSubscription(),
+          hasAccess: user.hasActiveSubscription()
         },
         activeSubscription: active,
-        history,
-      },
+        history
+      }
     });
   } catch (error) {
     console.error('Error getting subscription details:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -506,7 +506,7 @@ const cancelSubscription = async (req, res) => {
     if (!userData) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -515,7 +515,7 @@ const cancelSubscription = async (req, res) => {
     if (!user.hasActiveSubscription()) {
       return res.status(400).json({
         success: false,
-        message: 'No active subscription to cancel.',
+        message: 'No active subscription to cancel.'
       });
     }
 
@@ -527,9 +527,9 @@ const cancelSubscription = async (req, res) => {
     const activeSubscription = await prisma.subscription.findFirst({
       where: {
         userId,
-        status: 'active',
+        status: 'active'
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }
     });
 
     if (activeSubscription) {
@@ -541,14 +541,14 @@ const cancelSubscription = async (req, res) => {
       message: 'Subscription cancelled successfully. Your access has been revoked.',
       data: {
         plan: user.subscription.plan,
-        status: 'expired',
-      },
+        status: 'expired'
+      }
     });
   } catch (error) {
     console.error('Error cancelling subscription:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -566,13 +566,13 @@ const getSubscriptionHistory = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: subscriptions,
+      data: subscriptions
     });
   } catch (error) {
     console.error('Error getting subscription history:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -591,14 +591,14 @@ const getSubscriptionStats = async (req, res) => {
       success: true,
       data: {
         ...stats,
-        expiringSoon,
-      },
+        expiringSoon
+      }
     });
   } catch (error) {
     console.error('Error getting subscription stats:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -615,25 +615,25 @@ const searchSubscriptions = async (req, res) => {
     if (!q || q.length < 1) {
       return res.status(400).json({
         success: false,
-        message: 'Search query is required',
+        message: 'Search query is required'
       });
     }
 
     const { subscriptions, total } = await Subscription.search(q, {
-      take: parseInt(limit),
+      take: parseInt(limit)
     });
 
     res.status(200).json({
       success: true,
       count: subscriptions.length,
       data: subscriptions,
-      total,
+      total
     });
   } catch (error) {
     console.error('Error searching subscriptions:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -649,5 +649,5 @@ module.exports = {
   subscribeDirect,
   startTrial,
   validateAccess,
-  getSubscriptionDetails,
+  getSubscriptionDetails
 };

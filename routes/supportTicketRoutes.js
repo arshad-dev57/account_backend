@@ -7,7 +7,7 @@ const {
   getTicket,
   createTicket,
   updateTicket,
-  deleteTicket,
+  deleteTicket
 } = require('../controllers/supportTicketController');
 
 router.use(protect);

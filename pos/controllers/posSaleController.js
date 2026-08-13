@@ -46,12 +46,12 @@ const completeSale = async (req, res) => {
           categoryId: item.categoryId,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          pricingModel: item.pricingModel || (String(item.taxType || '').toLowerCase().includes('inclusive') ? 'inclusive' : 'exclusive'),
+          pricingModel: item.pricingModel || (String(item.taxType || '').toLowerCase().includes('inclusive') ? 'inclusive' : 'exclusive')
         })),
         customer: customerId ? { id: customerId } : null,
         companyId,
         transactionType: 'POSSale',
-        transactionId: sale.id,
+        transactionId: sale.id
       });
     } catch (taxErr) {
       console.error('POS tax ledger recording failed:', taxErr.message);
@@ -277,7 +277,7 @@ const searchProducts = async (req, res) => {
           availableStock: true, mainImage: true, categoryId: true, categoryName: true,
           taxRate: true, stockUnitName: true,
           isVariant: true, parentProductId: true, variantType: true, variantAttributes: true,
-          isSerialManaged: true, isBatchManaged: true, hasExpiry: true,
+          isSerialManaged: true, isBatchManaged: true, hasExpiry: true
         }
       }),
       prisma.product.count({ where: filter })
@@ -306,14 +306,14 @@ const getProductByBarcode = async (req, res) => {
         OR: [
           { barcodeNumber: { equals: code, mode: 'insensitive' } },
           { sku: { equals: code, mode: 'insensitive' } },
-        ],
+        ]
       },
       select: {
         id: true, name: true, sku: true, barcodeNumber: true,
         sellingPrice: true, costPrice: true, currentStock: true,
         availableStock: true, mainImage: true, categoryId: true, categoryName: true,
-        taxRate: true, stockUnitName: true,
-      },
+        taxRate: true, stockUnitName: true
+      }
     });
 
     if (!product) {
@@ -364,7 +364,7 @@ const convertToInvoice = async (req, res) => {
 
     const posSale = await prisma.pOSSale.findFirst({
       where: { id, companyId, status: 'Completed' },
-      include: { items: true, customer: true },
+      include: { items: true, customer: true }
     });
 
     if (!posSale) {
@@ -389,7 +389,7 @@ const convertToInvoice = async (req, res) => {
     const lastInvoice = await prisma.salesInvoice.findFirst({
       where: { companyId },
       orderBy: { createdAt: 'desc' },
-      select: { invoiceNumber: true },
+      select: { invoiceNumber: true }
     });
 
     let nextNumber = 1;
@@ -435,16 +435,16 @@ const convertToInvoice = async (req, res) => {
             discount: item.discount || 0,
             taxRate: item.taxRate || 0,
             taxAmount: item.taxAmount || 0,
-            lineTotal: item.lineTotal,
-          })),
-        },
+            lineTotal: item.lineTotal
+          }))
+        }
       },
-      include: { items: true },
+      include: { items: true }
     });
 
     await prisma.pOSSale.update({
       where: { id },
-      data: { invoiceId: invoice.id },
+      data: { invoiceId: invoice.id }
     });
 
     await prisma.pOSAuditLog.create({
@@ -452,14 +452,14 @@ const convertToInvoice = async (req, res) => {
         action: 'Sale',
         details: `Converted POS ${posSale.invoiceNumber} → Invoice ${invoiceNumber}`,
         companyId,
-        createdBy: userId,
-      },
+        createdBy: userId
+      }
     });
 
     res.status(201).json({
       success: true,
       message: 'POS sale converted to invoice successfully',
-      data: invoice,
+      data: invoice
     });
   } catch (err) {
     console.error('Convert to Invoice Error:', err);
@@ -483,7 +483,7 @@ const voidSale = async (req, res) => {
       saleId: req.params.id,
       companyId: req.user.companyId,
       createdBy: req.user.id,
-      reason: String(reason).trim(),
+      reason: String(reason).trim()
     });
     res.json({ success: true, message: 'Sale voided', data: result.sale });
   } catch (err) {
@@ -503,8 +503,8 @@ const verifyManager = async (req, res) => {
       where: {
         email: String(email).trim().toLowerCase(),
         companyId: req.user.companyId,
-        isActive: true,
-      },
+        isActive: true
+      }
     });
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid manager credentials' });
@@ -523,8 +523,8 @@ const verifyManager = async (req, res) => {
         action: 'Cash Adjustment',
         details: `Manager override approved by ${user.email}`,
         companyId: req.user.companyId,
-        createdBy: req.user.id,
-      },
+        createdBy: req.user.id
+      }
     }).catch(() => {});
     res.json({
       success: true,
@@ -532,8 +532,8 @@ const verifyManager = async (req, res) => {
       data: {
         managerId: user.id,
         managerName: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-        role: user.role,
-      },
+        role: user.role
+      }
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -550,8 +550,8 @@ const getShiftReport = async (req, res) => {
       where: { id: shiftId, companyId },
       include: {
         terminal: true,
-        cashier: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
+        cashier: { select: { id: true, firstName: true, lastName: true, email: true } }
+      }
     });
     if (!shift) return res.status(404).json({ success: false, message: 'Shift not found' });
 
@@ -559,27 +559,27 @@ const getShiftReport = async (req, res) => {
     const [salesAgg, salesCount, payments, cashIn, cashOut, returns, sales] = await Promise.all([
       prisma.pOSSale.aggregate({
         where: salesWhere,
-        _sum: { grandTotal: true, discountTotal: true, taxTotal: true, subtotal: true },
+        _sum: { grandTotal: true, discountTotal: true, taxTotal: true, subtotal: true }
       }),
       prisma.pOSSale.count({ where: salesWhere }),
       prisma.pOSSalePayment.groupBy({
         by: ['paymentMethod'],
         where: { posSale: salesWhere },
         _sum: { amount: true },
-        _count: { id: true },
+        _count: { id: true }
       }),
       prisma.pOSCashTransaction.aggregate({ where: { shiftId, type: 'CASH_IN' }, _sum: { amount: true } }),
       prisma.pOSCashTransaction.aggregate({ where: { shiftId, type: 'CASH_OUT' }, _sum: { amount: true } }),
       prisma.pOSReturn.aggregate({
         where: { shiftId, companyId },
         _sum: { refundedAmount: true },
-        _count: { id: true },
+        _count: { id: true }
       }),
       prisma.pOSSale.findMany({
         where: salesWhere,
         select: { id: true, invoiceNumber: true, grandTotal: true, createdAt: true, customerName: true },
         orderBy: { createdAt: 'desc' },
-        take: 200,
+        take: 200
       }),
     ]);
 
@@ -611,11 +611,11 @@ const getShiftReport = async (req, res) => {
           openingCash: shift.openingCash || 0,
           expectedCash,
           actualCash: shift.actualCash,
-          difference: shift.difference,
+          difference: shift.difference
         },
         paymentBreakdown: payments,
-        recentSales: sales,
-      },
+        recentSales: sales
+      }
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -625,5 +625,5 @@ const getShiftReport = async (req, res) => {
 module.exports = {
   completeSale, syncSales, holdSale, getHeldSales, deleteHeldSale,
   listSales, getSale, processReturn, getDailyReport, searchProducts, getProductByBarcode, getAuditLogs,
-  convertToInvoice, voidSale, verifyManager, getShiftReport,
+  convertToInvoice, voidSale, verifyManager, getShiftReport
 };

@@ -532,30 +532,30 @@ class OrderModel {
           orderId,
           isActive: true,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Cancelled'] },
+          invoiceStatus: { notIn: ['Cancelled'] }
         },
         select: {
           grandTotal: true,
           paidAmount: true,
           outstanding: true,
           invoiceStatus: true,
-          paymentStatus: true,
-        },
+          paymentStatus: true
+        }
       }),
       client.warehouseInvoice.findMany({
         where: {
           orderId,
           isActive: true,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Cancelled', 'Draft'] },
+          invoiceStatus: { notIn: ['Cancelled', 'Draft'] }
         },
         select: {
           grandTotal: true,
           paidAmount: true,
           outstanding: true,
           invoiceStatus: true,
-          paymentStatus: true,
-        },
+          paymentStatus: true
+        }
       }),
     ]);
 
@@ -568,7 +568,7 @@ class OrderModel {
       ) {
         return client.order.update({
           where: { id: orderId },
-          data: { orderStatus: 'Pending' },
+          data: { orderStatus: 'Pending' }
         });
       }
       return order;
@@ -610,7 +610,7 @@ class OrderModel {
 
     return client.order.update({
       where: { id: orderId },
-      data: updateData,
+      data: updateData
     });
   }
 

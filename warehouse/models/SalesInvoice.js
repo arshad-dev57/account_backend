@@ -238,7 +238,7 @@ class SalesInvoiceModel {
       if (order.orderStatus === 'Draft') {
         await tx.order.update({
           where: { id: order.id },
-          data: { orderStatus: 'Pending', updatedBy: userId },
+          data: { orderStatus: 'Pending', updatedBy: userId }
         });
       }
 
@@ -513,7 +513,7 @@ class SalesInvoiceModel {
       // Advance linked order out of Draft/Pending into Processing
       if (invoice.orderId) {
         const linkedOrder = await tx.order.findUnique({
-          where: { id: invoice.orderId },
+          where: { id: invoice.orderId }
         });
         if (
           linkedOrder &&
@@ -521,7 +521,7 @@ class SalesInvoiceModel {
         ) {
           await tx.order.update({
             where: { id: invoice.orderId },
-            data: { orderStatus: 'Processing', updatedBy: userId },
+            data: { orderStatus: 'Processing', updatedBy: userId }
           });
         }
       }

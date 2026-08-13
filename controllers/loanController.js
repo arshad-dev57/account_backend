@@ -2,8 +2,6 @@ const prisma = require('../prisma/client');
 const LoanModel = require('../models/Loan');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
-const { delPattern } = require('../utils/redisClient');
-
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
@@ -202,7 +200,7 @@ async function validateBankAccount(bankAccountId, userId, companyId) {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId },
-      ],
+      ]
     }
   });
 
@@ -227,8 +225,8 @@ async function resolveCashOrBankChartAccount(userId, companyId, bankAccountId) {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId },
-      ],
-    },
+      ]
+    }
   });
 
   if (bankAccount?.chartOfAccountId) {
@@ -238,8 +236,8 @@ async function resolveCashOrBankChartAccount(userId, companyId, bankAccountId) {
         OR: [
           { companyId: companyId },
           { companyId: null, createdBy: userId },
-        ],
-      },
+        ]
+      }
     });
     if (bankChartAccount) {
       cashChartAccount = bankChartAccount;
@@ -257,26 +255,18 @@ async function syncCashMovement({ bankAccount, chartAccountId, amount, direction
   if (bankAccount?.id) {
     await prisma.bankAccount.update({
       where: { id: bankAccount.id },
-      data: { currentBalance: delta },
+      data: { currentBalance: delta }
     });
   }
 
   if (chartAccountId) {
     await prisma.chartOfAccount.update({
       where: { id: chartAccountId },
-      data: { currentBalance: delta },
+      data: { currentBalance: delta }
     });
   }
 }
 
-async function invalidateBankCache(companyId) {
-  if (!companyId) return;
-  try {
-    await delPattern(`bank:accounts:${companyId}:*`);
-  } catch (e) {
-    console.log('⚠️ [LN] Bank cache invalidation error:', e.message);
-  }
-}
 
 // ============================================================
 // @desc    Create a new loan
@@ -300,7 +290,7 @@ exports.createLoan = async (req, res) => {
       collateral,
       accountNumber,
       bankAccountId,
-      notes,
+      notes
     } = req.body;
 
     const userId = req.user.id;
@@ -370,7 +360,7 @@ exports.createLoan = async (req, res) => {
       notes: notes || '',
       createdBy: userId,
       companyId: companyId,
-      fiscalYearId,
+      fiscalYearId
     });
 
     console.log(`✅ [LN] Loan created: ${loan.loanNumber}`);
@@ -425,28 +415,26 @@ exports.createLoan = async (req, res) => {
       bankAccount,
       chartAccountId: cashChartAccount.id,
       amount: loanAmountParsed,
-      direction: 'increment',
+      direction: 'increment'
     });
 
     await prisma.chartOfAccount.update({
       where: { id: loanAccount.id },
-      data: { currentBalance: { increment: loanAmountParsed } },
+      data: { currentBalance: { increment: loanAmountParsed } }
     });
-
-    await invalidateBankCache(companyId);
 
     console.log('✅ [LN] Journal entry created and bank balance updated');
 
     res.status(201).json({
       success: true,
       data: loan,
-      message: 'Loan created successfully',
+      message: 'Loan created successfully'
     });
   } catch (error) {
     console.error('❌ [LN] Create loan error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -485,13 +473,13 @@ exports.getLoans = async (req, res) => {
     res.status(200).json({
       success: true,
       count: loans.length,
-      data: loans,
+      data: loans
     });
   } catch (error) {
     console.error('❌ [LN] Get loans error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -551,7 +539,7 @@ exports.getLoan = async (req, res) => {
       console.log('❌ [LN] Loan not found:', id);
       return res.status(404).json({
         success: false,
-        message: 'Loan not found',
+        message: 'Loan not found'
       });
     }
 
@@ -559,13 +547,13 @@ exports.getLoan = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: loan,
+      data: loan
     });
   } catch (error) {
     console.error('❌ [LN] Get loan error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -592,7 +580,7 @@ exports.updateLoan = async (req, res) => {
       collateral,
       accountNumber,
       bankAccountId,
-      notes,
+      notes
     } = req.body;
 
     // ─── Check if loan exists ──────────────────────────────
@@ -607,7 +595,7 @@ exports.updateLoan = async (req, res) => {
       console.log('❌ [LN] Loan not found:', id);
       return res.status(404).json({
         success: false,
-        message: 'Loan not found',
+        message: 'Loan not found'
       });
     }
 
@@ -649,13 +637,13 @@ exports.updateLoan = async (req, res) => {
     res.status(200).json({
       success: true,
       data: updatedLoan,
-      message: 'Loan updated successfully',
+      message: 'Loan updated successfully'
     });
   } catch (error) {
     console.error('❌ [LN] Update loan error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -678,7 +666,7 @@ exports.recordPayment = async (req, res) => {
     if (!loanId || String(loanId).trim() === '') {
       return res.status(400).json({
         success: false,
-        message: 'Loan ID is required',
+        message: 'Loan ID is required'
       });
     }
 
@@ -689,22 +677,22 @@ exports.recordPayment = async (req, res) => {
         OR: [
           { companyId: companyId },
           { companyId: null, createdBy: userId },
-        ],
-      },
+        ]
+      }
     });
 
     if (!loan) {
       console.log('❌ [LN] Loan not found:', loanId);
       return res.status(404).json({
         success: false,
-        message: 'Loan not found',
+        message: 'Loan not found'
       });
     }
 
     if (loan.status === 'Fully Paid') {
       return res.status(400).json({
         success: false,
-        message: 'Loan is already fully paid',
+        message: 'Loan is already fully paid'
       });
     }
 
@@ -774,24 +762,22 @@ exports.recordPayment = async (req, res) => {
       bankAccount,
       chartAccountId: cashChartAccount.id,
       amount: paymentAmount,
-      direction: 'decrement',
+      direction: 'decrement'
     });
 
     if (result.principal > 0) {
       await prisma.chartOfAccount.update({
         where: { id: loanAccount.id },
-        data: { currentBalance: { decrement: result.principal } },
+        data: { currentBalance: { decrement: result.principal } }
       });
     }
 
     if (result.interest > 0) {
       await prisma.chartOfAccount.update({
         where: { id: interestAccount.id },
-        data: { currentBalance: { increment: result.interest } },
+        data: { currentBalance: { increment: result.interest } }
       });
     }
-
-    await invalidateBankCache(companyId);
 
     console.log(`✅ [LN] Payment recorded and bank balance updated: ${amount}`);
 
@@ -803,22 +789,22 @@ exports.recordPayment = async (req, res) => {
           loanNumber: result.loan.loanNumber,
           totalPaid: result.loan.totalPaid,
           outstandingBalance: result.loan.outstandingBalance,
-          status: result.loan.status,
+          status: result.loan.status
         },
         payment: {
           amount: parseFloat(amount),
           principal: result.principal,
           interest: result.interest,
-          date: date,
-        },
+          date: date
+        }
       },
-      message: 'Payment recorded successfully',
+      message: 'Payment recorded successfully'
     });
   } catch (error) {
     console.error('❌ [LN] Record payment error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -848,14 +834,14 @@ exports.calculateEMI = async (req, res) => {
       data: {
         emi: emi,
         totalPayment: totalPayment,
-        totalInterest: totalInterest,
-      },
+        totalInterest: totalInterest
+      }
     });
   } catch (error) {
     console.error('❌ [LN] Calculate EMI error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -883,7 +869,7 @@ exports.calculatePrepayment = async (req, res) => {
     if (!loan) {
       return res.status(404).json({
         success: false,
-        message: 'Loan not found',
+        message: 'Loan not found'
       });
     }
 
@@ -891,13 +877,13 @@ exports.calculatePrepayment = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: result,
+      data: result
     });
   } catch (error) {
     console.error('❌ [LN] Calculate prepayment error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -926,14 +912,14 @@ exports.prepayLoan = async (req, res) => {
     if (!loan) {
       return res.status(404).json({
         success: false,
-        message: 'Loan not found',
+        message: 'Loan not found'
       });
     }
 
     if (loan.status === 'Fully Paid') {
       return res.status(400).json({
         success: false,
-        message: 'Loan is already fully paid',
+        message: 'Loan is already fully paid'
       });
     }
 
@@ -941,7 +927,7 @@ exports.prepayLoan = async (req, res) => {
     if (amount > loan.outstandingBalance) {
       return res.status(400).json({
         success: false,
-        message: `Prepayment amount cannot exceed outstanding balance of ${loan.outstandingBalance}`,
+        message: `Prepayment amount cannot exceed outstanding balance of ${loan.outstandingBalance}`
       });
     }
 
@@ -1003,15 +989,13 @@ exports.prepayLoan = async (req, res) => {
       bankAccount,
       chartAccountId: cashChartAccount.id,
       amount,
-      direction: 'decrement',
+      direction: 'decrement'
     });
 
     await prisma.chartOfAccount.update({
       where: { id: loanAccount.id },
-      data: { currentBalance: { decrement: amount } },
+      data: { currentBalance: { decrement: amount } }
     });
-
-    await invalidateBankCache(companyId);
 
     console.log(`✅ [LN] Prepayment recorded and bank balance updated: ${amount}`);
 
@@ -1023,17 +1007,17 @@ exports.prepayLoan = async (req, res) => {
           loanNumber: result.loan.loanNumber,
           totalPaid: result.loan.totalPaid,
           outstandingBalance: result.loan.outstandingBalance,
-          status: result.loan.status,
+          status: result.loan.status
         },
-        prepayment: prepaymentResult,
+        prepayment: prepaymentResult
       },
-      message: `Prepayment of ${amount} recorded successfully`,
+      message: `Prepayment of ${amount} recorded successfully`
     });
   } catch (error) {
     console.error('❌ [LN] Prepay loan error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1056,13 +1040,13 @@ exports.getSummary = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: stats,
+      data: stats
     });
   } catch (error) {
     console.error('❌ [LN] Get summary error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1091,7 +1075,7 @@ exports.getPaymentSchedule = async (req, res) => {
     if (!loan) {
       return res.status(404).json({
         success: false,
-        message: 'Loan not found',
+        message: 'Loan not found'
       });
     }
 
@@ -1099,13 +1083,13 @@ exports.getPaymentSchedule = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: schedule,
+      data: schedule
     });
   } catch (error) {
     console.error('❌ [LN] Get payment schedule error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1136,7 +1120,7 @@ exports.deleteLoan = async (req, res) => {
       console.log('❌ [LN] Loan not found:', id);
       return res.status(404).json({
         success: false,
-        message: 'Loan not found',
+        message: 'Loan not found'
       });
     }
 
@@ -1154,7 +1138,7 @@ exports.deleteLoan = async (req, res) => {
     if (loan.totalPaid > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete loan with payments recorded',
+        message: 'Cannot delete loan with payments recorded'
       });
     }
 
@@ -1165,13 +1149,13 @@ exports.deleteLoan = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Loan deleted successfully',
+      message: 'Loan deleted successfully'
     });
   } catch (error) {
     console.error('❌ [LN] Delete loan error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };

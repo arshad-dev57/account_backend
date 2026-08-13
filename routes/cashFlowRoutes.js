@@ -1,7 +1,7 @@
 const express = require('express');
 const {
   getCashFlowStatement,
-  getSummary,
+  getSummary
 } = require('../controllers/cashFlowController');
 const { protect } = require('../middleware/authMiddleware');
 

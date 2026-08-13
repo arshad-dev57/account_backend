@@ -33,12 +33,12 @@ function scopeKeyFor(user) {
 async function getPdfReportSettingsForUserId(userId) {
   const user = await prisma.user.findUnique({
     where: { id: String(userId) },
-    select: { id: true, companyId: true },
+    select: { id: true, companyId: true }
   });
   if (!user) return serialize(null);
 
   const row = await pdfSettingsDelegate().findUnique({
-    where: { scopeKey: scopeKeyFor(user) },
+    where: { scopeKey: scopeKeyFor(user) }
   });
   return serialize(row);
 }
@@ -63,7 +63,7 @@ function serialize(row) {
       headerSubtitle: '',
       footerText: 'Confidential - For Internal Use Only',
       accentColor: '#014582',
-      signatureLabel: 'Authorized Signature',
+      signatureLabel: 'Authorized Signature'
     };
   }
 
@@ -84,7 +84,7 @@ function serialize(row) {
     footerText: row.footerText || 'Confidential - For Internal Use Only',
     accentColor: row.accentColor || '#014582',
     signatureLabel: row.signatureLabel || 'Authorized Signature',
-    updatedAt: row.updatedAt,
+    updatedAt: row.updatedAt
   };
 }
 
@@ -108,7 +108,7 @@ exports.getPdfReportSettings = async (req, res) => {
     const userId = req.user.id;
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, companyId: true },
+      select: { id: true, companyId: true }
     });
 
     if (!user) {
@@ -117,19 +117,19 @@ exports.getPdfReportSettings = async (req, res) => {
 
     const scopeKey = scopeKeyFor(user);
     const row = await pdfSettingsDelegate().findUnique({
-      where: { scopeKey },
+      where: { scopeKey }
     });
 
     res.status(200).json({
       success: true,
-      data: serialize(row),
+      data: serialize(row)
     });
   } catch (error) {
     console.error('Error getting PDF report settings:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -142,7 +142,7 @@ exports.updatePdfReportSettings = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, companyId: true },
+      select: { id: true, companyId: true }
     });
 
     if (!user) {
@@ -163,7 +163,7 @@ exports.updatePdfReportSettings = async (req, res) => {
 
     const scopeKey = scopeKeyFor(user);
     const existing = await pdfSettingsDelegate().findUnique({
-      where: { scopeKey },
+      where: { scopeKey }
     });
 
     const payload = {
@@ -213,29 +213,29 @@ exports.updatePdfReportSettings = async (req, res) => {
       signatureLabel:
         body.signatureLabel !== undefined
           ? String(body.signatureLabel)
-          : existing?.signatureLabel || 'Authorized Signature',
+          : existing?.signatureLabel || 'Authorized Signature'
     };
 
     const row = await pdfSettingsDelegate().upsert({
       where: { scopeKey },
       create: {
         scopeKey,
-        ...payload,
+        ...payload
       },
-      update: payload,
+      update: payload
     });
 
     res.status(200).json({
       success: true,
       message: 'PDF report settings saved successfully',
-      data: serialize(row),
+      data: serialize(row)
     });
   } catch (error) {
     console.error('Error updating PDF report settings:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };

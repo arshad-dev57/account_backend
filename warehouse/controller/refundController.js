@@ -58,7 +58,7 @@ const getSalesRefunds = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortOrder = 'desc'
     } = req.query;
 
     // ✅ FIXED: Use createdBy and companyId instead of userId
@@ -114,8 +114,8 @@ const getSalesRefunds = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get sales refunds error:', error);
@@ -170,7 +170,7 @@ const getPurchaseRefunds = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortOrder = 'desc'
     } = req.query;
 
     // ✅ FIXED: Use createdBy and companyId instead of userId
@@ -226,8 +226,8 @@ const getPurchaseRefunds = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get purchase refunds error:', error);

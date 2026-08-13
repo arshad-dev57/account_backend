@@ -10,14 +10,14 @@ const PLANS = {
     amount: 1500,  // 1500 PKR (~$5)
     currency: 'usd',
     name: 'Monthly Plan',
-    duration: '30 days',
+    duration: '30 days'
   },
   yearly: {
     amount: 15000, // 15000 PKR (~$50)
     currency: 'usd',
     name: 'Yearly Plan',
-    duration: '365 days',
-  },
+    duration: '365 days'
+  }
 };
 // ==================== CREATE STRIPE CHECKOUT SESSION ====================
 exports.createCheckoutSession = async (req, res) => {
@@ -29,7 +29,7 @@ exports.createCheckoutSession = async (req, res) => {
     if (!PLANS[plan]) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid plan. Choose "monthly" or "yearly"',
+        message: 'Invalid plan. Choose "monthly" or "yearly"'
       });
     }
 
@@ -45,23 +45,23 @@ exports.createCheckoutSession = async (req, res) => {
             currency: selectedPlan.currency,
             product_data: {
               name: selectedPlan.name,
-              description: `Full access for ${selectedPlan.duration}`,
+              description: `Full access for ${selectedPlan.duration}`
             },
             unit_amount: selectedPlan.amount, // PKR zero-decimal hai
           },
-          quantity: 1,
+          quantity: 1
         },
       ],
 
       // ✅ Webhook ke liye metadata — userId aur plan yahin store hoga
       metadata: {
         userId: userId.toString(),
-        plan: plan,
+        plan: plan
       },
 
       // ✅ Payment ke baad Flutter Web yahan redirect karega
       success_url: `${process.env.FRONTEND_URL}/payment-success`,
-      cancel_url: `${process.env.FRONTEND_URL}/dashboard`,
+      cancel_url: `${process.env.FRONTEND_URL}/dashboard`
     });
 
     console.log('Stripe session created:', session.id, 'for user:', userId);
@@ -71,14 +71,14 @@ exports.createCheckoutSession = async (req, res) => {
       data: {
         sessionId: session.id,
         checkoutUrl: session.url, // Flutter yeh URL open karega
-      },
+      }
     });
 
   } catch (error) {
     console.error('Error creating checkout session:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -135,8 +135,8 @@ exports.handleWebhook = async (req, res) => {
         paymentDetails: {
           stripeSessionId: session.id,
           stripePaymentIntent: session.payment_intent,
-          customerEmail: session.customer_details?.email || '',
-        },
+          customerEmail: session.customer_details?.email || ''
+        }
       });
 
       console.log('Subscription activated via webhook for user:', userId);
@@ -169,8 +169,8 @@ exports.verifySession = async (req, res) => {
         data: {
           paymentStatus: 'paid',
           plan: session.metadata.plan,
-          subscription: user?.subscription || null,
-        },
+          subscription: user?.subscription || null
+        }
       });
     }
 
@@ -178,14 +178,14 @@ exports.verifySession = async (req, res) => {
       success: true,
       data: {
         paymentStatus: session.payment_status, // 'unpaid' ya 'no_payment_required'
-      },
+      }
     });
 
   } catch (error) {
     console.error('Error verifying session:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };

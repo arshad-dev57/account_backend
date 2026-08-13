@@ -38,9 +38,9 @@ class WarehouseInvoiceModel {
           outstanding: data.grandTotal - (data.paidAmount || 0),
           notes: data.notes || '',
           createdBy: data.createdBy,
-          companyId: data.companyId || null,
+          companyId: data.companyId || null
         },
-        include: { items: true, creator: { select: { id: true, firstName: true, lastName: true, email: true } } },
+        include: { items: true, creator: { select: { id: true, firstName: true, lastName: true, email: true } } }
       });
 
       for (const item of data.items || []) {
@@ -56,8 +56,8 @@ class WarehouseInvoiceModel {
             taxRate: item.taxRate || 0,
             taxAmount: item.taxAmount || 0,
             discount: item.discount || 0,
-            totalPrice: item.totalPrice,
-          },
+            totalPrice: item.totalPrice
+          }
         });
       }
 
@@ -67,8 +67,8 @@ class WarehouseInvoiceModel {
           items: true,
           order: { select: { id: true, orderNumber: true, grandTotal: true } },
           customer: { select: { id: true, name: true, email: true } },
-          creator: { select: { id: true, firstName: true, lastName: true, email: true } },
-        },
+          creator: { select: { id: true, firstName: true, lastName: true, email: true } }
+        }
       });
     });
   }
@@ -82,8 +82,8 @@ class WarehouseInvoiceModel {
       orderBy,
       include: {
         items: true,
-        creator: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
+        creator: { select: { id: true, firstName: true, lastName: true, email: true } }
+      }
     });
   }
 
@@ -98,8 +98,8 @@ class WarehouseInvoiceModel {
         items: true,
         order: true,
         customer: true,
-        creator: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
+        creator: { select: { id: true, firstName: true, lastName: true, email: true } }
+      }
     });
   }
 
@@ -107,14 +107,14 @@ class WarehouseInvoiceModel {
     return prisma.warehouseInvoice.update({
       where: { id },
       data,
-      include: { items: true },
+      include: { items: true }
     });
   }
 
   static async softDelete(id, userId) {
     return prisma.warehouseInvoice.update({
       where: { id },
-      data: { isActive: false, isDeleted: true, updatedBy: userId },
+      data: { isActive: false, isDeleted: true, updatedBy: userId }
     });
   }
 
@@ -140,7 +140,7 @@ class WarehouseInvoiceModel {
       isActive: true,
       isDeleted: false,
       ...(companyId ? { companyId } : {}),
-      ...dateFilter,
+      ...dateFilter
     };
     
     // ✅ FIXED: Only Unpaid, Partial, Paid, Overdue, Cancelled
@@ -155,7 +155,7 @@ class WarehouseInvoiceModel {
 
     const financial = await prisma.warehouseInvoice.aggregate({
       where: { ...base, invoiceStatus: { not: 'Cancelled' } },
-      _sum: { grandTotal: true, paidAmount: true, taxTotal: true },
+      _sum: { grandTotal: true, paidAmount: true, taxTotal: true }
     });
 
     const grandTotal = financial._sum.grandTotal || 0;
@@ -171,7 +171,7 @@ class WarehouseInvoiceModel {
       grandTotal,
       paidAmount,
       outstanding: grandTotal - paidAmount,
-      taxTotal: financial._sum.taxTotal || 0,
+      taxTotal: financial._sum.taxTotal || 0
     };
   }
 
@@ -186,10 +186,10 @@ class WarehouseInvoiceModel {
         isDeleted: false,
         invoiceDate: { gte: start },
         invoiceStatus: { not: 'Cancelled' },
-        ...(companyId ? { companyId } : {}),
+        ...(companyId ? { companyId } : {})
       },
       select: { invoiceDate: true, grandTotal: true, paidAmount: true },
-      orderBy: { invoiceDate: 'asc' },
+      orderBy: { invoiceDate: 'asc' }
     });
 
     const map = {};

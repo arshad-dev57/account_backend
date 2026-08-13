@@ -1,7 +1,6 @@
 // controllers/generalLedgerController.js - REFACTORED WITH UTILITIES
 
 const prisma = require('../prisma/client');
-const { get, set, del, delPattern } = require('../utils/redisClient');
 const ApiResponse = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
 const BalanceCalculator = require('../utils/balanceCalculator');
@@ -17,18 +16,6 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const companyId = req.user.companyId;
 
-  // Build cache key with parameters
-  const cacheKey = `gl:accounts:${userId}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
-  
-  // Try to get from cache
-  const cached = await get(cacheKey);
-  if (cached) {
-    return ApiResponse.ok(res, 'Account summaries retrieved from cache', {
-      ...cached,
-      cached: true,
-    });
-  }
-
   // Build filters using helper — prefer FY date window over FK-only filter
   let dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
   let fiscalYearFilter = {};
@@ -41,10 +28,10 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
       fiscalYearId,
       start: new Date(now.getFullYear(), 0, 1),
       end: now,
-      period: 'This Year',
+      period: 'This Year'
     });
     dateFilter = {
-      date: { gte: clamped.start, lte: clamped.end },
+      date: { gte: clamped.start, lte: clamped.end }
     };
   } else if (fiscalYearId && companyId && (startDate || endDate)) {
     const { applyFiscalYearWindow } = require('../utils/fiscalYearHelper');
@@ -55,10 +42,10 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
       fiscalYearId,
       start: baseStart,
       end: baseEnd,
-      period: 'Custom',
+      period: 'Custom'
     });
     dateFilter = {
-      date: { gte: clamped.start, lte: clamped.end },
+      date: { gte: clamped.start, lte: clamped.end }
     };
   } else if (fiscalYearId) {
     fiscalYearFilter = LedgerHelper.buildFiscalYearFilter(fiscalYearId);
@@ -152,7 +139,7 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
       totalDebit,
       totalCredit,
       closingBalance,
-      currentBalance: account.currentBalance,
+      currentBalance: account.currentBalance
     };
   });
 
@@ -194,16 +181,12 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
       closingBalance: null,
       message: isBalanced 
         ? 'Books are balanced. All accounts net to zero.' 
-        : 'Books are NOT balanced. Please check your entries.',
+        : 'Books are NOT balanced. Please check your entries.'
     }
   };
 
-  // Cache the result (2 minutes TTL)
-  await set(cacheKey, response, 120);
-
   return ApiResponse.ok(res, 'Account summaries retrieved successfully', {
-    ...response,
-    cached: false,
+    ...response
   });
 });
 
@@ -218,18 +201,6 @@ exports.getSingleAccountSummary = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
-  // Build cache key with parameters
-  const cacheKey = `gl:account-summary:${userId}:${accountId}:${startDate || ''}:${endDate || ''}`;
-  
-  // Try to get from cache
-  const cached = await get(cacheKey);
-  if (cached) {
-    return ApiResponse.ok(res, 'Account summary retrieved from cache', {
-      ...cached,
-      cached: true,
-    });
-  }
-
   // Verify account belongs to user
   const account = await prisma.chartOfAccount.findFirst({
     where: {
@@ -319,16 +290,12 @@ exports.getSingleAccountSummary = asyncHandler(async (req, res) => {
       totalCredit: totalCredit,
       closingBalance: closingBalance,
       currentBalance: account.currentBalance,
-      transactionCount: journalEntries.length,
+      transactionCount: journalEntries.length
     }
   };
 
-  // Cache the result (2 minutes TTL)
-  await set(cacheKey, response, 120);
-
   return ApiResponse.ok(res, 'Account summary retrieved successfully', {
-    ...response,
-    cached: false,
+    ...response
   });
 });
 
@@ -346,23 +313,11 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
     page = 1,
     limit = 10,
     showDebitOnly,
-    showCreditOnly,
+    showCreditOnly
   } = req.query;
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
-  // Build cache key with parameters
-  const cacheKey = `gl:entries:${userId}:${accountId}:${startDate || ''}:${endDate || ''}:${search || ''}:${page}:${limit}:${showDebitOnly || ''}:${showCreditOnly || ''}`;
-  
-  // Try to get from cache
-  const cached = await get(cacheKey);
-  if (cached) {
-    return ApiResponse.ok(res, 'Ledger entries retrieved from cache', {
-      ...cached,
-      cached: true,
-    });
-  }
-
   const account = await prisma.chartOfAccount.findFirst({
     where: {
       id: accountId,
@@ -433,7 +388,7 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
         credit: credit,
         balance: runningBalance,
         reference: entry.reference,
-        isOpeningBalance: entry.description.includes('Opening Balance'),
+        isOpeningBalance: entry.description.includes('Opening Balance')
       });
     }
   });
@@ -459,21 +414,17 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
       type: account.type,
       openingBalance: account.openingBalance,
       currentBalance: account.currentBalance,
-      hasOpeningBalanceEntry: hasOBEntry,
+      hasOpeningBalanceEntry: hasOBEntry
     },
     count: paginatedResult.data.length,
     totalCount: filteredLedger.length,
     data: paginatedResult.data,
     summary,
-    pagination: paginatedResult.pagination,
+    pagination: paginatedResult.pagination
   };
 
-  // Cache the result (2 minutes TTL)
-  await set(cacheKey, response, 120);
-
   return ApiResponse.ok(res, 'Ledger entries retrieved successfully', {
-    ...response,
-    cached: false,
+    ...response
   });
 });
 
@@ -493,26 +444,16 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
     sortBy = 'date',
     sortOrder = 'desc',
     showDebitOnly,
-    showCreditOnly,
+    showCreditOnly
   } = req.query;
 
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
-  // Build cache key with parameters (skip for large datasets, only cache first page)
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
-  const cacheKey = `gl:all-entries:${userId}:${startDate || ''}:${endDate || ''}:${accountId || ''}:${search || ''}:${pageNum}:${limitNum}:${sortBy}:${sortOrder}:${showDebitOnly || ''}:${showCreditOnly || ''}`;
-  
   // Only cache first page to avoid large cache entries
   if (pageNum === 1) {
-    const cached = await get(cacheKey);
-    if (cached) {
-      return ApiResponse.ok(res, 'All ledger entries retrieved from cache', {
-        ...cached,
-        cached: true,
-      });
-    }
   }
 
   let query = {
@@ -579,7 +520,7 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
       name: account.name,
       id: account.id,
       hasOBEntry: hasOBEntry,
-      openingBalance: account.openingBalance,
+      openingBalance: account.openingBalance
     });
   }
 
@@ -618,7 +559,7 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
           balance: accountData.balance,
           reference: entry.reference || '',
           accountType: accountData.type,
-          isOpeningBalance: entry.description.includes('Opening Balance'),
+          isOpeningBalance: entry.description.includes('Opening Balance')
         });
       }
     });
@@ -643,7 +584,7 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
       data: filteredResult,
       summary: {
         ...summary,
-        closingBalance: null,
+        closingBalance: null
       },
       pagination: {
         total: filteredResult.length,
@@ -653,8 +594,7 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
         hasNext: false,
         hasPrev: false,
         isAllRecords: true
-      },
-      cached: false,
+      }
     });
   }
 
@@ -666,19 +606,17 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
     data: paginatedResult.data,
     summary: {
       ...summary,
-      closingBalance: null,
+      closingBalance: null
     },
     pagination: paginatedResult.pagination
   };
 
   // Cache only first page (2 minutes TTL)
   if (pageNum === 1) {
-    await set(cacheKey, response, 120);
   }
 
   return ApiResponse.ok(res, 'All ledger entries retrieved successfully', {
-    ...response,
-    cached: false,
+    ...response
   });
 });
 
@@ -692,18 +630,6 @@ exports.getTrialBalanceStatus = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
-  // Build cache key with parameters
-  const cacheKey = `gl:trial-balance:${userId}:${startDate || ''}:${endDate || ''}`;
-  
-  // Try to get from cache
-  const cached = await get(cacheKey);
-  if (cached) {
-    return ApiResponse.ok(res, 'Trial balance retrieved from cache', {
-      ...cached,
-      cached: true,
-    });
-  }
-
   const dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
 
   // Get all journal entries
@@ -734,7 +660,7 @@ exports.getTrialBalanceStatus = asyncHandler(async (req, res) => {
           credit: 0,
           name: line.account.name,
           code: line.account.code,
-          type: line.account.type,
+          type: line.account.type
         };
       }
       accountBalances[accountId].debit += line.debit || 0;
@@ -764,7 +690,7 @@ exports.getTrialBalanceStatus = asyncHandler(async (req, res) => {
       debit: account.debit,
       credit: account.credit,
       balance: balance,
-      balanceType: BalanceCalculator.getBalanceType(balance),
+      balanceType: BalanceCalculator.getBalanceType(balance)
     };
   });
 
@@ -786,16 +712,12 @@ exports.getTrialBalanceStatus = asyncHandler(async (req, res) => {
       },
       accounts: trialBalanceData,
       totalAccounts: trialBalanceData.length,
-      activeAccounts: trialBalanceData.filter(a => a.balance !== 0).length,
+      activeAccounts: trialBalanceData.filter(a => a.balance !== 0).length
     }
   };
 
-  // Cache the result (2 minutes TTL)
-  await set(cacheKey, response, 120);
-
   return ApiResponse.ok(res, 'Trial balance retrieved successfully', {
-    ...response,
-    cached: false,
+    ...response
   });
 });
 
@@ -809,18 +731,6 @@ exports.exportLedgerEntries = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
-  // Build cache key with parameters
-  const cacheKey = `gl:export:${userId}:${startDate || ''}:${endDate || ''}:${accountId || ''}`;
-  
-  // Try to get from cache
-  const cached = await get(cacheKey);
-  if (cached) {
-    return ApiResponse.ok(res, 'Export data retrieved from cache', {
-      ...cached,
-      cached: true,
-    });
-  }
-
   let query = {
     companyId: companyId,
     status: 'Posted'
@@ -869,7 +779,7 @@ exports.exportLedgerEntries = asyncHandler(async (req, res) => {
       type: account.type,
       code: account.code,
       name: account.name,
-      id: account.id,
+      id: account.id
     });
   }
 
@@ -905,7 +815,7 @@ exports.exportLedgerEntries = asyncHandler(async (req, res) => {
           debit: debit,
           credit: credit,
           balance: accountData.balance,
-          isOpeningBalance: entry.description.includes('Opening Balance'),
+          isOpeningBalance: entry.description.includes('Opening Balance')
         });
       }
     });
@@ -918,17 +828,13 @@ exports.exportLedgerEntries = asyncHandler(async (req, res) => {
     data: exportData,
     summary: {
       ...summary,
-      closingBalance: null,
+      closingBalance: null
     },
-    exportDate: new Date().toISOString(),
+    exportDate: new Date().toISOString()
   };
 
-  // Cache the result (5 minutes TTL - exports change less frequently)
-  await set(cacheKey, response, 300);
-
   return ApiResponse.ok(res, 'Export data retrieved successfully', {
-    ...response,
-    cached: false,
+    ...response
   });
 });
 
@@ -943,18 +849,6 @@ exports.getAccountTransactions = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
     const companyId = req.user.companyId;
-  // Build cache key with parameters
-  const cacheKey = `gl:account-transactions:${userId}:${accountId}:${limit}:${offset}`;
-  
-  // Try to get from cache
-  const cached = await get(cacheKey);
-  if (cached) {
-    return ApiResponse.ok(res, 'Account transactions retrieved from cache', {
-      ...cached,
-      cached: true,
-    });
-  }
-
   const account = await prisma.chartOfAccount.findFirst({
     where: {
       id: accountId,
@@ -979,7 +873,7 @@ exports.getAccountTransactions = asyncHandler(async (req, res) => {
           entryNumber: true,
           date: true,
           description: true,
-          reference: true,
+          reference: true
         }
       }
     },
@@ -989,7 +883,7 @@ exports.getAccountTransactions = asyncHandler(async (req, res) => {
       }
     },
     take: parseInt(limit),
-    skip: parseInt(offset),
+    skip: parseInt(offset)
   });
 
   const formattedTransactions = transactions.map(t => ({
@@ -1002,7 +896,7 @@ exports.getAccountTransactions = asyncHandler(async (req, res) => {
     credit: t.credit,
     accountName: t.accountName,
     accountCode: t.accountCode,
-    isOpeningBalance: t.journal.description.includes('Opening Balance'),
+    isOpeningBalance: t.journal.description.includes('Opening Balance')
   }));
 
   const response = {
@@ -1011,17 +905,13 @@ exports.getAccountTransactions = asyncHandler(async (req, res) => {
       code: account.code,
       name: account.name,
       type: account.type,
-      currentBalance: account.currentBalance,
+      currentBalance: account.currentBalance
     },
     count: formattedTransactions.length,
-    data: formattedTransactions,
+    data: formattedTransactions
   };
 
-  // Cache the result (2 minutes TTL)
-  await set(cacheKey, response, 120);
-
   return ApiResponse.ok(res, 'Account transactions retrieved successfully', {
-    ...response,
-    cached: false,
+    ...response
   });
 });

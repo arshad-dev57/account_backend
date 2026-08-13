@@ -33,7 +33,7 @@ async function resolveFiscalYearId(userId, postingDate, cachedFiscalYear = null)
     // FiscalYear is scoped by companyId — resolve via user.companyId
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { companyId: true },
+      select: { companyId: true }
     });
     const companyId = user?.companyId || cachedFiscalYear?.companyId || null;
     if (!companyId) return null;
@@ -42,8 +42,8 @@ async function resolveFiscalYearId(userId, postingDate, cachedFiscalYear = null)
       where: {
         companyId,
         startDate: { lte: date },
-        endDate: { gte: date },
-      },
+        endDate: { gte: date }
+      }
     });
     return fiscalYear ? fiscalYear.id : null;
   } catch {
@@ -61,7 +61,7 @@ async function resolveFiscalYearId(userId, postingDate, cachedFiscalYear = null)
 function getFiscalYearDateRange(fiscalYear) {
   return {
     startDate: new Date(fiscalYear.startDate),
-    endDate:   new Date(fiscalYear.endDate),
+    endDate:   new Date(fiscalYear.endDate)
   };
 }
 
@@ -77,7 +77,7 @@ async function lookupActiveFiscalYear(userId) {
     const now = new Date();
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { companyId: true },
+      select: { companyId: true }
     });
     if (!user?.companyId) return null;
 
@@ -86,8 +86,8 @@ async function lookupActiveFiscalYear(userId) {
         companyId: user.companyId,
         status: 'Open',
         startDate: { lte: now },
-        endDate: { gte: now },
-      },
+        endDate: { gte: now }
+      }
     });
   } catch {
     return null;
@@ -131,11 +131,11 @@ async function getFiscalYearOrCalendarFallback(
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { companyId: true },
+        select: { companyId: true }
       });
       const fy = user?.companyId
         ? await prisma.fiscalYear.findFirst({
-            where: { id: fiscalYearId, companyId: user.companyId },
+            where: { id: fiscalYearId, companyId: user.companyId }
           })
         : null;
       if (fy) {
@@ -188,7 +188,7 @@ async function getCompanyFiscalYear(companyId, fiscalYearId) {
   if (!companyId || !fiscalYearId) return null;
   try {
     return await prisma.fiscalYear.findFirst({
-      where: { id: fiscalYearId, companyId },
+      where: { id: fiscalYearId, companyId }
     });
   } catch {
     return null;
@@ -231,7 +231,7 @@ async function applyFiscalYearWindow({
   fiscalYearId,
   start,
   end,
-  period,
+  period
 }) {
   if (!fiscalYearId || !companyId) {
     return { start, end, fiscalYear: null, empty: false };
@@ -272,7 +272,7 @@ async function resolveQueryDateFilter({
   startDate,
   endDate,
   fiscalYearId,
-  companyId,
+  companyId
 }) {
   const now = toDayEnd(new Date());
   let start;
@@ -308,7 +308,7 @@ async function resolveQueryDateFilter({
     fiscalYearId,
     start,
     end,
-    period: p === 'year' ? 'This Year' : period,
+    period: p === 'year' ? 'This Year' : period
   });
   return { gte: clamped.start, lte: clamped.end };
 }
@@ -321,5 +321,5 @@ module.exports = {
   getCompanyFiscalYear,
   applyFiscalYearWindow,
   intersectRanges,
-  resolveQueryDateFilter,
+  resolveQueryDateFilter
 };

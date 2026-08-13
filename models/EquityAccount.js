@@ -4,89 +4,89 @@ const EquityTransactionSchema = new mongoose.Schema({
   date: {
     type: Date,
     required: true,
-    default: Date.now,
+    default: Date.now
   },
   type: {
     type: String,
     enum: ['Additional Capital', 'Drawings', 'Retained Earnings', 'Reserve Transfer', 'Share Issue'],
-    required: true,
+    required: true
   },
   amount: {
     type: Number,
     required: true,
-    min: 0,
+    min: 0
   },
   description: {
     type: String,
-    required: true,
+    required: true
   },
   reference: {
     type: String,
-    default: '',
+    default: ''
   },
   status: {
     type: String,
     enum: ['Draft', 'Posted', 'Cancelled'],
-    default: 'Posted',
+    default: 'Posted'
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-  },
+    required: true
+  }
 });
 
 const EquityAccountSchema = new mongoose.Schema(
   {
     accountName: {
       type: String,
-      required: true,
+      required: true
     },
     accountCode: {
       type: String,
       required: true,
-      unique: true,
+      unique: true
     },
     accountType: {
       type: String,
       enum: ['Capital', 'Retained Earnings', 'Reserves', 'Drawings', 'Share Capital'],
-      required: true,
+      required: true
     },
     openingBalance: {
       type: Number,
-      default: 0,
+      default: 0
     },
     currentBalance: {
       type: Number,
       default: function() {
         return this.openingBalance;
-      },
+      }
     },
     additions: {
       type: Number,
-      default: 0,
+      default: 0
     },
     withdrawals: {
       type: Number,
-      default: 0,
+      default: 0
     },
     lastUpdated: {
       type: Date,
-      default: Date.now,
+      default: Date.now
     },
     notes: {
       type: String,
-      default: '',
+      default: ''
     },
     transactions: [EquityTransactionSchema],
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
-    },
+      required: true
+    }
   },
   {
-    timestamps: true,
+    timestamps: true
   }
 );
 
@@ -107,7 +107,7 @@ EquityAccountSchema.methods.addCapital = async function(amount, description, ref
     description: description,
     reference: reference,
     status: 'Posted',
-    createdBy: userId,
+    createdBy: userId
   });
   
   await this.save();
@@ -126,7 +126,7 @@ EquityAccountSchema.methods.recordDrawings = async function(amount, description,
     description: description,
     reference: reference,
     status: 'Posted',
-    createdBy: userId,
+    createdBy: userId
   });
   
   await this.save();
@@ -145,7 +145,7 @@ EquityAccountSchema.methods.transferToRetainedEarnings = async function(amount, 
     description: description,
     reference: reference,
     status: 'Posted',
-    createdBy: userId,
+    createdBy: userId
   });
   
   await this.save();

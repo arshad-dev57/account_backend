@@ -35,7 +35,7 @@ class SubscriptionModel {
         currency: data.currency || 'SAR',
         paymentMethod: data.paymentMethod || 'free_trial',
         transactionId: data.transactionId || '',
-        paymentDetails: data.paymentDetails || {},
+        paymentDetails: data.paymentDetails || {}
       },
       include: {
         user: {
@@ -49,7 +49,7 @@ class SubscriptionModel {
             subscriptionStartDate: true,
             subscriptionEndDate: true,
             trialStartDate: true,
-            trialEndDate: true,
+            trialEndDate: true
           }
         }
       }
@@ -68,7 +68,7 @@ class SubscriptionModel {
             id: true,
             firstName: true,
             lastName: true,
-            email: true,
+            email: true
           }
         }
       }
@@ -92,7 +92,7 @@ class SubscriptionModel {
         OR: [
           { endDate: { gt: now } },
           { endDate: null },
-        ],
+        ]
       },
       orderBy: {
         createdAt: 'desc'

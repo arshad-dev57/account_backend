@@ -9,7 +9,7 @@ const {
   updateProfile,
   updateBusinessDetails,
   getBusinessDetails,
-  updateProfileImage,
+  updateProfileImage
 } = require('../controllers/profileController');
 
 // ─── ALL ROUTES PROTECTED ──────────────────────────────────

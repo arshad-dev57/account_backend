@@ -11,7 +11,7 @@ async function generateUniqueCustomerNumber(maxAttempts = 5) {
     const lastCustomer = await prisma.customer.findFirst({
       where: { customerNumber: { startsWith: 'CUST-' } },
       orderBy: { customerNumber: 'desc' },
-      select: { customerNumber: true },
+      select: { customerNumber: true }
     });
 
     let nextNumber = 1;
@@ -31,7 +31,7 @@ async function generateUniqueCustomerNumber(maxAttempts = 5) {
 
     const exists = await prisma.customer.findFirst({
       where: { customerNumber },
-      select: { id: true },
+      select: { id: true }
     });
     if (!exists) return customerNumber;
   }
@@ -247,7 +247,7 @@ const createCustomer = async (req, res) => {
       const field = Array.isArray(target) ? target.join(', ') : String(target || 'field');
       return res.status(409).json({
         success: false,
-        message: `A customer with this ${field} already exists`,
+        message: `A customer with this ${field} already exists`
       });
     }
     res.status(500).json({ success: false, message: 'Failed to create customer', error: error.message });

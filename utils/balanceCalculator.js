@@ -124,12 +124,12 @@ class BalanceCalculator {
       currentBalance: Number(account.currentBalance || 0),
       debit: Number(debit || 0),
       credit: Number(credit || 0),
-      accountType,
+      accountType
     });
 
     return tx.chartOfAccount.update({
       where: { id: accountId },
-      data: { currentBalance: newBalance },
+      data: { currentBalance: newBalance }
     });
   }
 
@@ -141,7 +141,7 @@ class BalanceCalculator {
       await this.applyJournalLine(tx, {
         accountId: line.accountId,
         debit: line.debit,
-        credit: line.credit,
+        credit: line.credit
       });
     }
   }

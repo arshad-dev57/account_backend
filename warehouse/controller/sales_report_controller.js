@@ -64,8 +64,8 @@ function emptySummary() {
     byChannel: {
       orders: { count: 0, grandTotal: 0 },
       pos: { count: 0, grandTotal: 0 },
-      invoices: { count: 0, grandTotal: 0 },
-    },
+      invoices: { count: 0, grandTotal: 0 }
+    }
   };
 }
 
@@ -74,7 +74,7 @@ async function fetchOrderRows(companyId, dateFilter, { status, search }) {
     companyId,
     isActive: true,
     isDeleted: false,
-    orderDate: dateFilter,
+    orderDate: dateFilter
   };
   if (status && status !== 'all') {
     where.orderStatus = status;
@@ -98,10 +98,10 @@ async function fetchOrderRows(companyId, dateFilter, { status, search }) {
       subtotal: true,
       taxTotal: true,
       discountTotal: true,
-      grandTotal: true,
+      grandTotal: true
     },
     orderBy: { orderDate: 'desc' },
-    take: 2000,
+    take: 2000
   });
 
   return rows.map((o) => ({
@@ -115,7 +115,7 @@ async function fetchOrderRows(companyId, dateFilter, { status, search }) {
     subtotal: toNum(o.subtotal),
     tax: toNum(o.taxTotal),
     discount: toNum(o.discountTotal),
-    grandTotal: toNum(o.grandTotal),
+    grandTotal: toNum(o.grandTotal)
   }));
 }
 
@@ -123,7 +123,7 @@ async function fetchPosRows(companyId, dateFilter, { status, search }) {
   const where = {
     companyId,
     createdAt: dateFilter,
-    status: status && status !== 'all' ? status : { in: ['Completed', 'Invoiced'] },
+    status: status && status !== 'all' ? status : { in: ['Completed', 'Invoiced'] }
   };
   if (search) {
     where.OR = [
@@ -144,10 +144,10 @@ async function fetchPosRows(companyId, dateFilter, { status, search }) {
       taxTotal: true,
       discountTotal: true,
       grandTotal: true,
-      paidAmount: true,
+      paidAmount: true
     },
     orderBy: { createdAt: 'desc' },
-    take: 2000,
+    take: 2000
   });
 
   return rows.map((s) => ({
@@ -161,7 +161,7 @@ async function fetchPosRows(companyId, dateFilter, { status, search }) {
     subtotal: toNum(s.subtotal),
     tax: toNum(s.taxTotal),
     discount: toNum(s.discountTotal),
-    grandTotal: toNum(s.grandTotal),
+    grandTotal: toNum(s.grandTotal)
   }));
 }
 
@@ -170,14 +170,14 @@ async function fetchInvoiceRows(companyId, dateFilter, { status, search }) {
     companyId,
     isActive: true,
     isDeleted: false,
-    invoiceDate: dateFilter,
+    invoiceDate: dateFilter
   };
 
   const [warehouseRows, salesRows] = await Promise.all([
     prisma.warehouseInvoice.findMany({
       where: {
         ...baseWhere,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
       },
       select: {
         id: true,
@@ -190,15 +190,15 @@ async function fetchInvoiceRows(companyId, dateFilter, { status, search }) {
         subtotal: true,
         taxTotal: true,
         discountTotal: true,
-        grandTotal: true,
+        grandTotal: true
       },
       orderBy: { invoiceDate: 'desc' },
-      take: 2000,
+      take: 2000
     }),
     prisma.salesInvoice.findMany({
       where: {
         ...baseWhere,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
       },
       select: {
         id: true,
@@ -211,10 +211,10 @@ async function fetchInvoiceRows(companyId, dateFilter, { status, search }) {
         subtotal: true,
         taxTotal: true,
         discountTotal: true,
-        grandTotal: true,
+        grandTotal: true
       },
       orderBy: { invoiceDate: 'desc' },
-      take: 2000,
+      take: 2000
     }),
   ]);
 
@@ -249,7 +249,7 @@ async function fetchInvoiceRows(companyId, dateFilter, { status, search }) {
     subtotal: toNum(inv.subtotal),
     tax: toNum(inv.taxTotal),
     discount: toNum(inv.discountTotal),
-    grandTotal: toNum(inv.grandTotal),
+    grandTotal: toNum(inv.grandTotal)
   }));
 }
 
@@ -286,7 +286,7 @@ const getSalesReport = async (req, res) => {
       status = 'all',
       search = '',
       page = '1',
-      limit = '50',
+      limit = '50'
     } = req.query;
 
     const dateFilter = await resolveQueryDateFilter({
@@ -294,11 +294,11 @@ const getSalesReport = async (req, res) => {
       startDate,
       endDate,
       fiscalYearId,
-      companyId,
+      companyId
     });
     const filters = {
       status: status || 'all',
-      search: String(search || '').trim(),
+      search: String(search || '').trim()
     };
 
     const channelKey = String(channel || 'all').toLowerCase();
@@ -341,7 +341,7 @@ const getSalesReport = async (req, res) => {
           startDate: startDate || null,
           endDate: endDate || null,
           status: filters.status,
-          search: filters.search,
+          search: filters.search
         },
         summary,
         rows: pagedRows,
@@ -349,20 +349,20 @@ const getSalesReport = async (req, res) => {
           page: pageNum,
           limit: limitNum,
           total,
-          totalPages: Math.ceil(total / limitNum) || 1,
-        },
-      },
+          totalPages: Math.ceil(total / limitNum) || 1
+        }
+      }
     });
   } catch (error) {
     console.error('❌ Sales report error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
 
 module.exports = {
-  getSalesReport,
+  getSalesReport
 };

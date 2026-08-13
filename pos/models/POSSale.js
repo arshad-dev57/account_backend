@@ -252,7 +252,7 @@ class POSSaleModel {
             totalOrders: { increment: 1 },
             totalSpent: { increment: grandTotal },
             lastOrderDate: new Date(),
-            loyaltyPoints: { increment: loyaltyEarn },
+            loyaltyPoints: { increment: loyaltyEarn }
           }
         }).catch(() => { }); // Non-fatal
       }
@@ -422,7 +422,7 @@ class POSSaleModel {
     return await prisma.$transaction(async (tx) => {
       const sale = await tx.pOSSale.findFirst({
         where: { id: saleId, companyId },
-        include: { items: true, payments: true },
+        include: { items: true, payments: true }
       });
       if (!sale) throw new Error('Sale not found');
       if (sale.status !== 'Completed') {
@@ -443,8 +443,8 @@ class POSSaleModel {
           data: {
             currentStock: newStock,
             availableStock: newStock,
-            totalValue: newStock * product.costPrice,
-          },
+            totalValue: newStock * product.costPrice
+          }
         });
         totalCOGS += product.costPrice * item.quantity;
         await tx.stockMovement.create({
@@ -459,8 +459,8 @@ class POSSaleModel {
             reference: sale.invoiceNumber,
             notes: `Void ${sale.invoiceNumber}: ${reason || ''}`,
             createdBy,
-            companyId,
-          },
+            companyId
+          }
         });
       }
 
@@ -477,7 +477,7 @@ class POSSaleModel {
           accountName: debitAcc.name,
           accountCode: debitAcc.code,
           debit: 0,
-          credit: pmt.amount,
+          credit: pmt.amount
         });
       }
       jeLines.push({
@@ -485,7 +485,7 @@ class POSSaleModel {
         accountName: revenueAcc.name,
         accountCode: revenueAcc.code,
         debit: sale.grandTotal,
-        credit: 0,
+        credit: 0
       });
       if (totalCOGS > 0) {
         jeLines.push({
@@ -493,14 +493,14 @@ class POSSaleModel {
           accountName: inventoryAcc.name,
           accountCode: inventoryAcc.code,
           debit: totalCOGS,
-          credit: 0,
+          credit: 0
         });
         jeLines.push({
           accountId: cogsAcc.id,
           accountName: cogsAcc.name,
           accountCode: cogsAcc.code,
           debit: 0,
-          credit: totalCOGS,
+          credit: totalCOGS
         });
       }
 
@@ -515,17 +515,17 @@ class POSSaleModel {
           postedBy: createdBy,
           postedAt: new Date(),
           companyId,
-          lines: { create: jeLines },
-        },
+          lines: { create: jeLines }
+        }
       });
 
       const updated = await tx.pOSSale.update({
         where: { id: saleId },
         data: {
           status: 'Cancelled',
-          notes: `${sale.notes || ''}\nVOIDED: ${reason || ''}`.trim(),
+          notes: `${sale.notes || ''}\nVOIDED: ${reason || ''}`.trim()
         },
-        include: { items: true, payments: true },
+        include: { items: true, payments: true }
       });
 
       if (sale.customerId) {
@@ -535,8 +535,8 @@ class POSSaleModel {
           data: {
             totalOrders: { decrement: 1 },
             totalSpent: { decrement: sale.grandTotal },
-            loyaltyPoints: { decrement: loyaltyRevoke },
-          },
+            loyaltyPoints: { decrement: loyaltyRevoke }
+          }
         }).catch(() => {});
       }
 
@@ -545,8 +545,8 @@ class POSSaleModel {
           action: 'Void',
           details: `Voided POS sale ${sale.invoiceNumber} — ${reason || ''}`,
           companyId,
-          createdBy,
-        },
+          createdBy
+        }
       });
 
       return { sale: updated, journalEntry };

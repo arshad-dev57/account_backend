@@ -5,8 +5,6 @@ const SalesPaymentReceived = require('../warehouse/models/SalesPaymentReceived')
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
-const { delPattern } = require('../utils/redisClient');
-
 // ─── HELPER: Get or create Accounts Receivable account ──────────
 async function getOrCreateReceivableAccount(userId, companyId, tx) {
   const db = tx || prisma;
@@ -99,8 +97,8 @@ async function validateInvoice(invoiceId, companyId, tx) {
       id: invoiceId,
       companyId,
       invoiceStatus: { not: 'Paid' },
-      isDeleted: false,
-    },
+      isDeleted: false
+    }
   });
   if (warehouse) {
     return { source: 'warehouse', invoice: warehouse };
@@ -112,7 +110,7 @@ async function validateInvoice(invoiceId, companyId, tx) {
       companyId,
       isDeleted: false,
       isActive: true,
-      invoiceStatus: { notIn: ['Cancelled'] },
+      invoiceStatus: { notIn: ['Cancelled'] }
     },
     include: {
       invoicePayments: {
@@ -120,16 +118,16 @@ async function validateInvoice(invoiceId, companyId, tx) {
           payment: {
             isActive: true,
             isDeleted: false,
-            status: 'Completed',
-          },
+            status: 'Completed'
+          }
         },
-        select: { amountPaid: true },
+        select: { amountPaid: true }
       },
       creditNotes: {
         where: { status: { notIn: ['Cancelled', 'Voided'] } },
-        select: { amount: true },
-      },
-    },
+        select: { amount: true }
+      }
+    }
   });
 
   if (sales) {
@@ -151,7 +149,7 @@ async function validateInvoice(invoiceId, companyId, tx) {
     }
     return {
       source: 'sales',
-      invoice: { ...sales, paidAmount, outstanding },
+      invoice: { ...sales, paidAmount, outstanding }
     };
   }
 
@@ -191,7 +189,7 @@ const recordPayment = async (req, res) => {
       paymentMethod,
       reference,
       bankAccountId,
-      notes,
+      notes
     } = req.body;
 
     const userId = req.user.id;
@@ -236,7 +234,7 @@ const recordPayment = async (req, res) => {
       }
 
       const customer = await prisma.customer.findFirst({
-        where: { id: customerId, companyId },
+        where: { id: customerId, companyId }
       });
       if (!customer) {
         return res.status(404).json({ success: false, message: 'Customer not found' });
@@ -246,14 +244,14 @@ const recordPayment = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: `Payment amount cannot exceed outstanding balance of ${invoiceProbe.invoice.outstanding}`,
-          outstanding: invoiceProbe.invoice.outstanding,
+          outstanding: invoiceProbe.invoice.outstanding
         });
       }
 
       let bankAccountName = paymentMethod === 'Cash' ? 'Cash in Hand' : '';
       if (bankAccountId) {
         const ba = await prisma.bankAccount.findFirst({
-          where: { id: bankAccountId, companyId, status: 'Active' },
+          where: { id: bankAccountId, companyId, status: 'Active' }
         });
         if (ba) bankAccountName = ba.accountName;
       }
@@ -271,17 +269,15 @@ const recordPayment = async (req, res) => {
           {
             invoiceId: invoiceProbe.invoice.id,
             invoiceNumber: invoiceProbe.invoice.invoiceNumber,
-            amountPaid: amount,
+            amountPaid: amount
           },
         ],
         userId,
         createdBy: userId,
-        companyId,
+        companyId
       });
 
       try {
-        await delPattern(`ar:customer:${userId}:${customerId}:unpaid-invoices*`);
-        await delPattern(`ar:v3:*`);
       } catch (_) {
         /* ignore cache errors */
       }
@@ -290,7 +286,7 @@ const recordPayment = async (req, res) => {
         success: true,
         message: 'Payment recorded successfully',
         data: payment,
-        source: 'sales',
+        source: 'sales'
       });
     }
 
@@ -401,7 +397,7 @@ const recordPayment = async (req, res) => {
             clearedDate: paymentMethod === 'Cheque' ? null : new Date(),
             createdBy: userId,
             companyId: companyId,
-            fiscalYearId: fyId,
+            fiscalYearId: fyId
           };
 
           console.log('  [tx] Step 9: Creating payment record with data:');
@@ -492,14 +488,14 @@ const recordPayment = async (req, res) => {
               invoiceNumber: result.updatedInvoice.invoiceNumber,
               paidAmount: result.updatedInvoice.paidAmount,
               outstanding: result.updatedInvoice.grandTotal - result.updatedInvoice.paidAmount,
-              status: result.updatedInvoice.invoiceStatus,
+              status: result.updatedInvoice.invoiceStatus
             },
             balanceUpdate: {
               account: result.debitAccount.name,
               accountType: result.debitAccount.type,
               change: amount
             }
-          },
+          }
         });
 
       } catch (error) {
@@ -602,7 +598,7 @@ const getPayments = async (req, res) => {
       total,
       page: pageNum,
       pages: Math.ceil(total / limitNum),
-      data: payments,
+      data: payments
     });
 
   } catch (error) {
@@ -660,9 +656,9 @@ const getUnpaidInvoices = async (req, res) => {
           customerId,
           companyId,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Paid', 'Cancelled'] },
+          invoiceStatus: { notIn: ['Paid', 'Cancelled'] }
         },
-        orderBy: { dueDate: 'asc' },
+        orderBy: { dueDate: 'asc' }
       }),
       prisma.salesInvoice.findMany({
         where: {
@@ -670,21 +666,21 @@ const getUnpaidInvoices = async (req, res) => {
           companyId,
           isDeleted: false,
           isActive: true,
-          invoiceStatus: { notIn: ['Cancelled'] },
+          invoiceStatus: { notIn: ['Cancelled'] }
         },
         include: {
           invoicePayments: {
             where: {
-              payment: { isActive: true, isDeleted: false, status: 'Completed' },
+              payment: { isActive: true, isDeleted: false, status: 'Completed' }
             },
-            select: { amountPaid: true },
+            select: { amountPaid: true }
           },
           creditNotes: {
             where: { status: { notIn: ['Cancelled', 'Voided'] } },
-            select: { amount: true },
-          },
+            select: { amount: true }
+          }
         },
-        orderBy: { dueDate: 'asc' },
+        orderBy: { dueDate: 'asc' }
       }),
     ]);
 
@@ -700,7 +696,7 @@ const getUnpaidInvoices = async (req, res) => {
           totalAmount: invoice.grandTotal,
           paidAmount: invoice.paidAmount,
           outstanding,
-          status: invoice.invoiceStatus,
+          status: invoice.invoiceStatus
         };
       }),
       ...salesInvoices.map((invoice) => {
@@ -726,7 +722,7 @@ const getUnpaidInvoices = async (req, res) => {
           totalAmount: invoice.grandTotal,
           paidAmount,
           outstanding,
-          status: outstanding <= 0 ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Unpaid',
+          status: outstanding <= 0 ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Unpaid'
         };
       }),
     ].filter((inv) => inv.outstanding > 0);
@@ -737,7 +733,7 @@ const getUnpaidInvoices = async (req, res) => {
       success: true,
       count: unpaidInvoices.length,
       totalOutstanding,
-      data: unpaidInvoices,
+      data: unpaidInvoices
     });
   } catch (error) {
     console.error('❌ [AR] Get unpaid invoices error:', error);
@@ -792,7 +788,7 @@ const getSummary = async (req, res) => {
         today: today._sum.amount || 0,
         pending,
         byMethod: await PaymentReceived.getByMethod(userId)
-      },
+      }
     });
   } catch (error) {
     console.error('❌ [AR] Get summary error:', error);

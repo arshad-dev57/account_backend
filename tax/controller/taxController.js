@@ -465,7 +465,7 @@ const getTaxContext = async (req, res) => {
 
     let profile = await prisma.companyTaxProfile.findUnique({
       where: { companyId },
-      include: { defaultJurisdiction: true },
+      include: { defaultJurisdiction: true }
     });
 
     const rates = await prisma.taxRate.findMany({
@@ -473,10 +473,10 @@ const getTaxContext = async (req, res) => {
         companyId,
         isActive: true,
         effectiveFrom: { lte: now },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }]
       },
       include: { taxType: true, jurisdiction: true },
-      orderBy: [{ isDefault: 'desc' }, { rate: 'desc' }],
+      orderBy: [{ isDefault: 'desc' }, { rate: 'desc' }]
     });
 
     const defaultRate = rates.find((r) => r.isDefault) || rates[0] || null;
@@ -491,7 +491,7 @@ const getTaxContext = async (req, res) => {
           name: p.name,
           regime: p.regime,
           pricingModel: p.pricingModel,
-          filingFrequency: p.filingFrequency,
+          filingFrequency: p.filingFrequency
         })),
         defaultRate,
         rates: rates.map((r) => ({
@@ -502,13 +502,13 @@ const getTaxContext = async (req, res) => {
           taxTypeName: r.taxType?.name,
           jurisdictionId: r.jurisdictionId,
           jurisdictionName: r.jurisdiction?.name,
-          pricingModel: profile?.pricingModel || 'exclusive',
+          pricingModel: profile?.pricingModel || 'exclusive'
         })),
         pricingModel: profile?.pricingModel || 'exclusive',
         regime: profile?.regime || null,
         countryCode: profile?.countryCode || null,
-        enabled: Boolean(profile?.taxEnabled),
-      },
+        enabled: Boolean(profile?.taxEnabled)
+      }
     });
   } catch (error) {
     console.error('Get tax context error:', error);
@@ -529,7 +529,7 @@ const getTaxOverview = async (req, res) => {
         where: { companyId },
         orderBy: { createdAt: 'desc' },
         take: 8,
-        include: { taxType: true, jurisdiction: true },
+        include: { taxType: true, jurisdiction: true }
       }),
     ]);
 
@@ -539,7 +539,7 @@ const getTaxOverview = async (req, res) => {
     const monthAgg = await prisma.taxTransaction.aggregate({
       where: { companyId, createdAt: { gte: start } },
       _sum: { taxAmount: true, taxableAmount: true, exemptionAmount: true },
-      _count: true,
+      _count: true
     });
 
     res.json({
@@ -552,10 +552,10 @@ const getTaxOverview = async (req, res) => {
           taxAmount: monthAgg._sum.taxAmount || 0,
           taxableAmount: monthAgg._sum.taxableAmount || 0,
           exemptionAmount: monthAgg._sum.exemptionAmount || 0,
-          transactions: monthAgg._count || 0,
+          transactions: monthAgg._count || 0
         },
-        recent,
-      },
+        recent
+      }
     });
   } catch (error) {
     console.error('Get tax overview error:', error);
@@ -574,7 +574,7 @@ const upsertTaxProfile = async (req, res) => {
       filingFrequency,
       defaultJurisdictionId,
       recoverInputTax,
-      taxEnabled,
+      taxEnabled
     } = req.body;
 
     const data = {
@@ -585,24 +585,24 @@ const upsertTaxProfile = async (req, res) => {
       filingFrequency,
       defaultJurisdictionId: defaultJurisdictionId || null,
       recoverInputTax: recoverInputTax !== false,
-      ...(typeof taxEnabled === 'boolean' ? { taxEnabled } : {}),
+      ...(typeof taxEnabled === 'boolean' ? { taxEnabled } : {})
     };
 
     const profile = await prisma.companyTaxProfile.upsert({
       where: { companyId },
       create: { companyId, ...data },
       update: data,
-      include: { defaultJurisdiction: true },
+      include: { defaultJurisdiction: true }
     });
 
     if (defaultJurisdictionId) {
       await prisma.taxJurisdiction.updateMany({
         where: { companyId },
-        data: { isDefault: false },
+        data: { isDefault: false }
       });
       await prisma.taxJurisdiction.update({
         where: { id: defaultJurisdictionId },
-        data: { isDefault: true },
+        data: { isDefault: true }
       });
     }
 
@@ -634,12 +634,12 @@ const setupCountryPack = async (req, res) => {
     }
 
     const existing = await prisma.taxJurisdiction.findFirst({
-      where: { companyId, countryCode: pack.countryCode },
+      where: { companyId, countryCode: pack.countryCode }
     });
     if (existing && !replaceExisting) {
       return res.status(409).json({
         success: false,
-        message: 'Tax setup already exists for this country. Pass replaceExisting to reset.',
+        message: 'Tax setup already exists for this country. Pass replaceExisting to reset.'
       });
     }
 
@@ -650,8 +650,8 @@ const setupCountryPack = async (req, res) => {
         level: 'Country',
         countryCode: pack.countryCode,
         isDefault: true,
-        companyId,
-      },
+        companyId
+      }
     });
 
     const types = [];
@@ -662,8 +662,8 @@ const setupCountryPack = async (req, res) => {
           name: t.name,
           calculationType: 'percentage',
           isCompound: false,
-          companyId,
-        },
+          companyId
+        }
       });
       types.push(taxType);
       await prisma.taxRate.create({
@@ -673,8 +673,8 @@ const setupCountryPack = async (req, res) => {
           rate: t.rate,
           effectiveFrom: new Date(),
           isDefault: t === pack.types[0],
-          companyId,
-        },
+          companyId
+        }
       });
     }
 
@@ -685,8 +685,8 @@ const setupCountryPack = async (req, res) => {
           name: e.name,
           percentage: e.percentage,
           requiresCertificate: e.requiresCertificate,
-          companyId,
-        },
+          companyId
+        }
       });
     }
 
@@ -701,7 +701,7 @@ const setupCountryPack = async (req, res) => {
         taxRegistrationNumber: taxRegistrationNumber || null,
         defaultJurisdictionId: jurisdiction.id,
         recoverInputTax: pack.recoverInputTax,
-        taxEnabled: true,
+        taxEnabled: true
       },
       update: {
         countryCode: pack.countryCode,
@@ -711,14 +711,14 @@ const setupCountryPack = async (req, res) => {
         taxRegistrationNumber: taxRegistrationNumber || undefined,
         defaultJurisdictionId: jurisdiction.id,
         recoverInputTax: pack.recoverInputTax,
-        taxEnabled: true,
+        taxEnabled: true
       },
-      include: { defaultJurisdiction: true },
+      include: { defaultJurisdiction: true }
     });
 
     res.status(201).json({
       success: true,
-      data: { profile, jurisdiction, types: types.length, exemptions: pack.exemptions.length },
+      data: { profile, jurisdiction, types: types.length, exemptions: pack.exemptions.length }
     });
   } catch (error) {
     console.error('Setup country pack error:', error);
@@ -732,7 +732,7 @@ const getAllTaxRates = async (req, res) => {
     const taxRates = await prisma.taxRate.findMany({
       where: { companyId },
       include: { taxType: true, jurisdiction: true, taxRules: true },
-      orderBy: [{ isActive: 'desc' }, { isDefault: 'desc' }, { rate: 'desc' }],
+      orderBy: [{ isActive: 'desc' }, { isDefault: 'desc' }, { rate: 'desc' }]
     });
     res.json({ success: true, data: taxRates });
   } catch (error) {
@@ -747,7 +747,7 @@ const getAllTaxRules = async (req, res) => {
     const taxRules = await prisma.taxRule.findMany({
       where: { companyId },
       include: { taxRate: { include: { taxType: true, jurisdiction: true } } },
-      orderBy: { priority: 'desc' },
+      orderBy: { priority: 'desc' }
     });
     res.json({ success: true, data: taxRules });
   } catch (error) {
@@ -762,7 +762,7 @@ const getAllTaxExemptions = async (req, res) => {
     const exemptions = await prisma.taxExemption.findMany({
       where: { companyId },
       include: { exemptionType: true, customer: true, product: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }
     });
     res.json({ success: true, data: exemptions });
   } catch (error) {
@@ -791,8 +791,8 @@ const updateTaxJurisdiction = async (req, res) => {
         parentId: parentId || null,
         countryCode,
         isDefault: isDefault ?? existing.isDefault,
-        isActive: isActive ?? existing.isActive,
-      },
+        isActive: isActive ?? existing.isActive
+      }
     });
     res.json({ success: true, data: jurisdiction });
   } catch (error) {
@@ -813,8 +813,8 @@ const updateTaxType = async (req, res) => {
         description: req.body.description,
         calculationType: req.body.calculationType,
         isCompound: req.body.isCompound,
-        isActive: req.body.isActive,
-      },
+        isActive: req.body.isActive
+      }
     });
     res.json({ success: true, data: taxType });
   } catch (error) {
@@ -832,7 +832,7 @@ const updateTaxRate = async (req, res) => {
     if (req.body.isDefault) {
       await prisma.taxRate.updateMany({
         where: { companyId, jurisdictionId: existing.jurisdictionId },
-        data: { isDefault: false },
+        data: { isDefault: false }
       });
     }
 
@@ -843,9 +843,9 @@ const updateTaxRate = async (req, res) => {
         effectiveFrom: req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : undefined,
         effectiveTo: req.body.effectiveTo ? new Date(req.body.effectiveTo) : req.body.effectiveTo === null ? null : undefined,
         isDefault: req.body.isDefault,
-        isActive: req.body.isActive,
+        isActive: req.body.isActive
       },
-      include: { taxType: true, jurisdiction: true },
+      include: { taxType: true, jurisdiction: true }
     });
     res.json({ success: true, data: taxRate });
   } catch (error) {
@@ -865,10 +865,10 @@ const setTaxEnabled = async (req, res) => {
         taxEnabled: enabled,
         countryCode: 'US',
         regime: 'SALES_TAX',
-        pricingModel: 'exclusive',
+        pricingModel: 'exclusive'
       },
       update: { taxEnabled: enabled },
-      include: { defaultJurisdiction: true },
+      include: { defaultJurisdiction: true }
     });
 
     res.json({
@@ -876,7 +876,7 @@ const setTaxEnabled = async (req, res) => {
       data: profile,
       message: enabled
         ? 'Taxation is now ON across POS, sales, purchases, inventory and accounting.'
-        : 'Taxation is now OFF. Tax will not be calculated or shown in any document flow.',
+        : 'Taxation is now OFF. Tax will not be calculated or shown in any document flow.'
     });
   } catch (error) {
     console.error('Set tax enabled error:', error);
@@ -910,5 +910,5 @@ module.exports = {
   getTaxOverview,
   upsertTaxProfile,
   setupCountryPack,
-  setTaxEnabled,
+  setTaxEnabled
 };

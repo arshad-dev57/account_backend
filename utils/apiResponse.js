@@ -7,7 +7,7 @@ class ApiResponse {
     const response = {
       success: true,
       message,
-      data,
+      data
     };
 
     if (meta) {
@@ -20,7 +20,7 @@ class ApiResponse {
   static error(res, statusCode, message, errors = null, code = null) {
     const response = {
       success: false,
-      message,
+      message
     };
 
     if (errors) {
@@ -62,7 +62,7 @@ class ApiResponse {
   static serverError(res, message = 'Internal server error', error = null) {
     const response = {
       success: false,
-      message,
+      message
     };
 
     if (error && process.env.NODE_ENV === 'development') {

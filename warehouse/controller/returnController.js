@@ -36,7 +36,7 @@ const autoCreateRefund = async (returnData, userId) => {
         createdBy: userId,
         updatedBy: userId,
         companyId: companyId
-      },
+      }
     });
 
     console.log(`✅ Refund auto-created: ${refundNumber} from Return: ${returnData.returnNumber}`);
@@ -94,7 +94,7 @@ const getSalesReturns = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortOrder = 'desc'
     } = req.query;
 
    const filter = {
@@ -160,8 +160,8 @@ const getSalesReturns = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get sales returns error:', error);
@@ -216,7 +216,7 @@ const getPurchaseReturns = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc',
+      sortOrder = 'desc'
     } = req.query;
 
    const filter = {
@@ -282,8 +282,8 @@ const getPurchaseReturns = async (req, res) => {
         total,
         pages: Math.ceil(total / limitNum),
         hasNext: pageNum < Math.ceil(total / limitNum),
-        hasPrev: pageNum > 1,
-      },
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('Get purchase returns error:', error);

@@ -6,8 +6,6 @@
 
 const prisma = require('../prisma/client');
 const { createBankTransfer } = require('../services/bankAccountingService');
-const { get, set, delPattern } = require('../utils/redisClient');
-
 // @desc    Transfer money between bank accounts
 // @route   POST /api/transfers
 // @access  Private
@@ -19,7 +17,7 @@ exports.transferMoney = async (req, res) => {
       amount,
       date,
       reference,
-      description,
+      description
     } = req.body;
 
     const userId = req.user.id;
@@ -33,12 +31,10 @@ exports.transferMoney = async (req, res) => {
       amount,
       postingDate: date ? new Date(date) : new Date(),
       description,
-      reference,
+      reference
     });
 
     try {
-      await delPattern(`bank:accounts:${companyId}:*`);
-      await delPattern(`bank:summary:${companyId}`);
     } catch (_) {}
 
     return res.status(result.duplicate ? 200 : 201).json({
@@ -46,12 +42,12 @@ exports.transferMoney = async (req, res) => {
       data: {
         journalEntry: result.journalEntry,
         fromAccount: result.fromAccount,
-        toAccount: result.toAccount,
+        toAccount: result.toAccount
       },
       duplicate: !!result.duplicate,
       message: result.duplicate
         ? 'Transfer already recorded (duplicate reference)'
-        : 'Transfer completed successfully',
+        : 'Transfer completed successfully'
     });
   } catch (error) {
     console.error('❌ Transfer error:', error);
@@ -59,7 +55,7 @@ exports.transferMoney = async (req, res) => {
       error.statusCode || (error.code === 'FISCAL_YEAR_CLOSED' ? 400 : 500);
     return res.status(statusCode).json({
       success: false,
-      message: error.message || 'Transfer failed',
+      message: error.message || 'Transfer failed'
     });
   }
 };
@@ -76,12 +72,6 @@ exports.getTransferHistory = async (req, res) => {
     const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
     const skip = (pageNum - 1) * limitNum;
 
-    const cacheKey = `bank:transfers:${companyId}:${pageNum}:${limitNum}`;
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({ success: true, ...cached, cached: true });
-    }
-
     const where = {
       companyId,
       status: 'Posted',
@@ -90,7 +80,7 @@ exports.getTransferHistory = async (req, res) => {
         { reference: { startsWith: 'XFER-' } },
         { reference: { startsWith: 'TRANS-' } },
         { description: { contains: 'Transfer from', mode: 'insensitive' } },
-      ],
+      ]
     };
 
     const [entries, total] = await Promise.all([
@@ -99,7 +89,7 @@ exports.getTransferHistory = async (req, res) => {
         include: { lines: true },
         orderBy: { date: 'desc' },
         skip,
-        take: limitNum,
+        take: limitNum
       }),
       prisma.journalEntry.count({ where }),
     ]);
@@ -110,18 +100,16 @@ exports.getTransferHistory = async (req, res) => {
         page: pageNum,
         limit: limitNum,
         total,
-        pages: Math.ceil(total / limitNum),
-      },
+        pages: Math.ceil(total / limitNum)
+      }
     };
 
-    await set(cacheKey, payload, 60);
-
-    return res.status(200).json({ success: true, ...payload, cached: false });
+    return res.status(200).json({ success: true, ...payload });
   } catch (error) {
     console.error('❌ Transfer history error:', error);
     return res.status(500).json({
       success: false,
-      message: error.message || 'Server Error',
+      message: error.message || 'Server Error'
     });
   }
 };
@@ -136,13 +124,13 @@ exports.getTransferDetails = async (req, res) => {
 
     const entry = await prisma.journalEntry.findFirst({
       where: { id, companyId },
-      include: { lines: { include: { account: true } } },
+      include: { lines: { include: { account: true } } }
     });
 
     if (!entry) {
       return res.status(404).json({
         success: false,
-        message: 'Transfer not found',
+        message: 'Transfer not found'
       });
     }
 
@@ -151,7 +139,7 @@ exports.getTransferDetails = async (req, res) => {
     console.error('❌ Transfer details error:', error);
     return res.status(500).json({
       success: false,
-      message: error.message || 'Server Error',
+      message: error.message || 'Server Error'
     });
   }
 };

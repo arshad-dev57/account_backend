@@ -13,7 +13,7 @@ const AVAILABLE_PERMISSION_MODULES = [
       { page: 'accounting-dashboard', displayName: 'Dashboard' },
       { page: 'accounting-credit-notes', displayName: 'Credit Notes' },
       { page: 'accounting-accounts-receivable', displayName: 'Accounts Receivable' },
-    ],
+    ]
   },
   {
     module: 'sales',
@@ -30,7 +30,7 @@ const AVAILABLE_PERMISSION_MODULES = [
       { page: 'sales-sales-returns', displayName: 'Sales Returns' },
       { page: 'sales-refunds', displayName: 'Refunds' },
       { page: 'sales-credits', displayName: 'Sales Credits' },
-    ],
+    ]
   },
   {
     module: 'purchases',
@@ -43,7 +43,7 @@ const AVAILABLE_PERMISSION_MODULES = [
       { page: 'purchases-purchase-invoices', displayName: 'Purchase Invoices' },
       { page: 'purchases-purchase-payments', displayName: 'Purchase Payments' },
       { page: 'purchases-purchase-returns', displayName: 'Purchase Returns' },
-    ],
+    ]
   },
   {
     module: 'warehouse',
@@ -55,7 +55,7 @@ const AVAILABLE_PERMISSION_MODULES = [
       { page: 'warehouse-customers', displayName: 'Customers' },
       { page: 'warehouse-stock-movement', displayName: 'Stock Movement' },
       { page: 'warehouse-orders', displayName: 'Orders' },
-    ],
+    ]
   },
   {
     module: 'users',
@@ -64,7 +64,7 @@ const AVAILABLE_PERMISSION_MODULES = [
       { page: 'users-user-management', displayName: 'User Management' },
       { page: 'users-roles', displayName: 'Roles' },
       { page: 'users-permissions', displayName: 'Permissions' },
-    ],
+    ]
   },
 ];
 
@@ -73,7 +73,7 @@ function normalizePermissionPage(page) {
   if (!page || typeof page !== 'string') return page;
   const map = {
     'sales-sales-credits': 'sales-credits',
-    'sales-credits': 'sales-credits',
+    'sales-credits': 'sales-credits'
   };
   return map[page] || page;
 }
@@ -475,7 +475,7 @@ const createUser = async (req, res) => {
             canView: p.canView ?? true,
             canCreate: p.canCreate ?? false,
             canEdit: p.canEdit ?? false,
-            canDelete: p.canDelete ?? false,
+            canDelete: p.canDelete ?? false
           });
         }
 
@@ -790,13 +790,13 @@ const updateUserPermissions = async (req, res) => {
           canView: p.canView ?? true,
           canCreate: p.canCreate ?? false,
           canEdit: p.canEdit ?? false,
-          canDelete: p.canDelete ?? false,
+          canDelete: p.canDelete ?? false
         });
       }
       if (rows.length > 0) {
         await prisma.userPermission.createMany({
           data: rows,
-          skipDuplicates: true,
+          skipDuplicates: true
         });
       }
     }
@@ -830,14 +830,14 @@ const getPermissionCatalog = async (req, res) => {
   try {
     res.status(200).json({
       success: true,
-      data: AVAILABLE_PERMISSION_MODULES,
+      data: AVAILABLE_PERMISSION_MODULES
     });
   } catch (error) {
     console.error('Get permission catalog error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
@@ -881,5 +881,5 @@ module.exports = {
   updateUserPermissions,
   getPermissionCatalog,
   getRoles,
-  AVAILABLE_PERMISSION_MODULES,
+  AVAILABLE_PERMISSION_MODULES
 };

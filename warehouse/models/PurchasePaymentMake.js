@@ -24,8 +24,8 @@ async function findAPAccount(tx, companyId) {
         { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
         { name: { contains: 'Trade Payables', mode: 'insensitive' } },
         { name: { contains: 'Creditors', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 
   if (!account) {
@@ -41,8 +41,8 @@ async function findAPAccount(tx, companyId) {
         description: 'Accounts Payable',
         isActive: true,
         createdBy: 'SYSTEM',
-        companyId,
-      },
+        companyId
+      }
     });
   }
 
@@ -86,7 +86,7 @@ class PurchasePaymentMakeModel {
           OR: [
             { companyId },
             ...(userId ? [{ companyId: null, createdBy: userId }] : []),
-          ],
+          ]
         }
       : userId
         ? { createdBy: userId }
@@ -97,9 +97,9 @@ class PurchasePaymentMakeModel {
     const supplier = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        ...(companyId ? { companyId } : {}),
+        ...(companyId ? { companyId } : {})
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true }
     });
 
     const supplierMatch = supplier?.name
@@ -107,7 +107,7 @@ class PurchasePaymentMakeModel {
           OR: [
             { supplierId },
             { supplierName: { equals: supplier.name, mode: 'insensitive' } },
-          ],
+          ]
         }
       : { supplierId };
 
@@ -120,20 +120,20 @@ class PurchasePaymentMakeModel {
           // Only real payable invoices (no Draft)
           {
             invoiceStatus: {
-              in: ['Posted', 'Partially Paid'],
-            },
+              in: ['Posted', 'Partially Paid']
+            }
           },
           {
-            paymentStatus: { notIn: ['Paid', 'paid'] },
+            paymentStatus: { notIn: ['Paid', 'paid'] }
           },
           companyScope,
-        ],
+        ]
       },
       orderBy: { invoiceDate: 'asc' },
       include: {
         items: true,
-        supplier: true,
-      },
+        supplier: true
+      }
     });
 
     // Recalculate outstanding so UI always shows remaining balance
@@ -149,7 +149,7 @@ class PurchasePaymentMakeModel {
         return {
           ...inv,
           outstanding,
-          payable: outstanding > 0,
+          payable: outstanding > 0
         };
       })
       .filter((inv) => inv.outstanding > 0);
@@ -229,8 +229,8 @@ class PurchasePaymentMakeModel {
             isActive: true,
             isDeleted: false,
             invoiceStatus: {
-              in: ['Posted', 'Partially Paid'],
-            },
+              in: ['Posted', 'Partially Paid']
+            }
           },
           include: {
             purchasePayments: {
@@ -238,11 +238,11 @@ class PurchasePaymentMakeModel {
                 payment: {
                   isActive: true,
                   isDeleted: false,
-                  status: 'Completed',
-                },
-              },
-            },
-          },
+                  status: 'Completed'
+                }
+              }
+            }
+          }
         });
 
         if (!invoice) {
@@ -674,13 +674,13 @@ class PurchasePaymentMakeModel {
                       payment: {
                         isActive: true,
                         isDeleted: false,
-                        status: 'Completed',
-                      },
-                    },
-                  },
-                },
-              },
-            },
+                        status: 'Completed'
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           supplier: true,
           bankAccount: true,
@@ -764,7 +764,7 @@ class PurchasePaymentMakeModel {
               }))
             }
           },
-          include: { lines: true },
+          include: { lines: true }
         });
 
         await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);

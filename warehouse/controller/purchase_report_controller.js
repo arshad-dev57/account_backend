@@ -10,7 +10,7 @@ function toNum(v) {
 function companyScope(companyId, userId) {
   if (companyId) {
     return {
-      OR: [{ companyId }, { companyId: null, createdBy: userId }],
+      OR: [{ companyId }, { companyId: null, createdBy: userId }]
     };
   }
   return { createdBy: userId };
@@ -23,7 +23,7 @@ function baseWhere(companyId, userId, extra = {}) {
       { isActive: true },
       { isDeleted: false },
       extra,
-    ],
+    ]
   };
 }
 
@@ -68,8 +68,8 @@ function emptySummary() {
       orders: { count: 0, grandTotal: 0 },
       invoices: { count: 0, grandTotal: 0 },
       payments: { count: 0, grandTotal: 0 },
-      returns: { count: 0, grandTotal: 0 },
-    },
+      returns: { count: 0, grandTotal: 0 }
+    }
   };
 }
 
@@ -85,7 +85,7 @@ async function fetchOrderRows(companyId, userId, dateFilter, { status, search })
       OR: [
         { orderNumber: { contains: search, mode: 'insensitive' } },
         { supplierName: { contains: search, mode: 'insensitive' } },
-      ],
+      ]
     });
   }
 
@@ -100,10 +100,10 @@ async function fetchOrderRows(companyId, userId, dateFilter, { status, search })
       subtotal: true,
       totalTax: true,
       totalDiscount: true,
-      grandTotal: true,
+      grandTotal: true
     },
     orderBy: { orderDate: 'desc' },
-    take: 2000,
+    take: 2000
   });
 
   return rows
@@ -122,14 +122,14 @@ async function fetchOrderRows(companyId, userId, dateFilter, { status, search })
       subtotal: toNum(o.subtotal),
       tax: toNum(o.totalTax),
       discount: toNum(o.totalDiscount),
-      grandTotal: toNum(o.grandTotal),
+      grandTotal: toNum(o.grandTotal)
     }));
 }
 
 async function fetchInvoiceRows(companyId, userId, dateFilter, { status, search }) {
   const extra = {
     invoiceDate: dateFilter,
-    invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+    invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
   };
 
   const where = baseWhere(companyId, userId, extra);
@@ -138,7 +138,7 @@ async function fetchInvoiceRows(companyId, userId, dateFilter, { status, search 
       OR: [
         { invoiceNumber: { contains: search, mode: 'insensitive' } },
         { supplierName: { contains: search, mode: 'insensitive' } },
-      ],
+      ]
     });
   }
 
@@ -154,10 +154,10 @@ async function fetchInvoiceRows(companyId, userId, dateFilter, { status, search 
       subtotal: true,
       taxTotal: true,
       discountTotal: true,
-      grandTotal: true,
+      grandTotal: true
     },
     orderBy: { invoiceDate: 'desc' },
-    take: 2000,
+    take: 2000
   });
 
   if (status && status !== 'all') {
@@ -180,7 +180,7 @@ async function fetchInvoiceRows(companyId, userId, dateFilter, { status, search 
     subtotal: toNum(inv.subtotal),
     tax: toNum(inv.taxTotal),
     discount: toNum(inv.discountTotal),
-    grandTotal: toNum(inv.grandTotal),
+    grandTotal: toNum(inv.grandTotal)
   }));
 }
 
@@ -199,7 +199,7 @@ async function fetchPaymentRows(companyId, userId, dateFilter, { status, search 
         { paymentNumber: { contains: search, mode: 'insensitive' } },
         { supplierName: { contains: search, mode: 'insensitive' } },
         { reference: { contains: search, mode: 'insensitive' } },
-      ],
+      ]
     });
   }
 
@@ -212,10 +212,10 @@ async function fetchPaymentRows(companyId, userId, dateFilter, { status, search 
       supplierName: true,
       status: true,
       amount: true,
-      paymentMethod: true,
+      paymentMethod: true
     },
     orderBy: { paymentDate: 'desc' },
-    take: 2000,
+    take: 2000
   });
 
   return rows.map((p) => ({
@@ -229,7 +229,7 @@ async function fetchPaymentRows(companyId, userId, dateFilter, { status, search 
     subtotal: toNum(p.amount),
     tax: 0,
     discount: 0,
-    grandTotal: toNum(p.amount),
+    grandTotal: toNum(p.amount)
   }));
 }
 
@@ -246,7 +246,7 @@ async function fetchReturnRows(companyId, userId, dateFilter, { status, search }
         { returnNumber: { contains: search, mode: 'insensitive' } },
         { supplierName: { contains: search, mode: 'insensitive' } },
         { purchaseInvoiceNumber: { contains: search, mode: 'insensitive' } },
-      ],
+      ]
     });
   }
 
@@ -259,10 +259,10 @@ async function fetchReturnRows(companyId, userId, dateFilter, { status, search }
       supplierName: true,
       status: true,
       returnAmount: true,
-      grandTotal: true,
+      grandTotal: true
     },
     orderBy: { returnDate: 'desc' },
-    take: 2000,
+    take: 2000
   });
 
   return rows
@@ -281,7 +281,7 @@ async function fetchReturnRows(companyId, userId, dateFilter, { status, search }
       subtotal: toNum(r.returnAmount || r.grandTotal),
       tax: 0,
       discount: 0,
-      grandTotal: toNum(r.grandTotal || r.returnAmount),
+      grandTotal: toNum(r.grandTotal || r.returnAmount)
     }));
 }
 
@@ -319,7 +319,7 @@ const getPurchaseReport = async (req, res) => {
       status = 'all',
       search = '',
       page = '1',
-      limit = '50',
+      limit = '50'
     } = req.query;
 
     const dateFilter = await resolveQueryDateFilter({
@@ -327,11 +327,11 @@ const getPurchaseReport = async (req, res) => {
       startDate,
       endDate,
       fiscalYearId,
-      companyId,
+      companyId
     });
     const filters = {
       status: status || 'all',
-      search: String(search || '').trim(),
+      search: String(search || '').trim()
     };
 
     const channelKey = String(channel || 'all').toLowerCase();
@@ -379,7 +379,7 @@ const getPurchaseReport = async (req, res) => {
           startDate: startDate || null,
           endDate: endDate || null,
           status: filters.status,
-          search: filters.search,
+          search: filters.search
         },
         summary,
         rows: pagedRows,
@@ -387,20 +387,20 @@ const getPurchaseReport = async (req, res) => {
           page: pageNum,
           limit: limitNum,
           total,
-          totalPages: Math.ceil(total / limitNum) || 1,
-        },
-      },
+          totalPages: Math.ceil(total / limitNum) || 1
+        }
+      }
     });
   } catch (error) {
     console.error('❌ Purchase report error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };
 
 module.exports = {
-  getPurchaseReport,
+  getPurchaseReport
 };

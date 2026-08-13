@@ -17,8 +17,8 @@ class EmailService {
         secure: smtp.secure,
         auth: {
           user: smtp.user,
-          pass: smtp.pass,
-        },
+          pass: smtp.pass
+        }
       });
 
       const from = getEmailFrom();
@@ -119,7 +119,7 @@ class EmailService {
       headers: {
         'X-Entity-Ref-ID': `otp-${type}-${Date.now()}`,
         'X-Priority': '1',
-        Importance: 'high',
+        Importance: 'high'
       },
       html: `
 <!DOCTYPE html>
@@ -203,7 +203,7 @@ class EmailService {
     </td></tr>
   </table>
 </body>
-</html>`,
+</html>`
     };
 
     try {

@@ -1,5 +1,4 @@
 const prisma = require('../prisma/client');
-const { get, set, del, delPattern } = require('../utils/redisClient');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
 
 /** Bill has no fiscalYearId column — filter by bill date within the FY window. */
@@ -9,12 +8,12 @@ async function applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId) {
   if (!fy) return;
   const fyRange = {
     gte: new Date(fy.startDate),
-    lte: new Date(fy.endDate),
+    lte: new Date(fy.endDate)
   };
   if (filter.date?.gte || filter.date?.lte) {
     filter.date = {
       gte: filter.date.gte && filter.date.gte > fyRange.gte ? filter.date.gte : fyRange.gte,
-      lte: filter.date.lte && filter.date.lte < fyRange.lte ? filter.date.lte : fyRange.lte,
+      lte: filter.date.lte && filter.date.lte < fyRange.lte ? filter.date.lte : fyRange.lte
     };
   } else {
     filter.date = fyRange;
@@ -154,9 +153,9 @@ async function generateBillNumber(companyId, attemptOffset = 0, tx = null) {
   const existingBills = await db.bill.findMany({
     where: {
       companyId,
-      billNumber: { startsWith: prefix },
+      billNumber: { startsWith: prefix }
     },
-    select: { billNumber: true },
+    select: { billNumber: true }
   });
 
   let maxNumber = 0;
@@ -234,13 +233,13 @@ exports.getNextBillNumber = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: { billNumber },
+      data: { billNumber }
     });
   } catch (error) {
     console.error('❌ [AP] Get next bill number error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -259,18 +258,6 @@ exports.getSuppliers = async (req, res) => {
     const { search, status } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
-
-    const cacheKey = `ap:suppliers:${userId}:${search || ''}:${status || ''}`;
-    
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        count: cached.length,
-        data: cached,
-        cached: true,
-      });
-    }
 
     const filter = { companyId: companyId };
 
@@ -322,23 +309,20 @@ exports.getSuppliers = async (req, res) => {
         totalAmount,
         paidAmount,
         outstandingAmount,
-        billCount: supplierBills.length,
+        billCount: supplierBills.length
       };
     });
-
-    await set(cacheKey, suppliersWithOutstanding, 600);
 
     res.status(200).json({
       success: true,
       count: suppliersWithOutstanding.length,
-      data: suppliersWithOutstanding,
-      cached: false,
+      data: suppliersWithOutstanding
     });
   } catch (error) {
     console.error('❌ [AP] Get suppliers error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -353,17 +337,6 @@ exports.getSupplier = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     const companyId = req.user.companyId;
-
-    const cacheKey = `ap:supplier:${userId}:${id}`;
-    
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
 
     const supplier = await prisma.supplier.findFirst({
       where: {
@@ -385,7 +358,7 @@ exports.getSupplier = async (req, res) => {
     if (!supplier) {
       return res.status(404).json({
         success: false,
-        message: 'Supplier not found',
+        message: 'Supplier not found'
       });
     }
 
@@ -406,21 +379,18 @@ exports.getSupplier = async (req, res) => {
       bills,
       totalAmount,
       paidAmount,
-      outstandingAmount,
+      outstandingAmount
     };
-
-    await set(cacheKey, supplierData, 600);
 
     res.status(200).json({
       success: true,
-      data: supplierData,
-      cached: false,
+      data: supplierData
     });
   } catch (error) {
     console.error('❌ [AP] Get supplier error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -443,7 +413,7 @@ exports.createBill = async (req, res) => {
     if (!companyId) {
       return res.status(400).json({
         success: false,
-        message: 'Company ID missing from session. Please log out and log in again.',
+        message: 'Company ID missing from session. Please log out and log in again.'
       });
     }
 
@@ -455,7 +425,7 @@ exports.createBill = async (req, res) => {
     if (!supplier) {
       return res.status(404).json({
         success: false,
-        message: 'Supplier not found. Please add supplier from warehouse first.',
+        message: 'Supplier not found. Please add supplier from warehouse first.'
       });
     }
 
@@ -473,7 +443,7 @@ exports.createBill = async (req, res) => {
         unitPrice: item.unitPrice,
         amount,
         taxRate: item.taxRate || 0,
-        taxAmount,
+        taxAmount
       };
     });
 
@@ -585,21 +555,10 @@ exports.createBill = async (req, res) => {
       throw new Error('Failed to generate a unique bill number after multiple attempts');
     }
 
-    // Invalidate cache
-    try {
-      await delPattern(`ap:bills:${userId}:*`);
-      await delPattern(`ap:summary:${userId}:*`);
-      await delPattern(`ap:aged:${userId}:*`);
-      await delPattern(`ap:suppliers:${userId}:*`);
-      await delPattern(`ap:supplier:${userId}:${supplierId}`);
-    } catch (cacheError) {
-      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(201).json({
+res.status(201).json({
       success: true,
       data: result,
-      message: 'Bill created successfully. AP balance updated.',
+      message: 'Bill created successfully. AP balance updated.'
     });
 
   } catch (error) {
@@ -617,18 +576,6 @@ exports.getBills = async (req, res) => {
     const { supplierId, status, startDate, endDate, fiscalYearId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
-
-    const cacheKey = `ap:bills:${userId}:${supplierId || ''}:${status || ''}:${startDate || ''}:${endDate || ''}:${fiscalYearId || ''}`;
-    
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        count: cached.length,
-        data: cached,
-        cached: true,
-      });
-    }
 
     const filter = { companyId: companyId };
 
@@ -689,19 +636,16 @@ exports.getBills = async (req, res) => {
       }
     });
 
-    await set(cacheKey, bills, 300);
-
     res.status(200).json({
       success: true,
       count: bills.length,
-      data: bills,
-      cached: false,
+      data: bills
     });
   } catch (error) {
     console.error('❌ [AP] Get bills error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -716,17 +660,6 @@ exports.getBill = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     const companyId = req.user.companyId;
-
-    const cacheKey = `ap:bill:${userId}:${id}`;
-    
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
 
     const bill = await prisma.bill.findFirst({
       where: {
@@ -766,22 +699,19 @@ exports.getBill = async (req, res) => {
     if (!bill) {
       return res.status(404).json({
         success: false,
-        message: 'Bill not found',
+        message: 'Bill not found'
       });
     }
 
-    await set(cacheKey, bill, 600);
-
     res.status(200).json({
       success: true,
-      data: bill,
-      cached: false,
+      data: bill
     });
   } catch (error) {
     console.error('❌ [AP] Get bill error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -807,14 +737,14 @@ exports.updateBill = async (req, res) => {
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Bill not found',
+        message: 'Bill not found'
       });
     }
 
     if (existing.status === 'Paid') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot update a paid bill',
+        message: 'Cannot update a paid bill'
       });
     }
 
@@ -824,7 +754,7 @@ exports.updateBill = async (req, res) => {
       items,
       discount,
       notes,
-      status,
+      status
     } = req.body;
 
     let subtotal = existing.subtotal;
@@ -847,7 +777,7 @@ exports.updateBill = async (req, res) => {
           unitPrice: item.unitPrice,
           amount: amount,
           taxRate: item.taxRate || 0,
-          taxAmount: taxAmount,
+          taxAmount: taxAmount
         };
       });
       totalAmount = subtotal + taxTotal - (discount || existing.discount || 0);
@@ -862,7 +792,7 @@ exports.updateBill = async (req, res) => {
       discount: discount !== undefined ? discount : existing.discount,
       totalAmount,
       notes: notes !== undefined ? notes : existing.notes,
-      status: status || existing.status,
+      status: status || existing.status
     };
 
     if (totalAmount !== existing.totalAmount) {
@@ -892,25 +822,16 @@ exports.updateBill = async (req, res) => {
       }
     });
 
-    // Invalidate cache
-    try {
-      await delPattern(`ap:bills:${userId}:*`);
-      await delPattern(`ap:bill:${userId}:${id}`);
-      console.log('🗑️ [AP] Cache invalidated after bill update');
-    } catch (cacheError) {
-      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
       data: updated,
-      message: 'Bill updated successfully',
+      message: 'Bill updated successfully'
     });
   } catch (error) {
     console.error('❌ [AP] Update bill error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -936,14 +857,14 @@ exports.deleteBill = async (req, res) => {
     if (!bill) {
       return res.status(404).json({
         success: false,
-        message: 'Bill not found',
+        message: 'Bill not found'
       });
     }
 
     if (bill.status === 'Paid') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete a paid bill',
+        message: 'Cannot delete a paid bill'
       });
     }
 
@@ -957,7 +878,7 @@ exports.deleteBill = async (req, res) => {
     if (payments.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete bill with existing payments',
+        message: 'Cannot delete bill with existing payments'
       });
     }
 
@@ -965,24 +886,15 @@ exports.deleteBill = async (req, res) => {
       where: { id }
     });
 
-    // Invalidate cache
-    try {
-      await delPattern(`ap:bills:${userId}:*`);
-      await delPattern(`ap:bill:${userId}:${id}`);
-      console.log('🗑️ [AP] Cache invalidated after bill deletion');
-    } catch (cacheError) {
-      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
-      message: 'Bill deleted successfully',
+      message: 'Bill deleted successfully'
     });
   } catch (error) {
     console.error('❌ [AP] Delete bill error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1004,7 +916,7 @@ exports.recordPayment = async (req, res) => {
       paymentDate,
       paymentMethod,
       reference,
-      bankAccountId,
+      bankAccountId
     } = req.body;
 
     const userId = req.user.id;
@@ -1144,19 +1056,7 @@ exports.recordPayment = async (req, res) => {
       return { updatedBill, paymentRecord };
     });
 
-    // Invalidate cache
-    try {
-      await delPattern(`ap:bills:${userId}:*`);
-      await delPattern(`ap:bill:${userId}:${billId}`);
-      await delPattern(`ap:summary:${userId}:*`);
-      await delPattern(`ap:aged:${userId}:*`);
-      await delPattern(`ap:suppliers:${userId}:*`);
-      console.log('🗑️ [AP] Cache invalidated after payment recording');
-    } catch (cacheError) {
-      console.log('⚠️ [AP] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
       data: {
         bill: {
@@ -1164,7 +1064,7 @@ exports.recordPayment = async (req, res) => {
           billNumber: result.updatedBill.billNumber,
           paidAmount: result.updatedBill.paidAmount,
           outstanding: result.updatedBill.outstanding,
-          status: result.updatedBill.status,
+          status: result.updatedBill.status
         },
         payment: {
           id: result.paymentRecord.id,
@@ -1172,17 +1072,17 @@ exports.recordPayment = async (req, res) => {
           amount: result.paymentRecord.amount,
           date: result.paymentRecord.paymentDate,
           method: result.paymentRecord.paymentMethod,
-          reference: result.paymentRecord.reference,
-        },
+          reference: result.paymentRecord.reference
+        }
       },
-      message: 'Payment recorded successfully. AP balance updated.',
+      message: 'Payment recorded successfully. AP balance updated.'
     });
 
   } catch (error) {
     console.error('❌ [AP] Record payment error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1201,17 +1101,6 @@ exports.getSummary = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const { fiscalYearId } = req.query;
-
-    const cacheKey = `ap:summary:${userId}:${fiscalYearId || ''}`;
-    
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
 
     const filter = {
       companyId: companyId,
@@ -1258,21 +1147,18 @@ exports.getSummary = async (req, res) => {
       overdue,
       dueThisWeek,
       dueThisMonth,
-      activeSuppliers,
+      activeSuppliers
     };
-
-    await set(cacheKey, summaryData, 120);
 
     res.status(200).json({
       success: true,
-      data: summaryData,
-      cached: false,
+      data: summaryData
     });
   } catch (error) {
     console.error('❌ [AP] Get AP summary error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1287,17 +1173,6 @@ exports.getAgedPayables = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const { fiscalYearId } = req.query;
-
-    const cacheKey = `ap:aged:${userId}:${fiscalYearId || ''}`;
-    
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
 
     const filter = {
       companyId: companyId,
@@ -1344,7 +1219,7 @@ exports.getAgedPayables = async (req, res) => {
           days31to60: 0,
           days61to90: 0,
           days90plus: 0,
-          totalOutstanding: 0,
+          totalOutstanding: 0
         });
       }
 
@@ -1374,7 +1249,7 @@ exports.getAgedPayables = async (req, res) => {
         amount: bill.totalAmount,
         paidAmount: bill.paidAmount || 0,
         outstanding,
-        daysPastDue: Math.max(0, daysPastDue),
+        daysPastDue: Math.max(0, daysPastDue)
       });
     }
 
@@ -1389,25 +1264,22 @@ exports.getAgedPayables = async (req, res) => {
         days31to60: acc.days31to60 + v.days31to60,
         days61to90: acc.days61to90 + v.days61to90,
         days90plus: acc.days90plus + v.days90plus,
-        totalOutstanding: acc.totalOutstanding + v.totalOutstanding,
+        totalOutstanding: acc.totalOutstanding + v.totalOutstanding
       }),
       { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0, totalOutstanding: 0 }
     );
 
     const agedData = { suppliers, summary };
 
-    await set(cacheKey, agedData, 120);
-
     res.status(200).json({
       success: true,
-      data: agedData,
-      cached: false,
+      data: agedData
     });
   } catch (error) {
     console.error('❌ [AP] Get aged payables error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1433,7 +1305,7 @@ exports.getUnpaidBills = async (req, res) => {
     if (!supplier) {
       return res.status(404).json({
         success: false,
-        message: 'Supplier not found',
+        message: 'Supplier not found'
       });
     }
 
@@ -1465,19 +1337,19 @@ exports.getUnpaidBills = async (req, res) => {
       totalAmount: bill.totalAmount,
       paidAmount: bill.paidAmount,
       outstanding: bill.totalAmount - bill.paidAmount,
-      status: bill.status,
+      status: bill.status
     }));
 
     res.status(200).json({
       success: true,
       count: unpaidBills.length,
-      data: unpaidBills,
+      data: unpaidBills
     });
   } catch (error) {
     console.error('❌ [AP] Get unpaid bills error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1506,13 +1378,13 @@ exports.markOverdueBills = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `${result.count} bills marked as overdue`,
-      count: result.count,
+      count: result.count
     });
   } catch (error) {
     console.error('❌ [AP] Mark overdue bills error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };

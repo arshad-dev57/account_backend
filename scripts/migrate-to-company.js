@@ -21,8 +21,8 @@ async function migrateToCompany() {
         subscriptionPlan: true,
         subscriptionStatus: true,
         createdAt: true,
-        updatedAt: true,
-      },
+        updatedAt: true
+      }
     });
 
     console.log(`Found ${usersWithoutCompany.length} users without a company`);
@@ -41,13 +41,13 @@ async function migrateToCompany() {
           subscriptionPlan: user.subscriptionPlan,
           subscriptionStatus: user.subscriptionStatus,
           createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-        },
+          updatedAt: user.updatedAt
+        }
       });
 
       await prisma.user.update({
         where: { id: user.id },
-        data: { companyId: company.id },
+        data: { companyId: company.id }
       });
 
       console.log(`Created company "${companyName}" for user ${user.email}`);
@@ -61,7 +61,7 @@ async function migrateToCompany() {
       try {
         const records = await prisma[modelName].findMany({
           where: { companyId: null },
-          select: { id: true, [userField]: true },
+          select: { id: true, [userField]: true }
         });
 
         // Filter records where the user field is not null
@@ -73,13 +73,13 @@ async function migrateToCompany() {
           for (const record of recordsWithUser) {
             const user = await prisma.user.findUnique({
               where: { id: record[userField] },
-              select: { companyId: true },
+              select: { companyId: true }
             });
 
             if (user && user.companyId) {
               await prisma[modelName].update({
                 where: { id: record.id },
-                data: { companyId: user.companyId },
+                data: { companyId: user.companyId }
               });
             }
           }
@@ -130,7 +130,7 @@ async function migrateToCompany() {
     // Transactions from bank_accounts
     const transactions = await prisma.transaction.findMany({
       where: { companyId: null },
-      select: { id: true, bankAccountId: true },
+      select: { id: true, bankAccountId: true }
     });
 
     const transactionsWithBank = transactions.filter(t => t.bankAccountId !== null && t.bankAccountId !== undefined);
@@ -140,12 +140,12 @@ async function migrateToCompany() {
       for (const tx of transactionsWithBank) {
         const bankAccount = await prisma.bankAccount.findUnique({
           where: { id: tx.bankAccountId },
-          select: { companyId: true },
+          select: { companyId: true }
         });
         if (bankAccount && bankAccount.companyId) {
           await prisma.transaction.update({
             where: { id: tx.id },
-            data: { companyId: bankAccount.companyId },
+            data: { companyId: bankAccount.companyId }
           });
         }
       }
@@ -154,7 +154,7 @@ async function migrateToCompany() {
     // Accounts receivable from customers
     const arRecords = await prisma.accountsReceivable.findMany({
       where: { companyId: null },
-      select: { id: true, customerId: true },
+      select: { id: true, customerId: true }
     });
 
     const arWithCustomer = arRecords.filter(ar => ar.customerId !== null && ar.customerId !== undefined);
@@ -164,12 +164,12 @@ async function migrateToCompany() {
       for (const ar of arWithCustomer) {
         const customer = await prisma.customer.findUnique({
           where: { id: ar.customerId },
-          select: { companyId: true },
+          select: { companyId: true }
         });
         if (customer && customer.companyId) {
           await prisma.accountsReceivable.update({
             where: { id: ar.id },
-            data: { companyId: customer.companyId },
+            data: { companyId: customer.companyId }
           });
         }
       }
@@ -178,7 +178,7 @@ async function migrateToCompany() {
     // Accounts payable from suppliers
     const apRecords = await prisma.accountsPayable.findMany({
       where: { companyId: null },
-      select: { id: true, supplierId: true },
+      select: { id: true, supplierId: true }
     });
 
     const apWithSupplier = apRecords.filter(ap => ap.supplierId !== null && ap.supplierId !== undefined);
@@ -188,12 +188,12 @@ async function migrateToCompany() {
       for (const ap of apWithSupplier) {
         const supplier = await prisma.supplier.findUnique({
           where: { id: ap.supplierId },
-          select: { companyId: true },
+          select: { companyId: true }
         });
         if (supplier && supplier.companyId) {
           await prisma.accountsPayable.update({
             where: { id: ap.id },
-            data: { companyId: supplier.companyId },
+            data: { companyId: supplier.companyId }
           });
         }
       }

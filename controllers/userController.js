@@ -21,13 +21,13 @@ const cleanToken = (token) => {
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '7d',
+    expiresIn: '7d'
   });
 };
 
 const generateRefreshToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
+    expiresIn: '30d'
   });
 };
 
@@ -79,7 +79,7 @@ exports.register = async (req, res) => {
       fiscalYear, taxRegistrationNumber,
       industry, businessType,
       websiteLink, contactNo,
-      fiscalYearStartDate, fiscalYearEndDate, fiscalYearName,
+      fiscalYearStartDate, fiscalYearEndDate, fiscalYearName
     } = req.body;
     
     let logo = req.body.logo || '';
@@ -145,7 +145,7 @@ exports.register = async (req, res) => {
         subscriptionPlan: 'trial',
         subscriptionStatus: 'active',
         trialStartDate: now,
-        trialEndDate: trialEnd,
+        trialEndDate: trialEnd
       }
     });
 
@@ -167,7 +167,7 @@ exports.register = async (req, res) => {
           taxRegistrationNumber: taxRegistrationNumber || '',
           signature: signature || '',
           industry: industry || '',
-          businessType: businessType || '',
+          businessType: businessType || ''
         },
         role: userRole,
         companyId: company.id,
@@ -175,7 +175,7 @@ exports.register = async (req, res) => {
         subscriptionStatus: 'active',
         subscriptionStartDate: now,
         trialStartDate: now,
-        trialEndDate: trialEnd,
+        trialEndDate: trialEnd
       }
     });
 
@@ -188,7 +188,7 @@ exports.register = async (req, res) => {
         startDate: now,
         endDate: trialEnd,
         amount: 0,
-        paymentMethod: 'free_trial',
+        paymentMethod: 'free_trial'
       }
     });
 
@@ -242,7 +242,7 @@ exports.register = async (req, res) => {
         return {
           start,
           end,
-          name: startYear === endYear ? `FY ${startYear}` : `FY ${startYear}-${endYear}`,
+          name: startYear === endYear ? `FY ${startYear}` : `FY ${startYear}-${endYear}`
         };
       };
 
@@ -270,8 +270,8 @@ exports.register = async (req, res) => {
           startDate: fyStartDate,
           endDate:   fyEndDate,
           status:    'Open',
-          periodType: fiscalYear || 'Custom',
-        },
+          periodType: fiscalYear || 'Custom'
+        }
       });
 
       console.log('✅ [register] FiscalYear created for user:', user._id, fyName, fyStartDate, fyEndDate);
@@ -321,9 +321,9 @@ exports.register = async (req, res) => {
           plan: user.subscription.plan,
           status: user.subscription.status,
           trialDaysRemaining: user.getTrialDaysRemaining(),
-          trialEndDate: user.subscription.trialEndDate,
-        },
-      },
+          trialEndDate: user.subscription.trialEndDate
+        }
+      }
     });
   } catch (error) {
     console.error('❌ [register] Error:', error);
@@ -387,7 +387,7 @@ exports.login = async (req, res) => {
       console.log('❌ [login] Account locked:', remainingMinutes, 'minutes remaining');
       return res.status(403).json({
         success: false,
-        message: `Account temporarily locked. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`,
+        message: `Account temporarily locked. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`
       });
     }
 
@@ -404,7 +404,7 @@ exports.login = async (req, res) => {
         console.log('❌ [login] Account locked due to too many attempts');
         return res.status(403).json({
           success: false,
-          message: 'Too many failed attempts. Account locked for 10 minutes.',
+          message: 'Too many failed attempts. Account locked for 10 minutes.'
         });
       }
 
@@ -413,7 +413,7 @@ exports.login = async (req, res) => {
       console.log('❌ [login] Invalid password, attempts left:', attemptsLeft);
       return res.status(401).json({
         success: false,
-        message: `Invalid credentials. ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining before lockout.`,
+        message: `Invalid credentials. ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining before lockout.`
       });
     }
 
@@ -440,7 +440,7 @@ exports.login = async (req, res) => {
       console.error('❌ [login] Failed to send OTP email:', emailError.message);
       return res.status(500).json({
         success: false,
-        message: 'Failed to send OTP. Please try again.',
+        message: 'Failed to send OTP. Please try again.'
       });
     }
 
@@ -452,7 +452,7 @@ exports.login = async (req, res) => {
       success: true,
       requiresOtp: true,
       email: email,
-      message: 'OTP sent to your email for verification.',
+      message: 'OTP sent to your email for verification.'
     });
 
   } catch (error) {
@@ -551,8 +551,8 @@ exports.verifyLoginOTP = async (req, res) => {
             canView: true,
             canCreate: true,
             canEdit: true,
-            canDelete: true,
-          },
+            canDelete: true
+          }
         });
       } else {
         console.error(
@@ -618,8 +618,8 @@ exports.verifyLoginOTP = async (req, res) => {
         trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
         subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
         endDate: updatedUser.subscription.endDate,
-        trialEndDate: updatedUser.subscription.trialEndDate,
-      },
+        trialEndDate: updatedUser.subscription.trialEndDate
+      }
     };
 
     console.log('📤 [verifyLoginOTP] Response User Object:');
@@ -653,7 +653,7 @@ exports.verifyLoginOTP = async (req, res) => {
       token,
       refreshToken,
       user: responseUser,
-      pdfReportSettings,
+      pdfReportSettings
     });
   } catch (error) {
     console.error('❌ [verifyLoginOTP] Error:', error);
@@ -680,7 +680,7 @@ exports.updateBusinessDetails = async (req, res) => {
       contactNo,
       address,
       phone,
-      country,
+      country
     } = req.body;
 
     console.log('🔄 [updateBusinessDetails] Called for user:', userId);
@@ -711,7 +711,7 @@ exports.updateBusinessDetails = async (req, res) => {
           taxRegistrationNumber: taxRegistrationNumber || userData.businessDetails?.taxRegistrationNumber || '',
           signature: signature || userData.businessDetails?.signature || '',
           industry: industry || userData.businessDetails?.industry || '',
-          businessType: businessType || userData.businessDetails?.businessType || '',
+          businessType: businessType || userData.businessDetails?.businessType || ''
         }
       }
     });
@@ -730,7 +730,7 @@ exports.updateBusinessDetails = async (req, res) => {
         address: user.address,
         phone: user.phone,
         country: user.country,
-        businessDetails: user.businessDetails || {},
+        businessDetails: user.businessDetails || {}
       }
     });
   } catch (error) {
@@ -759,7 +759,7 @@ exports.getBusinessDetails = async (req, res) => {
         address: true,
         phone: true,
         country: true,
-        businessDetails: true,
+        businessDetails: true
       }
     });
 
@@ -781,7 +781,7 @@ exports.getBusinessDetails = async (req, res) => {
         address: userData.address || '',
         phone: userData.phone || '',
         country: userData.country || '',
-        businessDetails: userData.businessDetails || {},
+        businessDetails: userData.businessDetails || {}
       }
     });
   } catch (error) {
@@ -902,9 +902,9 @@ exports.getMe = async (req, res) => {
           startDate: updatedUser.subscription.startDate,
           endDate: updatedUser.subscription.endDate,
           trialStartDate: updatedUser.subscription.trialStartDate,
-          trialEndDate: updatedUser.subscription.trialEndDate,
-        },
-      },
+          trialEndDate: updatedUser.subscription.trialEndDate
+        }
+      }
     });
   } catch (error) {
     console.error('❌ [getMe] Error:', error);
@@ -1023,7 +1023,7 @@ exports.forgotPassword = async (req, res) => {
       console.error('❌ [forgotPassword] Failed to send OTP email:', emailError.message);
       return res.status(500).json({
         success: false,
-        message: 'Failed to send OTP. Please try again.',
+        message: 'Failed to send OTP. Please try again.'
       });
     }
 
@@ -1189,7 +1189,7 @@ exports.updateCurrency = async (req, res) => {
     if (!currencyCode || !currencySymbol) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide currencyCode and currencySymbol',
+        message: 'Please provide currencyCode and currencySymbol'
       });
     }
 
@@ -1200,7 +1200,7 @@ exports.updateCurrency = async (req, res) => {
     if (!userData) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: 'User not found'
       });
     }
 
@@ -1209,7 +1209,7 @@ exports.updateCurrency = async (req, res) => {
     const updatedBusinessDetails = {
       ...existingBusinessDetails,
       currencyCode: currencyCode,
-      currencySymbol: currencySymbol,
+      currencySymbol: currencySymbol
     };
 
     const updatedUser = await prisma.user.update({
@@ -1227,7 +1227,7 @@ exports.updateCurrency = async (req, res) => {
       message: 'Currency updated successfully',
       data: {
         currencyCode: updatedUser.businessDetails?.currencyCode || 'USD',
-        currencySymbol: updatedUser.businessDetails?.currencySymbol || '$',
+        currencySymbol: updatedUser.businessDetails?.currencySymbol || '$'
       }
     });
   } catch (error) {
@@ -1235,7 +1235,7 @@ exports.updateCurrency = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: error.message
     });
   }
 };

@@ -28,7 +28,7 @@ function getEmailFrom() {
     name,
     replyTo,
     /** Nodemailer `from` value: "BisonsTechs <noreply@…>" */
-    fromHeader: address ? `"${name}" <${address}>` : undefined,
+    fromHeader: address ? `"${name}" <${address}>` : undefined
   };
 }
 
@@ -38,7 +38,7 @@ function getSmtpAuth() {
     pass: process.env.EMAIL_PASS || '',
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.EMAIL_PORT || '587', 10),
-    secure: process.env.EMAIL_SECURE === 'true',
+    secure: process.env.EMAIL_SECURE === 'true'
   };
 }
 

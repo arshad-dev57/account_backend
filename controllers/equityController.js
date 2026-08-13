@@ -1,19 +1,4 @@
 const prisma = require('../prisma/client');
-const { get, set, del, delPattern } = require('../utils/redisClient');
-
-// ── HELPER: invalidate equity cache ──────────────────────────
-async function invalidateEquityCache(userId) {
-  try {
-    await delPattern(`equity:accounts:${userId}:*`);
-    await delPattern(`equity:summary:${userId}:*`);
-    await delPattern(`equity:transactions:${userId}:*`);
-    await delPattern(`equity:account:${userId}:*`);
-    console.log('🗑️ [Equity] Cache invalidated');
-  } catch (e) {
-    console.log('⚠️ [Equity] Cache error:', e.message);
-  }
-}
-
 // ── HELPER: get or create cash account ───────────────────────
 async function getCashAccount(userId, companyId) {
   let cash = await prisma.chartOfAccount.findFirst({
@@ -33,7 +18,7 @@ async function getCashAccount(userId, companyId) {
         balanceType: 'Debit',
         isActive: true,
         createdBy: userId,
-        companyId,
+        companyId
       }
     });
   }
@@ -72,7 +57,7 @@ async function createEquityTransaction(accountId, type, amount, description, ref
         withdrawals: 0,
         notes: '',
         createdBy: userId,
-        companyId,
+        companyId
       }
     });
   }
@@ -86,7 +71,7 @@ async function createEquityTransaction(accountId, type, amount, description, ref
       reference: reference || '',
       status: 'Posted',
       createdBy: userId,
-      companyId,
+      companyId
     }
   });
 
@@ -100,7 +85,7 @@ async function createEquityTransaction(accountId, type, amount, description, ref
         : { increment: amount },
       additions: isWithdrawal ? undefined : { increment: amount },
       withdrawals: isWithdrawal ? { increment: amount } : undefined,
-      lastUpdated: new Date(),
+      lastUpdated: new Date()
     }
   });
 }
@@ -112,9 +97,6 @@ exports.getEquityAccounts = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    const cacheKey = `equity:accounts:${userId}:${accountType || 'All'}:${search || ''}`;
-    const cached = await get(cacheKey);
-    if (cached) return res.status(200).json({ success: true, ...cached, cached: true });
 
     let where = { companyId };
     if (accountType && accountType !== 'All') where.accountType = accountType;
@@ -132,9 +114,7 @@ exports.getEquityAccounts = async (req, res) => {
     });
 
     const responseData = { count: accounts.length, data: accounts };
-    await set(cacheKey, responseData, 300);
-
-    res.status(200).json({ success: true, ...responseData, cached: false });
+    res.status(200).json({ success: true, ...responseData });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -153,7 +133,7 @@ exports.createEquityAccount = async (req, res) => {
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: 'Equity account with this code already exists',
+        message: 'Equity account with this code already exists'
       });
     }
 
@@ -168,7 +148,7 @@ exports.createEquityAccount = async (req, res) => {
         withdrawals: 0,
         notes: notes || '',
         createdBy: userId,
-        companyId,
+        companyId
       }
     });
 
@@ -191,7 +171,7 @@ exports.createEquityAccount = async (req, res) => {
           balanceType: 'Credit',
           isActive: true,
           createdBy: userId,
-          companyId,
+          companyId
         }
       });
     }
@@ -221,14 +201,14 @@ exports.createEquityAccount = async (req, res) => {
                 accountName: cashAccount.name,
                 accountCode: cashAccount.code,
                 debit: openingBalance,
-                credit: 0,
+                credit: 0
               },
               {
                 accountId: chartAccount.id,
                 accountName: chartAccount.name,
                 accountCode: chartAccount.code,
                 debit: 0,
-                credit: openingBalance,
+                credit: openingBalance
               },
             ]
           }
@@ -239,10 +219,9 @@ exports.createEquityAccount = async (req, res) => {
     res.status(201).json({
       success: true,
       data: equityAccount,
-      message: 'Equity account created successfully',
+      message: 'Equity account created successfully'
     });
 
-    await invalidateEquityCache(userId);
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -256,9 +235,6 @@ exports.getEquityAccount = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    const cacheKey = `equity:account:${userId}:${id}`;
-    const cached = await get(cacheKey);
-    if (cached) return res.status(200).json({ success: true, data: cached, cached: true });
 
     const account = await prisma.equityAccount.findFirst({
       where: { id, companyId },
@@ -269,8 +245,7 @@ exports.getEquityAccount = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Equity account not found' });
     }
 
-    await set(cacheKey, account, 600);
-    res.status(200).json({ success: true, data: account, cached: false });
+    res.status(200).json({ success: true, data: account });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -302,7 +277,6 @@ exports.updateEquityAccount = async (req, res) => {
     });
 
     res.status(200).json({ success: true, data: updated, message: 'Updated successfully' });
-    await invalidateEquityCache(userId);
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -326,14 +300,13 @@ exports.deleteEquityAccount = async (req, res) => {
     if (account.transactions.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete account with transactions',
+        message: 'Cannot delete account with transactions'
       });
     }
 
     await prisma.equityAccount.delete({ where: { id: req.params.id } });
 
     res.status(200).json({ success: true, message: 'Equity account deleted successfully' });
-    await invalidateEquityCache(userId);
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -375,14 +348,14 @@ exports.addCapital = async (req, res) => {
               accountName: cashAccount.name,
               accountCode: cashAccount.code,
               debit: amount,
-              credit: 0,
+              credit: 0
             },
             {
               accountId: account.id,
               accountName: account.name,
               accountCode: account.code,
               debit: 0,
-              credit: amount,
+              credit: amount
             },
           ]
         }
@@ -405,10 +378,9 @@ exports.addCapital = async (req, res) => {
     res.status(200).json({
       success: true,
       data: { account, amount },
-      message: 'Capital added successfully',
+      message: 'Capital added successfully'
     });
 
-    await invalidateEquityCache(userId);
   } catch (error) {
     console.error('addCapital error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -452,14 +424,14 @@ exports.recordDrawings = async (req, res) => {
               accountName: account.name,
               accountCode: account.code,
               debit: amount,
-              credit: 0,
+              credit: 0
             },
             {
               accountId: cashAccount.id,
               accountName: cashAccount.name,
               accountCode: cashAccount.code,
               debit: 0,
-              credit: amount,
+              credit: amount
             },
           ]
         }
@@ -482,10 +454,9 @@ exports.recordDrawings = async (req, res) => {
     res.status(200).json({
       success: true,
       data: { account, amount },
-      message: `Drawings of ${amount} recorded successfully`,
+      message: `Drawings of ${amount} recorded successfully`
     });
 
-    await invalidateEquityCache(userId);
   } catch (error) {
     console.error('recordDrawings error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -524,7 +495,7 @@ exports.transferToRetainedEarnings = async (req, res) => {
           balanceType: 'Credit',
           isActive: true,
           createdBy: userId,
-          companyId,
+          companyId
         }
       });
     }
@@ -548,7 +519,7 @@ exports.transferToRetainedEarnings = async (req, res) => {
           balanceType: 'Credit',
           isActive: true,
           createdBy: userId,
-          companyId,
+          companyId
         }
       });
     }
@@ -572,14 +543,14 @@ exports.transferToRetainedEarnings = async (req, res) => {
               accountName: pnlAccount.name,
               accountCode: pnlAccount.code,
               debit: amount,
-              credit: 0,
+              credit: 0
             },
             {
               accountId: retainedChartAccount.id,
               accountName: retainedChartAccount.name,
               accountCode: retainedChartAccount.code,
               debit: 0,
-              credit: amount,
+              credit: amount
             },
           ]
         }
@@ -602,10 +573,9 @@ exports.transferToRetainedEarnings = async (req, res) => {
     res.status(200).json({
       success: true,
       data: { retainedChartAccount, amount },
-      message: `${amount} transferred to retained earnings successfully`,
+      message: `${amount} transferred to retained earnings successfully`
     });
 
-    await invalidateEquityCache(userId);
   } catch (error) {
     console.error('transferToRetainedEarnings error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -618,9 +588,6 @@ exports.getSummary = async (req, res) => {
     const companyId = req.user.companyId;
     const userId = req.user.id;
 
-    const cacheKey = `equity:summary:${userId}:`;
-    const cached = await get(cacheKey);
-    if (cached) return res.status(200).json({ success: true, data: cached, cached: true });
 
     const accounts = await prisma.chartOfAccount.findMany({
       where: { type: 'Equity', companyId }
@@ -647,11 +614,10 @@ exports.getSummary = async (req, res) => {
       totalRetainedEarnings,
       totalReserves,
       totalDrawings,
-      totalEquity,
+      totalEquity
     };
 
-    await set(cacheKey, summaryData, 120);
-    res.status(200).json({ success: true, data: summaryData, cached: false });
+    res.status(200).json({ success: true, data: summaryData });
   } catch (error) {
     console.error('getSummary error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -664,15 +630,12 @@ exports.getAllTransactions = async (req, res) => {
     const companyId = req.user.companyId;
     const userId = req.user.id;
 
-    const cacheKey = `equity:transactions:${userId}:`;
-    const cached = await get(cacheKey);
-    if (cached) return res.status(200).json({ success: true, ...cached, cached: true });
 
     const transactions = await prisma.equityTransaction.findMany({
       where: { companyId },
       include: { account: true },
       orderBy: { date: 'desc' },
-      take: 100,
+      take: 100
     });
 
     const data = transactions.map(txn => ({
@@ -682,18 +645,14 @@ exports.getAllTransactions = async (req, res) => {
       date: txn.date,
       amount: txn.amount,
       description: txn.description,
-      reference: txn.reference,
+      reference: txn.reference
     }));
 
     const responseData = { count: data.length, data };
-    await set(cacheKey, responseData, 300);
-
-    res.status(200).json({ success: true, ...responseData, cached: false });
+    res.status(200).json({ success: true, ...responseData });
   } catch (error) {
     console.error('getAllTransactions error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-
 

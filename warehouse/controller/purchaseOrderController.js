@@ -83,7 +83,7 @@ const createPurchaseOrder = async (req, res) => {
         unitPrice: item.unitPrice || product.costPrice || 0,
         discount: item.discount || 0,
         taxRate: item.taxRate || product.taxRate || 0,
-        notes: item.notes || '',
+        notes: item.notes || ''
       });
     }
 
@@ -383,7 +383,7 @@ const updatePurchaseOrder = async (req, res) => {
           unitPrice: item.unitPrice || product.costPrice || 0,
           discount: item.discount || 0,
           taxRate: item.taxRate || product.taxRate || 0,
-          notes: item.notes || '',
+          notes: item.notes || ''
         });
       }
       updateData.items = processedItems;

@@ -2,8 +2,6 @@ const prisma = require('../prisma/client');
 const FixedAssetModel = require('../models/FixedAsset');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
-const { get, set, del, delPattern } = require('../utils/redisClient');
-
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
@@ -123,8 +121,8 @@ async function getOrCreateDepreciationExpenseAccount(userId, companyId) {
       OR: [
         { code: '6700' },
         { name: { equals: 'Depreciation Expense', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 
   if (!depExpAccount) {
@@ -160,9 +158,9 @@ async function getOrCreateCashAccount(userId, companyId) {
         { code: '1001' },
         { code: '1010' },
         { name: { contains: 'Cash', mode: 'insensitive' } },
-      ],
+      ]
     },
-    orderBy: { code: 'asc' },
+    orderBy: { code: 'asc' }
   });
 
   if (!cashAccount) {
@@ -197,8 +195,8 @@ async function getOrCreatePayableAccount(userId, companyId) {
         { code: '2010' },
         { code: '2001' },
         { name: { equals: 'Accounts Payable', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 
   if (!apAccount) {
@@ -215,8 +213,8 @@ async function getOrCreatePayableAccount(userId, companyId) {
         balanceType: 'Credit',
         isActive: true,
         createdBy: userId,
-        companyId: companyId,
-      },
+        companyId: companyId
+      }
     });
   }
   return apAccount;
@@ -230,8 +228,8 @@ async function getOrCreateOpeningBalanceEquity(userId, companyId) {
       OR: [
         { code: '3000' },
         { name: { contains: 'Opening Balance Equity', mode: 'insensitive' } },
-      ],
-    },
+      ]
+    }
   });
 
   if (!equityAccount) {
@@ -248,8 +246,8 @@ async function getOrCreateOpeningBalanceEquity(userId, companyId) {
         balanceType: 'Credit',
         isActive: true,
         createdBy: userId,
-        companyId: companyId,
-      },
+        companyId: companyId
+      }
     });
   }
   return equityAccount;
@@ -262,7 +260,7 @@ function journalLine(account, debit, credit) {
     accountCode: account.code,
     debit,
     credit,
-    isReconciled: false,
+    isReconciled: false
   };
 }
 
@@ -367,7 +365,7 @@ exports.createFixedAsset = async (req, res) => {
       acquisitionType: rawAcquisitionType,
       paymentMethod: rawPaymentMethod,
       bankAccountId,
-      openingAccumulatedDepreciation,
+      openingAccumulatedDepreciation
     } = req.body;
 
     const userId = req.user.id;
@@ -400,14 +398,14 @@ exports.createFixedAsset = async (req, res) => {
     if (!name || !category || !purchaseDate || !cost || cost <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'Name, category, purchase date and a valid purchase cost are required',
+        message: 'Name, category, purchase date and a valid purchase cost are required'
       });
     }
 
     if (openingAccDep > cost) {
       return res.status(400).json({
         success: false,
-        message: 'Opening accumulated depreciation cannot exceed purchase cost',
+        message: 'Opening accumulated depreciation cannot exceed purchase cost'
       });
     }
 
@@ -438,7 +436,7 @@ exports.createFixedAsset = async (req, res) => {
     if (paymentMethod === 'Credit' && !finalSupplierId) {
       return res.status(400).json({
         success: false,
-        message: 'Supplier is required for credit purchases',
+        message: 'Supplier is required for credit purchases'
       });
     }
 
@@ -454,17 +452,17 @@ exports.createFixedAsset = async (req, res) => {
       if (!rawBankId || rawBankId === 'null') {
         return res.status(400).json({
           success: false,
-          message: 'Bank account is required when payment method is Bank',
+          message: 'Bank account is required when payment method is Bank'
         });
       }
       bankAccountData = await prisma.bankAccount.findFirst({
         where: { id: rawBankId, companyId },
-        include: { chartOfAccount: true },
+        include: { chartOfAccount: true }
       });
       if (!bankAccountData || !bankAccountData.chartOfAccount) {
         return res.status(404).json({
           success: false,
-          message: 'Selected bank account not found',
+          message: 'Selected bank account not found'
         });
       }
       finalBankAccountId = bankAccountData.id;
@@ -490,7 +488,7 @@ exports.createFixedAsset = async (req, res) => {
       notes: notes || '',
       createdBy: userId,
       companyId,
-      fiscalYearId,
+      fiscalYearId
     });
 
     console.log(`✅ [FA] Fixed asset created: ${fixedAsset.assetCode}`);
@@ -516,17 +514,17 @@ exports.createFixedAsset = async (req, res) => {
 
       await prisma.chartOfAccount.update({
         where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } },
+        data: { currentBalance: { increment: cost } }
       });
       if (openingAccDep > 0) {
         await prisma.chartOfAccount.update({
           where: { id: accDepAccount.id },
-          data: { currentBalance: { increment: openingAccDep } },
+          data: { currentBalance: { increment: openingAccDep } }
         });
       }
       await prisma.chartOfAccount.update({
         where: { id: equityAccount.id },
-        data: { currentBalance: { increment: netBook } },
+        data: { currentBalance: { increment: netBook } }
       });
     } else if (paymentMethod === 'Bank' && bankAccountData) {
       creditAccount = bankAccountData.chartOfAccount;
@@ -536,15 +534,15 @@ exports.createFixedAsset = async (req, res) => {
 
       await prisma.bankAccount.update({
         where: { id: finalBankAccountId },
-        data: { currentBalance: { decrement: cost } },
+        data: { currentBalance: { decrement: cost } }
       });
       await prisma.chartOfAccount.update({
         where: { id: creditAccount.id },
-        data: { currentBalance: { decrement: cost } },
+        data: { currentBalance: { decrement: cost } }
       });
       await prisma.chartOfAccount.update({
         where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } },
+        data: { currentBalance: { increment: cost } }
       });
     } else if (paymentMethod === 'Credit') {
       creditAccount = await getOrCreatePayableAccount(userId, companyId);
@@ -554,11 +552,11 @@ exports.createFixedAsset = async (req, res) => {
 
       await prisma.chartOfAccount.update({
         where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } },
+        data: { currentBalance: { increment: cost } }
       });
       await prisma.chartOfAccount.update({
         where: { id: creditAccount.id },
-        data: { currentBalance: { increment: cost } },
+        data: { currentBalance: { increment: cost } }
       });
     } else {
       // Cash purchase
@@ -569,18 +567,18 @@ exports.createFixedAsset = async (req, res) => {
 
       await prisma.chartOfAccount.update({
         where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } },
+        data: { currentBalance: { increment: cost } }
       });
       await prisma.chartOfAccount.update({
         where: { id: creditAccount.id },
-        data: { currentBalance: { decrement: cost } },
+        data: { currentBalance: { decrement: cost } }
       });
     }
 
     console.log('📝 [FA] Creating journal entry...', {
       acquisitionType,
       paymentMethod,
-      credit: creditAccount?.name,
+      credit: creditAccount?.name
     });
 
     await prisma.journalEntry.create({
@@ -595,29 +593,22 @@ exports.createFixedAsset = async (req, res) => {
         postedAt: new Date(),
         fiscalYearId,
         companyId,
-        lines: { create: lines },
-      },
+        lines: { create: lines }
+      }
     });
 
     console.log('✅ [FA] Journal entry created');
 
-    try {
-      await delPattern(`fixedasset:list:${userId}:*`);
-      await delPattern(`fixedasset:summary:${userId}`);
-    } catch (cacheError) {
-      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(201).json({
+res.status(201).json({
       success: true,
       data: fixedAsset,
-      message: 'Fixed asset created successfully',
+      message: 'Fixed asset created successfully'
     });
   } catch (error) {
     console.error('❌ [FA] Create fixed asset error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -636,19 +627,6 @@ exports.getFixedAssets = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     console.log('👤 [FA] User ID:', userId);
-
-    // Build cache key with parameters
-    const cacheKey = `fixedasset:list:${userId}:${category || 'All'}:${status || 'All'}:${search || ''}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        ...cached,
-        cached: true,
-      });
-    }
 
     const filter = { companyId: companyId };
 
@@ -674,22 +652,18 @@ exports.getFixedAssets = async (req, res) => {
 
     const responseData = {
       count: assets.length,
-      data: assets,
+      data: assets
     };
-
-    // Cache the result (5 minutes TTL)
-    await set(cacheKey, responseData, 300);
 
     res.status(200).json({
       success: true,
-      ...responseData,
-      cached: false,
+      ...responseData
     });
   } catch (error) {
     console.error('❌ [FA] Get fixed assets error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -708,19 +682,6 @@ exports.getFixedAsset = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     
-    // Build cache key
-    const cacheKey = `fixedasset:detail:${userId}:${id}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const asset = await prisma.fixedAsset.findFirst({
       where: {
         id,
@@ -751,25 +712,21 @@ exports.getFixedAsset = async (req, res) => {
       console.log('❌ [FA] Fixed asset not found:', id);
       return res.status(404).json({
         success: false,
-        message: 'Fixed asset not found',
+        message: 'Fixed asset not found'
       });
     }
 
     console.log(`✅ [FA] Fixed asset found: ${asset.assetCode}`);
 
-    // Cache the result (10 minutes TTL)
-    await set(cacheKey, asset, 600);
-
     res.status(200).json({
       success: true,
-      data: asset,
-      cached: false,
+      data: asset
     });
   } catch (error) {
     console.error('❌ [FA] Get fixed asset error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -797,7 +754,7 @@ exports.updateFixedAsset = async (req, res) => {
       location,
       supplierId,
       warrantyExpiry,
-      notes,
+      notes
     } = req.body;
 
     // ─── Check if asset exists ──────────────────────────────
@@ -812,7 +769,7 @@ exports.updateFixedAsset = async (req, res) => {
       console.log('❌ [FA] Fixed asset not found:', id);
       return res.status(404).json({
         success: false,
-        message: 'Fixed asset not found',
+        message: 'Fixed asset not found'
       });
     }
 
@@ -859,26 +816,16 @@ exports.updateFixedAsset = async (req, res) => {
 
     console.log(`✅ [FA] Fixed asset updated: ${updatedAsset.assetCode}`);
 
-    // Invalidate cache after successful fixed asset update
-    try {
-      await delPattern(`fixedasset:list:${userId}:*`);
-      await delPattern(`fixedasset:detail:${userId}:${id}`);
-      await delPattern(`fixedasset:summary:${userId}`);
-      console.log('🗑️ [FixedAsset] Cache invalidated after fixed asset update');
-    } catch (cacheError) {
-      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
       data: updatedAsset,
-      message: 'Fixed asset updated successfully',
+      message: 'Fixed asset updated successfully'
     });
   } catch (error) {
     console.error('❌ [FA] Update fixed asset error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -910,21 +857,21 @@ exports.runDepreciation = async (req, res) => {
       console.log('❌ [FA] Fixed asset not found:', assetId);
       return res.status(404).json({
         success: false,
-        message: 'Fixed asset not found',
+        message: 'Fixed asset not found'
       });
     }
 
     if (asset.status === 'Disposed') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot depreciate a disposed asset',
+        message: 'Cannot depreciate a disposed asset'
       });
     }
 
     if (asset.status === 'Fully Depreciated') {
       return res.status(400).json({
         success: false,
-        message: 'Asset is already fully depreciated',
+        message: 'Asset is already fully depreciated'
       });
     }
 
@@ -971,17 +918,7 @@ exports.runDepreciation = async (req, res) => {
 
     console.log(`✅ [FA] Depreciation recorded: ${result.amount}`);
 
-    // Invalidate cache after successful depreciation
-    try {
-      await delPattern(`fixedasset:list:${userId}:*`);
-      await delPattern(`fixedasset:detail:${userId}:${assetId}`);
-      await delPattern(`fixedasset:summary:${userId}`);
-      console.log('🗑️ [FixedAsset] Cache invalidated after depreciation');
-    } catch (cacheError) {
-      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
       data: {
         asset: {
@@ -991,16 +928,16 @@ exports.runDepreciation = async (req, res) => {
           depreciationAmount: result.amount,
           accumulatedDepreciation: result.accumulatedDepreciation,
           netBookValue: result.netBookValue,
-          status: result.status,
-        },
+          status: result.status
+        }
       },
-      message: `Depreciation of ${result.amount} recorded successfully`,
+      message: `Depreciation of ${result.amount} recorded successfully`
     });
   } catch (error) {
     console.error('❌ [FA] Run depreciation error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1042,35 +979,26 @@ exports.runMonthlyDepreciation = async (req, res) => {
           depreciationAmount: result.amount,
           accumulatedDepreciation: result.accumulatedDepreciation,
           netBookValue: result.netBookValue,
-          status: result.status,
+          status: result.status
         });
       }
     }
 
     console.log(`✅ [FA] Depreciation processed for ${results.length} assets`);
 
-    // Invalidate cache after successful monthly depreciation
-    try {
-      await delPattern(`fixedasset:list:${userId}:*`);
-      await delPattern(`fixedasset:summary:${userId}`);
-      console.log('🗑️ [FixedAsset] Cache invalidated after monthly depreciation');
-    } catch (cacheError) {
-      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
       data: {
         processed: results.length,
-        details: results,
+        details: results
       },
-      message: `Depreciation processed for ${results.length} assets`,
+      message: `Depreciation processed for ${results.length} assets`
     });
   } catch (error) {
     console.error('❌ [FA] Run monthly depreciation error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1101,14 +1029,14 @@ exports.disposeFixedAsset = async (req, res) => {
       console.log('❌ [FA] Fixed asset not found:', assetId);
       return res.status(404).json({
         success: false,
-        message: 'Fixed asset not found',
+        message: 'Fixed asset not found'
       });
     }
 
     if (asset.status === 'Disposed') {
       return res.status(400).json({
         success: false,
-        message: 'Asset already disposed',
+        message: 'Asset already disposed'
       });
     }
 
@@ -1201,17 +1129,7 @@ exports.disposeFixedAsset = async (req, res) => {
 
     console.log(`✅ [FA] Asset disposed: ${asset.assetCode}`);
 
-    // Invalidate cache after successful asset disposal
-    try {
-      await delPattern(`fixedasset:list:${userId}:*`);
-      await delPattern(`fixedasset:detail:${userId}:${assetId}`);
-      await delPattern(`fixedasset:summary:${userId}`);
-      console.log('🗑️ [FixedAsset] Cache invalidated after asset disposal');
-    } catch (cacheError) {
-      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
       data: {
         asset: {
@@ -1221,16 +1139,16 @@ exports.disposeFixedAsset = async (req, res) => {
           netBookValue: asset.netBookValue,
           disposalAmount: disposalAmt,
           gainLoss: gainLoss,
-          status: result.asset.status,
-        },
+          status: result.asset.status
+        }
       },
-      message: `Asset disposed successfully. ${gainLoss >= 0 ? 'Gain' : 'Loss'} of ${Math.abs(gainLoss)} recorded`,
+      message: `Asset disposed successfully. ${gainLoss >= 0 ? 'Gain' : 'Loss'} of ${Math.abs(gainLoss)} recorded`
     });
   } catch (error) {
     console.error('❌ [FA] Dispose fixed asset error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1247,36 +1165,19 @@ exports.getSummary = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     
-    // Build cache key
-    const cacheKey = `fixedasset:summary:${userId}`;
-    
-    // Try to get from cache
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const stats = await FixedAssetModel.getStats(companyId);
 
     console.log('✅ [FA] Summary generated');
 
-    // Cache the result (2 minutes TTL - summary changes frequently with depreciation)
-    await set(cacheKey, stats, 120);
-
     res.status(200).json({
       success: true,
-      data: stats,
-      cached: false,
+      data: stats
     });
   } catch (error) {
     console.error('❌ [FA] Get summary error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };
@@ -1307,7 +1208,7 @@ exports.deleteFixedAsset = async (req, res) => {
       console.log('❌ [FA] Fixed asset not found:', id);
       return res.status(404).json({
         success: false,
-        message: 'Fixed asset not found',
+        message: 'Fixed asset not found'
       });
     }
 
@@ -1325,7 +1226,7 @@ exports.deleteFixedAsset = async (req, res) => {
     if (asset.status === 'Active' && asset.accumulatedDepreciation > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete asset with accumulated depreciation',
+        message: 'Cannot delete asset with accumulated depreciation'
       });
     }
 
@@ -1334,25 +1235,15 @@ exports.deleteFixedAsset = async (req, res) => {
 
     console.log(`✅ [FA] Fixed asset deleted: ${asset.assetCode}`);
 
-    // Invalidate cache after successful fixed asset deletion
-    try {
-      await delPattern(`fixedasset:list:${userId}:*`);
-      await delPattern(`fixedasset:detail:${userId}:${id}`);
-      await delPattern(`fixedasset:summary:${userId}`);
-      console.log('🗑️ [FixedAsset] Cache invalidated after fixed asset deletion');
-    } catch (cacheError) {
-      console.log('⚠️ [FixedAsset] Cache invalidation error:', cacheError.message);
-    }
-
-    res.status(200).json({
+res.status(200).json({
       success: true,
-      message: 'Fixed asset deleted successfully',
+      message: 'Fixed asset deleted successfully'
     });
   } catch (error) {
     console.error('❌ [FA] Delete fixed asset error:', error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 };

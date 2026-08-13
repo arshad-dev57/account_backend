@@ -52,7 +52,7 @@ class User {
         trialStartDate: true,
         trialEndDate: true,
         createdAt: true,
-        updatedAt: true,
+        updatedAt: true
       }
     });
 
@@ -113,7 +113,7 @@ class User {
       organizationName: data.organizationName || '',
       businessDetails: data.businessDetails || {}, // ✅ ADDED
       subscriptionPlan: 'none',
-      subscriptionStatus: 'active',
+      subscriptionStatus: 'active'
     };
 
     return await prisma.user.create({
@@ -208,7 +208,7 @@ class User {
       startDate: userData.subscriptionStartDate || null,
       endDate: userData.subscriptionEndDate || null,
       trialStartDate: userData.trialStartDate || null,
-      trialEndDate: userData.trialEndDate || null,
+      trialEndDate: userData.trialEndDate || null
     };
     this.createdAt = userData.createdAt;
     this.updatedAt = userData.updatedAt;
@@ -283,7 +283,7 @@ class User {
         subscriptionStartDate: now,
         subscriptionEndDate: null,
         trialStartDate: now,
-        trialEndDate: trialEnd,
+        trialEndDate: trialEnd
       }
     });
 
@@ -293,7 +293,7 @@ class User {
       startDate: updated.subscriptionStartDate,
       endDate: updated.subscriptionEndDate,
       trialStartDate: updated.trialStartDate,
-      trialEndDate: updated.trialEndDate,
+      trialEndDate: updated.trialEndDate
     };
 
     console.log('Trial started for user:', this._id);
@@ -321,7 +321,7 @@ class User {
         subscriptionStartDate: now,
         subscriptionEndDate: endDate,
         trialStartDate: null,
-        trialEndDate: null,
+        trialEndDate: null
       }
     });
 
@@ -331,7 +331,7 @@ class User {
       startDate: updated.subscriptionStartDate,
       endDate: updated.subscriptionEndDate,
       trialStartDate: updated.trialStartDate,
-      trialEndDate: updated.trialEndDate,
+      trialEndDate: updated.trialEndDate
     };
 
     console.log('Subscription activated for user:', this._id);

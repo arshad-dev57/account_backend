@@ -24,7 +24,7 @@ const getCategories = async (req, res) => {
     const { tree = 'false', includeInactive = 'false', parentId } = req.query;
 
     const filter = {
-      companyId: companyId,
+      companyId: companyId
     };
     
     if (includeInactive !== 'true') {

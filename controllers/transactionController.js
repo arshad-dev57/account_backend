@@ -102,7 +102,7 @@ const createTransaction = async (req, res) => {
       bankAccountId,
       userId,
       createdBy: userId,
-      fiscalYearId,
+      fiscalYearId
     };
 
     const transaction = await TransactionModel.createTransaction(transactionData);

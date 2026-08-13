@@ -13,7 +13,7 @@ const {
   getFiscalYearById,
   updateFiscalYear,
   closeFiscalYear,
-  reopenFiscalYear,
+  reopenFiscalYear
 } = require('../controllers/fiscalYearController');
 
 // All routes require authentication + active subscription

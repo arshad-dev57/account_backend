@@ -94,7 +94,7 @@ const createInvoiceFromGRN = async (req, res) => {
       createdBy: userId,
       userId: userId,
       companyId: companyId,
-      fiscalYearId,
+      fiscalYearId
     };
 
     const invoice = await PurchaseInvoice.createFromGRN(invoiceData);
@@ -103,7 +103,7 @@ const createInvoiceFromGRN = async (req, res) => {
       companyId,
       transactionId: invoice.id,
       transactionType: 'PurchaseInvoice',
-      items: invoice.items || [],
+      items: invoice.items || []
     });
 
     res.status(201).json({
@@ -185,7 +185,7 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       createdBy: userId,
       userId: userId,
       companyId: companyId,
-      fiscalYearId: null,
+      fiscalYearId: null
     };
 
     const invoice = await PurchaseInvoice.createFromPurchaseOrder(invoiceData);
@@ -194,7 +194,7 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       companyId,
       transactionId: invoice.id,
       transactionType: 'PurchaseInvoice',
-      items: invoice.items || [],
+      items: invoice.items || []
     });
 
     res.status(201).json({
@@ -601,7 +601,7 @@ const updatePurchaseInvoice = async (req, res) => {
           unitPrice: item.unitPrice || product.costPrice || 0,
           discount: item.discount || 0,
           taxRate: item.taxRate || product.taxRate || 0,
-          notes: item.notes || '',
+          notes: item.notes || ''
         });
       }
       updateData.items = processedItems;
@@ -851,7 +851,7 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
           discount,
           taxRate,
           productName: item.productName || item.product?.name,
-          sku: item.sku || item.product?.sku,
+          sku: item.sku || item.product?.sku
         };
       });
       const totalQuantity = items.reduce(
@@ -889,7 +889,7 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         grandTotal: invoiceSubtotal,
         itemCount: items.length,
         itemPreview,
-        items,
+        items
       };
     });
 
@@ -939,9 +939,9 @@ const getAvailablePOsForInvoicing = async (req, res) => {
         none: {
           isActive: true,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Cancelled'] },
-        },
-      },
+          invoiceStatus: { notIn: ['Cancelled'] }
+        }
+      }
     };
 
     if (search && search.trim().length >= 1) {
@@ -952,7 +952,7 @@ const getAvailablePOsForInvoicing = async (req, res) => {
             { orderNumber: { contains: q, mode: 'insensitive' } },
             { supplierName: { contains: q, mode: 'insensitive' } },
             { supplierEmail: { contains: q, mode: 'insensitive' } },
-          ],
+          ]
         },
       ];
     }
@@ -967,18 +967,18 @@ const getAvailablePOsForInvoicing = async (req, res) => {
             where: {
               isActive: true,
               isDeleted: false,
-              status: { in: ['Partially Received', 'Fully Received'] },
+              status: { in: ['Partially Received', 'Fully Received'] }
             },
             include: {
-              items: true,
-            },
-          },
+              items: true
+            }
+          }
         },
         skip: (parseInt(page, 10) - 1) * parseInt(limit, 10),
         take: parseInt(limit, 10),
         orderBy: {
-          orderDate: 'desc',
-        },
+          orderDate: 'desc'
+        }
       }),
       prisma.purchaseOrder.count({ where }),
     ]);
@@ -1010,7 +1010,7 @@ const getAvailablePOsForInvoicing = async (req, res) => {
               qty *
               (item.unitPrice || 0) *
               (1 - (item.discount || 0) / 100) *
-              (1 + (item.taxRate || 0) / 100),
+              (1 + (item.taxRate || 0) / 100)
           };
         })
         .filter((item) => item.quantity > 0);
@@ -1060,9 +1060,9 @@ const getAvailablePOsForInvoicing = async (req, res) => {
               name: po.supplier.name,
               email: po.supplier.email,
               phone: po.supplier.phone,
-              address: po.supplier.address,
+              address: po.supplier.address
             }
-          : null,
+          : null
       };
     });
 
@@ -1074,15 +1074,15 @@ const getAvailablePOsForInvoicing = async (req, res) => {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
         total,
-        pages: Math.ceil(total / parseInt(limit, 10)) || 1,
-      },
+        pages: Math.ceil(total / parseInt(limit, 10)) || 1
+      }
     });
   } catch (error) {
     console.error('❌ Get available POs error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

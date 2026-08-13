@@ -189,7 +189,7 @@ exports.createIncome = async (req, res) => {
       description,
       reference,
       paymentMethod,
-      bankAccountId,
+      bankAccountId
     } = req.body;
 
     const userId = req.user.id;
@@ -318,7 +318,7 @@ exports.createIncome = async (req, res) => {
         description: item.description,
         quantity: item.quantity || 1,
         unitPrice: item.unitPrice || 0,
-        amount: (item.quantity || 1) * (item.unitPrice || 0),
+        amount: (item.quantity || 1) * (item.unitPrice || 0)
       }));
       subtotal = finalItems.reduce((sum, item) => sum + (item.amount || 0), 0);
       taxAmount = subtotal * (taxRate || 0) / 100;
@@ -361,7 +361,7 @@ exports.createIncome = async (req, res) => {
       postedBy: userId,
       postedAt: new Date(),
       createdBy: userId,
-      companyId: companyId,
+      companyId: companyId
     });
 
     console.log("✅ Income created successfully!");
@@ -724,7 +724,7 @@ exports.updateIncome = async (req, res) => {
         description: item.description,
         quantity: item.quantity || 1,
         unitPrice: item.unitPrice || 0,
-        amount: (item.quantity || 1) * (item.unitPrice || 0),
+        amount: (item.quantity || 1) * (item.unitPrice || 0)
       }));
       subtotal = finalItems.reduce((sum, item) => sum + (item.amount || 0), 0);
       taxAmount = subtotal * (updateData.taxRate || 0) / 100;
@@ -861,7 +861,7 @@ exports.getSummary = async (req, res) => {
         totalCount,
         thisMonth: monthIncomes._sum.totalAmount || 0,
         thisWeek: weekIncomes._sum.totalAmount || 0,
-        byType,
+        byType
       }
     });
   } catch (error) {

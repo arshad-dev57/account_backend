@@ -72,7 +72,7 @@ function companyScope(user) {
       OR: [
         { companyId: user.companyId },
         { companyId: null, createdBy: user.id },
-      ],
+      ]
     };
   }
   return { createdBy: user.id };
@@ -93,7 +93,7 @@ function buildSalesWhere(req) {
       OR: [
         { paymentStatus },
         { paymentStatus: String(paymentStatus).toLowerCase() },
-      ],
+      ]
     });
   }
   if (customerId) andClauses.push({ customerId });
@@ -115,7 +115,7 @@ function buildSalesWhere(req) {
         { invoiceNumber: { contains: search, mode: 'insensitive' } },
         { customerName: { contains: search, mode: 'insensitive' } },
         { orderNumber: { contains: search, mode: 'insensitive' } },
-      ],
+      ]
     });
   }
   return { AND: andClauses };
@@ -135,7 +135,7 @@ function buildPurchaseWhere(req) {
       OR: [
         { invoiceStatus },
         { invoiceStatus: String(invoiceStatus).toLowerCase() },
-      ],
+      ]
     });
   }
   if (paymentStatus) {
@@ -143,7 +143,7 @@ function buildPurchaseWhere(req) {
       OR: [
         { paymentStatus },
         { paymentStatus: String(paymentStatus).toLowerCase() },
-      ],
+      ]
     });
   }
   const from = fromDate || startDate;
@@ -165,7 +165,7 @@ function buildPurchaseWhere(req) {
         { supplierName: { contains: search, mode: 'insensitive' } },
         { purchaseOrderNumber: { contains: search, mode: 'insensitive' } },
         { supplierInvoiceNo: { contains: search, mode: 'insensitive' } },
-      ],
+      ]
     });
   }
   return { AND: andClauses };
@@ -204,7 +204,7 @@ function mapSalesInvoice(inv, creditIssued = 0) {
     notes: inv.notes || '',
     items: inv.items || [],
     invoiceType: 'sales',
-    source: 'warehouse_invoice',
+    source: 'warehouse_invoice'
   };
 }
 
@@ -222,7 +222,7 @@ function buildSalesInvoiceWhere(req) {
       OR: [
         { invoiceStatus },
         { invoiceStatus: String(invoiceStatus).toLowerCase() },
-      ],
+      ]
     });
   }
   if (paymentStatus) {
@@ -230,7 +230,7 @@ function buildSalesInvoiceWhere(req) {
       OR: [
         { paymentStatus },
         { paymentStatus: String(paymentStatus).toLowerCase() },
-      ],
+      ]
     });
   }
   if (customerId) andClauses.push({ customerId });
@@ -252,7 +252,7 @@ function buildSalesInvoiceWhere(req) {
         { invoiceNumber: { contains: search, mode: 'insensitive' } },
         { customerName: { contains: search, mode: 'insensitive' } },
         { orderNumber: { contains: search, mode: 'insensitive' } },
-      ],
+      ]
     });
   }
   return { AND: andClauses };
@@ -300,10 +300,10 @@ function mapModuleSalesInvoice(inv) {
       taxRate: toNum(it.taxRate),
       taxAmount: toNum(it.taxAmount),
       discount: toNum(it.discount),
-      totalPrice: toNum(it.lineTotal ?? it.totalPrice),
+      totalPrice: toNum(it.lineTotal ?? it.totalPrice)
     })),
     invoiceType: 'sales',
-    source: 'sales_invoice',
+    source: 'sales_invoice'
   };
 }
 
@@ -349,10 +349,10 @@ function mapPurchaseInvoice(inv) {
       taxRate: toNum(it.taxRate),
       taxAmount: toNum(it.taxAmount),
       discount: toNum(it.discount),
-      totalPrice: toNum(it.lineTotal ?? it.totalPrice),
+      totalPrice: toNum(it.lineTotal ?? it.totalPrice)
     })),
     invoiceType: 'purchase',
-    source: 'purchase_invoice',
+    source: 'purchase_invoice'
   };
 }
 
@@ -371,7 +371,7 @@ function computeCombinedStats(rows) {
     salesCount: 0,
     purchaseCount: 0,
     salesTotal: 0,
-    purchaseTotal: 0,
+    purchaseTotal: 0
   };
 
   const now = new Date();
@@ -406,7 +406,7 @@ const getInvoices = async (req, res) => {
       page = 1,
       limit = 10,
       invoiceType = 'all', // all | sales | purchase
-      period = 'month',
+      period = 'month'
     } = req.query;
 
     const type = String(invoiceType || 'all').toLowerCase();
@@ -423,10 +423,10 @@ const getInvoices = async (req, res) => {
             include: {
               items: true,
               creator: {
-                select: { id: true, firstName: true, lastName: true, email: true },
-              },
+                select: { id: true, firstName: true, lastName: true, email: true }
+              }
             },
-            orderBy: { invoiceDate: 'desc' },
+            orderBy: { invoiceDate: 'desc' }
           })
         : Promise.resolve([]),
       includeSales
@@ -435,10 +435,10 @@ const getInvoices = async (req, res) => {
             include: {
               items: true,
               creator: {
-                select: { id: true, firstName: true, lastName: true, email: true },
-              },
+                select: { id: true, firstName: true, lastName: true, email: true }
+              }
             },
-            orderBy: { invoiceDate: 'desc' },
+            orderBy: { invoiceDate: 'desc' }
           })
         : Promise.resolve([]),
       includePurchase
@@ -447,10 +447,10 @@ const getInvoices = async (req, res) => {
             include: {
               items: true,
               creator: {
-                select: { id: true, firstName: true, lastName: true, email: true },
-              },
+                select: { id: true, firstName: true, lastName: true, email: true }
+              }
             },
-            orderBy: { invoiceDate: 'desc' },
+            orderBy: { invoiceDate: 'desc' }
           })
         : Promise.resolve([]),
     ]);
@@ -462,9 +462,9 @@ const getInvoices = async (req, res) => {
         by: ['originalInvoiceId'],
         where: {
           originalInvoiceId: { in: invoiceIds },
-          status: { notIn: ['Cancelled', 'Voided'] },
+          status: { notIn: ['Cancelled', 'Voided'] }
         },
-        _sum: { amount: true },
+        _sum: { amount: true }
       });
       creditMap = Object.fromEntries(
         creditAgg.map((c) => [c.originalInvoiceId, c._sum.amount || 0])
@@ -489,7 +489,7 @@ const getInvoices = async (req, res) => {
     if (supersededDraftIds.length > 0) {
       await prisma.warehouseInvoice.updateMany({
         where: { id: { in: supersededDraftIds } },
-        data: { isDeleted: true, isActive: false },
+        data: { isDeleted: true, isActive: false }
       });
     }
 
@@ -536,12 +536,12 @@ const getInvoices = async (req, res) => {
       summary: {
         totalAmount: stats.grandTotal,
         totalPaid: stats.paidAmount,
-        totalOutstanding: stats.outstanding,
+        totalOutstanding: stats.outstanding
       },
       trend,
       filters: {
         invoiceType: type,
-        availableTypes: ['all', 'sales', 'purchase'],
+        availableTypes: ['all', 'sales', 'purchase']
       },
       pagination: {
         page: currentPage,
@@ -550,8 +550,8 @@ const getInvoices = async (req, res) => {
         pages,
         totalPages: pages,
         hasNext: currentPage < pages,
-        hasPrev: currentPage > 1,
-      },
+        hasPrev: currentPage > 1
+      }
     });
   } catch (error) {
     console.error('Get warehouse invoices error:', error);
@@ -594,7 +594,7 @@ const createInvoice = async (req, res) => {
       notes,
       orderId,
       orderNumber,
-      invoiceStatus,
+      invoiceStatus
     } = req.body;
 
     if (!customerName) {
@@ -628,7 +628,7 @@ const createInvoice = async (req, res) => {
         taxRate,
         taxAmount,
         discount,
-        totalPrice: amount + taxAmount,
+        totalPrice: amount + taxAmount
       };
     });
 
@@ -653,7 +653,7 @@ const createInvoice = async (req, res) => {
       paymentStatus: 'Unpaid',
       notes,
       items: processedItems,
-      createdBy: req.user.id,
+      createdBy: req.user.id
     });
 
     res.status(201).json({ success: true, message: 'Invoice created', data: invoice });
@@ -670,13 +670,13 @@ const createInvoiceFromOrder = async (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
     const existing = await prisma.warehouseInvoice.findFirst({
-      where: { orderId, isDeleted: false, invoiceStatus: { not: 'Cancelled' } },
+      where: { orderId, isDeleted: false, invoiceStatus: { not: 'Cancelled' } }
     });
     if (existing) {
       return res.status(400).json({
         success: false,
         message: `Invoice already exists for this order: ${existing.invoiceNumber}`,
-        data: existing,
+        data: existing
       });
     }
 
@@ -691,7 +691,7 @@ const createInvoiceFromOrder = async (req, res) => {
       taxRate: item.taxRate || 0,
       taxAmount: item.taxAmount || 0,
       discount: item.discount || 0,
-      totalPrice: item.totalPrice,
+      totalPrice: item.totalPrice
     }));
 
     const invoice = await WarehouseInvoice.create({
@@ -713,7 +713,7 @@ const createInvoiceFromOrder = async (req, res) => {
       paidAmount: order.paymentStatus === 'Paid' ? order.grandTotal : 0,
       notes: order.customerNotes || '',
       items,
-      createdBy: req.user.id,
+      createdBy: req.user.id
     });
 
     res.status(201).json({ success: true, message: 'Invoice created from order', data: invoice });
@@ -754,7 +754,7 @@ const recordPayment = async (req, res) => {
       paidAmount: Math.min(newPaid, invoice.grandTotal),
       paymentStatus,
       invoiceStatus: paymentStatus === 'Paid' ? 'Paid' : invoice.invoiceStatus,
-      updatedBy: req.user.id,
+      updatedBy: req.user.id
     });
 
     if (invoice.orderId) {
@@ -790,5 +790,5 @@ module.exports = {
   createInvoiceFromOrder,
   updateInvoiceStatus,
   recordPayment,
-  deleteInvoice,
+  deleteInvoice
 };

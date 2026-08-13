@@ -126,7 +126,7 @@ function transform(src) {
       // Only the standalone shorthand `userId` property (not userId used as a
       // value like `createdBy: userId`, already handled above).
       newLine = newLine.replace(
-        /([\{,]\s*)userId(\s*[,}])/,
+        /([\{,]\s*)userId(\s*[}])/,
         (m, pre, post) => {
           replacements++;
           return `${pre}companyId: companyId${post}`;

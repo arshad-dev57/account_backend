@@ -26,7 +26,7 @@ async function getOrCreateAccount(tx, userId, type, category) {
       'Interest': { code: '4400', name: 'Interest Income' },
       'Rental': { code: '4500', name: 'Rental Income' },
       'Dividend': { code: '4600', name: 'Dividend Income' },
-      'Receipt': { code: '4700', name: 'Receipt Income' },
+      'Receipt': { code: '4700', name: 'Receipt Income' }
     },
     expense: {
       'Rent': { code: '5100', name: 'Rent Expense' },
@@ -38,7 +38,7 @@ async function getOrCreateAccount(tx, userId, type, category) {
       'Meals': { code: '5700', name: 'Meals & Entertainment' },
       'Software': { code: '5800', name: 'Software Expense' },
       'Equipment': { code: '5900', name: 'Equipment Expense' },
-      'Payment': { code: '6000', name: 'Payment Expense' },
+      'Payment': { code: '6000', name: 'Payment Expense' }
     }
   };
   

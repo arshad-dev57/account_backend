@@ -1,13 +1,11 @@
 
 const prisma = require('../prisma/client');
-const { get, set } = require('../utils/redisClient');
-
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 0
   });
   return formatter.format(amount || 0);
 }
@@ -94,40 +92,40 @@ function getDateRangeFromTimePeriod(timePeriod) {
     case 'This Month':
       return {
         start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
-        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0))
       };
 
     case 'Last Month':
       return {
         start: new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0),
-        end: endOfDay(new Date(now.getFullYear(), now.getMonth(), 0)),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth(), 0))
       };
 
     case 'This Quarter': {
       const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
       return {
         start: new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0, 0),
-        end: endOfDay(new Date(now.getFullYear(), quarterStartMonth + 3, 0)),
+        end: endOfDay(new Date(now.getFullYear(), quarterStartMonth + 3, 0))
       };
     }
 
     case 'This Year':
       return {
         start: new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0),
-        end: endOfDay(new Date(now.getFullYear(), 11, 31)),
+        end: endOfDay(new Date(now.getFullYear(), 11, 31))
       };
 
     case 'Custom':
       // Custom ranges must supply startDate + endDate via resolveDateRange
       return {
         start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
-        end: endOfDay(now),
+        end: endOfDay(now)
       };
 
     default:
       return {
         start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
-        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0))
       };
   }
 }
@@ -179,14 +177,14 @@ async function resolveDateRange(query = {}, companyId = null) {
       fiscalYearId: query.fiscalYearId,
       start,
       end,
-      period: label === 'Custom' ? 'Custom' : timePeriod,
+      period: label === 'Custom' ? 'Custom' : timePeriod
     });
     return {
       start: clamped.start,
       end: clamped.end,
       timePeriod: label,
       fiscalYearId: query.fiscalYearId,
-      empty: clamped.empty,
+      empty: clamped.empty
     };
   }
 
@@ -209,7 +207,7 @@ function expenseWhere(companyId, userId, extra = {}) {
       { companyId: null, createdBy: userId },
     ],
     status: 'Posted',
-    ...extra,
+    ...extra
   };
 }
 function invoiceAmt(d) {
@@ -228,7 +226,7 @@ function companyInvoiceScope(companyId, userId) {
       OR: [
         { companyId },
         { companyId: null, createdBy: userId },
-      ],
+      ]
     };
   }
   return { createdBy: userId };
@@ -241,9 +239,9 @@ function salesInvoiceWhere(companyId, userId, extra = {}) {
       {
         isDeleted: false,
         isActive: true,
-        ...extra,
+        ...extra
       },
-    ],
+    ]
   };
 }
 
@@ -331,7 +329,7 @@ function computePeriodTotals(
     totalCosts,
     netProfit,
     profitMargin,
-    grossProfit,
+    grossProfit
   };
 }
 
@@ -342,15 +340,15 @@ function purchaseWhere(companyId, userId, extra = {}) {
         OR: [
           { companyId },
           { companyId: null, createdBy: userId },
-        ],
+        ]
       },
       {
         invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
         isDeleted: false,
         isActive: true,
-        ...extra,
+        ...extra
       },
-    ],
+    ]
   };
 }
 
@@ -372,7 +370,7 @@ function buildChartSeries({
   expenses,
   mappedPurchases,
   startDate,
-  endDate,
+  endDate
 }) {
   const daySpan =
     Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
@@ -435,9 +433,9 @@ function buildChartSeries({
         expenses: expensesTotal,
         purchases,
         // Purchases already included in expenses — do not subtract again
-        profit: revenue - expensesTotal,
+        profit: revenue - expensesTotal
       };
-    }),
+    })
   };
 }
 
@@ -458,7 +456,7 @@ function buildExpenseCategories(expenses, startDate, endDate) {
       name,
       amount,
       formatted: formatAmount(amount),
-      percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
+      percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0
     }))
     .sort((a, b) => b.amount - a.amount);
 }
@@ -476,7 +474,7 @@ function buildRecentTransactions(rows, limitNum = 10) {
       icon: 'payment',
       reference: p.reference,
       invoiceNumber: p.invoiceNumber,
-      source: 'payment_received',
+      source: 'payment_received'
     });
   });
 
@@ -489,7 +487,7 @@ function buildRecentTransactions(rows, limitNum = 10) {
       type: 'income',
       icon: 'trending_up',
       reference: inc.reference,
-      source: 'income',
+      source: 'income'
     });
   });
 
@@ -502,7 +500,7 @@ function buildRecentTransactions(rows, limitNum = 10) {
       type: 'expense',
       icon: 'trending_down',
       reference: exp.reference,
-      source: 'expense',
+      source: 'expense'
     });
   });
 
@@ -515,7 +513,7 @@ function buildRecentTransactions(rows, limitNum = 10) {
       type: 'income',
       icon: 'receipt_long',
       reference: inv.invoiceNumber,
-      source: 'warehouse_invoice',
+      source: 'warehouse_invoice'
     });
   });
 
@@ -528,7 +526,7 @@ function buildRecentTransactions(rows, limitNum = 10) {
       type: 'purchase',
       icon: 'receipt',
       reference: bill.billNumber,
-      source: 'bill',
+      source: 'bill'
     });
   });
 
@@ -541,7 +539,7 @@ function buildRecentTransactions(rows, limitNum = 10) {
       type: 'purchase',
       icon: 'receipt',
       reference: inv.invoiceNumber,
-      source: 'purchase_invoice',
+      source: 'purchase_invoice'
     });
   });
 
@@ -559,7 +557,7 @@ async function buildDashboardOverview({
   startDate,
   endDate,
   timePeriod,
-  txnLimit = 10,
+  txnLimit = 10
 }) {
   const { start: previousStartDate, end: previousEndDate } = getPreviousPeriod(
     startDate,
@@ -591,7 +589,7 @@ async function buildDashboardOverview({
       where: {
         companyId,
         date: { gte: fetchFrom, lte: fetchTo },
-        status: 'Posted',
+        status: 'Posted'
       },
       select: {
         id: true,
@@ -601,13 +599,13 @@ async function buildDashboardOverview({
         description: true,
         incomeType: true,
         incomeNumber: true,
-        reference: true,
-      },
+        reference: true
+      }
     }),
     prisma.warehouseInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
       }),
       select: {
         id: true,
@@ -617,13 +615,13 @@ async function buildDashboardOverview({
         paidAmount: true,
         invoiceNumber: true,
         customerName: true,
-        invoiceStatus: true,
-      },
+        invoiceStatus: true
+      }
     }),
     prisma.salesInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
       }),
       select: {
         id: true,
@@ -633,20 +631,20 @@ async function buildDashboardOverview({
         paidAmount: true,
         invoiceNumber: true,
         customerName: true,
-        invoiceStatus: true,
-      },
+        invoiceStatus: true
+      }
     }),
     prisma.creditNote.findMany({
       where: {
         companyId,
         date: { gte: fetchFrom, lte: fetchTo },
-        status: { notIn: ['Cancelled', 'Voided'] },
+        status: { notIn: ['Cancelled', 'Voided'] }
       },
-      select: { date: true, amount: true },
+      select: { date: true, amount: true }
     }),
     prisma.expense.findMany({
       where: expenseWhere(companyId, userId, {
-        date: { gte: fetchFrom, lte: fetchTo },
+        date: { gte: fetchFrom, lte: fetchTo }
       }),
       select: {
         id: true,
@@ -656,77 +654,77 @@ async function buildDashboardOverview({
         expenseType: true,
         description: true,
         expenseNumber: true,
-        reference: true,
-      },
+        reference: true
+      }
     }),
     prisma.purchaseInvoice.findMany({
       where: purchaseWhere(companyId, userId, {
-        invoiceDate: { gte: fetchFrom, lte: fetchTo },
+        invoiceDate: { gte: fetchFrom, lte: fetchTo }
       }),
       select: {
         id: true,
         invoiceDate: true,
         grandTotal: true,
         invoiceNumber: true,
-        supplierName: true,
-      },
+        supplierName: true
+      }
     }),
     prisma.warehouseInvoice.findMany({
       where: {
         ...salesInvoiceWhere(companyId, userId, {
           paymentStatus: { in: ['Unpaid', 'Partial'] },
           outstanding: { gt: 0 },
-          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-        }),
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+        })
       },
-      select: { outstanding: true, orderId: true, invoiceStatus: true },
+      select: { outstanding: true, orderId: true, invoiceStatus: true }
     }),
     prisma.salesInvoice.findMany({
       where: {
         ...salesInvoiceWhere(companyId, userId, {
           paymentStatus: { in: ['Unpaid', 'Partial'] },
           outstanding: { gt: 0 },
-          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-        }),
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+        })
       },
-      select: { outstanding: true, orderId: true, invoiceStatus: true },
+      select: { outstanding: true, orderId: true, invoiceStatus: true }
     }),
     prisma.bill.findMany({
       where: {
         companyId,
         posted: true,
         outstanding: { gt: 0 },
-        status: { notIn: ['Cancelled', 'Voided', 'Draft', 'Paid'] },
+        status: { notIn: ['Cancelled', 'Voided', 'Draft', 'Paid'] }
       },
-      select: { outstanding: true },
+      select: { outstanding: true }
     }),
     prisma.purchaseInvoice.findMany({
       where: {
         AND: [
           {
-            OR: [{ companyId }, { companyId: null, createdBy: userId }],
+            OR: [{ companyId }, { companyId: null, createdBy: userId }]
           },
           {
             paymentStatus: { in: ['Unpaid', 'Partial', 'unpaid', 'partial'] },
             outstanding: { gt: 0 },
             invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
             isDeleted: false,
-            isActive: true,
+            isActive: true
           },
-        ],
+        ]
       },
-      select: { outstanding: true },
+      select: { outstanding: true }
     }),
     prisma.bankAccount.findMany({
       where: { companyId, status: 'Active' },
-      select: { currentBalance: true, accountType: true },
+      select: { currentBalance: true, accountType: true }
     }),
     // Period-scoped activity feed
     prisma.paymentReceived.findMany({
       where: {
         companyId,
         status: { notIn: ['Cancelled', 'Voided'] },
-        paymentDate: { gte: startDate, lte: endDate },
+        paymentDate: { gte: startDate, lte: endDate }
       },
       orderBy: { paymentDate: 'desc' },
       take: txnLimit,
@@ -736,14 +734,14 @@ async function buildDashboardOverview({
         customerName: true,
         amount: true,
         paymentDate: true,
-        invoiceNumber: true,
-      },
+        invoiceNumber: true
+      }
     }),
     prisma.income.findMany({
       where: {
         companyId,
         status: 'Posted',
-        date: { gte: startDate, lte: endDate },
+        date: { gte: startDate, lte: endDate }
       },
       orderBy: { date: 'desc' },
       take: txnLimit,
@@ -755,12 +753,12 @@ async function buildDashboardOverview({
         amount: true,
         totalAmount: true,
         date: true,
-        reference: true,
-      },
+        reference: true
+      }
     }),
     prisma.expense.findMany({
       where: expenseWhere(companyId, userId, {
-        date: { gte: startDate, lte: endDate },
+        date: { gte: startDate, lte: endDate }
       }),
       orderBy: { date: 'desc' },
       take: txnLimit,
@@ -772,13 +770,13 @@ async function buildDashboardOverview({
         amount: true,
         totalAmount: true,
         date: true,
-        reference: true,
-      },
+        reference: true
+      }
     }),
     prisma.warehouseInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: startDate, lte: endDate },
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
       }),
       orderBy: { invoiceDate: 'desc' },
       take: txnLimit,
@@ -787,15 +785,15 @@ async function buildDashboardOverview({
         invoiceNumber: true,
         customerName: true,
         grandTotal: true,
-        invoiceDate: true,
-      },
+        invoiceDate: true
+      }
     }),
     prisma.bill.findMany({
       where: {
         companyId,
         posted: true,
         status: { notIn: ['Cancelled', 'Voided', 'Draft'] },
-        date: { gte: startDate, lte: endDate },
+        date: { gte: startDate, lte: endDate }
       },
       orderBy: { date: 'desc' },
       take: txnLimit,
@@ -804,12 +802,12 @@ async function buildDashboardOverview({
         billNumber: true,
         vendorName: true,
         totalAmount: true,
-        date: true,
-      },
+        date: true
+      }
     }),
     prisma.purchaseInvoice.findMany({
       where: purchaseWhere(companyId, userId, {
-        invoiceDate: { gte: startDate, lte: endDate },
+        invoiceDate: { gte: startDate, lte: endDate }
       }),
       orderBy: { invoiceDate: 'desc' },
       take: txnLimit,
@@ -818,8 +816,8 @@ async function buildDashboardOverview({
         invoiceNumber: true,
         supplierName: true,
         grandTotal: true,
-        invoiceDate: true,
-      },
+        invoiceDate: true
+      }
     }),
   ]);
 
@@ -830,11 +828,11 @@ async function buildDashboardOverview({
   const mappedSales = mergedSalesRows.map((inv) => ({
     date: inv.invoiceDate,
     totalAmount: inv.grandTotal,
-    paidAmount: inv.paidAmount,
+    paidAmount: inv.paidAmount
   }));
   const mappedPurchases = allPurchaseInvoices.map((inv) => ({
     date: inv.invoiceDate,
-    totalAmount: inv.grandTotal,
+    totalAmount: inv.grandTotal
   }));
 
   const current = computePeriodTotals(
@@ -909,7 +907,7 @@ async function buildDashboardOverview({
     expenses: allExpenses,
     mappedPurchases,
     startDate,
-    endDate,
+    endDate
   });
 
   const expenseCategories = buildExpenseCategories(
@@ -925,7 +923,7 @@ async function buildDashboardOverview({
       expenses: periodTxnExpenses,
       invoices: periodTxnInvoices,
       bills: periodTxnBills,
-      purchases: periodTxnPurchases,
+      purchases: periodTxnPurchases
     },
     txnLimit
   );
@@ -956,8 +954,8 @@ async function buildDashboardOverview({
           salesInvoiced: current.salesInvoiced,
           incomeModule: current.otherIncome,
           creditNotes: current.creditNotesTotal,
-          formula: 'Sales paid + Income − Credit Notes (excludes unpaid)',
-        },
+          formula: 'Sales paid + Income − Credit Notes (excludes unpaid)'
+        }
       },
       totalSales: {
         amount: totalSalesPaid,
@@ -966,7 +964,7 @@ async function buildDashboardOverview({
         isPositive: salesChange >= 0,
         period: timePeriod,
         count: totalSalesCount,
-        source: 'Sales invoices paid amount (selected period)',
+        source: 'Sales invoices paid amount (selected period)'
       },
       totalPurchases: {
         amount: current.purchases,
@@ -974,7 +972,7 @@ async function buildDashboardOverview({
         change: Math.round(purchasesChange * 10) / 10,
         isPositive: purchasesChange <= 0,
         period: timePeriod,
-        source: 'Purchase invoices (selected period)',
+        source: 'Purchase invoices (selected period)'
       },
       totalExpenses: {
         amount: expenseScreenTotal,
@@ -985,8 +983,8 @@ async function buildDashboardOverview({
         count: expenseScreenCount,
         sources: {
           expenseModule: expenseScreenTotal,
-          formula: 'Expense screen Posted (selected period)',
-        },
+          formula: 'Expense screen Posted (selected period)'
+        }
       },
       netProfit: {
         amount: netProfitAmount,
@@ -998,14 +996,14 @@ async function buildDashboardOverview({
             ? Math.round((netProfitAmount / current.revenue) * 1000) / 10
             : 0,
         period: timePeriod,
-        formula: 'Revenue − Expenses',
+        formula: 'Revenue − Expenses'
       },
       grossProfit: {
         amount: current.grossProfit,
         formatted: formatAmount(current.grossProfit),
         isPositive: current.grossProfit >= 0,
         period: timePeriod,
-        formula: 'Sales paid − Purchases',
+        formula: 'Sales paid − Purchases'
       },
       outstanding: {
         amount: totalReceivables,
@@ -1014,7 +1012,7 @@ async function buildDashboardOverview({
         isPositive: true,
         count: allOutstandingSales.length,
         period: 'Current',
-        source: 'Sales invoices outstanding',
+        source: 'Sales invoices outstanding'
       },
       accountsReceivable: {
         amount: totalReceivables,
@@ -1022,7 +1020,7 @@ async function buildDashboardOverview({
         change: 0,
         isPositive: true,
         count: allOutstandingSales.length,
-        period: 'Current',
+        period: 'Current'
       },
       accountsPayable: {
         amount: totalPayables,
@@ -1033,8 +1031,8 @@ async function buildDashboardOverview({
         period: 'Current',
         breakdown: {
           bills: billsPayable,
-          purchaseInvoices: purchasePayable,
-        },
+          purchaseInvoices: purchasePayable
+        }
       },
       cashBalance: {
         amount: bankBalance,
@@ -1043,7 +1041,7 @@ async function buildDashboardOverview({
         isPositive: bankBalance >= 0,
         cashOnly: cashOnlyBalance,
         accountsCount: bankAccounts.length,
-        period: 'Current',
+        period: 'Current'
       },
       bankBalance: {
         amount: bankBalance,
@@ -1051,8 +1049,8 @@ async function buildDashboardOverview({
         change: 0,
         isPositive: bankBalance >= 0,
         accountsCount: bankAccounts.length,
-        period: 'Current',
-      },
+        period: 'Current'
+      }
     },
     breakdown: {
       salesRevenue: current.salesRevenue,
@@ -1068,22 +1066,22 @@ async function buildDashboardOverview({
       purchasePayable,
       bankBalance,
       cashOnlyBalance,
-      bankAccountsCount: bankAccounts.length,
+      bankAccountsCount: bankAccounts.length
     },
     weeklyData: {
       revenue: current.revenue,
       expenses: expenseScreenTotal,
-      profit: netProfitAmount,
+      profit: netProfitAmount
     },
     dailyData: {
       revenue: current.revenue,
       expenses: expenseScreenTotal,
-      profit: netProfitAmount,
+      profit: netProfitAmount
     },
     chartData,
     chartMeta: {
       granularity: useDaily ? 'daily' : 'monthly',
-      totals: chartTotals,
+      totals: chartTotals
     },
     expenseCategories,
     recentTransactions,
@@ -1092,8 +1090,8 @@ async function buildDashboardOverview({
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
       startDateLocal: `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`,
-      endDateLocal: `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`,
-    },
+      endDateLocal: `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+    }
   };
 }
 
@@ -1107,15 +1105,9 @@ const getDashboardOverview = async (req, res) => {
       start: startDate,
       end: endDate,
       timePeriod,
-      fiscalYearId,
+      fiscalYearId
     } = await resolveDateRange(req.query, companyId);
     const txnLimit = parseInt(req.query.limit, 10) || 10;
-
-    const cacheKey = `dashboard:overview:v4:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${fiscalYearId || ''}:${txnLimit}`;
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({ success: true, data: cached, cached: true });
-    }
 
     const data = await buildDashboardOverview({
       userId,
@@ -1123,12 +1115,10 @@ const getDashboardOverview = async (req, res) => {
       startDate,
       endDate,
       timePeriod,
-      txnLimit,
+      txnLimit
     });
 
-    await set(cacheKey, data, 60);
-
-    return res.status(200).json({ success: true, data, cached: false });
+    return res.status(200).json({ success: true, data });
   } catch (error) {
     console.error('Error getting dashboard overview:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -1146,23 +1136,12 @@ const getDashboardSummary = async (req, res) => {
       companyId
     );
 
-    const cacheKey = `dashboard:summary:v12:${userId}:${timePeriod}:${startDate.toISOString()}:${endDate.toISOString()}:${fiscalYearId || ''}`;
-
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const overview = await buildDashboardOverview({
       userId,
       companyId,
       startDate,
       endDate,
-      timePeriod,
+      timePeriod
     });
 
     const summaryData = {
@@ -1170,15 +1149,12 @@ const getDashboardSummary = async (req, res) => {
       breakdown: overview.breakdown,
       weeklyData: overview.weeklyData,
       dailyData: overview.dailyData,
-      period: overview.period,
+      period: overview.period
     };
-
-    await set(cacheKey, summaryData, 60);
 
     res.status(200).json({
       success: true,
-      data: summaryData,
-      cached: false,
+      data: summaryData
     });
   } catch (error) {
     console.error('Error getting dashboard summary:', error);
@@ -1202,13 +1178,12 @@ const getChartData = async (req, res) => {
       companyId,
       startDate,
       endDate,
-      timePeriod,
+      timePeriod
     });
 
     res.status(200).json({
       success: true,
-      data: overview.chartData,
-      cached: false,
+      data: overview.chartData
     });
   } catch (error) {
     console.error('Error getting chart data:', error);
@@ -1232,13 +1207,12 @@ const getExpenseCategories = async (req, res) => {
       companyId,
       startDate,
       endDate,
-      timePeriod,
+      timePeriod
     });
 
     res.status(200).json({
       success: true,
-      data: overview.expenseCategories,
-      cached: false,
+      data: overview.expenseCategories
     });
   } catch (error) {
     console.error('Error getting expense categories:', error);
@@ -1255,17 +1229,6 @@ const getRecentTransactions = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    const cacheKey = `dashboard:recent-transactions:v2:${userId}:${limitNum}`;
-
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const [paymentsReceived, incomes, expenses, invoices, bills] = await Promise.all([
       prisma.paymentReceived.findMany({
         where: { companyId, status: { notIn: ['Cancelled', 'Voided'] } },
@@ -1277,8 +1240,8 @@ const getRecentTransactions = async (req, res) => {
           customerName: true,
           amount: true,
           paymentDate: true,
-          invoiceNumber: true,
-        },
+          invoiceNumber: true
+        }
       }),
       prisma.income.findMany({
         where: { companyId, status: 'Posted' },
@@ -1292,8 +1255,8 @@ const getRecentTransactions = async (req, res) => {
           amount: true,
           totalAmount: true,
           date: true,
-          reference: true,
-        },
+          reference: true
+        }
       }),
       prisma.expense.findMany({
         where: expenseWhere(companyId, userId),
@@ -1307,14 +1270,14 @@ const getRecentTransactions = async (req, res) => {
           amount: true,
           totalAmount: true,
           date: true,
-          reference: true,
-        },
+          reference: true
+        }
       }),
       prisma.warehouseInvoice.findMany({
         where: {
           companyId,
           invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-          isDeleted: false,
+          isDeleted: false
         },
         orderBy: { invoiceDate: 'desc' },
         take: limitNum,
@@ -1323,14 +1286,14 @@ const getRecentTransactions = async (req, res) => {
           invoiceNumber: true,
           customerName: true,
           grandTotal: true,
-          invoiceDate: true,
-        },
+          invoiceDate: true
+        }
       }),
       prisma.bill.findMany({
         where: {
           companyId,
           posted: true,
-          status: { notIn: ['Cancelled', 'Voided', 'Draft'] },
+          status: { notIn: ['Cancelled', 'Voided', 'Draft'] }
         },
         orderBy: { date: 'desc' },
         take: limitNum,
@@ -1339,8 +1302,8 @@ const getRecentTransactions = async (req, res) => {
           billNumber: true,
           vendorName: true,
           totalAmount: true,
-          date: true,
-        },
+          date: true
+        }
       }),
     ]);
 
@@ -1356,7 +1319,7 @@ const getRecentTransactions = async (req, res) => {
         icon: 'payment',
         reference: p.reference,
         invoiceNumber: p.invoiceNumber,
-        source: 'payment_received',
+        source: 'payment_received'
       });
     });
 
@@ -1369,7 +1332,7 @@ const getRecentTransactions = async (req, res) => {
         type: 'income',
         icon: 'trending_up',
         reference: inc.reference,
-        source: 'income',
+        source: 'income'
       });
     });
 
@@ -1382,7 +1345,7 @@ const getRecentTransactions = async (req, res) => {
         type: 'expense',
         icon: 'trending_down',
         reference: exp.reference,
-        source: 'expense',
+        source: 'expense'
       });
     });
 
@@ -1395,7 +1358,7 @@ const getRecentTransactions = async (req, res) => {
         type: 'income',
         icon: 'receipt_long',
         reference: inv.invoiceNumber,
-        source: 'warehouse_invoice',
+        source: 'warehouse_invoice'
       });
     });
 
@@ -1408,19 +1371,16 @@ const getRecentTransactions = async (req, res) => {
         type: 'purchase',
         icon: 'receipt',
         reference: bill.billNumber,
-        source: 'bill',
+        source: 'bill'
       });
     });
 
     transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
     const recentTransactions = transactions.slice(0, limitNum);
 
-    await set(cacheKey, recentTransactions, 120);
-
     res.status(200).json({
       success: true,
-      data: recentTransactions,
-      cached: false,
+      data: recentTransactions
     });
   } catch (error) {
     console.error('Error getting recent transactions:', error);
@@ -1439,7 +1399,7 @@ const getQuickActions = async (req, res) => {
       { id: 'create_invoice', label: 'Invoice', icon: 'receipt_long', color: '#3498DB', route: '/invoices' },
       { id: 'record_payment', label: 'Payment', icon: 'payment', color: '#F39C12', route: '/payments' },
       { id: 'add_customer', label: 'Customer', icon: 'person_add', color: '#9B59B6', route: '/customers' },
-    ],
+    ]
   });
 };
 
@@ -1454,54 +1414,43 @@ const getYearlySummary = async (req, res) => {
     const startDate = new Date(y, 0, 1, 0, 0, 0, 0);
     const endDate = endOfDay(new Date(y, 11, 31));
 
-    const cacheKey = `dashboard:yearly-summary:v5:${userId}:${y}`;
-
-    const cached = await get(cacheKey);
-    if (cached) {
-      return res.status(200).json({
-        success: true,
-        data: cached,
-        cached: true,
-      });
-    }
-
     const [incomes, invoices, creditNotes, expenses] = await Promise.all([
       prisma.income.findMany({
         where: {
           companyId,
           date: { gte: startDate, lte: endDate },
-          status: 'Posted',
+          status: 'Posted'
         },
-        select: { date: true, amount: true, totalAmount: true },
+        select: { date: true, amount: true, totalAmount: true }
       }),
       prisma.warehouseInvoice.findMany({
         where: {
           companyId,
           invoiceDate: { gte: startDate, lte: endDate },
           invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-          isDeleted: false,
+          isDeleted: false
         },
-        select: { invoiceDate: true, grandTotal: true },
+        select: { invoiceDate: true, grandTotal: true }
       }),
       prisma.creditNote.findMany({
         where: {
           companyId,
           date: { gte: startDate, lte: endDate },
-          status: { notIn: ['Cancelled', 'Voided'] },
+          status: { notIn: ['Cancelled', 'Voided'] }
         },
-        select: { date: true, amount: true },
+        select: { date: true, amount: true }
       }),
       prisma.expense.findMany({
         where: expenseWhere(companyId, userId, {
-          date: { gte: startDate, lte: endDate },
+          date: { gte: startDate, lte: endDate }
         }),
-        select: { date: true, amount: true, totalAmount: true },
+        select: { date: true, amount: true, totalAmount: true }
       }),
     ]);
 
     const mappedInvoices = invoices.map((inv) => ({
       date: inv.invoiceDate,
-      totalAmount: inv.grandTotal,
+      totalAmount: inv.grandTotal
     }));
 
     const incMap = groupByMonth(incomes, incomeAmt);
@@ -1522,7 +1471,7 @@ const getYearlySummary = async (req, res) => {
         month: name,
         revenue,
         expenses: expensesTotal,
-        profit: revenue - expensesTotal,
+        profit: revenue - expensesTotal
       };
     });
 
@@ -1534,15 +1483,12 @@ const getYearlySummary = async (req, res) => {
       totalRevenue,
       totalExpenses,
       totalProfit: totalRevenue - totalExpenses,
-      monthlyData,
+      monthlyData
     };
-
-    await set(cacheKey, summaryData, 600);
 
     res.status(200).json({
       success: true,
-      data: summaryData,
-      cached: false,
+      data: summaryData
     });
   } catch (error) {
     console.error('Error getting yearly summary:', error);
@@ -1557,5 +1503,5 @@ module.exports = {
   getExpenseCategories,
   getRecentTransactions,
   getQuickActions,
-  getYearlySummary,
+  getYearlySummary
 };

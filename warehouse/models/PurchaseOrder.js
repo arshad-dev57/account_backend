@@ -621,13 +621,13 @@ class PurchaseOrderModel {
         prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Sent' } }),
         prisma.purchaseOrder.count({ where: { ...baseFilter, status: 'Approved' } }),
         prisma.purchaseOrder.count({
-          where: { ...baseFilter, status: 'Partially Received' },
+          where: { ...baseFilter, status: 'Partially Received' }
         }),
         prisma.purchaseOrder.count({
-          where: { ...baseFilter, status: 'Received' },
+          where: { ...baseFilter, status: 'Received' }
         }),
         prisma.purchaseOrder.count({
-          where: { ...baseFilter, status: 'Cancelled' },
+          where: { ...baseFilter, status: 'Cancelled' }
         }),
       ]);
 
@@ -653,7 +653,7 @@ class PurchaseOrderModel {
           approved +
           partiallyReceived +
           received +
-          cancelled,
+          cancelled
       }
     };
   }
