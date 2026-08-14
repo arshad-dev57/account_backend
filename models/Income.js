@@ -408,7 +408,7 @@ class IncomeModel {
     let hasItems = existing.hasItems || false;
     let items = existing.items || [];
 
-    if (data.items) {
+    if (data.items && Array.isArray(data.items) && data.items.length > 0) {
       hasItems = true;
       items = data.items.map(item => ({
         description: item.description,

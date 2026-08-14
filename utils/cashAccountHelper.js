@@ -5,7 +5,7 @@
 const prisma = require('../prisma/client');
 
 const DEFAULT_CASH_CODE = '1001';
-const LEGACY_CASH_CODES = ['1010', '1100']; // old helpers / warehouse mistakes
+const LEGACY_CASH_CODES = ['1010']; // old helpers — never 1100 (that is AR)
 
 function db(client) {
   return client || prisma;

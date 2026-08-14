@@ -14,7 +14,7 @@ const DEFAULT_ACCOUNTS = [
   { code: '1510', name: 'Accumulated Depreciation', type: 'Asset', parentAccount: 'Non-Current Assets', balanceType: 'Credit' },
 
   // LIABILITIES
-  { code: '2001', name: 'Accounts Payable', type: 'Liability', parentAccount: 'Current Liabilities', balanceType: 'Credit' },
+  { code: '2010', name: 'Accounts Payable', type: 'Liability', parentAccount: 'Current Liabilities', balanceType: 'Credit' },
   { code: '2100', name: 'Taxes Payable', type: 'Liability', parentAccount: 'Current Liabilities', balanceType: 'Credit' },
   { code: '2200', name: 'Salaries Payable', type: 'Liability', parentAccount: 'Current Liabilities', balanceType: 'Credit' },
   { code: '2300', name: 'Loan Payable', type: 'Liability', parentAccount: 'Non-Current Liabilities', balanceType: 'Credit' },

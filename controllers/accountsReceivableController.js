@@ -1166,7 +1166,7 @@ const recordPayment = async (req, res) => {
           let bankAccount = null;
           let debitAccount = cashAccount;
 
-          if (bankAccountId) {
+          if (bankAccountId && String(paymentMethod || '').toLowerCase() !== 'cash') {
             bankAccount = await tx.bankAccount.findFirst({
               where: { id: bankAccountId, companyId: companyId, status: 'Active' },
               include: { chartOfAccount: true }

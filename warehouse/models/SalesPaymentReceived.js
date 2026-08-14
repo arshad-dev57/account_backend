@@ -210,11 +210,19 @@ class SalesPaymentReceivedModel {
           : arAccount;
 
       // ─── Get or Create Cash Account ────────────────────────
-      const cashAccount = await getOrCreateCashAccount(userId, companyId, tx);
+      const cashAccount = await getOrCreateCashAccount(
+        userId || createdBy,
+        companyId,
+        tx
+      );
+      if (!cashAccount) {
+        throw new Error('Cash in Hand account not found. Cannot record cash payment.');
+      }
 
-      // ─── Get Bank Account ────────────────────────────────
+      // ─── Get Bank Account (non-cash methods only) ──────────
+      const isCash = String(paymentMethod || 'Cash').toLowerCase() === 'cash';
       let bankAccount = null;
-      if (bankAccountId) {
+      if (!isCash && bankAccountId) {
         bankAccount = await tx.bankAccount.findFirst({
           where: {
             id: bankAccountId,
@@ -228,35 +236,20 @@ class SalesPaymentReceivedModel {
         }
       }
 
-      // ─── Resolve Debit Account for Journal Entry ─────────
-      let debitAccountId = arAccount.id;
-      let debitAccountName = 'Cash';
-      let debitAccountCode = '1100';
+      // ─── Resolve Debit Account: Cash in Hand (1001) for cash ─
+      let debitAccountId = cashAccount.id;
+      let debitAccountName = cashAccount.name;
+      let debitAccountCode = cashAccount.code;
 
-      if (bankAccount) {
-        if (bankAccount.chartOfAccountId) {
-          const bankGLAccount = await tx.chartOfAccount.findUnique({
-            where: { id: bankAccount.chartOfAccountId }
-          });
-          if (bankGLAccount) {
-            debitAccountId = bankGLAccount.id;
-            debitAccountName = bankGLAccount.name;
-            debitAccountCode = bankGLAccount.code;
-          } else {
-            debitAccountId = cashAccount.id;
-            debitAccountName = cashAccount.name;
-            debitAccountCode = cashAccount.code;
-          }
-        } else {
-          // Bank has no linked GL — fall back to Cash (never debit AR)
-          debitAccountId = cashAccount.id;
-          debitAccountName = cashAccount.name;
-          debitAccountCode = cashAccount.code;
+      if (!isCash && bankAccount?.chartOfAccountId) {
+        const bankGLAccount = await tx.chartOfAccount.findUnique({
+          where: { id: bankAccount.chartOfAccountId }
+        });
+        if (bankGLAccount) {
+          debitAccountId = bankGLAccount.id;
+          debitAccountName = bankGLAccount.name;
+          debitAccountCode = bankGLAccount.code;
         }
-      } else {
-        debitAccountId = cashAccount.id;
-        debitAccountName = cashAccount.name;
-        debitAccountCode = cashAccount.code;
       }
 
       // ─── Create Journal Entry ────────────────────────────

@@ -131,6 +131,22 @@ exports.getEquityAccounts = async (req, res) => {
       notes: chart.description || '',
     }));
 
+    const {
+      isCurrentYearEarningsAccount,
+      liveCurrentYearEarnings,
+      earningsWindowForCompany
+    } = require('../utils/profitLossHelper');
+    const window = await earningsWindowForCompany(companyId, req.query.fiscalYearId);
+    const currentYearEarnings = await liveCurrentYearEarnings(
+      companyId,
+      window.start,
+      window.end
+    );
+    accounts = accounts.map((account) => {
+      if (!isCurrentYearEarningsAccount(account)) return account;
+      return { ...account, currentBalance: currentYearEarnings };
+    });
+
     if (accountType && accountType !== 'All') {
       accounts = accounts.filter((a) => a.accountType === accountType);
     }
@@ -670,13 +686,32 @@ exports.getSummary = async (req, res) => {
       where: { type: 'Equity', companyId, isActive: true }
     });
 
+    const {
+      isCurrentYearEarningsAccount,
+      liveCurrentYearEarnings,
+      earningsWindowForCompany
+    } = require('../utils/profitLossHelper');
+    const { buildBalanceSheetFromLedger } = require('../utils/balanceSheetHelper');
+    const window = await earningsWindowForCompany(companyId, req.query.fiscalYearId);
+    const [currentYearEarnings, bs] = await Promise.all([
+      liveCurrentYearEarnings(companyId, window.start, window.end),
+      buildBalanceSheetFromLedger(
+        userId,
+        companyId,
+        'All Time',
+        window.end,
+        req.query.fiscalYearId
+      )
+    ]);
+
     let totalCapital = 0;
     let totalRetainedEarnings = 0;
     let totalReserves = 0;
     let totalDrawings = 0;
 
     for (const account of accounts) {
-      const balance = account.currentBalance || 0;
+      const isCye = isCurrentYearEarningsAccount(account);
+      const balance = isCye ? currentYearEarnings : (account.currentBalance || 0);
       const type = deriveAccountType(account.name);
       if (type === 'Capital' || type === 'Share Capital') totalCapital += balance;
       else if (type === 'Retained Earnings') totalRetainedEarnings += balance;
@@ -684,14 +719,34 @@ exports.getSummary = async (req, res) => {
       else if (type === 'Drawings') totalDrawings += balance;
     }
 
+    const owners = bs.equity?.owners || [];
+    const ownerCapital = owners
+      .filter((item) => {
+        const name = String(item.name || '').toLowerCase();
+        if (/current year earnings/i.test(item.name || '')) return false;
+        if (name.includes('retained')) return false;
+        if (name.includes('drawing')) return false;
+        return true;
+      })
+      .reduce((sum, item) => sum + Number(item.balance || 0), 0);
+    const equityNow = Number(bs.totals?.totalEquity || 0);
+    const periodEarnings = currentYearEarnings;
+    const changeOnCapital = equityNow - ownerCapital;
+
     const totalEquity = totalCapital + totalRetainedEarnings + totalReserves - totalDrawings;
 
     const summaryData = {
-      totalCapital,
+      totalCapital: ownerCapital || totalCapital,
       totalRetainedEarnings,
       totalReserves,
       totalDrawings,
-      totalEquity
+      totalEquity: equityNow || totalEquity,
+      currentYearEarnings,
+      ownerCapital,
+      periodEarnings,
+      equityNow,
+      changeOnCapital,
+      isIncrease: periodEarnings >= 0
     };
 
     res.status(200).json({ success: true, data: summaryData });

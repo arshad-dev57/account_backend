@@ -16,6 +16,7 @@ const EXPENSE_ACCOUNT_MAPPING = {
   'Maintenance': { code: '5900', name: 'Maintenance Expense' },
   'Software': { code: '6000', name: 'Software Expense' },
   'Taxes': { code: '6100', name: 'Taxes Expense' },
+  'Miscellaneous': { code: '6900', name: 'Other Expenses' },
   'Other': { code: '6900', name: 'Other Expenses' }
 };
 
@@ -28,10 +29,6 @@ function mapPurchasePaymentMethod(method) {
   return 'Cash';
 }
 
-/**
- * Create a Posted expense from a completed purchase payment.
- * Skips journal/bank updates — those are already posted by the purchase payment.
- */
 const createExpenseFromPurchasePayment = async ({
   userId,
   companyId,
@@ -167,6 +164,131 @@ async function getExpenseAccountsForDropdown(userId, companyId) {
   });
 }
 
+function expenseAccessWhere(id, userId, companyId) {
+  return {
+    id,
+    OR: [
+      { companyId },
+      { companyId: null, createdBy: userId }
+    ]
+  };
+}
+
+async function reverseExpenseBalances(existing, companyId) {
+  const amount = Number(existing.totalAmount) || 0;
+  if (amount <= 0) return;
+
+  if (existing.expenseAccountId) {
+    await prisma.chartOfAccount.update({
+      where: { id: existing.expenseAccountId },
+      data: { currentBalance: { decrement: amount } }
+    });
+  }
+
+  if (existing.bankAccountId) {
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { id: existing.bankAccountId, companyId },
+      include: { chartOfAccount: true }
+    });
+    if (bankAccount) {
+      await prisma.bankAccount.update({
+        where: { id: existing.bankAccountId },
+        data: { currentBalance: { increment: amount } }
+      });
+      if (bankAccount.chartOfAccountId) {
+        await prisma.chartOfAccount.update({
+          where: { id: bankAccount.chartOfAccountId },
+          data: { currentBalance: { increment: amount } }
+        });
+      }
+    }
+  } else {
+    const { findCashAccount } = require('../utils/cashAccountHelper');
+    const cashAccount = await findCashAccount(companyId);
+    if (cashAccount) {
+      await prisma.chartOfAccount.update({
+        where: { id: cashAccount.id },
+        data: { currentBalance: { increment: amount } }
+      });
+    }
+  }
+}
+
+async function applyExpenseBalances({
+  expenseAccount,
+  cashOrBankAccount,
+  bankAccountId,
+  bankAccountData,
+  totalAmount
+}) {
+  const amount = Number(totalAmount) || 0;
+  if (amount <= 0) return;
+
+  if (bankAccountId && bankAccountData) {
+    await prisma.bankAccount.update({
+      where: { id: bankAccountId },
+      data: { currentBalance: { decrement: amount } }
+    });
+    if (bankAccountData.chartOfAccountId) {
+      await prisma.chartOfAccount.update({
+        where: { id: bankAccountData.chartOfAccountId },
+        data: { currentBalance: { decrement: amount } }
+      });
+    }
+  } else if (cashOrBankAccount) {
+    await prisma.chartOfAccount.update({
+      where: { id: cashOrBankAccount.id },
+      data: { currentBalance: { decrement: amount } }
+    });
+  }
+
+  await prisma.chartOfAccount.update({
+    where: { id: expenseAccount.id },
+    data: { currentBalance: { increment: amount } }
+  });
+}
+
+async function reverseExpenseJournals(existing, userId, companyId) {
+  const journals = await prisma.journalEntry.findMany({
+    where: {
+      companyId,
+      status: 'Posted',
+      OR: [
+        { reference: existing.expenseNumber },
+        { description: { contains: existing.expenseNumber } }
+      ]
+    },
+    include: { lines: true }
+  });
+
+  for (const je of journals) {
+    if (/^reversal of/i.test(je.description || '')) continue;
+    await prisma.journalEntry.create({
+      data: {
+        entryNumber: `JE-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+        date: existing.date || new Date(),
+        description: `Reversal of ${je.entryNumber} (${existing.expenseNumber})`,
+        reference: existing.expenseNumber,
+        status: 'Posted',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        companyId,
+        lines: {
+          create: je.lines.map((line) => ({
+            accountId: line.accountId,
+            accountName: line.accountName,
+            accountCode: line.accountCode,
+            debit: line.credit,
+            credit: line.debit,
+            isReconciled: false
+          }))
+        }
+      }
+    });
+  }
+}
+
 async function createExpenseJournalEntry(userId, companyId, expense, expenseAccount, cashOrBankAccount) {
   const entryNumber = `JE-${Date.now()}`;
 
@@ -205,11 +327,6 @@ async function createExpenseJournalEntry(userId, companyId, expense, expenseAcco
   });
 }
 
-// ============================================================
-// @desc    Get expense accounts for dropdown
-// @route   GET /api/expenses/accounts
-// @access  Private
-// ============================================================
 const getExpenseAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -667,15 +784,10 @@ const updateExpense = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const existing = await prisma.expense.findFirst({
-      where: {
-        id,
-        creator: {
-          id: userId
-        }
-      }
+      where: expenseAccessWhere(id, userId, companyId)
     });
 
     if (!existing) {
@@ -685,10 +797,10 @@ const updateExpense = async (req, res) => {
       });
     }
 
-    if (existing.status === 'Posted') {
+    if (existing.status === 'Cancelled') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot update posted expense record'
+        message: 'Cannot update a cancelled expense'
       });
     }
 
@@ -741,13 +853,21 @@ const updateExpense = async (req, res) => {
       cleanBankAccountId = rawValue;
     }
 
+    const finalPaymentMethod = paymentMethod || existing.paymentMethod || 'Cash';
+    if (finalPaymentMethod === 'Cash') {
+      cleanBankAccountId = null;
+    }
+
+    let bankAccountData = null;
     if (cleanBankAccountId) {
-      const bankAccount = await prisma.bankAccount.findFirst({
+      bankAccountData = await prisma.bankAccount.findFirst({
         where: {
           id: cleanBankAccountId,
           companyId: companyId}
+        ,
+        include: { chartOfAccount: true }
       });
-      if (!bankAccount) {
+      if (!bankAccountData) {
         return res.status(400).json({
           success: false,
           message: 'Bank account not found or does not belong to you'
@@ -755,31 +875,36 @@ const updateExpense = async (req, res) => {
       }
     }
 
-    if (expenseAccountId) {
-      const expenseAccount = await prisma.chartOfAccount.findFirst({
-        where: {
-          id: expenseAccountId,
-          companyId: companyId,
-          type: 'Expense'
-        }
-      });
-      if (!expenseAccount) {
-        return res.status(400).json({
-          success: false,
-          message: 'Selected expense account not found'
-        });
+    const nextExpenseAccountId = expenseAccountId || existing.expenseAccountId;
+    const expenseAccount = await prisma.chartOfAccount.findFirst({
+      where: {
+        id: nextExpenseAccountId,
+        companyId: companyId,
+        type: 'Expense'
       }
+    });
+    if (!expenseAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected expense account not found'
+      });
+    }
+
+    const wasPosted = existing.status === 'Posted';
+    if (wasPosted) {
+      await reverseExpenseJournals(existing, userId, companyId);
+      await reverseExpenseBalances(existing, companyId);
     }
 
     const updateData = {
       date: date || existing.date,
       expenseType: expenseType || existing.expenseType,
-      expenseAccountId: expenseAccountId || existing.expenseAccountId,
-      vendorId: vendorId || existing.vendorId,
+      expenseAccountId: nextExpenseAccountId,
+      vendorId: vendorId !== undefined ? vendorId : existing.vendorId,
       vendorName: vendorName || existing.vendorName,
       description: description !== undefined ? description : existing.description,
       reference: reference !== undefined ? reference : existing.reference,
-      paymentMethod: paymentMethod || existing.paymentMethod,
+      paymentMethod: finalPaymentMethod,
       bankAccountId: cleanBankAccountId,
       taxRate: taxRate !== undefined ? taxRate : existing.taxRate
     };
@@ -825,10 +950,36 @@ const updateExpense = async (req, res) => {
 
     const updated = await ExpenseModel.update(id, updateData);
 
+    if (wasPosted) {
+      let cashOrBankAccount;
+      if (finalPaymentMethod === 'Cash' || !cleanBankAccountId) {
+        cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
+      } else if (bankAccountData?.chartOfAccount) {
+        cashOrBankAccount = bankAccountData.chartOfAccount;
+      } else {
+        cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
+      }
+
+      await createExpenseJournalEntry(
+        userId,
+        companyId,
+        updated,
+        expenseAccount,
+        cashOrBankAccount
+      );
+      await applyExpenseBalances({
+        expenseAccount,
+        cashOrBankAccount,
+        bankAccountId: cleanBankAccountId,
+        bankAccountData,
+        totalAmount: updated.totalAmount
+      });
+    }
+
     res.status(200).json({
       success: true,
       data: updated,
-      message: 'Expense record updated successfully'
+      message: 'Expense updated. Ledger, cash/bank and reports now use the new amount.'
     });
 
 } catch (error) {
@@ -840,11 +991,6 @@ const updateExpense = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Delete expense
-// @route   DELETE /api/expenses/:id
-// @access  Private
-// ============================================================
 const deleteExpense = async (req, res) => {
   try {
     const { id } = req.params;
@@ -852,12 +998,7 @@ const deleteExpense = async (req, res) => {
 
     const companyId = req.user.companyId;
     const existing = await prisma.expense.findFirst({
-      where: {
-        id,
-        creator: {
-          id: userId
-        }
-      }
+      where: expenseAccessWhere(id, userId, companyId)
     });
 
     if (!existing) {
@@ -876,52 +1017,9 @@ const deleteExpense = async (req, res) => {
       throw err;
     }
 
-    // Reverse balance changes if expense was Posted
     if (existing.status === 'Posted') {
-      // Reverse expense account balance (decrement since it was incremented)
-      if (existing.expenseAccountId) {
-        await prisma.chartOfAccount.update({
-          where: { id: existing.expenseAccountId },
-          data: { currentBalance: { decrement: existing.totalAmount } }
-        });
-      }
-
-      // Reverse bank/cash account balance (increment since it was decremented)
-      if (existing.bankAccountId) {
-        const bankAccount = await prisma.bankAccount.findFirst({
-          where: {
-            id: existing.bankAccountId,
-            companyId: companyId
-          },
-          include: {
-            chartOfAccount: true
-          }
-        });
-        if (bankAccount) {
-          // Reverse BankAccount.currentBalance
-          await prisma.bankAccount.update({
-            where: { id: existing.bankAccountId },
-            data: { currentBalance: { increment: existing.totalAmount } }
-          });
-          // Reverse ChartOfAccount.currentBalance for the bank account
-          if (bankAccount.chartOfAccountId) {
-            await prisma.chartOfAccount.update({
-              where: { id: bankAccount.chartOfAccountId },
-              data: { currentBalance: { increment: existing.totalAmount } }
-            });
-          }
-        }
-      } else {
-        // If paid with cash, reverse cash account balance (1001 or legacy cash)
-        const { findCashAccount } = require('../utils/cashAccountHelper');
-        const cashAccount = await findCashAccount(companyId);
-        if (cashAccount) {
-          await prisma.chartOfAccount.update({
-            where: { id: cashAccount.id },
-            data: { currentBalance: { increment: existing.totalAmount } }
-          });
-        }
-      }
+      await reverseExpenseJournals(existing, userId, companyId);
+      await reverseExpenseBalances(existing, companyId);
     }
 
     await ExpenseModel.delete(id);
@@ -940,11 +1038,6 @@ const deleteExpense = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get expense summary
-// @route   GET /api/expenses/summary
-// @access  Private
-// ============================================================
 const getSummary = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -985,11 +1078,6 @@ const getSummary = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Post expense (Draft → Posted)
-// @route   POST /api/expenses/:id/post
-// @access  Private
-// ============================================================
 const postExpense = async (req, res) => {
   try {
     const { id } = req.params;

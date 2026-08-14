@@ -2,6 +2,8 @@
 
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
+const { getOrCreateApAccount } = require('../../utils/apAccountHelper');
+const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
 
 // ─── Generate Payment Number ──────────────────────────────
 function generatePaymentNumber() {
@@ -13,40 +15,8 @@ function generatePaymentNumber() {
   return `PP-${year}${month}${day}-${random}`;
 }
 
-// ─── Helper: Find AP Account (unified code 2000) ──────────
-async function findAPAccount(tx, companyId) {
-  let account = await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '2000' },
-        { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
-        { name: { contains: 'Trade Payables', mode: 'insensitive' } },
-        { name: { contains: 'Creditors', mode: 'insensitive' } },
-      ]
-    }
-  });
-
-  if (!account) {
-    account = await tx.chartOfAccount.create({
-      data: {
-        code: '2000',
-        name: 'Accounts Payable',
-        type: 'Liability',
-        parentAccount: 'Current Liabilities',
-        openingBalance: 0,
-        currentBalance: 0,
-        balanceType: 'Credit',
-        description: 'Accounts Payable',
-        isActive: true,
-        createdBy: 'SYSTEM',
-        companyId
-      }
-    });
-  }
-
-  return account;
+async function findAPAccount(tx, companyId, userId) {
+  return getOrCreateApAccount(userId || 'SYSTEM', companyId, tx);
 }
 
 // ─── Helper: Find Bank Account ──────────────────────────────
@@ -60,20 +30,9 @@ async function findBankAccount(tx, companyId, bankAccountId) {
   });
 }
 
-// ─── Helper: Find Cash Account ──────────────────────────────
-async function findCashAccount(tx, companyId) {
-  let account = await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '1100' },
-        { name: { contains: 'Cash', mode: 'insensitive' } }
-      ]
-    }
-  });
-
-  return account;
+// ─── Helper: Find Cash in Hand (COA 1001) ──────────────────────
+async function findCashAccount(tx, companyId, userId) {
+  return getOrCreateCashAccount(userId || 'SYSTEM', companyId, tx);
 }
 
 class PurchasePaymentMakeModel {
@@ -287,41 +246,29 @@ class PurchasePaymentMakeModel {
         throw new Error('Accounts Payable account not found. Please create an account with code "2000" or name "Accounts Payable".');
       }
 
-      // ─── Resolve Debit Account ──────────────────────────────
-      let debitAccountId = apAccount.id;
-      let debitAccountName = 'Cash';
-      let debitAccountCode = '1100';
+      // ─── Resolve credit account (Cash / Bank) — never AP ──────
+      let creditAccount = null;
 
-      if (bankAccountId) {
+      if (bankAccountId && (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online Payment')) {
         const bankAccount = await findBankAccount(tx, companyId, bankAccountId);
-        if (bankAccount) {
-          if (bankAccount.chartOfAccountId) {
-            const bankGLAccount = await tx.chartOfAccount.findUnique({
-              where: { id: bankAccount.chartOfAccountId }
-            });
-            if (bankGLAccount) {
-              debitAccountId = bankGLAccount.id;
-              debitAccountName = bankGLAccount.name;
-              debitAccountCode = bankGLAccount.code;
-            }
-          } else {
-            // Bank has no linked GL — fall back to Cash (never credit AP)
-            const cashAccount = await findCashAccount(tx, companyId);
-            if (cashAccount) {
-              debitAccountId = cashAccount.id;
-              debitAccountName = cashAccount.name;
-              debitAccountCode = cashAccount.code;
-            }
-          }
-        }
-      } else {
-        const cashAccount = await findCashAccount(tx, companyId);
-        if (cashAccount) {
-          debitAccountId = cashAccount.id;
-          debitAccountName = cashAccount.name;
-          debitAccountCode = cashAccount.code;
+        if (bankAccount?.chartOfAccountId) {
+          creditAccount = await tx.chartOfAccount.findUnique({
+            where: { id: bankAccount.chartOfAccountId }
+          });
         }
       }
+
+      if (!creditAccount) {
+        creditAccount = await findCashAccount(tx, companyId, createdBy);
+      }
+
+      if (!creditAccount) {
+        throw new Error('Cash in Hand account not found. Cannot record cash payment.');
+      }
+
+      const debitAccountId = creditAccount.id;
+      const debitAccountName = creditAccount.name;
+      const debitAccountCode = creditAccount.code;
 
       // ─── Create Journal Entry ────────────────────────────────
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;

@@ -2,13 +2,12 @@
 
 const prisma = require('../prisma/client');
 const BalanceCalculator = require('../utils/balanceCalculator');
+const { hideUnusedDuplicateApAccounts } = require('../utils/apAccountHelper');
 
-// ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
 const DEBIT_BALANCE_TYPES = ['Asset', 'Expense'];
 const CREDIT_BALANCE_TYPES = ['Liability', 'Equity', 'Revenue'];
 
-// ─── TYPE MAPPING ──────────────────────────────────────────────────
 const TYPE_MAP = {
   'Assets': 'Asset',
   'Asset': 'Asset',
@@ -21,12 +20,6 @@ const TYPE_MAP = {
   'Expense': 'Expense'
 };
 const ALLOWED_ACCOUNT_SORT = ['code', 'name', 'type', 'currentBalance', 'createdAt', 'updatedAt'];
-
-// ─── CORE LOGIC: Opening Balance Management ───────────────────────
-
-/**
- * Get or create Opening Balance Equity account
- */
 async function getOrCreateOpeningBalanceEquity(userId, companyId) {
   let equityAccount = await prisma.chartOfAccount.findFirst({
     where: {
@@ -60,9 +53,6 @@ async function getOrCreateOpeningBalanceEquity(userId, companyId) {
   return equityAccount;
 }
 
-/**
- * Check if opening balance journal entry exists
- */
 async function getOpeningBalanceEntry(userId, companyId) {
   return await prisma.journalEntry.findFirst({
     where: {
@@ -83,9 +73,6 @@ async function getOpeningBalanceEntry(userId, companyId) {
   });
 }
 
-/**
- * Check if opening entry is balanced
- */
 async function isOpeningEntryBalanced(journalId) {
   const lines = await prisma.journalLine.findMany({
     where: { journalId }
@@ -97,9 +84,7 @@ async function isOpeningEntryBalanced(journalId) {
   return Math.abs(totalDebit - totalCredit) < 0.001;
 }
 
-/**
- * Create or update opening balance journal entry
- */
+
 async function createOrUpdateOpeningBalanceEntry(
   userId,
   accountId,
@@ -108,14 +93,11 @@ async function createOrUpdateOpeningBalanceEntry(
   accountName,
   accountCode
 ) {
-  // Get or create opening balance entry
   let openingEntry = await getOpeningBalanceEntry(userId);
 
-  // Get or create equity account
   const equityAccount = await getOrCreateOpeningBalanceEquity(userId);
 
   if (!openingEntry) {
-    // ─── CREATE NEW OPENING BALANCE ENTRY ───────────────────────
     const isDebit = DEBIT_BALANCE_TYPES.includes(accountType);
     
     openingEntry = await prisma.journalEntry.create({
@@ -158,7 +140,6 @@ async function createOrUpdateOpeningBalanceEntry(
       }
     });
   } else {
-    // ─── UPDATE EXISTING OPENING BALANCE ENTRY ──────────────────
     const existingLine = openingEntry.lines.find(
       line => line.accountId === accountId
     );
@@ -259,13 +240,11 @@ async function createOrUpdateOpeningBalanceEntry(
       }
     }
 
-    // Update account balance
     await prisma.chartOfAccount.update({
       where: { id: accountId },
       data: { currentBalance: amount }
     });
 
-    // Update equity account balance
     const equityBalance = await getEquityBalance(openingEntry.id);
     await prisma.chartOfAccount.update({
       where: { id: equityAccount.id },
@@ -290,9 +269,6 @@ async function getEquityBalance(journalId) {
   return totalCredit - totalDebit;
 }
 
-// ============================================================
-// CREATE ACCOUNT - REDESIGNED
-// ============================================================
 const createAccount = async (req, res) => {
   try {
     let {
@@ -344,10 +320,7 @@ const createAccount = async (req, res) => {
       });
     }
 
-    // ─── Determine balance type ──────────────────────────────────
     const balanceType = DEBIT_BALANCE_TYPES.includes(type) ? 'Debit' : 'Credit';
-
-    // ─── Create account ──────────────────────────────────────────
     const account = await prisma.chartOfAccount.create({
       data: {
         code,
@@ -370,7 +343,6 @@ const createAccount = async (req, res) => {
       }
     });
 
-    // ─── HANDLE OPENING BALANCE ──────────────────────────────────
     if (openingBalance && openingBalance > 0 && isOpeningBalance !== false) {
       await createOrUpdateOpeningBalanceEntry(
         userId,
@@ -422,9 +394,6 @@ const createAccount = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET OPENING BALANCE STATUS
-// ============================================================
 const getOpeningBalanceStatus = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -505,9 +474,6 @@ const getOpeningBalanceStatus = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET OPENING BALANCE SUMMARY
-// ============================================================
 const getOpeningBalanceSummary = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -593,9 +559,6 @@ const getOpeningBalanceSummary = async (req, res) => {
   }
 };
 
-// ============================================================
-// VALIDATE OPENING BALANCE
-// ============================================================
 const validateOpeningBalance = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -672,9 +635,6 @@ const validateOpeningBalance = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET ALL ACCOUNTS
-// ============================================================
 const getAccounts = async (req, res) => {
   try {
     const {
@@ -683,12 +643,19 @@ const getAccounts = async (req, res) => {
       page = 1,
       limit = 10,
       sortBy = 'code',
-      sortOrder = 'asc'
+      sortOrder = 'asc',
+      fiscalYearId
     } = req.query;
 
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
+
+    try {
+      await hideUnusedDuplicateApAccounts(companyId);
+    } catch (cleanupErr) {
+      console.log('⚠️ [COA] AP duplicate cleanup skipped:', cleanupErr.message);
+    }
 
     const filter = { 
       companyId: companyId,
@@ -786,9 +753,32 @@ const getAccounts = async (req, res) => {
       };
     });
 
+    const {
+      isCurrentYearEarningsAccount,
+      liveCurrentYearEarnings,
+      earningsWindowForCompany
+    } = require('../utils/profitLossHelper');
+
+    const hasCyeRow = accountsWithBalances.some(isCurrentYearEarningsAccount);
+    let currentYearEarnings = 0;
+    if (hasCyeRow) {
+      const window = await earningsWindowForCompany(companyId, fiscalYearId);
+      currentYearEarnings = await liveCurrentYearEarnings(
+        companyId,
+        window.start,
+        window.end
+      );
+    }
+
+    const accountsForResponse = accountsWithBalances.map((account) => {
+      if (!isCurrentYearEarningsAccount(account)) return account;
+      return { ...account, currentBalance: currentYearEarnings };
+    });
+
     // Persist JE-derived balances so Trial Balance / other screens stay consistent
     await Promise.all(
       accountsWithBalances.map((acc) => {
+        if (isCurrentYearEarningsAccount(acc)) return null;
         if (Number(acc.currentBalance) === Number(accounts.find((a) => a.id === acc.id)?.currentBalance || 0)) {
           return null;
         }
@@ -818,12 +808,12 @@ const getAccounts = async (req, res) => {
 
     const totalPages = Math.max(1, Math.ceil(totalCount / limitNum) || 1);
     const startIndex = totalCount === 0 ? 0 : skip + 1;
-    const endIndex = Math.min(skip + accountsWithBalances.length, totalCount);
+    const endIndex = Math.min(skip + accountsForResponse.length, totalCount);
 
     const responseData = {
-      count: accountsWithBalances.length,
+      count: accountsForResponse.length,
       totalCount: totalCount,
-      data: accountsWithBalances,
+      data: accountsForResponse,
       summary,
       stats: {
         total: totalCount,
@@ -838,7 +828,7 @@ const getAccounts = async (req, res) => {
         page: pageNum,
         limit: limitNum,
         pages: totalPages,
-        hasNext: pageNum < totalPages && skip + accountsWithBalances.length < totalCount,
+        hasNext: pageNum < totalPages && skip + accountsForResponse.length < totalCount,
         hasPrev: pageNum > 1,
         nextPage: pageNum < totalPages ? pageNum + 1 : null,
         prevPage: pageNum > 1 ? pageNum - 1 : null,
@@ -1032,9 +1022,6 @@ const updateAccount = async (req, res) => {
   }
 };
 
-// ============================================================
-// DELETE ACCOUNT
-// ============================================================
 const deleteAccount = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1363,9 +1350,6 @@ const getAccountsByType = async (req, res) => {
   }
 };
 
-// ============================================================
-// FIX ACCOUNT TYPE
-// ============================================================
 const fixAccountType = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1429,9 +1413,6 @@ const fixAccountType = async (req, res) => {
   }
 };
 
-// ============================================================
-// FIX CASH ACCOUNTS
-// ============================================================
 const fixCashAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1499,9 +1480,6 @@ const fixCashAccounts = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET ACCOUNT TYPE STATS
-// ============================================================
 const getAccountTypeStats = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1572,9 +1550,6 @@ const getAccountTypeStats = async (req, res) => {
   }
 };
 
-// ============================================================
-// BULK IMPORT ACCOUNTS
-// ============================================================
 const bulkImportAccounts = async (req, res) => {
   try {
     const { accounts } = req.body;

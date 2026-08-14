@@ -5,7 +5,7 @@ const prisma = require('../prisma/client');
 const VALID_EXPENSE_TYPES = [
   'Rent', 'Utilities', 'Salaries', 'Marketing',
   'Office Supplies', 'Travel', 'Meals', 'Insurance',
-  'Maintenance', 'Software', 'Taxes', 'Other'
+  'Maintenance', 'Software', 'Taxes', 'Miscellaneous', 'Other'
 ];
 
 const VALID_PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Online'];
@@ -19,8 +19,14 @@ class ExpenseModel {
     const errors = [];
 
     if (!data.expenseType) errors.push('Expense type is required');
-    if (!VALID_EXPENSE_TYPES.includes(data.expenseType)) {
-      errors.push(`Invalid expense type. Must be one of: ${VALID_EXPENSE_TYPES.join(', ')}`);
+    else {
+      const type = String(data.expenseType).trim();
+      data.expenseType = type;
+      const isKnown = VALID_EXPENSE_TYPES.includes(type);
+      const isCustom = type.length >= 2 && type.length <= 80;
+      if (!isKnown && !isCustom) {
+        errors.push('Expense type must be 2–80 characters');
+      }
     }
 
     if (data.paymentMethod && !VALID_PAYMENT_METHODS.includes(data.paymentMethod)) {

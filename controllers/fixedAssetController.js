@@ -3,6 +3,7 @@ const FixedAssetModel = require('../models/FixedAsset');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const { getOrCreateApAccount } = require('../utils/apAccountHelper');
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
@@ -149,38 +150,8 @@ async function getOrCreateDepreciationExpenseAccount(userId, companyId) {
   return depExpAccount;
 }
 
-// Helper: Get or create Accounts Payable account
 async function getOrCreatePayableAccount(userId, companyId) {
-  let apAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      OR: [
-        { code: '2010' },
-        { code: '2001' },
-        { name: { equals: 'Accounts Payable', mode: 'insensitive' } },
-      ]
-    }
-  });
-
-  if (!apAccount) {
-    apAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: '2010',
-        name: 'Accounts Payable',
-        type: 'Liability',
-        parentAccount: 'Current Liabilities',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Amount due to suppliers',
-        taxCode: 'N/A',
-        balanceType: 'Credit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-  }
-  return apAccount;
+  return getOrCreateApAccount(userId, companyId);
 }
 
 // Helper: Get or create Opening Balance Equity account

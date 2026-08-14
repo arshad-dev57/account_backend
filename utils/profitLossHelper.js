@@ -152,6 +152,39 @@ async function buildProfitLossFromLedger(companyId, start, end) {
   };
 }
 
+function isCurrentYearEarningsAccount(account = {}) {
+  const code = String(account.code || account.accountCode || '');
+  const name = String(account.name || account.accountName || '');
+  return code === '3200' || /current year earnings/i.test(name);
+}
+
+async function liveCurrentYearEarnings(companyId, start, end) {
+  if (!companyId) return 0;
+  const now = new Date();
+  const windowStart = start ? new Date(start) : new Date(now.getFullYear(), 0, 1);
+  const windowEnd = end ? new Date(end) : now;
+  const pl = await buildProfitLossFromLedger(companyId, windowStart, windowEnd);
+  return Number(pl.netProfit) || 0;
+}
+
+async function earningsWindowForCompany(companyId, fiscalYearId) {
+  const now = new Date();
+  if (fiscalYearId) {
+    const { getCompanyFiscalYear } = require('./fiscalYearHelper');
+    const fy = await getCompanyFiscalYear(companyId, fiscalYearId);
+    if (fy) {
+      const start = new Date(fy.startDate);
+      const fyEnd = new Date(fy.endDate);
+      const end = now < fyEnd ? now : fyEnd;
+      return { start, end };
+    }
+  }
+  return { start: new Date(now.getFullYear(), 0, 1), end: now };
+}
+
 module.exports = {
   buildProfitLossFromLedger,
+  isCurrentYearEarningsAccount,
+  liveCurrentYearEarnings,
+  earningsWindowForCompany,
 };

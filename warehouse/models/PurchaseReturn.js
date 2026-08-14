@@ -3,6 +3,7 @@
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
 const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
+const { getOrCreateApAccount } = require('../../utils/apAccountHelper');
 
 // ─── Generate Return Number ──────────────────────────────
 function generateReturnNumber() {
@@ -14,20 +15,13 @@ function generateReturnNumber() {
   return `PR-${year}${month}${day}-${random}`;
 }
 
-// ─── Helper: Find AP Account ──────────────────────────────
 async function findAPAccount(tx, companyId) {
-  return tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '2000' },
-        { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
-        { name: { contains: 'Trade Payables', mode: 'insensitive' } },
-        { name: { contains: 'Creditors', mode: 'insensitive' } },
-      ]
-    }
-  });
+  const { findApAccount } = require('../../utils/apAccountHelper');
+  return findApAccount(companyId, tx);
+}
+
+async function findOrCreateAPAccount(tx, companyId, userId) {
+  return getOrCreateApAccount(userId, companyId, tx);
 }
 
 async function findInventoryAccount(tx, companyId) {
@@ -58,29 +52,6 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
       currentBalance: 0,
       balanceType: 'Debit',
       description: 'Inventory asset',
-      taxCode: 'N/A',
-      isActive: true,
-      createdBy: userId || 'SYSTEM',
-      companyId
-    }
-  });
-  return account;
-}
-
-async function findOrCreateAPAccount(tx, companyId, userId) {
-  let account = await findAPAccount(tx, companyId);
-  if (account) return account;
-
-  account = await tx.chartOfAccount.create({
-    data: {
-      code: '2000',
-      name: 'Accounts Payable',
-      type: 'Liability',
-      parentAccount: 'Current Liabilities',
-      openingBalance: 0,
-      currentBalance: 0,
-      balanceType: 'Credit',
-      description: 'Accounts Payable',
       taxCode: 'N/A',
       isActive: true,
       createdBy: userId || 'SYSTEM',
