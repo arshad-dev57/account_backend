@@ -95,88 +95,8 @@ exports.getProfitLossStatement = async (req, res) => {
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
-    // Date-window filter only (FY applied above). Do not filter by fiscalYearId FK
-    // or untagged historical rows disappear / years look identical incorrectly.
-
-    // ─── GET INCOMES (User-specific) ──────────────────────────────
-    const incomes = await prisma.income.findMany({
-      where: {
-        
-        companyId: companyId,
-        date: { gte: start, lte: end },
-        status: 'Posted'
-      }
-    });
-
-    // ─── GET EXPENSES (User-specific) ──────────────────────────────
-    const expenses = await prisma.expense.findMany({
-      where: {
-        
-        companyId: companyId,
-        date: { gte: start, lte: end },
-        status: 'Posted'
-      }
-    });
-
-    console.log('💰 Incomes found:', incomes.length);
-    console.log('💸 Expenses found:', expenses.length);
-
-    // ─── GROUP INCOMES BY TYPE ──────────────────────────────────
-    const revenueByType = {};
-    let totalRevenue = 0;
-
-    incomes.forEach(inc => {
-      const type = inc.incomeType || 'Other Income';
-      const amount = inc.totalAmount || inc.amount || 0;
-      revenueByType[type] = (revenueByType[type] || 0) + amount;
-      totalRevenue += amount;
-    });
-
-    // ─── GROUP EXPENSES BY TYPE ──────────────────────────────────
-    const expensesByType = {};
-    let totalExpenses = 0;
-    let costOfGoodsSold = 0;
-    let operatingExpenses = 0;
-
-    expenses.forEach(exp => {
-      const type = exp.expenseType || 'Other Expense';
-      const amount = exp.totalAmount || exp.amount || 0;
-      expensesByType[type] = (expensesByType[type] || 0) + amount;
-      totalExpenses += amount;
-
-      if (type === 'Cost of Goods Sold' || type === 'Inventory Purchase') {
-        costOfGoodsSold += amount;
-      } else {
-        operatingExpenses += amount;
-      }
-    });
-
-    // ─── SEPARATE OPERATING VS OTHER ────────────────────────────
-    const operatingIncomeTypes = ['Sales', 'Services'];
-    const otherIncomeTypes = ['Interest Income', 'Rental Income', 'Dividend Income', 'Other Income'];
-
-    let operatingRevenue = 0;
-    let otherRevenue = 0;
-
-    Object.entries(revenueByType).forEach(([type, amount]) => {
-      if (operatingIncomeTypes.includes(type)) {
-        operatingRevenue += amount;
-      } else if (otherIncomeTypes.includes(type)) {
-        otherRevenue += amount;
-      } else {
-        operatingRevenue += amount;
-      }
-    });
-
-    // ─── PREPARE ITEMS ──────────────────────────────────────────
-    const revenueItems = Object.entries(revenueByType).map(([name, amount]) => ({ name, amount }));
-    const expenseItems = Object.entries(expensesByType).map(([name, amount]) => ({ name, amount }));
-
-    // ─── CALCULATE FINAL FIGURES ──────────────────────────────────
-    const grossProfit = operatingRevenue - costOfGoodsSold;
-    const netProfit = grossProfit - totalExpenses;
-
-    console.log('📊 Net Profit:', netProfit);
+    const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
+    const pl = await buildProfitLossFromLedger(companyId, start, end);
 
     res.status(200).json({
       success: true,
@@ -186,20 +106,14 @@ exports.getProfitLossStatement = async (req, res) => {
           end: end,
           displayText: getPeriodDisplayText(period, start, end)
         },
-        revenue: {
-          total: totalRevenue,
-          operating: operatingRevenue,
-          other: otherRevenue,
-          items: revenueItems
-        },
-        costOfGoodsSold: costOfGoodsSold,
-        grossProfit: grossProfit,
-        operatingExpenses: {
-          total: operatingExpenses,
-          items: expenseItems.filter(item => item.name !== 'Cost of Goods Sold')
-        },
-        netProfit: netProfit,
-        netProfitMargin: totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
+        revenue: pl.revenue,
+        costOfGoodsSold: pl.costOfGoodsSold,
+        grossProfit: pl.grossProfit,
+        operatingExpenses: pl.operatingExpenses,
+        otherIncome: pl.otherIncome,
+        otherExpenses: pl.otherExpenses,
+        netProfit: pl.netProfit,
+        netProfitMargin: pl.netProfitMargin
       }
     });
   } catch (error) {

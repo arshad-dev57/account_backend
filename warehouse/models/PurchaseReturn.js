@@ -2,6 +2,7 @@
 
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
+const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
 
 // ─── Generate Return Number ──────────────────────────────
 function generateReturnNumber() {
@@ -63,41 +64,6 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
       companyId
     }
   });
-  return account;
-}
-
-async function findOrCreateCashAccount(tx, companyId, userId) {
-  let account = await tx.chartOfAccount.findFirst({
-    where: {
-      companyId,
-      isActive: true,
-      OR: [
-        { code: '1100' },
-        { name: { equals: 'Cash', mode: 'insensitive' } },
-        { name: { contains: 'Cash in Hand', mode: 'insensitive' } },
-        { name: { contains: 'Cash', mode: 'insensitive' } },
-      ]
-    }
-  });
-
-  if (!account) {
-    account = await tx.chartOfAccount.create({
-      data: {
-        code: '1100',
-        name: 'Cash in Hand',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        balanceType: 'Debit',
-        description: 'Cash on hand',
-        taxCode: 'N/A',
-        isActive: true,
-        createdBy: userId || 'SYSTEM',
-        companyId
-      }
-    });
-  }
   return account;
 }
 
@@ -438,7 +404,7 @@ class PurchaseReturnModel {
         companyId,
         userId
       );
-      const cashAccount = await findOrCreateCashAccount(tx, companyId, userId);
+      const cashAccount = await getOrCreateCashAccount(userId, companyId, tx);
       const apAccount = await findOrCreateAPAccount(tx, companyId, userId);
 
       // Paid invoice → cash refund back; unpaid → reduce AP liability

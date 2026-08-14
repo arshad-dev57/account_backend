@@ -2,6 +2,7 @@ const prisma = require('../prisma/client');
 const LoanModel = require('../models/Loan');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
@@ -110,59 +111,6 @@ async function getOrCreateInterestExpenseAccount(userId, companyId) {
     console.log('✅ [LN] Interest Expense account created');
   }
   return interestAccount;
-}
-
-// Helper: Get or create Cash account - FIXED with companyId parameter
-async function getOrCreateCashAccount(userId, companyId) {
-  console.log('🔍 [LN] Getting/Creating Cash account');
-  let cashAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      code: '1010',
-      companyId: companyId
-    }
-  });
-
-  if (!cashAccount) {
-    console.log('📝 [LN] Creating new Cash account');
-    const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1010', companyId: companyId }
-    });
-    
-    let newCode = '1010';
-    if (existingCode) {
-      let counter = 1;
-      let codeExists = true;
-      while (codeExists) {
-        newCode = `101${counter}`;
-        const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, companyId: companyId }
-        });
-        if (!existing) {
-          codeExists = false;
-        }
-        counter++;
-      }
-    }
-
-    cashAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: newCode,
-        name: 'Cash in Hand',
-        type: 'Assets',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash in office',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-    console.log('✅ [LN] Cash account created');
-  }
-  return cashAccount;
 }
 
 // Helper: Validate Lender

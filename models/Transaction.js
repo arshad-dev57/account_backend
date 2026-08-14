@@ -1,6 +1,7 @@
 // models/Transaction.js - FIXED (Remove isActive and isDeleted)
 
 const prisma = require('../prisma/client');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 
 // ─── Generate Transaction Number ──────────────────────────────
 function generateTransactionNumber(type) {
@@ -78,60 +79,6 @@ async function getOrCreateAccount(tx, userId, type, category) {
   return account;
 }
 
-// ─── Helper: Find or Create Cash Account ──────────────────────
-async function getOrCreateCashAccount(tx, userId) {
-  let cashAccount = await tx.chartOfAccount.findFirst({
-    where: {
-      code: '1010',
-      OR: [
-        { createdBy: userId },
-        { userId: userId }
-      ]
-    }
-  });
-  
-  if (!cashAccount) {
-    const existingCode = await tx.chartOfAccount.findFirst({
-      where: { code: '1010' }
-    });
-    
-    let newCode = '1010';
-    if (existingCode) {
-      let counter = 1;
-      while (await tx.chartOfAccount.findFirst({ 
-        where: { 
-          code: `101${counter}`,
-          OR: [
-            { createdBy: userId },
-            { userId: userId }
-          ]
-        }
-      })) {
-        counter++;
-        newCode = `101${counter}`;
-      }
-    }
-    
-    cashAccount = await tx.chartOfAccount.create({
-      data: {
-        code: newCode,
-        name: 'Cash in Hand',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        userId: userId
-      }
-    });
-  }
-  return cashAccount;
-}
-
 // ─── Helper: Get Bank Account's Chart of Account ──────────────
 async function getBankChartOfAccount(tx, bankAccountId, userId) {
   const bankAccount = await tx.bankAccount.findFirst({
@@ -175,6 +122,7 @@ class TransactionModel {
         customerId,
         vendorId,
         bankAccountId,
+        companyId,
         userId,
         createdBy
       } = data;
@@ -239,14 +187,14 @@ class TransactionModel {
       
       let cashOrBankAccount;
       if (paymentMethod === 'Cash') {
-        cashOrBankAccount = await getOrCreateCashAccount(tx, userId);
+        cashOrBankAccount = await getOrCreateCashAccount(userId, companyId, tx);
       } else if (bankAccountId) {
         cashOrBankAccount = await getBankChartOfAccount(tx, bankAccountId, userId);
         if (!cashOrBankAccount) {
-          cashOrBankAccount = await getOrCreateCashAccount(tx, userId);
+          cashOrBankAccount = await getOrCreateCashAccount(userId, companyId, tx);
         }
       } else {
-        cashOrBankAccount = await getOrCreateCashAccount(tx, userId);
+        cashOrBankAccount = await getOrCreateCashAccount(userId, companyId, tx);
       }
 
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;

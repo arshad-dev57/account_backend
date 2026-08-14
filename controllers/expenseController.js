@@ -3,6 +3,7 @@ const ExpenseModel = require('../models/Expense');
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 const EXPENSE_ACCOUNT_MAPPING = {
   'Rent': { code: '5100', name: 'Rent Expense' },
   'Utilities': { code: '5200', name: 'Utilities Expense' },
@@ -164,57 +165,6 @@ async function getExpenseAccountsForDropdown(userId, companyId) {
       code: 'asc'
     }
   });
-}
-
-// ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId, companyId) {
-  let cashAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      code: '1010',
-      companyId: companyId}
-  });
-
-  if (!cashAccount) {
-    const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1010' }
-    });
-
-    let newCode = '1010';
-    if (existingCode) {
-      let counter = 1;
-      let codeExists = true;
-      while (codeExists) {
-        newCode = `101${counter}`;
-        const existing = await prisma.chartOfAccount.findFirst({
-          where: {
-            code: newCode,
-            companyId: companyId}
-        });
-        if (!existing) {
-          codeExists = false;
-        }
-        counter++;
-      }
-    }
-
-    cashAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: newCode,
-        name: 'Cash in Hand',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId
-      }
-    });
-  }
-
-  return cashAccount;
 }
 
 async function createExpenseJournalEntry(userId, companyId, expense, expenseAccount, cashOrBankAccount) {
@@ -962,13 +912,9 @@ const deleteExpense = async (req, res) => {
           }
         }
       } else {
-        // If paid with cash, reverse cash account balance
-        const cashAccount = await prisma.chartOfAccount.findFirst({
-          where: {
-            code: '1010',
-            companyId: companyId
-          }
-        });
+        // If paid with cash, reverse cash account balance (1001 or legacy cash)
+        const { findCashAccount } = require('../utils/cashAccountHelper');
+        const cashAccount = await findCashAccount(companyId);
         if (cashAccount) {
           await prisma.chartOfAccount.update({
             where: { id: cashAccount.id },

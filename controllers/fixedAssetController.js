@@ -2,6 +2,7 @@ const prisma = require('../prisma/client');
 const FixedAssetModel = require('../models/FixedAsset');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
@@ -146,44 +147,6 @@ async function getOrCreateDepreciationExpenseAccount(userId, companyId) {
     console.log('✅ [FA] Depreciation Expense account created');
   }
   return depExpAccount;
-}
-
-// Helper: Get or create Cash account (prefer default COA 1001)
-async function getOrCreateCashAccount(userId, companyId) {
-  console.log('🔍 [FA] Getting/Creating Cash account');
-  let cashAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      OR: [
-        { code: '1001' },
-        { code: '1010' },
-        { name: { contains: 'Cash', mode: 'insensitive' } },
-      ]
-    },
-    orderBy: { code: 'asc' }
-  });
-
-  if (!cashAccount) {
-    console.log('📝 [FA] Creating new Cash account');
-    cashAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: '1001',
-        name: 'Cash in Hand',
-        type: 'Assets',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Cash on hand',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-    console.log('✅ [FA] Cash account created');
-  }
-  return cashAccount;
 }
 
 // Helper: Get or create Accounts Payable account

@@ -3,6 +3,7 @@
 
 const prisma = require('../../prisma/client');
 const { randomUUID } = require('crypto');
+const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
 
 // ─── Number Generators ─────────────────────────────────────────────────────
 function generatePOSInvoiceNumber() {
@@ -19,13 +20,7 @@ function generateJENumber() {
 
 // ─── GL Account Helpers (mirrors existing SalesInvoice/PurchaseInvoice pattern) ──
 async function findOrCreateCashAccount(tx, companyId, userId) {
-  let acc = await tx.chartOfAccount.findFirst({
-    where: { companyId, isActive: true, OR: [{ code: '1100' }, { name: { contains: 'Cash', mode: 'insensitive' } }] }
-  });
-  if (!acc) {
-    acc = await tx.chartOfAccount.create({ data: { code: '1100', name: 'Cash', type: 'Asset', parentAccount: 'Current Assets', openingBalance: 0, currentBalance: 0, balanceType: 'Debit', description: 'Cash on hand', isActive: true, createdBy: userId, companyId } });
-  }
-  return acc;
+  return getOrCreateCashAccount(userId, companyId, tx);
 }
 async function findOrCreateBankAccount(tx, companyId, userId) {
   let acc = await tx.chartOfAccount.findFirst({

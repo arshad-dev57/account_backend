@@ -249,6 +249,13 @@ async function buildBalanceSheetFromLedger(
     throw new Error('companyId is required to build balance sheet');
   }
 
+  try {
+    const SalesInvoice = require('../warehouse/models/SalesInvoice');
+    await SalesInvoice.backfillMissingJournals(companyId, userId);
+  } catch (err) {
+    console.error('Sales invoice journal backfill skipped:', err.message);
+  }
+
   let fyStart = null;
   let fyEnd = null;
   if (fiscalYearId) {

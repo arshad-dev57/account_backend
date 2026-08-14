@@ -131,6 +131,13 @@ async function initializeDefaultChartOfAccounts(companyId, userId) {
       createdAccounts.push(...batchCreated);
     }
 
+    try {
+      const { syncCompanyEquityAccounts } = require('../utils/equityAccountHelper');
+      await syncCompanyEquityAccounts(companyId, userId);
+    } catch (syncErr) {
+      console.log('⚠️ [DefaultCOA] Equity sync skipped:', syncErr.message);
+    }
+
     console.log(`✅ [DefaultCOA] Initialization complete. Created ${createdAccounts.length} accounts for company: ${companyId}`);
     return { 
       success: true, 

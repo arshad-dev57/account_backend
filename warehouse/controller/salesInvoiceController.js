@@ -61,18 +61,20 @@ const createInvoiceFromOrder = async (req, res) => {
       fiscalYearId
     );
 
+    const postedInvoice = await SalesInvoice.postInvoice(invoice.id, userId);
+
     await taxCalculationService.recordFromDocument({
       companyId,
-      transactionId: invoice.id,
+      transactionId: postedInvoice.id,
       transactionType: 'SalesInvoice',
-      items: invoice.items || [],
-      customerId: invoice.customerId
+      items: postedInvoice.items || [],
+      customerId: postedInvoice.customerId
     });
 
     res.status(201).json({
       success: true,
       message: 'Sales invoice created successfully',
-      data: invoice
+      data: postedInvoice
     });
   } catch (error) {
     console.error('Create invoice from order error:', error);
@@ -197,9 +199,11 @@ const createManualInvoice = async (req, res) => {
 
     const invoice = await SalesInvoice.createManual(invoiceData);
 
+    const postedInvoice = await SalesInvoice.postInvoice(invoice.id, userId);
+
     await taxCalculationService.recordFromDocument({
       companyId,
-      transactionId: invoice.id,
+      transactionId: postedInvoice.id,
       transactionType: 'SalesInvoice',
       items: processedItems,
       customerId
@@ -208,7 +212,7 @@ const createManualInvoice = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Sales invoice created successfully',
-      data: invoice
+      data: postedInvoice
     });
   } catch (error) {
     console.error('Create manual invoice error:', error);
@@ -246,10 +250,11 @@ const postInvoice = async (req, res) => {
       });
     }
 
-    if (invoice.invoiceStatus === 'Posted') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invoice already posted'
+    if (invoice.journalEntryId) {
+      return res.status(200).json({
+        success: true,
+        message: 'Invoice already posted',
+        data: invoice
       });
     }
 
