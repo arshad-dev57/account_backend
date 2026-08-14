@@ -4,40 +4,10 @@ const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const { getOrCreateApAccount } = require('../utils/apAccountHelper');
 
-// ─── HELPER: Get or create Accounts Payable account ──────────────
 async function getOrCreatePayableAccount(userId, companyId) {
-  console.log('🔍 [PM] Getting/Creating Accounts Payable account');
-  let apAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      code: '2010',
-      companyId: companyId
-    }
-  });
-
-  if (!apAccount) {
-    console.log('📝 [PM] Creating new Accounts Payable account');
-    apAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: '2010',
-        name: 'Accounts Payable',
-        type: 'Liability',
-        parentAccount: 'Current Liabilities',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Amount due to suppliers',
-        taxCode: 'N/A',
-        balanceType: 'Credit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-    console.log('✅ [PM] Accounts Payable account created');
-  } else {
-    console.log('✅ [PM] Accounts Payable account found');
-  }
-  return apAccount;
+  return getOrCreateApAccount(userId, companyId);
 }
 
 // ─── HELPER: Validate Supplier ──────────────────────────────────

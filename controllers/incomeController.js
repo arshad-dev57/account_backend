@@ -74,6 +74,121 @@ async function getIncomeAccountsForDropdown(userId, companyId) {
 }
 
 // ─── HELPER: Create journal entry for income ─────────────────────
+async function reverseIncomeBalances(existing, companyId) {
+  const amount = Number(existing.totalAmount) || 0;
+  if (amount <= 0) return;
+
+  if (existing.incomeAccountId) {
+    await prisma.chartOfAccount.update({
+      where: { id: existing.incomeAccountId },
+      data: { currentBalance: { decrement: amount } }
+    });
+  }
+
+  if (existing.bankAccountId) {
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { id: existing.bankAccountId, companyId },
+      include: { chartOfAccount: true }
+    });
+    if (bankAccount) {
+      await prisma.bankAccount.update({
+        where: { id: existing.bankAccountId },
+        data: { currentBalance: { decrement: amount } }
+      });
+      if (bankAccount.chartOfAccountId) {
+        await prisma.chartOfAccount.update({
+          where: { id: bankAccount.chartOfAccountId },
+          data: { currentBalance: { decrement: amount } }
+        });
+      }
+    }
+  } else {
+    const { findCashAccount } = require('../utils/cashAccountHelper');
+    const cashAccount = await findCashAccount(companyId);
+    if (cashAccount) {
+      await prisma.chartOfAccount.update({
+        where: { id: cashAccount.id },
+        data: { currentBalance: { decrement: amount } }
+      });
+    }
+  }
+}
+
+async function applyIncomeBalances({
+  incomeAccount,
+  cashOrBankAccount,
+  bankAccountId,
+  bankAccountData,
+  totalAmount
+}) {
+  const amount = Number(totalAmount) || 0;
+  if (amount <= 0) return;
+
+  if (bankAccountId && bankAccountData) {
+    await prisma.bankAccount.update({
+      where: { id: bankAccountId },
+      data: { currentBalance: { increment: amount } }
+    });
+    if (bankAccountData.chartOfAccountId) {
+      await prisma.chartOfAccount.update({
+        where: { id: bankAccountData.chartOfAccountId },
+        data: { currentBalance: { increment: amount } }
+      });
+    }
+  } else if (cashOrBankAccount) {
+    await prisma.chartOfAccount.update({
+      where: { id: cashOrBankAccount.id },
+      data: { currentBalance: { increment: amount } }
+    });
+  }
+
+  await prisma.chartOfAccount.update({
+    where: { id: incomeAccount.id },
+    data: { currentBalance: { increment: amount } }
+  });
+}
+
+async function reverseIncomeJournals(existing, userId, companyId) {
+  const journals = await prisma.journalEntry.findMany({
+    where: {
+      companyId,
+      status: 'Posted',
+      OR: [
+        { reference: existing.incomeNumber },
+        { description: { contains: existing.incomeNumber } }
+      ]
+    },
+    include: { lines: true }
+  });
+
+  for (const je of journals) {
+    if (/^reversal of/i.test(je.description || '')) continue;
+    await prisma.journalEntry.create({
+      data: {
+        entryNumber: `JE-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+        date: existing.date || new Date(),
+        description: `Reversal of ${je.entryNumber} (${existing.incomeNumber})`,
+        reference: existing.incomeNumber,
+        status: 'Posted',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        companyId,
+        lines: {
+          create: je.lines.map((line) => ({
+            accountId: line.accountId,
+            accountName: line.accountName,
+            accountCode: line.accountCode,
+            debit: line.credit,
+            credit: line.debit,
+            isReconciled: false
+          }))
+        }
+      }
+    });
+  }
+}
+
 async function createIncomeJournalEntry(userId, companyId, income, cashOrBankAccount, incomeAccount) {
   const entryNumber = `JE-${Date.now()}`;
 
@@ -591,6 +706,13 @@ exports.updateIncome = async (req, res) => {
       });
     }
 
+    if (existing.status === 'Cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot update a cancelled income'
+      });
+    }
+
     const newDate = req.body.date ? new Date(req.body.date) : existing.date;
     try {
       await fiscalYearGuard(userId, newDate, existing.date);
@@ -599,13 +721,6 @@ exports.updateIncome = async (req, res) => {
         return res.status(400).json({ success: false, message: err.message });
       }
       throw err;
-    }
-
-    if (existing.status === 'Posted') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot update posted income record'
-      });
     }
 
     let customerName = existing.customerName;
@@ -620,14 +735,19 @@ exports.updateIncome = async (req, res) => {
       }
     }
 
+    const finalPaymentMethod = paymentMethod || existing.paymentMethod || 'Cash';
+    const isCash = String(finalPaymentMethod).toLowerCase() === 'cash';
+
     let validBankAccountId = null;
-    if (bankAccountId && bankAccountId !== 'null' && bankAccountId !== 'NULL' && bankAccountId !== 'undefined') {
-      const bankAccount = await prisma.bankAccount.findFirst({
+    let bankAccountData = null;
+    if (!isCash && bankAccountId && bankAccountId !== 'null' && bankAccountId !== 'NULL' && bankAccountId !== 'undefined') {
+      bankAccountData = await prisma.bankAccount.findFirst({
         where: {
           id: bankAccountId,
-          companyId: companyId}
+          companyId: companyId},
+        include: { chartOfAccount: true }
       });
-      if (!bankAccount) {
+      if (!bankAccountData) {
         return res.status(400).json({
           success: false,
           message: 'Bank account not found or does not belong to you'
@@ -636,32 +756,36 @@ exports.updateIncome = async (req, res) => {
       validBankAccountId = bankAccountId;
     }
 
-    // ─── ✅ Validate income account ──────────────────────────────
-    if (incomeAccountId) {
-      const incomeAccount = await prisma.chartOfAccount.findFirst({
-        where: {
-          id: incomeAccountId,
-          companyId: companyId,
-          type: { in: ['Revenue', 'Income'] }
-        }
-      });
-      if (!incomeAccount) {
-        return res.status(400).json({
-          success: false,
-          message: 'Selected income account not found'
-        });
+    const nextIncomeAccountId = incomeAccountId || existing.incomeAccountId;
+    const incomeAccount = await prisma.chartOfAccount.findFirst({
+      where: {
+        id: nextIncomeAccountId,
+        companyId: companyId,
+        type: { in: ['Revenue', 'Income'] }
       }
+    });
+    if (!incomeAccount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected income account not found'
+      });
+    }
+
+    const wasPosted = existing.status === 'Posted';
+    if (wasPosted) {
+      await reverseIncomeJournals(existing, userId, companyId);
+      await reverseIncomeBalances(existing, companyId);
     }
 
     const updateData = {
       date: date || existing.date,
       incomeType: incomeType || existing.incomeType,
-      incomeAccountId: incomeAccountId || existing.incomeAccountId,  // ✅ NEW
-      customerId: customerId || existing.customerId,
+      incomeAccountId: nextIncomeAccountId,
+      customerId: customerId !== undefined ? customerId : existing.customerId,
       customerName: customerName || existing.customerName,
       description: description !== undefined ? description : existing.description,
       reference: reference !== undefined ? reference : existing.reference,
-      paymentMethod: paymentMethod || existing.paymentMethod,
+      paymentMethod: finalPaymentMethod,
       bankAccountId: validBankAccountId,
       taxRate: taxRate !== undefined ? taxRate : existing.taxRate
     };
@@ -707,10 +831,36 @@ exports.updateIncome = async (req, res) => {
 
     const updated = await IncomeModel.update(id, updateData);
 
+    if (wasPosted) {
+      let cashOrBankAccount;
+      if (isCash || !validBankAccountId) {
+        cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
+      } else if (bankAccountData?.chartOfAccount) {
+        cashOrBankAccount = bankAccountData.chartOfAccount;
+      } else {
+        cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
+      }
+
+      await createIncomeJournalEntry(
+        userId,
+        companyId,
+        updated,
+        cashOrBankAccount,
+        incomeAccount
+      );
+      await applyIncomeBalances({
+        incomeAccount,
+        cashOrBankAccount,
+        bankAccountId: validBankAccountId,
+        bankAccountData,
+        totalAmount: updated.totalAmount
+      });
+    }
+
     res.status(200).json({
       success: true,
       data: updated,
-      message: 'Income record updated successfully'
+      message: 'Income updated. Ledger, cash/bank and reports now use the new amount.'
     });
   } catch (error) {
     console.error('❌ Update income error:', error);
@@ -755,10 +905,8 @@ exports.deleteIncome = async (req, res) => {
     }
 
     if (existing.status === 'Posted') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete posted income record'
-      });
+      await reverseIncomeJournals(existing, userId, companyId);
+      await reverseIncomeBalances(existing, companyId);
     }
 
     await IncomeModel.delete(id);

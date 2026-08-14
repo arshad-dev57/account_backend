@@ -1,5 +1,6 @@
 
 const prisma = require('../prisma/client');
+const { findCashAccount } = require('../utils/cashAccountHelper');
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -280,8 +281,8 @@ function mergeSalesInvoiceRows(warehouseRows = [], moduleRows = []) {
  *   Unpaid invoice balances are NOT included in Revenue/Sales.
  *   They appear under Receivables (outstanding).
  *
- *   Net Profit = Revenue − Expenses
- *   (Purchases are already included via the Expense screen — do not subtract again)
+ *   Ledger P&L (same as Profit & Loss screen) drives Revenue, Expenses, Net/Gross.
+ *   Depreciation and other posted JEs are included there — not only the Expense screen.
  */
 function computePeriodTotals(
   incomes,
@@ -361,6 +362,125 @@ function groupByDay(docs, getAmount) {
     map[key] = (map[key] || 0) + getAmount(doc);
   });
   return map;
+}
+
+function plKpis(pl) {
+  const revenue = toNum(pl?.revenue?.total);
+  const expenses =
+    toNum(pl?.operatingExpenses?.total) +
+    toNum(pl?.otherExpenses?.total) +
+    toNum(pl?.costOfGoodsSold);
+  return {
+    revenue,
+    expenses,
+    netProfit: toNum(pl?.netProfit),
+    grossProfit: toNum(pl?.grossProfit),
+    profitMargin: toNum(pl?.netProfitMargin)
+  };
+}
+
+function buildLedgerExpenseCategories(pl) {
+  const items = [
+    ...(pl?.operatingExpenses?.items || []),
+    ...(pl?.otherExpenses?.items || [])
+  ];
+  if (toNum(pl?.costOfGoodsSold) > 0) {
+    items.push({ name: 'Cost of Goods Sold', amount: pl.costOfGoodsSold });
+  }
+  const totalAmount = items.reduce((s, i) => s + toNum(i.amount), 0);
+  return items
+    .map((i) => ({
+      name: i.name,
+      amount: toNum(i.amount),
+      formatted: formatAmount(i.amount),
+      percentage: totalAmount > 0 ? (toNum(i.amount) / totalAmount) * 100 : 0
+    }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+function chartBuckets(startDate, endDate) {
+  const daySpan =
+    Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  const useDaily = daySpan <= 45;
+  const buckets = [];
+  if (useDaily) {
+    const cursor = startOfDay(startDate);
+    const last = startOfDay(endDate);
+    while (cursor <= last) {
+      buckets.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  } else {
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const last = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    while (cursor <= last) {
+      buckets.push(new Date(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  }
+  if (buckets.length === 0) buckets.push(startOfDay(endDate));
+  return { useDaily, buckets };
+}
+
+async function buildLedgerChartSeries(companyId, startDate, endDate) {
+  const windowStart = startOfDay(startDate);
+  const windowEnd = endOfDay(endDate);
+  const { useDaily, buckets } = chartBuckets(startDate, endDate);
+  const bucketKey = (d) =>
+    useDaily
+      ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+      : `${d.getFullYear()}-${d.getMonth()}`;
+  const bucketLabel = (d) =>
+    useDaily
+      ? d.toLocaleString('default', { month: 'short', day: 'numeric' })
+      : d.toLocaleString('default', { month: 'short', year: 'numeric' });
+
+  const entries = await prisma.journalEntry.findMany({
+    where: {
+      companyId,
+      status: 'Posted',
+      date: { gte: windowStart, lte: windowEnd }
+    },
+    include: {
+      lines: {
+        include: { account: { select: { type: true } } }
+      }
+    }
+  });
+
+  const revMap = {};
+  const expMap = {};
+  entries.forEach((entry) => {
+    const d = new Date(entry.date);
+    if (Number.isNaN(d.getTime())) return;
+    const key = bucketKey(d);
+    (entry.lines || []).forEach((line) => {
+      const type = line.account?.type === 'Income' ? 'Revenue' : line.account?.type;
+      const debit = toNum(line.debit);
+      const credit = toNum(line.credit);
+      if (type === 'Revenue') {
+        revMap[key] = (revMap[key] || 0) + (credit - debit);
+      } else if (type === 'Expense') {
+        expMap[key] = (expMap[key] || 0) + (debit - credit);
+      }
+    });
+  });
+
+  return {
+    useDaily,
+    chartData: buckets.map((d) => {
+      const key = bucketKey(d);
+      const revenue = revMap[key] || 0;
+      const expensesTotal = expMap[key] || 0;
+      return {
+        month: bucketLabel(d),
+        date: d.toISOString(),
+        revenue,
+        expenses: expensesTotal,
+        profit: revenue - expensesTotal
+      };
+    })
+  };
 }
 
 function buildChartSeries({
@@ -547,6 +667,94 @@ function buildRecentTransactions(rows, limitNum = 10) {
   return transactions.slice(0, limitNum);
 }
 
+function isCurrentYearEarningsName(name) {
+  return /current year earnings/i.test(String(name || ''));
+}
+
+async function buildCapitalPosition({
+  companyId,
+  userId,
+  startDate,
+  endDate,
+  fiscalYearId,
+  periodPl: periodPlIn = null
+}) {
+  const { buildBalanceSheetFromLedger } = require('../utils/balanceSheetHelper');
+  const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
+
+  const [bs, periodPl] = await Promise.all([
+    buildBalanceSheetFromLedger(
+      userId,
+      companyId,
+      'All Time',
+      endDate,
+      fiscalYearId
+    ),
+    periodPlIn
+      ? Promise.resolve(periodPlIn)
+      : buildProfitLossFromLedger(companyId, startDate, endDate)
+  ]);
+
+  const owners = bs.equity?.owners || [];
+  const yourCapital = owners
+    .filter((item) => {
+      const name = String(item.name || '').toLowerCase();
+      if (isCurrentYearEarningsName(item.name)) return false;
+      if (name.includes('retained')) return false;
+      if (name.includes('drawing')) return false;
+      return true;
+    })
+    .reduce((sum, item) => sum + toNum(item.balance), 0);
+  const currentEquity = toNum(bs.totals?.totalEquity);
+  const ytdEarnings = toNum(bs.equity?.retainedEarnings);
+  const periodEarnings = toNum(periodPl.netProfit);
+  const isIncrease = periodEarnings >= 0;
+
+  const series = [
+    {
+      month: 'Capital',
+      label: 'Capital',
+      opening: yourCapital,
+      capital: yourCapital,
+      earnings: 0
+    },
+    {
+      month: 'Now',
+      label: 'Now',
+      opening: yourCapital,
+      capital: currentEquity,
+      earnings: ytdEarnings
+    }
+  ];
+
+  return {
+    openingCapital: yourCapital,
+    currentCapital: yourCapital,
+    retainedEarnings: owners
+      .filter((item) => /retained/i.test(item.name || ''))
+      .reduce((sum, item) => sum + toNum(item.balance), 0),
+    drawings: 0,
+    bookedEarnings: ytdEarnings,
+    periodEarnings,
+    currentEquity,
+    changeOnCapital: currentEquity - yourCapital,
+    isIncrease,
+    chart: series,
+    kpi: {
+      amount: currentEquity,
+      formatted: formatAmount(currentEquity),
+      opening: yourCapital,
+      openingFormatted: formatAmount(yourCapital),
+      periodEarnings,
+      periodEarningsFormatted: formatAmount(periodEarnings),
+      changeOnCapital: currentEquity - yourCapital,
+      changeFormatted: formatAmount(currentEquity - yourCapital),
+      isPositive: isIncrease,
+      period: 'Current'
+    }
+  };
+}
+
 /**
  * Single source of truth for the accounting dashboard.
  * All KPIs, charts, categories and recent txns share the same date window.
@@ -557,6 +765,7 @@ async function buildDashboardOverview({
   startDate,
   endDate,
   timePeriod,
+  fiscalYearId = null,
   txnLimit = 10
 }) {
   const { start: previousStartDate, end: previousEndDate } = getPreviousPeriod(
@@ -854,6 +1063,15 @@ async function buildDashboardOverview({
     previousEndDate
   );
 
+  const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
+  const [currentPl, previousPl, ledgerChart] = await Promise.all([
+    buildProfitLossFromLedger(companyId, startDate, endDate),
+    buildProfitLossFromLedger(companyId, previousStartDate, previousEndDate),
+    buildLedgerChartSeries(companyId, startDate, endDate)
+  ]);
+  const ledger = plKpis(currentPl);
+  const prevLedger = plKpis(previousPl);
+
   const salesInPeriod = mappedSales.filter((d) => inRange(d.date, startDate, endDate));
   const totalSalesPaid = salesInPeriod.reduce((s, d) => s + toNum(d.paidAmount), 0);
   const totalSalesCount = salesInPeriod.length;
@@ -861,8 +1079,8 @@ async function buildDashboardOverview({
   const expenseScreenCount = allExpenses.filter((d) =>
     inRange(d.date, startDate, endDate)
   ).length;
-  // Purchases already included in expenses — do not subtract again
-  const netProfitAmount = current.revenue - expenseScreenTotal;
+  const netProfitAmount = ledger.netProfit;
+  const ledgerExpenseTotal = ledger.expenses;
 
   const allOutstandingSales = mergeSalesInvoiceRows(
     outstandingSalesInvoices,
@@ -885,22 +1103,21 @@ async function buildDashboardOverview({
     (s, acc) => s + toNum(acc.currentBalance),
     0
   );
-  const cashOnlyBalance = bankAccounts
-    .filter((acc) => String(acc.accountType || '').toLowerCase().includes('cash'))
-    .reduce((s, acc) => s + toNum(acc.currentBalance), 0);
+  const cashAccount = await findCashAccount(companyId);
+  const cashOnlyBalance = toNum(cashAccount?.currentBalance);
 
   const prevSalesPaid = mappedSales
     .filter((d) => inRange(d.date, previousStartDate, previousEndDate))
     .reduce((s, d) => s + toNum(d.paidAmount), 0);
-  const prevNetProfit = previous.revenue - previous.operatingExpenses;
+  const prevNetProfit = prevLedger.netProfit;
 
-  const revenueChange = pct(current.revenue, previous.revenue);
-  const expenseChange = pct(expenseScreenTotal, previous.operatingExpenses);
+  const revenueChange = pct(ledger.revenue, prevLedger.revenue);
+  const expenseChange = pct(ledgerExpenseTotal, prevLedger.expenses);
   const profitChange = pct(netProfitAmount, prevNetProfit);
   const salesChange = pct(totalSalesPaid, prevSalesPaid);
   const purchasesChange = pct(current.purchases, previous.purchases);
 
-  const { chartData, useDaily } = buildChartSeries({
+  const { chartData: moduleChart, useDaily } = buildChartSeries({
     incomes: allIncomes,
     mappedSales,
     creditNotes: allCreditNotes,
@@ -909,12 +1126,13 @@ async function buildDashboardOverview({
     startDate,
     endDate
   });
+  const chartData = ledgerChart.chartData.map((row, i) => ({
+    ...row,
+    sales: moduleChart[i]?.sales || 0,
+    purchases: moduleChart[i]?.purchases || 0
+  }));
 
-  const expenseCategories = buildExpenseCategories(
-    allExpenses,
-    startDate,
-    endDate
-  );
+  const expenseCategories = buildLedgerExpenseCategories(currentPl);
 
   const recentTransactions = buildRecentTransactions(
     {
@@ -941,11 +1159,20 @@ async function buildDashboardOverview({
     { revenue: 0, sales: 0, expenses: 0, purchases: 0, profit: 0 }
   );
 
+  const capitalPosition = await buildCapitalPosition({
+    companyId,
+    userId,
+    startDate,
+    endDate,
+    fiscalYearId,
+    periodPl: currentPl
+  });
+
   return {
     kpi: {
       totalRevenue: {
-        amount: current.revenue,
-        formatted: formatAmount(current.revenue),
+        amount: ledger.revenue,
+        formatted: formatAmount(ledger.revenue),
         change: Math.round(revenueChange * 10) / 10,
         isPositive: revenueChange >= 0,
         period: timePeriod,
@@ -954,7 +1181,9 @@ async function buildDashboardOverview({
           salesInvoiced: current.salesInvoiced,
           incomeModule: current.otherIncome,
           creditNotes: current.creditNotesTotal,
-          formula: 'Sales paid + Income − Credit Notes (excludes unpaid)'
+          ledgerOperating: toNum(currentPl.revenue?.operating),
+          ledgerOther: toNum(currentPl.revenue?.other),
+          formula: 'Posted ledger Revenue/Income (same as P&L)'
         }
       },
       totalSales: {
@@ -975,15 +1204,18 @@ async function buildDashboardOverview({
         source: 'Purchase invoices (selected period)'
       },
       totalExpenses: {
-        amount: expenseScreenTotal,
-        formatted: formatAmount(expenseScreenTotal),
+        amount: ledgerExpenseTotal,
+        formatted: formatAmount(ledgerExpenseTotal),
         change: Math.round(expenseChange * 10) / 10,
         isPositive: expenseChange <= 0,
         period: timePeriod,
         count: expenseScreenCount,
         sources: {
           expenseModule: expenseScreenTotal,
-          formula: 'Expense screen Posted (selected period)'
+          operating: toNum(currentPl.operatingExpenses?.total),
+          other: toNum(currentPl.otherExpenses?.total),
+          cogs: toNum(currentPl.costOfGoodsSold),
+          formula: 'Posted ledger expenses + COGS (includes depreciation)'
         }
       },
       netProfit: {
@@ -992,18 +1224,18 @@ async function buildDashboardOverview({
         change: Math.round(profitChange * 10) / 10,
         isPositive: netProfitAmount >= 0,
         margin:
-          current.revenue > 0
-            ? Math.round((netProfitAmount / current.revenue) * 1000) / 10
+          ledger.revenue > 0
+            ? Math.round((netProfitAmount / ledger.revenue) * 1000) / 10
             : 0,
         period: timePeriod,
-        formula: 'Revenue − Expenses'
+        formula: 'Ledger P&L net profit (same as Profit & Loss screen)'
       },
       grossProfit: {
-        amount: current.grossProfit,
-        formatted: formatAmount(current.grossProfit),
-        isPositive: current.grossProfit >= 0,
+        amount: ledger.grossProfit,
+        formatted: formatAmount(ledger.grossProfit),
+        isPositive: ledger.grossProfit >= 0,
         period: timePeriod,
-        formula: 'Sales paid − Purchases'
+        formula: 'Ledger revenue − COGS (same as P&L)'
       },
       outstanding: {
         amount: totalReceivables,
@@ -1043,6 +1275,15 @@ async function buildDashboardOverview({
         accountsCount: bankAccounts.length,
         period: 'Current'
       },
+      cashInHand: {
+        amount: cashOnlyBalance,
+        formatted: formatAmount(cashOnlyBalance),
+        code: cashAccount?.code || '1001',
+        name: cashAccount?.name || 'Cash in Hand',
+        isPositive: cashOnlyBalance >= 0,
+        period: 'Current',
+        source: 'Chart of Accounts'
+      },
       bankBalance: {
         amount: bankBalance,
         formatted: formatAmount(bankBalance),
@@ -1050,8 +1291,10 @@ async function buildDashboardOverview({
         isPositive: bankBalance >= 0,
         accountsCount: bankAccounts.length,
         period: 'Current'
-      }
+      },
+      capital: capitalPosition.kpi
     },
+    capital: capitalPosition,
     breakdown: {
       salesRevenue: current.salesRevenue,
       salesPaid: totalSalesPaid,
@@ -1069,13 +1312,13 @@ async function buildDashboardOverview({
       bankAccountsCount: bankAccounts.length
     },
     weeklyData: {
-      revenue: current.revenue,
-      expenses: expenseScreenTotal,
+      revenue: ledger.revenue,
+      expenses: ledgerExpenseTotal,
       profit: netProfitAmount
     },
     dailyData: {
-      revenue: current.revenue,
-      expenses: expenseScreenTotal,
+      revenue: ledger.revenue,
+      expenses: ledgerExpenseTotal,
       profit: netProfitAmount
     },
     chartData,
@@ -1115,6 +1358,7 @@ const getDashboardOverview = async (req, res) => {
       startDate,
       endDate,
       timePeriod,
+      fiscalYearId,
       txnLimit
     });
 

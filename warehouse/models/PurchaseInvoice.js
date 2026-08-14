@@ -2,6 +2,7 @@
 
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
+const { getOrCreateApAccount } = require('../../utils/apAccountHelper');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -51,42 +52,8 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
   return account;
 }
 
-// ─── Helper: Find or Create Accounts Payable Account ──────
 async function findOrCreateAPAccount(tx, companyId, userId) {
-  // Prefer real AP (2000). Never use 2100 — that is Taxes Payable in default COA.
-  let account = await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '2000' },
-        { name: { contains: 'Accounts Payable', mode: 'insensitive' } },
-        { name: { contains: 'Creditors', mode: 'insensitive' } },
-        { name: { contains: 'Trade Payables', mode: 'insensitive' } },
-      ]
-    }
-  });
-
-  if (!account) {
-    account = await tx.chartOfAccount.create({
-      data: {
-        code: '2000',
-        name: 'Accounts Payable',
-        type: 'Liability',
-        parentAccount: 'Current Liabilities',
-        openingBalance: 0,
-        currentBalance: 0,
-        balanceType: 'Credit',
-        description: 'Accounts Payable - Auto-created for Purchase Invoices',
-        isActive: true,
-        createdBy: userId || 'SYSTEM',
-        companyId: companyId
-      }
-    });
-    console.log('✅ Auto-created Accounts Payable Account (2000)');
-  }
-
-  return account;
+  return getOrCreateApAccount(userId, companyId, tx);
 }
 
 // ─── Helper: Find or Create Supplier ────────────────────────
@@ -177,6 +144,86 @@ async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy, compan
   });
 
   return { supplierId: supplier.id, supplier };
+}
+
+async function applyPurchaseInvoiceStockIn(tx, invoice, userId) {
+  const alreadyMoved = await tx.stockMovement.count({
+    where: {
+      companyId: invoice.companyId,
+      reference: invoice.invoiceNumber,
+      type: { in: ['stock_in', 'Purchase Invoice'] }
+    }
+  });
+  if (alreadyMoved > 0) return;
+
+  const receivedByProduct = {};
+  if (invoice.purchaseOrderId) {
+    const grns = await tx.goodsReceiving.findMany({
+      where: {
+        purchaseOrderId: invoice.purchaseOrderId,
+        companyId: invoice.companyId,
+        isActive: true,
+        isDeleted: false,
+        status: { in: ['Confirmed', 'Partially Received', 'Fully Received'] }
+      },
+      include: { items: true }
+    });
+    for (const grn of grns) {
+      for (const gi of grn.items || []) {
+        if (!gi.productId) continue;
+        receivedByProduct[gi.productId] =
+          (receivedByProduct[gi.productId] || 0) + Number(gi.receivingQuantity || 0);
+      }
+    }
+  }
+
+  for (const item of invoice.items || []) {
+    if (!item.productId) continue;
+    const ordered = Math.round(Number(item.quantity) || 0);
+    if (ordered <= 0) continue;
+
+    const alreadyReceived = receivedByProduct[item.productId] || 0;
+    const addQty = Math.max(0, ordered - alreadyReceived);
+    receivedByProduct[item.productId] = Math.max(0, alreadyReceived - ordered);
+    if (addQty <= 0) continue;
+
+    const product = await tx.product.findFirst({
+      where: { id: item.productId, companyId: invoice.companyId }
+    });
+    if (!product) continue;
+
+    const prevStock = Number(product.currentStock) || 0;
+    const newStock = prevStock + addQty;
+    const reserved = Number(product.reservedStock) || 0;
+
+    await tx.product.update({
+      where: { id: product.id },
+      data: {
+        currentStock: newStock,
+        availableStock: Math.max(0, newStock - reserved),
+        totalValue: newStock * (product.costPrice || 0)
+      }
+    });
+
+    await tx.stockMovement.create({
+      data: {
+        productId: product.id,
+        productName: item.productName || product.name,
+        type: 'stock_in',
+        quantity: addQty,
+        previousStock: prevStock,
+        newStock,
+        stockType: 'bulk',
+        reason: `Purchase Invoice #${invoice.invoiceNumber}`,
+        reference: invoice.invoiceNumber,
+        status: 'Completed',
+        createdBy: userId || invoice.createdBy || 'SYSTEM',
+        companyId: invoice.companyId,
+        supplierId: invoice.supplierId || null,
+        supplierName: invoice.supplierName || null
+      }
+    });
+  }
 }
 
 class PurchaseInvoiceModel {
@@ -564,6 +611,8 @@ class PurchaseInvoiceModel {
       // Sync COA balances with posted purchase invoice JE
       await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
 
+      await applyPurchaseInvoiceStockIn(tx, invoice, userId);
+
       const apRecord = await tx.accountsPayable.create({
         data: {
           invoiceId: invoice.id,
@@ -778,6 +827,7 @@ class PurchaseInvoiceModel {
       const invoice = await tx.purchaseInvoice.findUnique({
         where: { id },
         include: {
+          items: true,
           accountsPayable: true,
           journalEntry: { include: { lines: true } }
         }
@@ -821,6 +871,47 @@ class PurchaseInvoiceModel {
 
         if (invoice.accountsPayable) {
           await tx.accountsPayable.delete({ where: { id: invoice.accountsPayable.id } });
+        }
+
+        const stockMoves = await tx.stockMovement.findMany({
+          where: {
+            companyId: invoice.companyId,
+            reference: invoice.invoiceNumber,
+            type: { in: ['stock_in', 'Purchase Invoice'] }
+          }
+        });
+        for (const move of stockMoves) {
+          const product = await tx.product.findUnique({ where: { id: move.productId } });
+          if (!product) continue;
+          const prevStock = Number(product.currentStock) || 0;
+          const newStock = Math.max(0, prevStock - Number(move.quantity || 0));
+          const reserved = Number(product.reservedStock) || 0;
+          await tx.product.update({
+            where: { id: product.id },
+            data: {
+              currentStock: newStock,
+              availableStock: Math.max(0, newStock - reserved),
+              totalValue: newStock * (product.costPrice || 0)
+            }
+          });
+          await tx.stockMovement.create({
+            data: {
+              productId: product.id,
+              productName: product.name,
+              type: 'stock_out',
+              quantity: Number(move.quantity || 0),
+              previousStock: prevStock,
+              newStock,
+              stockType: 'bulk',
+              reason: `Reversal of Purchase Invoice #${invoice.invoiceNumber}`,
+              reference: invoice.invoiceNumber,
+              status: 'Completed',
+              createdBy: userId || invoice.createdBy || 'SYSTEM',
+              companyId: invoice.companyId,
+              supplierId: invoice.supplierId || null,
+              supplierName: invoice.supplierName || null
+            }
+          });
         }
       }
 

@@ -1,6 +1,7 @@
 const prisma = require('../prisma/client');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const { getOrCreateApAccount } = require('../utils/apAccountHelper');
 
 /** Bill has no fiscalYearId column — filter by bill date within the FY window. */
 async function applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId) {
@@ -21,42 +22,8 @@ async function applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId) {
   }
 }
 
-// ─── HELPER: Get or create Accounts Payable account ──────────────
 async function getOrCreatePayableAccount(userId, companyId, tx) {
-  const db = tx || prisma;
-  console.log('🔍 [AP] Getting/Creating Accounts Payable account');
-
-  let apAccount = await db.chartOfAccount.findFirst({
-    where: {
-      code: '2010',
-      companyId: companyId
-    }
-  });
-
-  if (!apAccount) {
-    console.log('📝 [AP] Creating new Accounts Payable account');
-    apAccount = await db.chartOfAccount.create({
-      data: {
-        code: '2010',
-        name: 'Accounts Payable',
-        type: 'Liability',
-        parentAccount: 'Current Liabilities',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Amount due to suppliers',
-        taxCode: 'N/A',
-        balanceType: 'Credit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-    console.log('✅ [AP] Accounts Payable account created:', apAccount.id);
-  } else {
-    console.log('✅ [AP] Accounts Payable account found:', apAccount.id);
-  }
-
-  return apAccount;
+  return getOrCreateApAccount(userId, companyId, tx);
 }
 
 // ─── HELPER: Get or create Expense account ────────────────────────
@@ -1120,7 +1087,7 @@ exports.recordPayment = async (req, res) => {
       let debitAccount;
       let bankAccountData = null;
 
-      if (bankAccountId) {
+      if (bankAccountId && String(paymentMethod || '').toLowerCase() !== 'cash') {
         bankAccountData = await validateBankAccount(bankAccountId, companyId, tx);
         if (bankAccountData && bankAccountData.chartOfAccount) {
           debitAccount = bankAccountData.chartOfAccount;
