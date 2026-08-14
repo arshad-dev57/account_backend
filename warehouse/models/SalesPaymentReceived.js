@@ -2,6 +2,8 @@
 
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
+const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
+const { getOrCreateArAccount } = require('../../utils/arAccountHelper');
 
 // ─── Generate Payment Number ──────────────────────────────
 function generatePaymentNumber() {
@@ -11,80 +13,6 @@ function generatePaymentNumber() {
   const day = String(date.getDate()).padStart(2, '0');
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   return `SP-${year}${month}${day}-${random}`;
-}
-
-// ─── Helper: Find or Create AR Account ───────────────────────
-async function findOrCreateARAccount(tx, companyId, userId) {
-  // First try to find existing account
-  let account = await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '1200' },
-        { name: { contains: 'Accounts Receivable', mode: 'insensitive' } }
-      ]
-    }
-  });
-
-  // If not found, create it
-  if (!account) {
-    account = await tx.chartOfAccount.create({
-      data: {
-        code: '1200',
-        name: 'Accounts Receivable',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        balanceType: 'Debit',
-        description: 'Accounts Receivable - Money owed by customers',
-        isActive: true,
-        createdBy: userId || 'SYSTEM',
-        companyId: companyId
-      }
-    });
-    console.log('✅ Created Accounts Receivable account');
-  }
-
-  return account;
-}
-
-// ─── Helper: Find or Create Cash Account ──────────────────────
-async function findOrCreateCashAccount(tx, companyId, userId) {
-  // First try to find existing account
-  let account = await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '1100' },
-        { name: { contains: 'Cash', mode: 'insensitive' } }
-      ]
-    }
-  });
-
-  // If not found, create it
-  if (!account) {
-    account = await tx.chartOfAccount.create({
-      data: {
-        code: '1100',
-        name: 'Cash',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        balanceType: 'Debit',
-        description: 'Cash on hand',
-        isActive: true,
-        createdBy: userId || 'SYSTEM',
-        companyId: companyId
-      }
-    });
-    console.log('✅ Created Cash account');
-  }
-
-  return account;
 }
 
 class SalesPaymentReceivedModel {
@@ -218,6 +146,7 @@ class SalesPaymentReceivedModel {
             }
           },
           include: {
+            arAccount: true,
             invoicePayments: {
               where: {
                 payment: {
@@ -261,13 +190,27 @@ class SalesPaymentReceivedModel {
         throw new Error('Total paid amount does not match invoice amounts');
       }
 
-      // ─── Get or Create AR Account ─────────────────────────
-      // ✅ Auto-creates if not found
-      const arAccount = await findOrCreateARAccount(tx, companyId, userId);
+      const SalesInvoice = require('./SalesInvoice');
+      for (const inv of validatedInvoices) {
+        if (!inv.invoice.journalEntryId) {
+          await SalesInvoice.postInvoice(inv.invoice.id, userId || createdBy, tx);
+          const refreshed = await tx.salesInvoice.findUnique({
+            where: { id: inv.invoice.id },
+            include: { arAccount: true }
+          });
+          if (refreshed) inv.invoice = refreshed;
+        }
+      }
+
+      const arAccount = await getOrCreateArAccount(userId || createdBy, companyId, tx);
+      const invoiceAr = validatedInvoices[0]?.invoice?.arAccount;
+      const creditArAccount =
+        invoiceAr && String(invoiceAr.code) !== '1200'
+          ? invoiceAr
+          : arAccount;
 
       // ─── Get or Create Cash Account ────────────────────────
-      // ✅ Auto-creates if not found
-      const cashAccount = await findOrCreateCashAccount(tx, companyId, userId);
+      const cashAccount = await getOrCreateCashAccount(userId, companyId, tx);
 
       // ─── Get Bank Account ────────────────────────────────
       let bankAccount = null;
@@ -341,9 +284,9 @@ class SalesPaymentReceivedModel {
                 credit: 0
               },
               {
-                accountId: arAccount.id,
-                accountName: arAccount.name,
-                accountCode: arAccount.code,
+                accountId: creditArAccount.id,
+                accountName: creditArAccount.name,
+                accountCode: creditArAccount.code,
                 debit: 0,
                 credit: amount
               }

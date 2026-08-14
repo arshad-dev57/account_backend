@@ -1,66 +1,70 @@
 const prisma = require('../prisma/client');
-// ── HELPER: get or create cash account ───────────────────────
-async function getCashAccount(userId, companyId) {
-  let cash = await prisma.chartOfAccount.findFirst({
-    where: { code: '1010', companyId }
-  });
-  if (!cash) {
-    cash = await prisma.chartOfAccount.create({
-      data: {
-        code: '1010',
-        name: 'Cash in Hand',
-        type: 'Assets',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        companyId
-      }
-    });
-  }
-  return cash;
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const {
+  deriveAccountType,
+  ensureEquityAccountForChart,
+  syncCompanyEquityAccounts,
+  findLinkedChartAccount,
+} = require('../utils/equityAccountHelper');
+
+function cleanId(value) {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim();
+  if (!raw || raw === 'null' || raw === 'NULL' || raw === 'undefined') return null;
+  return raw;
 }
 
-// ── HELPER: derive accountType from account name ──────────────
-function deriveAccountType(name) {
-  const n = (name || '').toLowerCase();
-  if (n.includes('drawing')) return 'Drawings';
-  if (n.includes('retained') || n.includes('retention')) return 'Retained Earnings';
-  if (n.includes('reserve')) return 'Reserves';
-  if (n.includes('share')) return 'Share Capital';
-  return 'Capital';
+/**
+ * Cash → Cash in Hand (1001). Bank Transfer/Cheque/etc → selected bank COA.
+ */
+async function resolveFundingAccount(userId, companyId, paymentMethod, bankAccountId) {
+  const method = paymentMethod || 'Cash';
+  const bankId = cleanId(bankAccountId);
+  const useBank = method !== 'Cash' && !!bankId;
+
+  if (useBank) {
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { id: bankId, companyId },
+      include: { chartOfAccount: true },
+    });
+    if (!bankAccount || !bankAccount.chartOfAccount) {
+      const err = new Error('Bank account not found or does not belong to this company');
+      err.statusCode = 400;
+      throw err;
+    }
+    return { fundingAccount: bankAccount.chartOfAccount, bankAccount };
+  }
+
+  const cash = await getOrCreateCashAccount(userId, companyId);
+  return { fundingAccount: cash, bankAccount: null };
+}
+
+/** direction 'in' = owner injects (capital), 'out' = owner withdraws (drawings) */
+async function applyFundingBalance(fundingAccount, bankAccount, amount, direction) {
+  const delta = direction === 'in' ? amount : -amount;
+  await prisma.chartOfAccount.update({
+    where: { id: fundingAccount.id },
+    data: { currentBalance: { increment: delta } },
+  });
+  if (bankAccount) {
+    await prisma.bankAccount.update({
+      where: { id: bankAccount.id },
+      data: { currentBalance: { increment: delta } },
+    });
+  }
 }
 
 // ── HELPER: create EquityTransaction record ───────────────────
 async function createEquityTransaction(accountId, type, amount, description, reference, userId, companyId) {
-  // Find EquityAccount by accountCode matching ChartOfAccount
   const chartAccount = await prisma.chartOfAccount.findUnique({ where: { id: accountId } });
   if (!chartAccount) return;
 
-  let equityAccount = await prisma.equityAccount.findFirst({
-    where: { accountCode: chartAccount.code, companyId }
-  });
-
-  if (!equityAccount) {
-    equityAccount = await prisma.equityAccount.create({
-      data: {
-        accountName: chartAccount.name,
-        accountCode: chartAccount.code,
-        accountType: deriveAccountType(chartAccount.name),
-        openingBalance: chartAccount.openingBalance,
-        currentBalance: chartAccount.currentBalance,
-        additions: 0,
-        withdrawals: 0,
-        notes: '',
-        createdBy: userId,
-        companyId
-      }
-    });
-  }
+  const equityAccount = await ensureEquityAccountForChart(
+    chartAccount,
+    userId,
+    companyId
+  );
+  if (!equityAccount) return;
 
   await prisma.equityTransaction.create({
     data: {
@@ -97,21 +101,39 @@ exports.getEquityAccounts = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
+    await syncCompanyEquityAccounts(companyId, userId);
 
-    let where = { companyId };
-    if (accountType && accountType !== 'All') where.accountType = accountType;
+    const filter = {
+      companyId,
+      type: 'Equity',
+      isActive: true,
+    };
     if (search) {
-      where.OR = [
-        { accountName: { contains: search, mode: 'insensitive' } },
-        { accountCode: { contains: search, mode: 'insensitive' } },
+      filter.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { code: { contains: search, mode: 'insensitive' } },
       ];
     }
 
-    const accounts = await prisma.equityAccount.findMany({
-      where,
-      include: { transactions: { orderBy: { date: 'desc' }, take: 50 } },
-      orderBy: { createdAt: 'desc' }
+    const charts = await prisma.chartOfAccount.findMany({
+      where: filter,
+      orderBy: { code: 'asc' },
     });
+
+    let accounts = charts.map((chart) => ({
+      id: chart.id,
+      accountName: chart.name,
+      accountCode: chart.code,
+      accountType: deriveAccountType(chart.name),
+      openingBalance: chart.openingBalance || 0,
+      currentBalance: chart.currentBalance || 0,
+      lastUpdated: chart.updatedAt,
+      notes: chart.description || '',
+    }));
+
+    if (accountType && accountType !== 'All') {
+      accounts = accounts.filter((a) => a.accountType === accountType);
+    }
 
     const responseData = { count: accounts.length, data: accounts };
     res.status(200).json({ success: true, ...responseData });
@@ -126,62 +148,87 @@ exports.createEquityAccount = async (req, res) => {
     const { accountName, accountCode, accountType, openingBalance, notes } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.id;
+    const type = deriveAccountType(accountName, accountType);
 
-    const existing = await prisma.equityAccount.findFirst({
-      where: { accountCode, companyId }
+    let chartAccount = await prisma.chartOfAccount.findFirst({
+      where: { code: accountCode, companyId },
     });
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: 'Equity account with this code already exists'
+
+    if (chartAccount && chartAccount.type === 'Equity') {
+      const equityAccount = await ensureEquityAccountForChart(
+        chartAccount,
+        userId,
+        companyId
+      );
+      return res.status(200).json({
+        success: true,
+        data: equityAccount,
+        message: 'Linked to existing Chart of Accounts equity account',
       });
     }
 
-    const equityAccount = await prisma.equityAccount.create({
-      data: {
-        accountName,
-        accountCode,
-        accountType,
-        openingBalance: openingBalance || 0,
-        currentBalance: openingBalance || 0,
-        additions: 0,
-        withdrawals: 0,
-        notes: notes || '',
-        createdBy: userId,
-        companyId
+    if (type === 'Capital' || type === 'Share Capital') {
+      const existingCapital = await prisma.chartOfAccount.findFirst({
+        where: {
+          companyId,
+          type: 'Equity',
+          isActive: true,
+          OR: [
+            { code: '3001' },
+            { name: { contains: 'capital', mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { code: 'asc' },
+      });
+      if (existingCapital) {
+        const equityAccount = await ensureEquityAccountForChart(
+          existingCapital,
+          userId,
+          companyId
+        );
+        return res.status(200).json({
+          success: true,
+          data: equityAccount,
+          message: "Owner's Capital already exists in Chart of Accounts — using that account",
+        });
       }
-    });
+    }
 
-    // Also create/update corresponding ChartOfAccount
-    let chartAccount = await prisma.chartOfAccount.findFirst({
-      where: { code: accountCode, companyId }
-    });
+    if (chartAccount && chartAccount.type !== 'Equity') {
+      return res.status(400).json({
+        success: false,
+        message: `Account code ${accountCode} already exists as ${chartAccount.type}`,
+      });
+    }
 
     if (!chartAccount) {
-      await prisma.chartOfAccount.create({
+      chartAccount = await prisma.chartOfAccount.create({
         data: {
           code: accountCode,
           name: accountName,
           type: 'Equity',
-          parentAccount: 'Shareholders Equity',
+          parentAccount: 'Equity',
           openingBalance: openingBalance || 0,
           currentBalance: openingBalance || 0,
-          description: accountName,
+          description: notes || accountName,
           taxCode: 'N/A',
           balanceType: 'Credit',
           isActive: true,
           createdBy: userId,
-          companyId
-        }
+          companyId,
+        },
       });
     }
 
+    const equityAccount = await ensureEquityAccountForChart(
+      chartAccount,
+      userId,
+      companyId
+    );
+
     // Journal entry for opening balance
     if (openingBalance > 0) {
-      const cashAccount = await getCashAccount(userId, companyId);
-      chartAccount = chartAccount || await prisma.chartOfAccount.findFirst({
-        where: { code: accountCode, companyId }
-      });
+      const cashAccount = await getOrCreateCashAccount(userId, companyId);
 
       await prisma.journalEntry.create({
         data: {
@@ -315,21 +362,32 @@ exports.deleteEquityAccount = async (req, res) => {
 
 exports.addCapital = async (req, res) => {
   try {
-    const { accountId, amount, description, reference } = req.body;
+    const { accountId, amount, description, reference, paymentMethod, bankAccountId } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.id;
 
-    const account = await prisma.chartOfAccount.findFirst({
-      where: { id: accountId, companyId }
-    });
+    const account = await findLinkedChartAccount(accountId, companyId);
 
     if (!account) {
-      return res.status(404).json({ success: false, message: 'Account not found' });
+      return res.status(404).json({ success: false, message: 'Equity account not found in Chart of Accounts' });
     }
 
-    const cashAccount = await getCashAccount(userId, companyId);
+    const method = paymentMethod || 'Cash';
+    if (method !== 'Cash' && !cleanId(bankAccountId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select a bank account for this payment method',
+      });
+    }
 
-    // Journal Entry: Cash Dr / Equity Cr
+    const { fundingAccount, bankAccount } = await resolveFundingAccount(
+      userId,
+      companyId,
+      method,
+      bankAccountId
+    );
+
+    // Journal: Cash/Bank Dr / Equity Cr
     await prisma.journalEntry.create({
       data: {
         entryNumber: `JE-${Date.now()}`,
@@ -344,9 +402,9 @@ exports.addCapital = async (req, res) => {
         lines: {
           create: [
             {
-              accountId: cashAccount.id,
-              accountName: cashAccount.name,
-              accountCode: cashAccount.code,
+              accountId: fundingAccount.id,
+              accountName: fundingAccount.name,
+              accountCode: fundingAccount.code,
               debit: amount,
               credit: 0
             },
@@ -362,15 +420,14 @@ exports.addCapital = async (req, res) => {
       }
     });
 
-    // Update ChartOfAccount balance — THIS is what Flutter reads
     await prisma.chartOfAccount.update({
-      where: { id: accountId },
+      where: { id: account.id },
       data: { currentBalance: { increment: amount } }
     });
+    await applyFundingBalance(fundingAccount, bankAccount, amount, 'in');
 
-    // Create EquityTransaction for history
     await createEquityTransaction(
-      accountId, 'Additional Capital', amount,
+      account.id, 'Additional Capital', amount,
       description || `Additional capital to ${account.name}`,
       reference || '', userId, companyId
     );
@@ -383,29 +440,39 @@ exports.addCapital = async (req, res) => {
 
   } catch (error) {
     console.error('addCapital error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
 // ==================== RECORD DRAWINGS ====================
 exports.recordDrawings = async (req, res) => {
   try {
-    const { accountId, amount, description, reference } = req.body;
+    const { accountId, amount, description, reference, paymentMethod, bankAccountId } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.id;
 
-    // accountId = ChartOfAccount.id (sent from Flutter)
-    const account = await prisma.chartOfAccount.findFirst({
-      where: { id: accountId, companyId }
-    });
+    const account = await findLinkedChartAccount(accountId, companyId);
 
     if (!account) {
-      return res.status(404).json({ success: false, message: 'Account not found' });
+      return res.status(404).json({ success: false, message: 'Equity account not found in Chart of Accounts' });
     }
 
-    const cashAccount = await getCashAccount(userId, companyId);
+    const method = paymentMethod || 'Cash';
+    if (method !== 'Cash' && !cleanId(bankAccountId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select a bank account for this payment method',
+      });
+    }
 
-    // Journal Entry: Drawings Dr / Cash Cr
+    const { fundingAccount, bankAccount } = await resolveFundingAccount(
+      userId,
+      companyId,
+      method,
+      bankAccountId
+    );
+
+    // Journal: Drawings Dr / Cash or Bank Cr
     await prisma.journalEntry.create({
       data: {
         entryNumber: `JE-${Date.now()}`,
@@ -427,9 +494,9 @@ exports.recordDrawings = async (req, res) => {
               credit: 0
             },
             {
-              accountId: cashAccount.id,
-              accountName: cashAccount.name,
-              accountCode: cashAccount.code,
+              accountId: fundingAccount.id,
+              accountName: fundingAccount.name,
+              accountCode: fundingAccount.code,
               debit: 0,
               credit: amount
             },
@@ -438,15 +505,14 @@ exports.recordDrawings = async (req, res) => {
       }
     });
 
-    // Update ChartOfAccount balance — Drawings account increases with debit
     await prisma.chartOfAccount.update({
-      where: { id: accountId },
+      where: { id: account.id },
       data: { currentBalance: { increment: amount } }
     });
+    await applyFundingBalance(fundingAccount, bankAccount, amount, 'out');
 
-    // Create EquityTransaction for history
     await createEquityTransaction(
-      accountId, 'Drawings', amount,
+      account.id, 'Drawings', amount,
       description || `Owner drawings from ${account.name}`,
       reference || '', userId, companyId
     );
@@ -459,7 +525,7 @@ exports.recordDrawings = async (req, res) => {
 
   } catch (error) {
     console.error('recordDrawings error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -474,9 +540,10 @@ exports.transferToRetainedEarnings = async (req, res) => {
     let retainedChartAccount = await prisma.chartOfAccount.findFirst({
       where: {
         companyId,
+        type: 'Equity',
         OR: [
+          { code: '3100' },
           { name: { contains: 'retained', mode: 'insensitive' } },
-          { code: '3020' }
         ]
       }
     });
@@ -484,7 +551,7 @@ exports.transferToRetainedEarnings = async (req, res) => {
     if (!retainedChartAccount) {
       retainedChartAccount = await prisma.chartOfAccount.create({
         data: {
-          code: '3020',
+          code: '3100',
           name: 'Retained Earnings',
           type: 'Equity',
           parentAccount: 'Shareholders Equity',
@@ -502,14 +569,22 @@ exports.transferToRetainedEarnings = async (req, res) => {
 
     // Find or create P&L account
     let pnlAccount = await prisma.chartOfAccount.findFirst({
-      where: { code: '3000', companyId }
+      where: {
+        companyId,
+        type: 'Equity',
+        OR: [
+          { code: '3200' },
+          { name: { contains: 'current year', mode: 'insensitive' } },
+          { name: { contains: 'profit', mode: 'insensitive' } },
+        ]
+      }
     });
 
     if (!pnlAccount) {
       pnlAccount = await prisma.chartOfAccount.create({
         data: {
-          code: '3000',
-          name: 'Profit & Loss',
+          code: '3200',
+          name: 'Current Year Earnings',
           type: 'Equity',
           parentAccount: 'Shareholders Equity',
           openingBalance: 0,
@@ -589,8 +664,10 @@ exports.getSummary = async (req, res) => {
     const userId = req.user.id;
 
 
+    await syncCompanyEquityAccounts(companyId, userId);
+
     const accounts = await prisma.chartOfAccount.findMany({
-      where: { type: 'Equity', companyId }
+      where: { type: 'Equity', companyId, isActive: true }
     });
 
     let totalCapital = 0;

@@ -3,6 +3,7 @@
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 
 // ─── HELPER: Get or create Accounts Payable account ──────────────
 async function getOrCreatePayableAccount(userId, companyId) {
@@ -37,41 +38,6 @@ async function getOrCreatePayableAccount(userId, companyId) {
     console.log('✅ [PM] Accounts Payable account found');
   }
   return apAccount;
-}
-
-// ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId, companyId) {
-  console.log('🔍 [PM] Getting/Creating Cash account');
-  let cashAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      code: '1010',
-      companyId: companyId
-    }
-  });
-
-  if (!cashAccount) {
-    console.log('📝 [PM] Creating new Cash account');
-    cashAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: '1010',
-        name: 'Cash in Hand',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash in office',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-    console.log('✅ [PM] Cash account created');
-  } else {
-    console.log('✅ [PM] Cash account found');
-  }
-  return cashAccount;
 }
 
 // ─── HELPER: Validate Supplier ──────────────────────────────────

@@ -108,215 +108,8 @@ exports.getProfitLossStatement = async (req, res) => {
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
-    // ─── GET INCOMES ──────────────────────────────────────────────
-    const incomes = await prisma.income.findMany({
-      where: {
-        companyId: companyId,
-        date: {
-          gte: start,
-          lte: end
-        },
-        status: 'Posted'
-      }
-    });
-
-    // ─── GET EXPENSES ──────────────────────────────────────────────
-    const expenses = await prisma.expense.findMany({
-      where: {
-        
-        companyId: companyId,
-        date: {
-          gte: start,
-          lte: end
-        },
-        status: 'Posted'
-      }
-    });
-
-    // ─── GET INVOICES ──────────────────────────────────────────────
-    const invoices = await prisma.invoice.findMany({
-      where: {
-        companyId: companyId,
-        date: {
-          gte: start,
-          lte: end
-        },
-        status: {
-          not: 'Draft'
-        }
-      }
-    });
-
-    // ─── GET CREDIT NOTES ──────────────────────────────────────────
-    const creditNotes = await prisma.creditNote.findMany({
-      where: {
-        companyId: companyId,
-        date: {
-          gte: start,
-          lte: end
-        }
-      }
-    });
-
-    // ─── GET BILLS ──────────────────────────────────────────────────
-    const bills = await prisma.bill.findMany({
-      where: {
-        companyId: companyId,
-        date: {
-          gte: start,
-          lte: end
-        }
-      }
-    });
-
-    console.log('💰 Incomes found:', incomes.length);
-    console.log('📄 Invoices found:', invoices.length);
-    console.log('📉 Credit Notes found:', creditNotes.length);
-    console.log('💸 Expenses found:', expenses.length);
-    console.log('🧾 Bills found:', bills.length);
-
-    // ─── GROUP INCOMES BY TYPE ──────────────────────────────────
-    const revenueByType = {};
-    let totalRevenue = 0;
-
-    incomes.forEach(inc => {
-      const type = inc.incomeType || 'Other Income';
-      const amount = inc.totalAmount || inc.amount || 0;
-      revenueByType[type] = (revenueByType[type] || 0) + amount;
-      totalRevenue += amount;
-    });
-
-    // ─── ADD INVOICES TO REVENUE ────────────────────────────────
-    let invoicesTotal = 0;
-    invoices.forEach(inv => {
-      invoicesTotal += inv.totalAmount || inv.grandTotal || 0;
-    });
-    if (invoicesTotal > 0) {
-      revenueByType['Sales from Invoices'] = invoicesTotal;
-      totalRevenue += invoicesTotal;
-    }
-
-    // ─── SUBTRACT CREDIT NOTES FROM REVENUE ────────────────────
-    let creditNotesTotal = 0;
-    creditNotes.forEach(cn => {
-      creditNotesTotal += cn.amount || 0;
-    });
-    if (creditNotesTotal > 0) {
-      revenueByType['Credit Notes / Refunds'] = -creditNotesTotal;
-      totalRevenue -= creditNotesTotal;
-    }
-
-    console.log('📈 Revenue by type:', revenueByType);
-    console.log('💰 Total Revenue:', totalRevenue);
-
-    // ─── GROUP EXPENSES BY TYPE ──────────────────────────────────
-    const expensesByType = {};
-    let totalExpenses = 0;
-    let costOfGoodsSold = 0;
-    let operatingExpenses = 0;
-
-    expenses.forEach(exp => {
-      const type = exp.expenseType || 'Other Expense';
-      const amount = exp.totalAmount || exp.amount || 0;
-      expensesByType[type] = (expensesByType[type] || 0) + amount;
-      totalExpenses += amount;
-
-      if (type === 'Cost of Goods Sold' || type === 'Inventory Purchase') {
-        costOfGoodsSold += amount;
-      } else {
-        operatingExpenses += amount;
-      }
-    });
-
-    // ─── ADD BILLS TO EXPENSES ──────────────────────────────────
-    let billsTotal = 0;
-    bills.forEach(bill => {
-      billsTotal += bill.totalAmount || 0;
-    });
-    if (billsTotal > 0) {
-      expensesByType['Purchases / Bills'] = billsTotal;
-      totalExpenses += billsTotal;
-      operatingExpenses += billsTotal;
-    }
-
-    console.log('📉 Expenses by type:', expensesByType);
-    console.log('💸 Total Expenses:', totalExpenses);
-
-    // ─── SEPARATE OPERATING VS OTHER ────────────────────────────
-    const operatingIncomeTypes = ['Sales', 'Services', 'Sales from Invoices', 'Credit Notes / Refunds'];
-    const otherIncomeTypes = ['Interest Income', 'Rental Income', 'Dividend Income', 'Other Income'];
-    const operatingExpenseTypes = ['Rent', 'Salaries', 'Utilities', 'Office Supplies', 'Marketing', 'Insurance', 'Maintenance', 'Software', 'Purchases / Bills'];
-    const otherExpenseTypes = ['Taxes', 'Travel', 'Meals', 'Other'];
-
-    let operatingRevenue = 0;
-    let otherRevenue = 0;
-
-    Object.entries(revenueByType).forEach(([type, amount]) => {
-      if (operatingIncomeTypes.includes(type)) {
-        operatingRevenue += amount;
-      } else if (otherIncomeTypes.includes(type)) {
-        otherRevenue += amount;
-      } else {
-        operatingRevenue += amount;
-      }
-    });
-
-    let operatingExpenseTotal = 0;
-    let otherExpenseTotal = 0;
-
-    Object.entries(expensesByType).forEach(([type, amount]) => {
-      if (operatingExpenseTypes.includes(type)) {
-        operatingExpenseTotal += amount;
-      } else if (otherExpenseTypes.includes(type)) {
-        otherExpenseTotal += amount;
-      } else {
-        operatingExpenseTotal += amount;
-      }
-    });
-
-    // ─── PREPARE REVENUE ITEMS ──────────────────────────────────
-    const revenueItems = [];
-    for (const [type, amount] of Object.entries(revenueByType)) {
-      revenueItems.push({ name: type, amount: amount });
-    }
-
-    // ─── PREPARE EXPENSE ITEMS ──────────────────────────────────
-    const expenseItems = [];
-    for (const [type, amount] of Object.entries(expensesByType)) {
-      expenseItems.push({ name: type, amount: amount });
-    }
-
-    // ─── PREPARE OTHER INCOME/EXPENSE ITEMS ────────────────────
-    const otherIncomeItems = [];
-    const otherExpenseItems = [];
-
-    for (const [type, amount] of Object.entries(revenueByType)) {
-      if (otherIncomeTypes.includes(type)) {
-        otherIncomeItems.push({ name: type, amount: amount });
-      }
-    }
-
-    for (const [type, amount] of Object.entries(expensesByType)) {
-      if (otherExpenseTypes.includes(type)) {
-        otherExpenseItems.push({ name: type, amount: amount });
-      }
-    }
-
-    // ─── CALCULATE FINAL FIGURES ──────────────────────────────────
-    const grossProfit = operatingRevenue - costOfGoodsSold;
-    const netOperatingIncome = grossProfit - operatingExpenseTotal;
-    const netProfit = netOperatingIncome + otherRevenue - otherExpenseTotal;
-
-    console.log('📊 Final Calculations:');
-    console.log('   Operating Revenue:', operatingRevenue);
-    console.log('   Cost of Goods Sold:', costOfGoodsSold);
-    console.log('   Gross Profit:', grossProfit);
-    console.log('   Operating Expenses:', operatingExpenseTotal);
-    console.log('   Net Operating Income:', netOperatingIncome);
-    console.log('   Other Revenue:', otherRevenue);
-    console.log('   Other Expenses:', otherExpenseTotal);
-    console.log('   Net Profit:', netProfit);
-    console.log('========== END DEBUG ==========\n');
+    const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
+    const pl = await buildProfitLossFromLedger(companyId, start, end);
 
     res.status(200).json({
       success: true,
@@ -326,28 +119,14 @@ exports.getProfitLossStatement = async (req, res) => {
           end: end,
           displayText: getPeriodDisplayText(period, start, end)
         },
-        revenue: {
-          total: totalRevenue,
-          operating: operatingRevenue,
-          other: otherRevenue,
-          items: revenueItems
-        },
-        costOfGoodsSold: costOfGoodsSold,
-        grossProfit: grossProfit,
-        operatingExpenses: {
-          total: operatingExpenseTotal,
-          items: expenseItems.filter(item => operatingExpenseTypes.includes(item.name))
-        },
-        otherIncome: {
-          total: otherRevenue,
-          items: otherIncomeItems
-        },
-        otherExpenses: {
-          total: otherExpenseTotal,
-          items: otherExpenseItems
-        },
-        netProfit: netProfit,
-        netProfitMargin: totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
+        revenue: pl.revenue,
+        costOfGoodsSold: pl.costOfGoodsSold,
+        grossProfit: pl.grossProfit,
+        operatingExpenses: pl.operatingExpenses,
+        otherIncome: pl.otherIncome,
+        otherExpenses: pl.otherExpenses,
+        netProfit: pl.netProfit,
+        netProfitMargin: pl.netProfitMargin
       }
     });
   } catch (error) {
@@ -359,7 +138,6 @@ exports.getProfitLossStatement = async (req, res) => {
     });
   }
 };
-
 // ============================================================
 // @desc    Get Profit & Loss Summary (Quick Stats)
 // @route   GET /api/pl-reports/profit-loss/summary

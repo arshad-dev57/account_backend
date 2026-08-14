@@ -360,7 +360,8 @@ const createAccount = async (req, res) => {
         description: description || '',
         taxCode: taxCode || 'N/A',
         isActive: isActive !== undefined ? isActive : true,
-        createdBy: userId
+        createdBy: userId,
+        companyId: companyId
       },
       include: {
         creator: {
@@ -388,6 +389,15 @@ const createAccount = async (req, res) => {
 
     const openingEntry = await getOpeningBalanceEntry(userId);
     const isBalanced = openingEntry ? await isOpeningEntryBalanced(openingEntry.id) : false;
+
+    if (type === 'Equity') {
+      try {
+        const { ensureEquityAccountForChart } = require('../utils/equityAccountHelper');
+        await ensureEquityAccountForChart(account, userId, companyId);
+      } catch (syncErr) {
+        console.log('⚠️ [COA] Equity sync skipped:', syncErr.message);
+      }
+    }
 
     res.status(201).json({
       success: true,

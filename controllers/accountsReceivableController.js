@@ -3,11 +3,8 @@
 const prisma = require('../prisma/client');
 const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 
-/**
- * WarehouseInvoice has no fiscalYearId column — filter by invoiceDate within the FY window.
- * Returns a Prisma date filter or null.
- */
 async function warehouseInvoiceFyDateFilter(companyId, fiscalYearId) {
   if (!fiscalYearId) return null;
   const fy = await getCompanyFiscalYear(companyId, fiscalYearId);
@@ -89,42 +86,6 @@ async function getOrCreateReceivableAccount(userId, companyId) {
   return arAccount;
 }
 
-// ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId, companyId) {
-  console.log('🔍 [AR] Getting/Creating Cash account');
-  let cashAccount = await prisma.chartOfAccount.findFirst({
-    where: {
-      code: '1010',
-      
-      companyId: companyId
-    }
-  });
-
-  if (!cashAccount) {
-    console.log('📝 [AR] Creating new Cash account');
-    cashAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: '1010',
-        name: 'Cash in Hand',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash in office',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-    console.log('✅ [AR] Cash account created');
-  } else {
-    console.log('✅ [AR] Cash account found');
-  }
-  return cashAccount;
-}
-
 // ─── HELPER: Get or create Revenue account ──────────────────────
 async function getOrCreateRevenueAccount(userId) {
   console.log('🔍 [AR] Getting/Creating Revenue account');
@@ -191,7 +152,6 @@ async function getOrCreateTaxLiabilityAccount(userId) {
   return taxAccount;
 }
 
-// ─── HELPER: Generate invoice number ────────────────────────────
 async function generateInvoiceNumber(userId) {
   const count = await prisma.warehouseInvoice.count({
     where: { companyId: companyId}
@@ -202,7 +162,6 @@ async function generateInvoiceNumber(userId) {
   return invoiceNumber;
 }
 
-// ─── HELPER: Validate Warehouse Customer ──────────────────────────
 async function validateWarehouseCustomer(customerId, userId) {
   console.log(`🔍 [AR] Validating warehouse customer: ${customerId}`);
   const customer = await prisma.customer.findFirst({
@@ -221,7 +180,6 @@ async function validateWarehouseCustomer(customerId, userId) {
   return customer;
 }
 
-// ─── HELPER: Validate Bank Account ──────────────────────────────
 async function validateBankAccount(bankAccountId, userId) {
   console.log(`🔍 [AR] Validating bank account: ${bankAccountId}`);
   if (!bankAccountId) return null;
@@ -1203,17 +1161,7 @@ const recordPayment = async (req, res) => {
             });
           }
 
-          let cashAccount = await tx.chartOfAccount.findFirst({ where: { code: '1010', companyId: companyId} });
-          if (!cashAccount) {
-            cashAccount = await tx.chartOfAccount.create({
-              data: {
-                code: '1010', name: 'Cash in Hand', type: 'Asset',
-                parentAccount: 'Current Assets', openingBalance: 0, currentBalance: 0,
-                description: 'Physical cash in office', taxCode: 'N/A',
-                balanceType: 'Debit', isActive: true, createdBy: userId, companyId: companyId
-              }
-            });
-          }
+          const cashAccount = await getOrCreateCashAccount(userId, companyId, tx);
 
           let bankAccount = null;
           let debitAccount = cashAccount;

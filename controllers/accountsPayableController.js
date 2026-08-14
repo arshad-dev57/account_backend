@@ -1,5 +1,6 @@
 const prisma = require('../prisma/client');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 
 /** Bill has no fiscalYearId column — filter by bill date within the FY window. */
 async function applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId) {
@@ -56,44 +57,6 @@ async function getOrCreatePayableAccount(userId, companyId, tx) {
   }
 
   return apAccount;
-}
-
-// ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId, companyId, tx) {
-  const db = tx || prisma;
-  console.log('🔍 [AP] Getting/Creating Cash account');
-
-  let cashAccount = await db.chartOfAccount.findFirst({
-    where: {
-      code: '1010',
-      companyId: companyId
-    }
-  });
-
-  if (!cashAccount) {
-    console.log('📝 [AP] Creating new Cash account');
-    cashAccount = await db.chartOfAccount.create({
-      data: {
-        code: '1010',
-        name: 'Cash in Hand',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash in office',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-    console.log('✅ [AP] Cash account created:', cashAccount.id);
-  } else {
-    console.log('✅ [AP] Cash account found:', cashAccount.id);
-  }
-
-  return cashAccount;
 }
 
 // ─── HELPER: Get or create Expense account ────────────────────────
@@ -216,6 +179,107 @@ function determineBillStatus(totalAmount, paidAmount, dueDate) {
   return 'Unpaid';
 }
 
+const purchasePaymentInclude = {
+  purchasePayments: {
+    where: {
+      payment: {
+        isActive: true,
+        isDeleted: false,
+        status: 'Completed'
+      }
+    },
+    select: { amountPaid: true }
+  }
+};
+
+function computePurchaseOpenBalance(inv) {
+  const grandTotal = Number(inv.grandTotal) || 0;
+  const paidFromPayments = (inv.purchasePayments || []).reduce(
+    (s, p) => s + (Number(p.amountPaid) || 0),
+    0
+  );
+  const paidAmount = Math.max(Number(inv.paidAmount) || 0, paidFromPayments);
+  const outstanding = Math.max(0, grandTotal - paidAmount);
+  return { grandTotal, paidAmount, outstanding };
+}
+
+function purchaseInvoiceToBillShape(inv) {
+  const { grandTotal, paidAmount, outstanding } = computePurchaseOpenBalance(inv);
+  let status = 'Unpaid';
+  if (outstanding <= 0) status = 'Paid';
+  else if (paidAmount > 0) status = 'Partial';
+  else if (inv.dueDate && new Date(inv.dueDate) < new Date()) status = 'Overdue';
+
+  return {
+    id: inv.id,
+    billNumber: inv.invoiceNumber,
+    vendorId: inv.supplierId,
+    vendorName: inv.supplierName || '',
+    vendor: inv.supplier
+      ? {
+          id: inv.supplier.id,
+          name: inv.supplier.name,
+          email: inv.supplier.email,
+          phone: inv.supplier.phone
+        }
+      : {
+          id: inv.supplierId,
+          name: inv.supplierName || ''
+        },
+    date: inv.invoiceDate,
+    dueDate: inv.dueDate,
+    items: (inv.items || []).map((i) => ({
+      description: i.productName || i.sku || '',
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      amount: i.lineTotal,
+      taxRate: i.taxRate,
+      taxAmount: i.taxAmount
+    })),
+    subtotal: inv.subtotal || 0,
+    taxTotal: inv.taxTotal || 0,
+    discount: inv.discountTotal || 0,
+    totalAmount: grandTotal,
+    paidAmount,
+    outstanding,
+    status,
+    notes: inv.notes || '',
+    source: 'purchaseInvoice',
+    invoiceStatus: inv.invoiceStatus,
+    paymentStatus: inv.paymentStatus
+  };
+}
+
+function billOpenBalance(bill) {
+  const totalAmount = Number(bill.totalAmount) || 0;
+  const paidAmount = Number(bill.paidAmount) || 0;
+  return {
+    totalAmount,
+    paidAmount,
+    outstanding: Math.max(0, totalAmount - paidAmount)
+  };
+}
+
+async function fetchCompanyPurchaseInvoices(companyId, extraWhere = {}) {
+  return prisma.purchaseInvoice.findMany({
+    where: {
+      companyId,
+      isActive: true,
+      isDeleted: false,
+      invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      ...extraWhere
+    },
+    include: {
+      supplier: {
+        select: { id: true, name: true, email: true, phone: true }
+      },
+      items: true,
+      ...purchasePaymentInclude
+    },
+    orderBy: { invoiceDate: 'desc' }
+  });
+}
+
 // ============================================================
 // ✅ BILL NUMBER GENERATION
 // ============================================================
@@ -291,25 +355,50 @@ exports.getSuppliers = async (req, res) => {
       }
     });
 
-    const bills = await prisma.bill.findMany({
-      where: {
-        companyId: companyId,
-        status: { not: 'Paid' }
-      }
-    });
+    const [bills, purchaseInvoices] = await Promise.all([
+      prisma.bill.findMany({
+        where: { companyId }
+      }),
+      fetchCompanyPurchaseInvoices(companyId)
+    ]);
 
-    const suppliersWithOutstanding = suppliers.map(supplier => {
-      const supplierBills = bills.filter(bill => bill.vendorId === supplier.id);
-      const totalAmount = supplierBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-      const paidAmount = supplierBills.reduce((sum, bill) => sum + bill.paidAmount, 0);
-      const outstandingAmount = totalAmount - paidAmount;
+    const openDocs = [
+      ...bills.map((bill) => {
+        const { totalAmount, paidAmount, outstanding } = billOpenBalance(bill);
+        return {
+          supplierId: bill.vendorId,
+          totalAmount,
+          paidAmount,
+          outstanding
+        };
+      }),
+      ...purchaseInvoices.map((inv) => {
+        const { grandTotal, paidAmount, outstanding } = computePurchaseOpenBalance(inv);
+        return {
+          supplierId: inv.supplierId,
+          totalAmount: grandTotal,
+          paidAmount,
+          outstanding
+        };
+      })
+    ];
+
+    const suppliersWithOutstanding = suppliers.map((supplier) => {
+      const docs = openDocs.filter((d) => d.supplierId === supplier.id);
+      const outstandingDocs = docs.filter((d) => d.outstanding > 0);
+      const totalAmount = outstandingDocs.reduce((sum, d) => sum + d.totalAmount, 0);
+      const paidAmount = outstandingDocs.reduce((sum, d) => sum + d.paidAmount, 0);
+      const outstandingAmount = outstandingDocs.reduce(
+        (sum, d) => sum + d.outstanding,
+        0
+      );
 
       return {
         ...supplier,
         totalAmount,
         paidAmount,
         outstandingAmount,
-        billCount: supplierBills.length
+        billCount: outstandingDocs.length
       };
     });
 
@@ -362,21 +451,41 @@ exports.getSupplier = async (req, res) => {
       });
     }
 
-    const bills = await prisma.bill.findMany({
-      where: {
-        vendorId: supplier.id,
-        companyId: companyId
-      },
-      orderBy: { date: 'desc' }
-    });
+    const [bills, purchaseInvoices] = await Promise.all([
+      prisma.bill.findMany({
+        where: {
+          vendorId: supplier.id,
+          companyId: companyId
+        },
+        orderBy: { date: 'desc' }
+      }),
+      fetchCompanyPurchaseInvoices(companyId, { supplierId: supplier.id })
+    ]);
 
-    const totalAmount = bills.reduce((sum, bill) => sum + bill.totalAmount, 0);
-    const paidAmount = bills.reduce((sum, bill) => sum + bill.paidAmount, 0);
-    const outstandingAmount = totalAmount - paidAmount;
+    const mappedBills = [
+      ...bills,
+      ...purchaseInvoices.map(purchaseInvoiceToBillShape)
+    ];
+
+    const totalAmount = mappedBills.reduce(
+      (sum, bill) => sum + (Number(bill.totalAmount) || 0),
+      0
+    );
+    const paidAmount = mappedBills.reduce(
+      (sum, bill) => sum + (Number(bill.paidAmount) || 0),
+      0
+    );
+    const outstandingAmount = mappedBills.reduce((sum, bill) => {
+      const out =
+        bill.outstanding != null
+          ? Number(bill.outstanding)
+          : Number(bill.totalAmount || 0) - Number(bill.paidAmount || 0);
+      return sum + Math.max(0, out);
+    }, 0);
 
     const supplierData = {
       ...supplier,
-      bills,
+      bills: mappedBills,
       totalAmount,
       paidAmount,
       outstandingAmount
@@ -604,42 +713,69 @@ exports.getBills = async (req, res) => {
 
     await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
-    const bills = await prisma.bill.findMany({
-      where: filter,
-      orderBy: { date: 'desc' },
-      include: {
-        vendor: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true
-          }
-        },
-        creator: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        },
-        paymentsMade: {
-          select: {
-            id: true,
-            paymentNumber: true,
-            amount: true,
-            paymentDate: true,
-            status: true
+    const piWhere = {};
+    if (supplierId) piWhere.supplierId = supplierId;
+    if (startDate && endDate) {
+      piWhere.invoiceDate = {
+        gte: new Date(startDate),
+        lte: new Date(endDate)
+      };
+    } else if (filter.date) {
+      piWhere.invoiceDate = filter.date;
+    }
+
+    const [bills, purchaseInvoices] = await Promise.all([
+      prisma.bill.findMany({
+        where: filter,
+        orderBy: { date: 'desc' },
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true
+            }
+          },
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          paymentsMade: {
+            select: {
+              id: true,
+              paymentNumber: true,
+              amount: true,
+              paymentDate: true,
+              status: true
+            }
           }
         }
-      }
-    });
+      }),
+      fetchCompanyPurchaseInvoices(companyId, piWhere)
+    ]);
+
+    let mapped = [
+      ...bills,
+      ...purchaseInvoices.map(purchaseInvoiceToBillShape)
+    ];
+
+    if (status) {
+      mapped = mapped.filter(
+        (b) => String(b.status).toLowerCase() === String(status).toLowerCase()
+      );
+    }
+
+    mapped.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.status(200).json({
       success: true,
-      count: bills.length,
-      data: bills
+      count: mapped.length,
+      data: mapped
     });
   } catch (error) {
     console.error('❌ [AP] Get bills error:', error);
@@ -697,9 +833,32 @@ exports.getBill = async (req, res) => {
     });
 
     if (!bill) {
-      return res.status(404).json({
-        success: false,
-        message: 'Bill not found'
+      const purchaseInvoice = await prisma.purchaseInvoice.findFirst({
+        where: {
+          id,
+          companyId,
+          isActive: true,
+          isDeleted: false
+        },
+        include: {
+          supplier: {
+            select: { id: true, name: true, email: true, phone: true }
+          },
+          items: true,
+          ...purchasePaymentInclude
+        }
+      });
+
+      if (!purchaseInvoice) {
+        return res.status(404).json({
+          success: false,
+          message: 'Bill not found'
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: purchaseInvoiceToBillShape(purchaseInvoice)
       });
     }
 
@@ -1109,12 +1268,26 @@ exports.getSummary = async (req, res) => {
 
     await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
-    const bills = await prisma.bill.findMany({
-      where: filter
-    });
+    const [bills, purchaseInvoices] = await Promise.all([
+      prisma.bill.findMany({
+        where: filter
+      }),
+      fetchCompanyPurchaseInvoices(
+        companyId,
+        filter.date ? { invoiceDate: filter.date } : {}
+      )
+    ]);
 
-    const totalOutstanding = bills.reduce(
-      (sum, bill) => sum + (bill.totalAmount - bill.paidAmount),
+    const openPayables = [
+      ...bills.map((bill) => {
+        const { outstanding } = billOpenBalance(bill);
+        return { ...bill, outstanding, dueDate: bill.dueDate, status: bill.status };
+      }),
+      ...purchaseInvoices.map(purchaseInvoiceToBillShape)
+    ].filter((doc) => (Number(doc.outstanding) || 0) > 0);
+
+    const totalOutstanding = openPayables.reduce(
+      (sum, doc) => sum + (Number(doc.outstanding) || 0),
       0
     );
 
@@ -1123,17 +1296,17 @@ exports.getSummary = async (req, res) => {
     endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-    const overdue = bills
-      .filter(bill => bill.dueDate < now && bill.status !== 'Paid')
-      .reduce((sum, bill) => sum + (bill.totalAmount - bill.paidAmount), 0);
+    const overdue = openPayables
+      .filter((doc) => doc.dueDate && new Date(doc.dueDate) < now && doc.status !== 'Paid')
+      .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
 
-    const dueThisWeek = bills
-      .filter(bill => bill.dueDate >= now && bill.dueDate <= endOfWeek && bill.status !== 'Paid')
-      .reduce((sum, bill) => sum + (bill.totalAmount - bill.paidAmount), 0);
+    const dueThisWeek = openPayables
+      .filter((doc) => doc.dueDate && new Date(doc.dueDate) >= now && new Date(doc.dueDate) <= endOfWeek && doc.status !== 'Paid')
+      .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
 
-    const dueThisMonth = bills
-      .filter(bill => bill.dueDate >= now && bill.dueDate <= endOfMonth && bill.status !== 'Paid')
-      .reduce((sum, bill) => sum + (bill.totalAmount - bill.paidAmount), 0);
+    const dueThisMonth = openPayables
+      .filter((doc) => doc.dueDate && new Date(doc.dueDate) >= now && new Date(doc.dueDate) <= endOfMonth && doc.status !== 'Paid')
+      .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
 
     const activeSuppliers = await prisma.supplier.count({
       where: {
@@ -1181,31 +1354,45 @@ exports.getAgedPayables = async (req, res) => {
 
     await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
-    const bills = await prisma.bill.findMany({
-      where: filter,
-      include: {
-        vendor: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true
+    const [bills, purchaseInvoices] = await Promise.all([
+      prisma.bill.findMany({
+        where: filter,
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true
+            }
           }
         }
-      }
-    });
+      }),
+      fetchCompanyPurchaseInvoices(
+        companyId,
+        filter.date ? { invoiceDate: filter.date } : {}
+      )
+    ]);
+
+    const payableDocs = [
+      ...bills,
+      ...purchaseInvoices.map(purchaseInvoiceToBillShape)
+    ];
 
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 
     const supplierMap = new Map();
 
-    for (const bill of bills) {
-      const outstanding = bill.totalAmount - (bill.paidAmount || 0);
+    for (const bill of payableDocs) {
+      const outstanding =
+        bill.outstanding != null
+          ? Number(bill.outstanding)
+          : (Number(bill.totalAmount) || 0) - (Number(bill.paidAmount) || 0);
       if (outstanding <= 0) continue;
 
-      const supplierId = bill.vendorId || 'unknown';
-      const supplierName = bill.vendor?.name || 'Unknown Supplier';
+      const supplierId = bill.vendorId || bill.vendor?.id || 'unknown';
+      const supplierName = bill.vendor?.name || bill.vendorName || 'Unknown Supplier';
 
       if (!supplierMap.has(supplierId)) {
         supplierMap.set(supplierId, {
@@ -1309,36 +1496,59 @@ exports.getUnpaidBills = async (req, res) => {
       });
     }
 
-    const bills = await prisma.bill.findMany({
-      where: {
-        vendorId: supplierId,
-        companyId: companyId,
-        status: { not: 'Paid' }
-      },
-      orderBy: { dueDate: 'asc' },
-      include: {
-        paymentsMade: {
-          select: {
-            id: true,
-            paymentNumber: true,
-            amount: true,
-            paymentDate: true,
-            status: true
+    const [bills, purchaseInvoices] = await Promise.all([
+      prisma.bill.findMany({
+        where: {
+          vendorId: supplierId,
+          companyId: companyId,
+          status: { not: 'Paid' }
+        },
+        orderBy: { dueDate: 'asc' },
+        include: {
+          paymentsMade: {
+            select: {
+              id: true,
+              paymentNumber: true,
+              amount: true,
+              paymentDate: true,
+              status: true
+            }
           }
         }
-      }
-    });
+      }),
+      fetchCompanyPurchaseInvoices(companyId, { supplierId })
+    ]);
 
-    const unpaidBills = bills.map(bill => ({
-      id: bill.id,
-      billNumber: bill.billNumber,
-      date: bill.date,
-      dueDate: bill.dueDate,
-      totalAmount: bill.totalAmount,
-      paidAmount: bill.paidAmount,
-      outstanding: bill.totalAmount - bill.paidAmount,
-      status: bill.status
-    }));
+    const unpaidBills = [
+      ...bills.map((bill) => {
+        const { totalAmount, paidAmount, outstanding } = billOpenBalance(bill);
+        return {
+          id: bill.id,
+          billNumber: bill.billNumber,
+          date: bill.date,
+          dueDate: bill.dueDate,
+          totalAmount,
+          paidAmount,
+          outstanding,
+          status: bill.status,
+          source: 'bill'
+        };
+      }),
+      ...purchaseInvoices
+        .map(purchaseInvoiceToBillShape)
+        .filter((inv) => inv.outstanding > 0)
+        .map((inv) => ({
+          id: inv.id,
+          billNumber: inv.billNumber,
+          date: inv.date,
+          dueDate: inv.dueDate,
+          totalAmount: inv.totalAmount,
+          paidAmount: inv.paidAmount,
+          outstanding: inv.outstanding,
+          status: inv.status,
+          source: 'purchaseInvoice'
+        }))
+    ].filter((b) => b.outstanding > 0);
 
     res.status(200).json({
       success: true,

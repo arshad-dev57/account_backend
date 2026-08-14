@@ -2,6 +2,10 @@
 
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
+const {
+  getOrCreateArAccount,
+  getOrCreateSalesRevenueAccount,
+} = require('../../utils/arAccountHelper');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -13,35 +17,12 @@ function generateInvoiceNumber() {
   return `SI-${year}${month}${day}-${random}`;
 }
 
-// ─── Helper: Find AR Account ────────────────────────────────
-async function findARAccount(tx, companyId) {
-  // ✅ FIXED: Use companyId instead of userId
-  return await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '1200' },
-        { name: { contains: 'Accounts Receivable', mode: 'insensitive' } }
-      ]
-    }
-  });
+async function findARAccount(tx, companyId, userId) {
+  return getOrCreateArAccount(userId, companyId, tx);
 }
 
-// ─── Helper: Find Revenue Account ───────────────────────────
-async function findRevenueAccount(tx, companyId) {
-  // ✅ FIXED: Use companyId instead of userId
-  return await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '4000' },
-        { name: { contains: 'sales revenue', mode: 'insensitive' } },
-        { name: { contains: 'service revenue', mode: 'insensitive' } }
-      ]
-    }
-  });
+async function findRevenueAccount(tx, companyId, userId) {
+  return getOrCreateSalesRevenueAccount(userId, companyId, tx);
 }
 
 // ─── Helper: Find or Create Customer ────────────────────────
@@ -191,8 +172,8 @@ class SalesInvoiceModel {
       const grandTotal = subtotal - totalDiscount + totalTax;
 
       // ✅ FIXED: Use companyId instead of userId
-      const arAccount = await findARAccount(tx, companyId);
-      const revenueAccount = await findRevenueAccount(tx, companyId);
+      const arAccount = await findARAccount(tx, companyId, userId);
+      const revenueAccount = await findRevenueAccount(tx, companyId, userId);
 
       const invoice = await tx.salesInvoice.create({
         data: {
@@ -332,8 +313,8 @@ class SalesInvoiceModel {
       const grandTotal = subtotal - totalDiscount + totalTax;
 
       // ✅ FIXED: Use companyId instead of userId
-      const arAccount = await findARAccount(tx, companyId);
-      const revenueAccount = await findRevenueAccount(tx, companyId);
+      const arAccount = await findARAccount(tx, companyId, userId);
+      const revenueAccount = await findRevenueAccount(tx, companyId, userId);
 
       const invoice = await tx.salesInvoice.create({
         data: {
@@ -375,64 +356,62 @@ class SalesInvoiceModel {
 
   // ============================================================
   // POST INVOICE (Create Accounting Entries)
+  // Missing JE is posted even if the invoice was already marked Paid.
   // ============================================================
-  static async postInvoice(invoiceId, userId) {
-    return await prisma.$transaction(async (tx) => {
+  static async postInvoice(invoiceId, userId, existingTx) {
+    const run = async (tx) => {
       const invoice = await tx.salesInvoice.findUnique({
         where: { id: invoiceId },
         include: {
           items: true,
           customer: true,
           salesRevenueAccount: true,
-          arAccount: true
+          arAccount: true,
+          accountsReceivable: true
         }
       });
 
       if (!invoice) throw new Error('Invoice not found');
-      if (invoice.invoiceStatus === 'Posted') throw new Error('Invoice already posted');
-      if (invoice.invoiceStatus === 'Cancelled') throw new Error('Cannot post cancelled invoice');
-
-      const companyId = invoice.companyId;
-
-      let arAccountId = invoice.arAccountId;
-      let salesRevenueAccountId = invoice.salesRevenueAccountId;
-      let arAccountName = invoice.arAccount?.name || 'Accounts Receivable';
-      let arAccountCode = invoice.arAccount?.code || '1200';
-      let revenueAccountName = invoice.salesRevenueAccount?.name || 'Sales Revenue';
-      let revenueAccountCode = invoice.salesRevenueAccount?.code || '4000';
-
-      if (!arAccountId || !salesRevenueAccountId) {
-        // ✅ FIXED: Use companyId instead of userId
-        const arAccount = await findARAccount(tx, companyId);
-        const revenueAccount = await findRevenueAccount(tx, companyId);
-
-        if (!arAccount || !revenueAccount) {
-          throw new Error(
-            `Accounts not found. AR: ${!!arAccount}, Revenue: ${!!revenueAccount}. ` +
-            `Please create "Accounts Receivable" and "Sales Revenue" accounts in Chart of Accounts.`
-          );
-        }
-
-        arAccountId = arAccount.id;
-        salesRevenueAccountId = revenueAccount.id;
-        arAccountName = arAccount.name;
-        arAccountCode = arAccount.code;
-        revenueAccountName = revenueAccount.name;
-        revenueAccountCode = revenueAccount.code;
-
-        await tx.salesInvoice.update({
-          where: { id: invoiceId },
-          data: { arAccountId, salesRevenueAccountId }
-        });
+      if (invoice.invoiceStatus === 'Cancelled') {
+        throw new Error('Cannot post cancelled invoice');
+      }
+      if (invoice.journalEntryId) {
+        return invoice;
       }
 
-      // ─── 1. Create Journal Entry ──────────────────────────
+      const companyId = invoice.companyId;
+      const linkedArIsInventory =
+        invoice.arAccount &&
+        (String(invoice.arAccount.code) === '1200' ||
+          /^inventory$/i.test(String(invoice.arAccount.name || '').trim()));
+
+      const arAccount = (!invoice.arAccountId || linkedArIsInventory)
+        ? await findARAccount(tx, companyId, userId)
+        : invoice.arAccount;
+      const revenueAccount = invoice.salesRevenueAccountId
+        ? invoice.salesRevenueAccount
+        : await findRevenueAccount(tx, companyId, userId);
+
+      if (!arAccount || !revenueAccount) {
+        throw new Error(
+          'Accounts Receivable or Sales Revenue account not found in Chart of Accounts.'
+        );
+      }
+
+      await tx.salesInvoice.update({
+        where: { id: invoiceId },
+        data: {
+          arAccountId: arAccount.id,
+          salesRevenueAccountId: revenueAccount.id
+        }
+      });
+
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
       const journalEntry = await tx.journalEntry.create({
         data: {
           entryNumber,
-          date: new Date(),
+          date: invoice.invoiceDate || new Date(),
           description: `Sales Invoice #${invoice.invoiceNumber} for ${invoice.customerName}`,
           reference: invoice.invoiceNumber,
           status: 'Posted',
@@ -444,16 +423,16 @@ class SalesInvoiceModel {
           lines: {
             create: [
               {
-                accountId: arAccountId,
-                accountName: arAccountName,
-                accountCode: arAccountCode,
+                accountId: arAccount.id,
+                accountName: arAccount.name,
+                accountCode: arAccount.code,
                 debit: invoice.grandTotal,
                 credit: 0
               },
               {
-                accountId: salesRevenueAccountId,
-                accountName: revenueAccountName,
-                accountCode: revenueAccountCode,
+                accountId: revenueAccount.id,
+                accountName: revenueAccount.name,
+                accountCode: revenueAccount.code,
                 debit: 0,
                 credit: invoice.grandTotal
               }
@@ -463,41 +442,50 @@ class SalesInvoiceModel {
         include: { lines: true }
       });
 
-      // Sync Chart of Accounts: Dr AR, Cr Sales Revenue
       await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
 
-      // ─── 2. Create Accounts Receivable Record ─────────────
-      await tx.accountsReceivable.create({
-        data: {
-          invoiceId: invoice.id,
-          invoiceNumber: invoice.invoiceNumber,
-          customerId: invoice.customerId,
-          customerName: invoice.customerName,
-          amount: invoice.grandTotal,
-          paidAmount: 0,
-          outstanding: invoice.grandTotal,
-          dueDate: invoice.dueDate,
-          status: 'Current',
-          accountId: arAccountId,
-          companyId: companyId,
-          fiscalYearId: invoice.fiscalYearId,
-          notes: `Created from invoice #${invoice.invoiceNumber}`
-        }
-      });
+      const existingAr = Array.isArray(invoice.accountsReceivable)
+        ? invoice.accountsReceivable[0]
+        : invoice.accountsReceivable;
 
-      // ─── 3. Update Customer Outstanding Balance ───────────
-      await tx.customer.update({
-        where: { id: invoice.customerId },
-        data: { outstandingBalance: { increment: invoice.grandTotal } }
-      });
+      if (!existingAr) {
+        await tx.accountsReceivable.create({
+          data: {
+            invoiceId: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            customerId: invoice.customerId,
+            customerName: invoice.customerName,
+            amount: invoice.grandTotal,
+            paidAmount: invoice.paidAmount || 0,
+            outstanding: invoice.outstanding != null
+              ? invoice.outstanding
+              : invoice.grandTotal,
+            dueDate: invoice.dueDate,
+            status: (invoice.outstanding || invoice.grandTotal) <= 0 ? 'Paid' : 'Current',
+            accountId: arAccount.id,
+            companyId: companyId,
+            fiscalYearId: invoice.fiscalYearId,
+            notes: `Created from invoice #${invoice.invoiceNumber}`
+          }
+        });
+      }
 
-      // ─── 4. Update Invoice Status ──────────────────────────
+      const keepStatus = ['Paid', 'Partially Paid'].includes(invoice.invoiceStatus);
+      if (!keepStatus && invoice.customerId) {
+        await tx.customer.update({
+          where: { id: invoice.customerId },
+          data: { outstandingBalance: { increment: invoice.grandTotal } }
+        });
+      }
+
       const updatedInvoice = await tx.salesInvoice.update({
         where: { id: invoiceId },
         data: {
-          invoiceStatus: 'Posted',
-          postedAt: new Date(),
+          invoiceStatus: keepStatus ? invoice.invoiceStatus : 'Posted',
+          postedAt: invoice.postedAt || new Date(),
           journalEntryId: journalEntry.id,
+          arAccountId: arAccount.id,
+          salesRevenueAccountId: revenueAccount.id,
           updatedBy: userId
         },
         include: {
@@ -510,7 +498,6 @@ class SalesInvoiceModel {
         }
       });
 
-      // Advance linked order out of Draft/Pending into Processing
       if (invoice.orderId) {
         const linkedOrder = await tx.order.findUnique({
           where: { id: invoice.orderId }
@@ -527,7 +514,10 @@ class SalesInvoiceModel {
       }
 
       return updatedInvoice;
-    });
+    };
+
+    if (existingTx) return run(existingTx);
+    return prisma.$transaction(run);
   }
 
   // ============================================================
@@ -940,6 +930,23 @@ class SalesInvoiceModel {
     }
 
     return summary;
+  }
+
+  static async backfillMissingJournals(companyId, userId) {
+    if (!companyId || !userId) return;
+    const missing = await prisma.salesInvoice.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        journalEntryId: null,
+        invoiceStatus: { not: 'Cancelled' }
+      },
+      select: { id: true }
+    });
+    for (const inv of missing) {
+      await this.postInvoice(inv.id, userId);
+    }
   }
 }
 

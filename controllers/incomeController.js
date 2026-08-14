@@ -4,6 +4,7 @@ const IncomeModel = require('../models/Income');
 const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 
 async function getIncomeAccountsForDropdown(userId, companyId) {
   let accounts = await prisma.chartOfAccount.findMany({
@@ -70,52 +71,6 @@ async function getIncomeAccountsForDropdown(userId, companyId) {
   }
 
   return accounts;
-}
-
-// ─── HELPER: Get or create Cash account ──────────────────────────
-async function getOrCreateCashAccount(userId, companyId) {
-  let cashAccount = await prisma.chartOfAccount.findFirst({
-    where: { code: '1010', companyId: companyId }
-  });
-
-  if (!cashAccount) {
-    const existingCode = await prisma.chartOfAccount.findFirst({
-      where: { code: '1010', companyId: companyId }
-    });
-
-    let newCode = '1010';
-    if (existingCode) {
-      let counter = 1;
-      let codeExists = true;
-      while (codeExists) {
-        newCode = `101${counter}`;
-        const existing = await prisma.chartOfAccount.findFirst({
-          where: { code: newCode, companyId: companyId }
-        });
-        if (!existing) codeExists = false;
-        counter++;
-      }
-    }
-
-    cashAccount = await prisma.chartOfAccount.create({
-      data: {
-        code: newCode,
-        name: 'Cash in Hand',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        description: 'Physical cash',
-        taxCode: 'N/A',
-        balanceType: 'Debit',
-        isActive: true,
-        createdBy: userId,
-        companyId: companyId
-      }
-    });
-  }
-
-  return cashAccount;
 }
 
 // ─── HELPER: Create journal entry for income ─────────────────────
