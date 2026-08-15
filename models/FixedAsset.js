@@ -122,17 +122,90 @@ class FixedAssetModel {
   }
 
   // ============================================================
-  // ✅ CALCULATE MONTHLY DEPRECIATION
+  // ✅ DEPRECIATION MATH
   // ============================================================
-  static calculateMonthlyDepreciation(asset) {
-    if (asset.depreciationMethod === 'Straight Line') {
-      const depreciableAmount = asset.purchaseCost - asset.salvageValue;
-      const totalMonths = asset.usefulLife * 12;
-      if (totalMonths <= 0) return 0;
-      return depreciableAmount / totalMonths;
+  static roundMoney(n) {
+    return Math.round((Number(n) || 0) * 100) / 100;
+  }
+
+  static monthsBetween(from, to) {
+    const a = new Date(from);
+    const b = new Date(to);
+    return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  }
+
+  static sameYearMonth(a, b) {
+    if (!a || !b) return false;
+    const d1 = new Date(a);
+    const d2 = new Date(b);
+    return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth();
+  }
+
+  static remainingDepreciable(asset) {
+    const cost = Number(asset.purchaseCost) || 0;
+    const salvage = Number(asset.salvageValue) || 0;
+    const accDep = Number(asset.accumulatedDepreciation) || 0;
+    return this.roundMoney(Math.max(0, cost - salvage - accDep));
+  }
+
+  static monthsAlreadyDepreciated(asset) {
+    if (!asset.lastDepreciationDate || !asset.purchaseDate) return 0;
+    return Math.max(0, this.monthsBetween(asset.purchaseDate, asset.lastDepreciationDate) + 1);
+  }
+
+  static calculateMonthlyDepreciation(asset, asOfDate = new Date()) {
+    if (asset.depreciationMethod && asset.depreciationMethod !== 'Straight Line') {
+      const depreciableAmount = (Number(asset.purchaseCost) || 0) - (Number(asset.salvageValue) || 0);
+      const totalMonths = Math.max(1, (Number(asset.usefulLife) || 1) * 12);
+      return this.roundMoney(Math.max(0, depreciableAmount) / totalMonths);
     }
-    // TODO: Add other depreciation methods
-    return 0;
+
+    const remaining = this.remainingDepreciable(asset);
+    if (remaining <= 0) return 0;
+
+    const totalMonths = Math.max(1, (Number(asset.usefulLife) || 1) * 12);
+    const usedMonths = this.monthsAlreadyDepreciated(asset);
+    const remainingMonths = Math.max(1, totalMonths - usedMonths);
+    return this.roundMoney(Math.min(remaining, remaining / remainingMonths));
+  }
+
+  static deriveStatus(asset, netBookValue) {
+    if (asset.status === 'Disposed') return 'Disposed';
+    const salvage = Number(asset.salvageValue) || 0;
+    if (netBookValue <= salvage + 0.0001) return 'Fully Depreciated';
+    return 'Active';
+  }
+
+  static scheduleAfterChange(existing, patch) {
+    const purchaseCost = patch.purchaseCost !== undefined
+      ? Number(patch.purchaseCost)
+      : Number(existing.purchaseCost);
+    const salvageValue = patch.salvageValue !== undefined
+      ? Number(patch.salvageValue)
+      : Number(existing.salvageValue || 0);
+    const usefulLife = patch.usefulLife !== undefined
+      ? parseInt(patch.usefulLife, 10)
+      : existing.usefulLife;
+    const accDep = Number(existing.accumulatedDepreciation) || 0;
+    const netBookValue = this.roundMoney(Math.max(0, purchaseCost - accDep));
+    const merged = {
+      ...existing,
+      purchaseCost,
+      salvageValue,
+      usefulLife,
+      accumulatedDepreciation: accDep
+    };
+    const currentDepreciation = this.calculateMonthlyDepreciation(merged);
+    const status = this.deriveStatus(existing, netBookValue);
+    return {
+      purchaseCost,
+      salvageValue,
+      usefulLife,
+      accumulatedDepreciation: accDep,
+      netBookValue,
+      currentDepreciation,
+      status
+    };
   }
 
   // ============================================================
@@ -381,6 +454,14 @@ class FixedAssetModel {
       status: data.status
     };
 
+    if (data.netBookValue !== undefined) updateData.netBookValue = data.netBookValue;
+    if (data.currentDepreciation !== undefined) {
+      updateData.currentDepreciation = data.currentDepreciation;
+    }
+    if (data.accumulatedDepreciation !== undefined) {
+      updateData.accumulatedDepreciation = data.accumulatedDepreciation;
+    }
+
     if (data.supplierId === null) {
       updateData.supplier = { disconnect: true };
     } else if (data.supplierId) {
@@ -421,45 +502,81 @@ class FixedAssetModel {
 
     if (!asset) return null;
 
-    // Check if already fully depreciated
-    if (asset.netBookValue <= asset.salvageValue) {
-      await prisma.fixedAsset.update({
-        where: { id },
-        data: { status: 'Fully Depreciated' }
-      });
+    const asOf = depreciationDate ? new Date(depreciationDate) : new Date();
+
+    if (asset.status === 'Disposed') {
+      return { asset, amount: 0, skipped: true, message: 'Asset is disposed' };
+    }
+
+    if (this.sameYearMonth(asset.lastDepreciationDate, asOf)) {
       return {
         asset,
         amount: 0,
-        message: 'Asset already fully depreciated'
+        skipped: true,
+        message: 'Depreciation already recorded for this month'
       };
     }
 
-    const monthlyDepreciation = this.calculateMonthlyDepreciation(asset);
-    const newAccumulatedDepreciation = asset.accumulatedDepreciation + monthlyDepreciation;
-    const newNetBookValue = asset.purchaseCost - newAccumulatedDepreciation;
-
-    let status = asset.status;
-    if (newNetBookValue <= asset.salvageValue) {
-      status = 'Fully Depreciated';
+    const remaining = this.remainingDepreciable(asset);
+    if (remaining <= 0) {
+      const netBookValue = this.roundMoney(
+        Math.max(Number(asset.salvageValue) || 0, Number(asset.purchaseCost) - Number(asset.accumulatedDepreciation))
+      );
+      const updated = await prisma.fixedAsset.update({
+        where: { id },
+        data: {
+          status: 'Fully Depreciated',
+          netBookValue,
+          currentDepreciation: 0
+        }
+      });
+      return {
+        asset: updated,
+        amount: 0,
+        skipped: true,
+        message: 'Asset already fully depreciated',
+        accumulatedDepreciation: updated.accumulatedDepreciation,
+        netBookValue: updated.netBookValue,
+        status: updated.status
+      };
     }
+
+    let amount = this.calculateMonthlyDepreciation(asset, asOf);
+    amount = this.roundMoney(Math.min(amount, remaining));
+    if (amount <= 0) {
+      return { asset, amount: 0, skipped: true, message: 'No depreciation due' };
+    }
+
+    const newAccumulatedDepreciation = this.roundMoney(
+      Number(asset.accumulatedDepreciation) + amount
+    );
+    let newNetBookValue = this.roundMoney(Number(asset.purchaseCost) - newAccumulatedDepreciation);
+    const salvage = Number(asset.salvageValue) || 0;
+    if (newNetBookValue < salvage) {
+      amount = this.roundMoney(amount - (salvage - newNetBookValue));
+      newNetBookValue = salvage;
+    }
+
+    const status = this.deriveStatus(asset, newNetBookValue);
 
     const updatedAsset = await prisma.fixedAsset.update({
       where: { id },
       data: {
-        currentDepreciation: monthlyDepreciation,
+        currentDepreciation: amount,
         accumulatedDepreciation: newAccumulatedDepreciation,
         netBookValue: newNetBookValue,
-        lastDepreciationDate: depreciationDate || new Date(),
-        status: status
+        lastDepreciationDate: asOf,
+        status
       }
     });
 
     return {
       asset: updatedAsset,
-      amount: monthlyDepreciation,
+      amount,
+      skipped: false,
       accumulatedDepreciation: newAccumulatedDepreciation,
       netBookValue: newNetBookValue,
-      status: status
+      status
     };
   }
 

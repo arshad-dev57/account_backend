@@ -1132,9 +1132,6 @@ const archiveAccount = async (req, res) => {
   }
 };
 
-// ============================================================
-// GET ACCOUNT SUMMARY
-// ============================================================
 const getAccountSummary = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1633,7 +1630,6 @@ const bulkImportAccounts = async (req, res) => {
   }
 };
 
-// ─── EXPORT ALL FUNCTIONS ──────────────────────────────────────────
 module.exports = {
   createAccount,
   getAccounts,

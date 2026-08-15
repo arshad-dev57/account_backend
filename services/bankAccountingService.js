@@ -80,39 +80,31 @@ function transferReference(fromId, toId, clientRef) {
   return `XFER-${fromId.slice(0, 8)}-${toId.slice(0, 8)}-${Date.now()}`;
 }
 
-async function getOrCreateOpeningBalanceEquity(userId, companyId, tx = prisma) {
-  let equity = await tx.chartOfAccount.findFirst({
+async function getOrCreateOwnerCapitalAccount(userId, companyId, tx = prisma) {
+  let capital = await tx.chartOfAccount.findFirst({
     where: {
       companyId,
-      OR: [{ code: '3010' }, { name: 'Opening Balance Equity' }],
-      isActive: true
+      isActive: true,
+      type: 'Equity',
+      OR: [
+        { code: '3001' },
+        { name: { equals: "Owner's Capital", mode: 'insensitive' } },
+        { name: { contains: 'Owner Capital', mode: 'insensitive' } }
+      ]
     }
   });
 
-  if (equity) return equity;
+  if (capital) return capital;
 
-  const taken = await tx.chartOfAccount.findFirst({
-    where: { companyId, code: '3010' }
-  });
-  let code = '3010';
-  if (taken) {
-    const maxCode = await tx.chartOfAccount.aggregate({
-      where: { companyId },
-      _max: { code: true }
-    });
-    const num = parseInt(maxCode._max.code, 10);
-    code = Number.isFinite(num) ? String(num + 1) : `3010-${Date.now()}`;
-  }
-
-  equity = await tx.chartOfAccount.create({
+  capital = await tx.chartOfAccount.create({
     data: {
-      code,
-      name: 'Opening Balance Equity',
+      code: '3001',
+      name: "Owner's Capital",
       type: 'Equity',
       parentAccount: 'Equity',
       openingBalance: 0,
       currentBalance: 0,
-      description: 'Opening balance equity — offsets bank/asset opening balances',
+      description: 'Owner capital / equity contributions',
       taxCode: 'N/A',
       balanceType: 'Credit',
       isActive: true,
@@ -120,8 +112,13 @@ async function getOrCreateOpeningBalanceEquity(userId, companyId, tx = prisma) {
       companyId
     }
   });
+  return capital;
+}
 
-  return equity;
+function creditOffsetLine(lines, bankCoaId) {
+  return (lines || []).find(
+    (l) => l.accountId !== bankCoaId && toNum(l.credit) > 0
+  ) || null;
 }
 
 async function applyLineBalanceChanges(tx, lines, companyId, invert = false) {
@@ -189,7 +186,9 @@ async function findCoaOwned(accountId, companyId, tx = prisma) {
 
 /**
  * Post or update opening balance for a bank account.
- * balancesAlreadySet=true → JE only (no second COA increment) for repair/seeded creates.
+ * Never auto-credits Opening Balance Equity.
+ *   owner_capital  → Dr Bank / Cr Owner's Capital
+ *   source_account → Dr Bank / Cr Cash or other source COA
  */
 async function upsertBankOpeningBalance({
   userId,
@@ -197,7 +196,9 @@ async function upsertBankOpeningBalance({
   bankAccountId,
   amount,
   postingDate = new Date(),
-  balancesAlreadySet = false
+  balancesAlreadySet = false,
+  offsetType,
+  sourceAccountId
 }) {
   const amt = toNum(amount);
   if (amt < 0) {
@@ -213,7 +214,6 @@ async function upsertBankOpeningBalance({
   return prisma.$transaction(async (tx) => {
     const bank = await findBankOwned(bankAccountId, companyId, tx);
     const bankCoa = bank.chartOfAccount;
-    const equity = await getOrCreateOpeningBalanceEquity(userId, companyId, tx);
 
     let existing = await tx.journalEntry.findFirst({
       where: { companyId, reference },
@@ -221,22 +221,46 @@ async function upsertBankOpeningBalance({
     });
 
     if (!existing) {
-      const legacyLine = await tx.journalLine.findFirst({
+      existing = await tx.journalEntry.findFirst({
         where: {
-          accountId: bankCoa.id,
-          journal: {
-            companyId,
-            description: { contains: 'Opening Balance', mode: 'insensitive' },
-            status: 'Posted'
-          }
-        }
+          companyId,
+          type: 'OpeningBalance',
+          status: 'Posted',
+          description: `Opening Balance - ${bank.accountName}`,
+          lines: { some: { accountId: bankCoa.id } }
+        },
+        include: { lines: true }
       });
-      if (legacyLine) {
-        existing = await tx.journalEntry.findFirst({
-          where: { id: legacyLine.journalId },
-          include: { lines: true }
-        });
+    }
+
+    const previousOffset = creditOffsetLine(existing?.lines, bankCoa.id);
+
+    let offsetAccount = null;
+    const type = String(offsetType || '').trim().toLowerCase();
+
+    if (type === 'owner_capital' || type === 'capital' || type === 'equity') {
+      offsetAccount = await getOrCreateOwnerCapitalAccount(userId, companyId, tx);
+    } else if (type === 'source_account' || type === 'source' || type === 'cash') {
+      if (!sourceAccountId) {
+        const err = new Error('Source account is required when opening balance comes from existing cash/another account');
+        err.statusCode = 400;
+        throw err;
       }
+      offsetAccount = await findCoaOwned(sourceAccountId, companyId, tx);
+    } else if (previousOffset) {
+      offsetAccount = await findCoaOwned(previousOffset.accountId, companyId, tx);
+    } else if (amt > 0) {
+      const err = new Error(
+        'Opening balance source is required. Use owner_capital (Dr Bank / Cr Capital) or source_account with sourceAccountId (Dr Bank / Cr Cash or other account).'
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (offsetAccount && offsetAccount.id === bankCoa.id) {
+      const err = new Error('Opening balance source cannot be the same bank account');
+      err.statusCode = 400;
+      throw err;
     }
 
     if (existing && !balancesAlreadySet) {
@@ -257,7 +281,10 @@ async function upsertBankOpeningBalance({
         data: { openingBalance: 0 }
       });
       if (!balancesAlreadySet) {
-        await syncBankBalancesFromCoa(tx, [bankCoa.id, equity.id], companyId);
+        const ids = [bankCoa.id];
+        if (offsetAccount) ids.push(offsetAccount.id);
+        if (previousOffset) ids.push(previousOffset.accountId);
+        await syncBankBalancesFromCoa(tx, ids, companyId);
       }
       return { journalEntry: null, amount: 0 };
     }
@@ -273,9 +300,9 @@ async function upsertBankOpeningBalance({
         isReconciled: false
       },
       {
-        accountId: equity.id,
-        accountName: equity.name,
-        accountCode: equity.code,
+        accountId: offsetAccount.id,
+        accountName: offsetAccount.name,
+        accountCode: offsetAccount.code,
         debit: 0,
         credit: amt,
         isReconciled: false
@@ -302,6 +329,12 @@ async function upsertBankOpeningBalance({
         include: { lines: true }
       });
     } else {
+      const duplicate = await tx.journalEntry.findFirst({
+        where: { companyId, reference }
+      });
+      if (duplicate) {
+        return { journalEntry: duplicate, amount: amt, duplicate: true };
+      }
       const entryNumber = await generateEntryNumber(tx);
       journalEntry = await tx.journalEntry.create({
         data: {
@@ -333,25 +366,12 @@ async function upsertBankOpeningBalance({
 
     if (!balancesAlreadySet) {
       await applyLineBalanceChanges(tx, lines, companyId, false);
-      await syncBankBalancesFromCoa(tx, [bankCoa.id, equity.id], companyId);
-    } else {
-      const equityLines = await tx.journalLine.findMany({
-        where: {
-          accountId: equity.id,
-          journal: { companyId, status: 'Posted' }
-        }
-      });
-      const equityBal = equityLines.reduce(
-        (s, l) => s + toNum(l.credit) - toNum(l.debit),
-        0
-      );
-      await tx.chartOfAccount.update({
-        where: { id: equity.id },
-        data: { currentBalance: equityBal }
-      });
+      const ids = [bankCoa.id, offsetAccount.id];
+      if (previousOffset) ids.push(previousOffset.accountId);
+      await syncBankBalancesFromCoa(tx, ids, companyId);
     }
 
-    return { journalEntry, amount: amt };
+    return { journalEntry, amount: amt, offsetAccount };
   });
 }
 
@@ -600,65 +620,32 @@ async function repairCompanyBankOpeningBalances(userId, companyId) {
       include: { journal: true }
     });
 
-    if (orphanLine?.journal && !orphanLine.journal.companyId) {
+    if (orphanLine?.journal) {
       await prisma.journalEntry.update({
         where: { id: orphanLine.journalId },
         data: {
-          companyId,
+          companyId: orphanLine.journal.companyId || companyId,
           reference: ref,
           type: 'OpeningBalance',
           description: `Opening Balance - ${bank.accountName}`
         }
       });
-
-      const equity = await getOrCreateOpeningBalanceEquity(userId, companyId);
-      const lines = await prisma.journalLine.findMany({
-        where: { journalId: orphanLine.journalId }
-      });
-      const totalDebit = lines.reduce((s, l) => s + toNum(l.debit), 0);
-      const totalCredit = lines.reduce((s, l) => s + toNum(l.credit), 0);
-      let equityLine = lines.find((l) => l.accountId === equity.id);
-      const diff = totalDebit - totalCredit;
-      if (!equityLine) {
-        await prisma.journalLine.create({
-          data: {
-            journalId: orphanLine.journalId,
-            accountId: equity.id,
-            accountName: equity.name,
-            accountCode: equity.code,
-            debit: diff < 0 ? Math.abs(diff) : 0,
-            credit: diff > 0 ? diff : 0
-          }
-        });
-      } else if (Math.abs(diff) > 0.01) {
-        await prisma.journalLine.update({
-          where: { id: equityLine.id },
-          data: {
-            debit: diff < 0 ? Math.abs(diff) : 0,
-            credit: diff > 0 ? diff : 0
-          }
-        });
-      }
       results.push({ bankId: bank.id, status: 'repaired-orphan' });
       continue;
     }
 
-    await upsertBankOpeningBalance({
-      userId,
-      companyId,
-      bankAccountId: bank.id,
-      amount: bank.openingBalance,
-      postingDate: bank.createdAt || new Date(),
-      balancesAlreadySet: true
+    results.push({
+      bankId: bank.id,
+      status: 'skipped',
+      reason: 'No opening-balance journal found; will not auto-credit equity'
     });
-    results.push({ bankId: bank.id, status: 'created' });
   }
 
   return results;
 }
 
 module.exports = {
-  getOrCreateOpeningBalanceEquity,
+  getOrCreateOwnerCapitalAccount,
   upsertBankOpeningBalance,
   createBankDeposit,
   createBankTransfer,

@@ -198,6 +198,283 @@ function journalLine(account, debit, credit) {
   };
 }
 
+async function postDepreciationJournal({
+  userId,
+  companyId,
+  asset,
+  amount,
+  date
+}) {
+  if (!amount || amount <= 0) return null;
+  const depExpAccount = await getOrCreateDepreciationExpenseAccount(userId, companyId);
+  const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
+
+  await prisma.chartOfAccount.update({
+    where: { id: depExpAccount.id },
+    data: { currentBalance: { increment: amount } }
+  });
+  await prisma.chartOfAccount.update({
+    where: { id: accDepAccount.id },
+    data: { currentBalance: { increment: amount } }
+  });
+
+  return prisma.journalEntry.create({
+    data: {
+      entryNumber: `JE-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+      date,
+      description: `Depreciation for ${asset.name} (${asset.assetCode})`,
+      reference: asset.assetCode,
+      status: 'Posted',
+      createdBy: userId,
+      postedBy: userId,
+      postedAt: new Date(),
+      companyId,
+      lines: {
+        create: [
+          journalLine(depExpAccount, amount, 0),
+          journalLine(accDepAccount, 0, amount)
+        ]
+      }
+    }
+  });
+}
+
+function isAcquisitionJournal(je) {
+  const d = je.description || '';
+  if (/^reversal of/i.test(d)) return false;
+  if (/depreciation/i.test(d)) return false;
+  if (/dispos/i.test(d)) return false;
+  return true;
+}
+
+async function reverseAcquisitionJournals(asset, userId, companyId) {
+  const journals = await prisma.journalEntry.findMany({
+    where: {
+      companyId,
+      status: 'Posted',
+      reference: asset.assetCode
+    },
+    include: { lines: true }
+  });
+
+  for (const je of journals.filter(isAcquisitionJournal)) {
+    await prisma.journalEntry.create({
+      data: {
+        entryNumber: `JE-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+        date: asset.purchaseDate || new Date(),
+        description: `Reversal of ${je.entryNumber} (${asset.assetCode})`,
+        reference: asset.assetCode,
+        status: 'Posted',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        fiscalYearId: je.fiscalYearId || asset.fiscalYearId || null,
+        companyId,
+        lines: {
+          create: je.lines.map((line) => ({
+            accountId: line.accountId,
+            accountName: line.accountName,
+            accountCode: line.accountCode,
+            debit: line.credit,
+            credit: line.debit,
+            isReconciled: false
+          }))
+        }
+      }
+    });
+  }
+}
+
+async function reverseAcquisitionBalances(asset, userId, companyId) {
+  const cost = Number(asset.purchaseCost) || 0;
+  if (cost <= 0) return;
+
+  const openingAccDep = Number(asset.openingAccumulatedDepreciation) || 0;
+  const acquisitionType = asset.acquisitionType || 'purchase';
+  const paymentMethod = asset.paymentMethod || 'Cash';
+  const assetAccount = await getOrCreateFixedAssetAccount(userId, companyId);
+
+  if (acquisitionType === 'opening_balance') {
+    const equityAccount = await getOrCreateOpeningBalanceEquity(userId, companyId);
+    const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
+    const netBook = Math.max(0, cost - openingAccDep);
+
+    await prisma.chartOfAccount.update({
+      where: { id: assetAccount.id },
+      data: { currentBalance: { decrement: cost } }
+    });
+    if (openingAccDep > 0) {
+      await prisma.chartOfAccount.update({
+        where: { id: accDepAccount.id },
+        data: { currentBalance: { decrement: openingAccDep } }
+      });
+    }
+    await prisma.chartOfAccount.update({
+      where: { id: equityAccount.id },
+      data: { currentBalance: { decrement: netBook } }
+    });
+    return;
+  }
+
+  if (paymentMethod === 'Bank' && asset.bankAccountId) {
+    const bankAccountData = await prisma.bankAccount.findFirst({
+      where: { id: asset.bankAccountId, companyId },
+      include: { chartOfAccount: true }
+    });
+    if (bankAccountData) {
+      await prisma.bankAccount.update({
+        where: { id: asset.bankAccountId },
+        data: { currentBalance: { increment: cost } }
+      });
+      if (bankAccountData.chartOfAccountId) {
+        await prisma.chartOfAccount.update({
+          where: { id: bankAccountData.chartOfAccountId },
+          data: { currentBalance: { increment: cost } }
+        });
+      }
+    }
+    await prisma.chartOfAccount.update({
+      where: { id: assetAccount.id },
+      data: { currentBalance: { decrement: cost } }
+    });
+    return;
+  }
+
+  if (paymentMethod === 'Credit') {
+    const payableAccount = await getOrCreatePayableAccount(userId, companyId);
+    await prisma.chartOfAccount.update({
+      where: { id: assetAccount.id },
+      data: { currentBalance: { decrement: cost } }
+    });
+    await prisma.chartOfAccount.update({
+      where: { id: payableAccount.id },
+      data: { currentBalance: { decrement: cost } }
+    });
+    return;
+  }
+
+  const cashAccount = await getOrCreateCashAccount(userId, companyId);
+  await prisma.chartOfAccount.update({
+    where: { id: assetAccount.id },
+    data: { currentBalance: { decrement: cost } }
+  });
+  await prisma.chartOfAccount.update({
+    where: { id: cashAccount.id },
+    data: { currentBalance: { increment: cost } }
+  });
+}
+
+async function postAcquisitionAccounting({
+  userId,
+  companyId,
+  asset,
+  cost,
+  openingAccDep = 0,
+  postingDate,
+  fiscalYearId,
+  bankAccountData = null
+}) {
+  const assetAccount = await getOrCreateFixedAssetAccount(userId, companyId);
+  const lines = [];
+  let creditAccount = null;
+  let description = '';
+  const acquisitionType = asset.acquisitionType || 'purchase';
+  const paymentMethod = asset.paymentMethod || 'Cash';
+  const name = asset.name;
+  const code = asset.assetCode;
+
+  if (acquisitionType === 'opening_balance') {
+    const equityAccount = await getOrCreateOpeningBalanceEquity(userId, companyId);
+    const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
+    const netBook = Math.max(0, cost - openingAccDep);
+
+    lines.push(journalLine(assetAccount, cost, 0));
+    if (openingAccDep > 0) {
+      lines.push(journalLine(accDepAccount, 0, openingAccDep));
+    }
+    lines.push(journalLine(equityAccount, 0, netBook));
+    creditAccount = equityAccount;
+    description = `Opening balance fixed asset: ${name} (${code})`;
+
+    await prisma.chartOfAccount.update({
+      where: { id: assetAccount.id },
+      data: { currentBalance: { increment: cost } }
+    });
+    if (openingAccDep > 0) {
+      await prisma.chartOfAccount.update({
+        where: { id: accDepAccount.id },
+        data: { currentBalance: { increment: openingAccDep } }
+      });
+    }
+    await prisma.chartOfAccount.update({
+      where: { id: equityAccount.id },
+      data: { currentBalance: { increment: netBook } }
+    });
+  } else if (paymentMethod === 'Bank' && bankAccountData) {
+    creditAccount = bankAccountData.chartOfAccount;
+    lines.push(journalLine(assetAccount, cost, 0));
+    lines.push(journalLine(creditAccount, 0, cost));
+    description = `Purchase of fixed asset via bank: ${name} (${code})`;
+
+    await prisma.bankAccount.update({
+      where: { id: bankAccountData.id },
+      data: { currentBalance: { decrement: cost } }
+    });
+    await prisma.chartOfAccount.update({
+      where: { id: creditAccount.id },
+      data: { currentBalance: { decrement: cost } }
+    });
+    await prisma.chartOfAccount.update({
+      where: { id: assetAccount.id },
+      data: { currentBalance: { increment: cost } }
+    });
+  } else if (paymentMethod === 'Credit') {
+    creditAccount = await getOrCreatePayableAccount(userId, companyId);
+    lines.push(journalLine(assetAccount, cost, 0));
+    lines.push(journalLine(creditAccount, 0, cost));
+    description = `Credit purchase of fixed asset: ${name} (${code})`;
+
+    await prisma.chartOfAccount.update({
+      where: { id: assetAccount.id },
+      data: { currentBalance: { increment: cost } }
+    });
+    await prisma.chartOfAccount.update({
+      where: { id: creditAccount.id },
+      data: { currentBalance: { increment: cost } }
+    });
+  } else {
+    creditAccount = await getOrCreateCashAccount(userId, companyId);
+    lines.push(journalLine(assetAccount, cost, 0));
+    lines.push(journalLine(creditAccount, 0, cost));
+    description = `Cash purchase of fixed asset: ${name} (${code})`;
+
+    await prisma.chartOfAccount.update({
+      where: { id: assetAccount.id },
+      data: { currentBalance: { increment: cost } }
+    });
+    await prisma.chartOfAccount.update({
+      where: { id: creditAccount.id },
+      data: { currentBalance: { decrement: cost } }
+    });
+  }
+
+  await prisma.journalEntry.create({
+    data: {
+      entryNumber: `JE-${Date.now()}`,
+      date: postingDate,
+      description,
+      reference: code,
+      status: 'Posted',
+      createdBy: userId,
+      postedBy: userId,
+      postedAt: new Date(),
+      fiscalYearId,
+      companyId,
+      lines: { create: lines }
+    }
+  });
+}
+
 // Helper: Get or create Gain/Loss account
 async function getOrCreateGainLossAccount(userId, companyId, isGain) {
   const code = isGain ? '5100' : '5200';
@@ -427,108 +704,15 @@ exports.createFixedAsset = async (req, res) => {
 
     console.log(`✅ [FA] Fixed asset created: ${fixedAsset.assetCode}`);
 
-    // ─── Resolve credit-side account + journal lines ──────────────
-    const assetAccount = await getOrCreateFixedAssetAccount(userId, companyId);
-    const lines = [];
-    let creditAccount = null;
-    let description = '';
-
-    if (acquisitionType === 'opening_balance') {
-      const equityAccount = await getOrCreateOpeningBalanceEquity(userId, companyId);
-      const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
-      const netBook = Math.max(0, cost - openingAccDep);
-
-      lines.push(journalLine(assetAccount, cost, 0));
-      if (openingAccDep > 0) {
-        lines.push(journalLine(accDepAccount, 0, openingAccDep));
-      }
-      lines.push(journalLine(equityAccount, 0, netBook));
-      creditAccount = equityAccount;
-      description = `Opening balance fixed asset: ${name} (${fixedAsset.assetCode})`;
-
-      await prisma.chartOfAccount.update({
-        where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } }
-      });
-      if (openingAccDep > 0) {
-        await prisma.chartOfAccount.update({
-          where: { id: accDepAccount.id },
-          data: { currentBalance: { increment: openingAccDep } }
-        });
-      }
-      await prisma.chartOfAccount.update({
-        where: { id: equityAccount.id },
-        data: { currentBalance: { increment: netBook } }
-      });
-    } else if (paymentMethod === 'Bank' && bankAccountData) {
-      creditAccount = bankAccountData.chartOfAccount;
-      lines.push(journalLine(assetAccount, cost, 0));
-      lines.push(journalLine(creditAccount, 0, cost));
-      description = `Purchase of fixed asset via bank: ${name} (${fixedAsset.assetCode})`;
-
-      await prisma.bankAccount.update({
-        where: { id: finalBankAccountId },
-        data: { currentBalance: { decrement: cost } }
-      });
-      await prisma.chartOfAccount.update({
-        where: { id: creditAccount.id },
-        data: { currentBalance: { decrement: cost } }
-      });
-      await prisma.chartOfAccount.update({
-        where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } }
-      });
-    } else if (paymentMethod === 'Credit') {
-      creditAccount = await getOrCreatePayableAccount(userId, companyId);
-      lines.push(journalLine(assetAccount, cost, 0));
-      lines.push(journalLine(creditAccount, 0, cost));
-      description = `Credit purchase of fixed asset: ${name} (${fixedAsset.assetCode})`;
-
-      await prisma.chartOfAccount.update({
-        where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } }
-      });
-      await prisma.chartOfAccount.update({
-        where: { id: creditAccount.id },
-        data: { currentBalance: { increment: cost } }
-      });
-    } else {
-      // Cash purchase
-      creditAccount = await getOrCreateCashAccount(userId, companyId);
-      lines.push(journalLine(assetAccount, cost, 0));
-      lines.push(journalLine(creditAccount, 0, cost));
-      description = `Cash purchase of fixed asset: ${name} (${fixedAsset.assetCode})`;
-
-      await prisma.chartOfAccount.update({
-        where: { id: assetAccount.id },
-        data: { currentBalance: { increment: cost } }
-      });
-      await prisma.chartOfAccount.update({
-        where: { id: creditAccount.id },
-        data: { currentBalance: { decrement: cost } }
-      });
-    }
-
-    console.log('📝 [FA] Creating journal entry...', {
-      acquisitionType,
-      paymentMethod,
-      credit: creditAccount?.name
-    });
-
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: `JE-${Date.now()}`,
-        date: postingDate,
-        description,
-        reference: fixedAsset.assetCode,
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        postedAt: new Date(),
-        fiscalYearId,
-        companyId,
-        lines: { create: lines }
-      }
+    await postAcquisitionAccounting({
+      userId,
+      companyId,
+      asset: fixedAsset,
+      cost,
+      openingAccDep: acquisitionType === 'opening_balance' ? openingAccDep : 0,
+      postingDate,
+      fiscalYearId,
+      bankAccountData
     });
 
     console.log('✅ [FA] Journal entry created');
@@ -733,20 +917,93 @@ exports.updateFixedAsset = async (req, res) => {
       supplierName = '';
     }
 
+    const oldCost = Number(existingAsset.purchaseCost) || 0;
+    const newCost = purchaseCost !== undefined && purchaseCost !== null && purchaseCost !== ''
+      ? parseFloat(purchaseCost)
+      : oldCost;
+    const newPurchaseDate = purchaseDate ? new Date(purchaseDate) : existingAsset.purchaseDate;
+    const newUsefulLife = usefulLife ? parseInt(usefulLife, 10) : existingAsset.usefulLife;
+    const newSalvage = salvageValue !== undefined ? parseFloat(salvageValue) : existingAsset.salvageValue;
+    const accDep = Number(existingAsset.accumulatedDepreciation) || 0;
+
+    if (newCost + 0.0001 < accDep) {
+      return res.status(400).json({
+        success: false,
+        message: `Purchase cost cannot be below accumulated depreciation (${accDep})`
+      });
+    }
+    if (newCost - (Number(newSalvage) || 0) + 0.0001 < accDep) {
+      return res.status(400).json({
+        success: false,
+        message: 'Salvage value is too high for the remaining depreciable amount after existing depreciation'
+      });
+    }
+
+    const schedule = FixedAssetModel.scheduleAfterChange(existingAsset, {
+      purchaseCost: newCost,
+      salvageValue: newSalvage,
+      usefulLife: newUsefulLife
+    });
+
+    const costChanged = Math.abs(newCost - oldCost) > 0.0001;
+    const dateChanged = new Date(newPurchaseDate).getTime() !== new Date(existingAsset.purchaseDate).getTime();
+    const needsAccounting = costChanged || dateChanged;
+
+    if (needsAccounting && existingAsset.status === 'Disposed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot change cost or date of a disposed asset'
+      });
+    }
+
     // ─── Update Asset ──────────────────────────────────────────
     const updatedAsset = await FixedAssetModel.update(id, {
       name: name || existingAsset.name,
       category: category || existingAsset.category,
-      purchaseDate: purchaseDate ? new Date(purchaseDate) : existingAsset.purchaseDate,
-      purchaseCost: purchaseCost ? parseFloat(purchaseCost) : existingAsset.purchaseCost,
-      usefulLife: usefulLife ? parseInt(usefulLife) : existingAsset.usefulLife,
-      salvageValue: salvageValue !== undefined ? parseFloat(salvageValue) : existingAsset.salvageValue,
+      purchaseDate: newPurchaseDate,
+      purchaseCost: schedule.purchaseCost,
+      usefulLife: schedule.usefulLife,
+      salvageValue: schedule.salvageValue,
       location: location !== undefined ? location : existingAsset.location,
       supplierId: finalSupplierId,
       supplierName: supplierName,
       warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : existingAsset.warrantyExpiry,
-      notes: notes !== undefined ? notes : existingAsset.notes
+      notes: notes !== undefined ? notes : existingAsset.notes,
+      netBookValue: schedule.netBookValue,
+      currentDepreciation: schedule.currentDepreciation,
+      accumulatedDepreciation: schedule.accumulatedDepreciation,
+      status: schedule.status
     });
+
+    if (needsAccounting) {
+      console.log('📝 [FA] Re-posting acquisition for cost/date change', {
+        oldCost,
+        newCost,
+        dateChanged
+      });
+      await reverseAcquisitionJournals(existingAsset, userId, companyId);
+      await reverseAcquisitionBalances(existingAsset, userId, companyId);
+
+      let bankAccountData = null;
+      if (existingAsset.paymentMethod === 'Bank' && existingAsset.bankAccountId) {
+        bankAccountData = await prisma.bankAccount.findFirst({
+          where: { id: existingAsset.bankAccountId, companyId },
+          include: { chartOfAccount: true }
+        });
+      }
+
+      const fiscalYearId = await resolveFiscalYearId(userId, newPurchaseDate);
+      await postAcquisitionAccounting({
+        userId,
+        companyId,
+        asset: updatedAsset,
+        cost: newCost,
+        openingAccDep: Number(existingAsset.openingAccumulatedDepreciation) || 0,
+        postingDate: newPurchaseDate,
+        fiscalYearId,
+        bankAccountData
+      });
+    }
 
     console.log(`✅ [FA] Fixed asset updated: ${updatedAsset.assetCode}`);
 
@@ -809,45 +1066,23 @@ exports.runDepreciation = async (req, res) => {
       });
     }
 
-    // ─── Run Depreciation ──────────────────────────────────
     const result = await FixedAssetModel.runDepreciation(assetId, date);
+    if (!result) {
+      return res.status(404).json({ success: false, message: 'Fixed asset not found' });
+    }
+    if (result.skipped || !result.amount) {
+      return res.status(400).json({
+        success: false,
+        message: result.message || 'No depreciation to record'
+      });
+    }
 
-    // ─── Create Journal Entry ──────────────────────────────
-    const depExpAccount = await getOrCreateDepreciationExpenseAccount(userId, companyId);
-    const accDepAccount = await getOrCreateAccumulatedDepreciationAccount(userId, companyId);
-
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: `JE-${Date.now()}`,
-        date: date,
-        description: `Depreciation for ${asset.name} (${asset.assetCode})`,
-        reference: asset.assetCode,
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        postedAt: new Date(),
-        companyId: companyId,
-        lines: {
-          create: [
-            {
-              accountId: depExpAccount.id,
-              accountName: depExpAccount.name,
-              accountCode: depExpAccount.code,
-              debit: result.amount,
-              credit: 0,
-              isReconciled: false
-            },
-            {
-              accountId: accDepAccount.id,
-              accountName: accDepAccount.name,
-              accountCode: accDepAccount.code,
-              debit: 0,
-              credit: result.amount,
-              isReconciled: false
-            }
-          ]
-        }
-      }
+    await postDepreciationJournal({
+      userId,
+      companyId,
+      asset: result.asset,
+      amount: result.amount,
+      date
     });
 
     console.log(`✅ [FA] Depreciation recorded: ${result.amount}`);
@@ -904,18 +1139,27 @@ exports.runMonthlyDepreciation = async (req, res) => {
 
     const results = [];
     for (const asset of assets) {
-      if (asset.status !== 'Fully Depreciated') {
-        const result = await FixedAssetModel.runDepreciation(asset.id, date);
-        results.push({
-          assetId: result.asset.id,
-          assetCode: result.asset.assetCode,
-          name: result.asset.name,
-          depreciationAmount: result.amount,
-          accumulatedDepreciation: result.accumulatedDepreciation,
-          netBookValue: result.netBookValue,
-          status: result.status
-        });
-      }
+      if (asset.status === 'Fully Depreciated' || asset.status === 'Disposed') continue;
+      const result = await FixedAssetModel.runDepreciation(asset.id, date);
+      if (!result || result.skipped || !result.amount) continue;
+
+      await postDepreciationJournal({
+        userId,
+        companyId,
+        asset: result.asset,
+        amount: result.amount,
+        date
+      });
+
+      results.push({
+        assetId: result.asset.id,
+        assetCode: result.asset.assetCode,
+        name: result.asset.name,
+        depreciationAmount: result.amount,
+        accumulatedDepreciation: result.accumulatedDepreciation,
+        netBookValue: result.netBookValue,
+        status: result.status
+      });
     }
 
     console.log(`✅ [FA] Depreciation processed for ${results.length} assets`);

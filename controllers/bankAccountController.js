@@ -66,12 +66,16 @@ exports.createBankAccount = async (req, res) => {
       accountType,
       currency,
       openingBalance,
-      status
+      status,
+      offsetType,
+      openingBalanceSource,
+      sourceAccountId
     } = req.body;
 
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const opening = Number(openingBalance) || 0;
+    const resolvedOffsetType = offsetType || openingBalanceSource;
 
     if (!accountName || !accountNumber || !bankName) {
       return res.status(400).json({
@@ -84,6 +88,14 @@ exports.createBankAccount = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Opening balance cannot be negative'
+      });
+    }
+
+    if (opening > 0 && !resolvedOffsetType) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Select where the opening balance comes from: owner_capital or source_account (cash/another account). Equity is not credited automatically.'
       });
     }
 
@@ -145,7 +157,9 @@ exports.createBankAccount = async (req, res) => {
           bankAccountId: bankAccount.id,
           amount: opening,
           postingDate: new Date(),
-          balancesAlreadySet: false
+          balancesAlreadySet: false,
+          offsetType: resolvedOffsetType,
+          sourceAccountId
         });
         journalEntry = result.journalEntry;
       } catch (jeErr) {
@@ -384,7 +398,10 @@ exports.updateBankAccount = async (req, res) => {
       accountType,
       currency,
       status,
-      openingBalance
+      openingBalance,
+      offsetType,
+      openingBalanceSource,
+      sourceAccountId
     } = req.body;
     const userId = req.user.id;
     const companyId = req.user.companyId;
@@ -456,7 +473,9 @@ exports.updateBankAccount = async (req, res) => {
           bankAccountId: id,
           amount: newOpening,
           postingDate: new Date(),
-          balancesAlreadySet: false
+          balancesAlreadySet: false,
+          offsetType: offsetType || openingBalanceSource,
+          sourceAccountId
         });
       } catch (jeErr) {
         const statusCode = jeErr.statusCode || (jeErr.code === 'FISCAL_YEAR_CLOSED' ? 400 : 500);
