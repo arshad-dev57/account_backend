@@ -399,38 +399,58 @@ class ProductModel {
     // ─── Calculate stock values ────────────────────────────────
     const newStock = data.currentStock !== undefined ? data.currentStock : existing.currentStock;
     const newCost = data.costPrice !== undefined ? data.costPrice : existing.costPrice;
-    const totalValue = newStock * newCost;
-    const availableStock = newStock - (existing.reservedStock || 0);
+    const totalValue = (Number(newStock) || 0) * (Number(newCost) || 0);
+    const availableStock = (Number(newStock) || 0) - (existing.reservedStock || 0);
 
-    // ✅ Ensure all required fields have values when updating
+    const asFloat = (v) => {
+      if (v === undefined) return undefined;
+      if (v === null || v === '') return undefined;
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const asInt = (v) => {
+      if (v === undefined) return undefined;
+      if (v === null || v === '') return undefined;
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const asBarcode = (v) => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      const s = String(v).trim();
+      return s === '' ? null : s;
+    };
+
     const updateData = {
       name: data.name !== undefined ? data.name : undefined,
       sku: data.sku ? data.sku.toUpperCase() : undefined,
-      barcodeNumber: data.barcodeNumber !== undefined ? data.barcodeNumber : undefined,
-      costPrice: data.costPrice !== undefined ? data.costPrice : undefined,
-      sellingPrice: data.sellingPrice !== undefined ? data.sellingPrice : undefined,
-      currentStock: data.currentStock !== undefined ? data.currentStock : undefined,
-      minimumStock: data.minimumStock !== undefined ? data.minimumStock : undefined,
-      maximumStock: data.maximumStock !== undefined ? data.maximumStock : undefined,
+      barcodeNumber: asBarcode(data.barcodeNumber),
+      costPrice: asFloat(data.costPrice),
+      sellingPrice: asFloat(data.sellingPrice),
+      currentStock: asInt(data.currentStock),
+      minimumStock: asInt(data.minimumStock),
+      maximumStock: asInt(data.maximumStock),
       description: data.description !== undefined ? data.description : undefined,
+      notes: data.notes !== undefined ? data.notes : undefined,
       rackLocationName: data.rackLocationName !== undefined ? data.rackLocationName : existing.rackLocationName,
-      rackLocationId: data.rackLocationId !== undefined ? data.rackLocationId : undefined,
-      weight: data.weight !== undefined ? data.weight : undefined,
+      rackLocationId: data.rackLocationId || undefined,
+      weight: asFloat(data.weight),
       weightUnitName: data.weightUnitName !== undefined ? data.weightUnitName : undefined,
-      length: data.length !== undefined ? data.length : undefined,
-      width: data.width !== undefined ? data.width : undefined,
-      height: data.height !== undefined ? data.height : undefined,
+      length: asFloat(data.length),
+      width: asFloat(data.width),
+      height: asFloat(data.height),
       dimensionUnit: data.dimensionUnit !== undefined ? data.dimensionUnit : undefined,
       color: data.color !== undefined ? data.color : undefined,
       size: data.size !== undefined ? data.size : undefined,
       material: data.material !== undefined ? data.material : undefined,
       finish: data.finish !== undefined ? data.finish : undefined,
       expiryDate: data.expiryDate !== undefined ? (data.expiryDate ? new Date(data.expiryDate) : null) : undefined,
+      manufacturingDate: data.manufacturingDate !== undefined ? (data.manufacturingDate ? new Date(data.manufacturingDate) : null) : undefined,
       hasExpiry: data.hasExpiry !== undefined ? data.hasExpiry : undefined,
       isBatchManaged: data.isBatchManaged !== undefined ? data.isBatchManaged : undefined,
       isSerialManaged: data.isSerialManaged !== undefined ? data.isSerialManaged : undefined,
       isExpiryManaged: data.isExpiryManaged !== undefined ? data.isExpiryManaged : undefined,
-      taxRate: data.taxRate !== undefined ? data.taxRate : undefined,
+      taxRate: asFloat(data.taxRate),
       taxType: data.taxType !== undefined ? data.taxType : undefined,
       currencyCode: data.currencyCode !== undefined ? data.currencyCode : undefined,
       productType: data.productType !== undefined ? data.productType : undefined,
@@ -441,7 +461,7 @@ class ProductModel {
       sizes: data.sizes !== undefined ? data.sizes : undefined,
       stockUnitName: data.stockUnitName !== undefined ? data.stockUnitName : undefined,
       zoneName: data.zoneName !== undefined ? data.zoneName : undefined,
-      zoneId: data.zoneId !== undefined ? data.zoneId : undefined,
+      zoneId: data.zoneId || undefined,
       storageConditionName: data.storageConditionName !== undefined ? data.storageConditionName : existing.storageConditionName,
       hsCode: data.hsCode !== undefined ? data.hsCode : undefined,
       countryOfOriginName: data.countryOfOriginName !== undefined ? data.countryOfOriginName : existing.countryOfOriginName,
@@ -449,32 +469,36 @@ class ProductModel {
       freightClass: data.freightClass !== undefined ? data.freightClass : undefined,
       palletNumber: data.palletNumber !== undefined ? data.palletNumber : undefined,
       shelfNumber: data.shelfNumber !== undefined ? data.shelfNumber : undefined,
-      temperatureMin: data.temperatureMin !== undefined ? (data.temperatureMin ? parseFloat(data.temperatureMin) : null) : undefined,
-      temperatureMax: data.temperatureMax !== undefined ? (data.temperatureMax ? parseFloat(data.temperatureMax) : null) : undefined,
+      temperatureMin: data.temperatureMin !== undefined ? (data.temperatureMin === null || data.temperatureMin === '' ? null : asFloat(data.temperatureMin) ?? null) : undefined,
+      temperatureMax: data.temperatureMax !== undefined ? (data.temperatureMax === null || data.temperatureMax === '' ? null : asFloat(data.temperatureMax) ?? null) : undefined,
       dangerousGoods: data.dangerousGoods !== undefined ? data.dangerousGoods : undefined,
       unNumber: data.unNumber !== undefined ? data.unNumber : undefined,
       handlingInstructions: data.handlingInstructions !== undefined ? data.handlingInstructions : undefined,
-      warrantyPeriod: data.warrantyPeriod !== undefined ? (parseInt(data.warrantyPeriod) >= 0 ? parseInt(data.warrantyPeriod) : 0) : existing.warrantyPeriod,
+      warrantyPeriod: data.warrantyPeriod !== undefined ? (asInt(data.warrantyPeriod) ?? 0) : existing.warrantyPeriod,
       warrantyUnit: data.warrantyUnit !== undefined ? data.warrantyUnit : existing.warrantyUnit,
       isReturnable: data.isReturnable !== undefined ? data.isReturnable : existing.isReturnable,
-      returnDays: data.returnDays !== undefined ? (parseInt(data.returnDays) >= 0 ? parseInt(data.returnDays) : 7) : existing.returnDays,
+      returnDays: data.returnDays !== undefined ? (asInt(data.returnDays) ?? 7) : existing.returnDays,
       isBulkManaged: data.isBulkManaged !== undefined ? data.isBulkManaged : undefined,
       hasIndividualTracking: data.hasIndividualTracking !== undefined ? data.hasIndividualTracking : undefined,
       bulkUnit: data.bulkUnit !== undefined ? data.bulkUnit : existing.bulkUnit,
-      shelfLifeDays: data.shelfLifeDays !== undefined ? (parseInt(data.shelfLifeDays) >= 0 ? parseInt(data.shelfLifeDays) : 0) : undefined,
-      defaultQuantityPerBatch: data.defaultQuantityPerBatch !== undefined ? (parseInt(data.defaultQuantityPerBatch) >= 0 ? parseInt(data.defaultQuantityPerBatch) : 0) : undefined,
+      shelfLifeDays: data.shelfLifeDays !== undefined ? (asInt(data.shelfLifeDays) ?? 0) : undefined,
+      defaultQuantityPerBatch: data.defaultQuantityPerBatch !== undefined ? (asInt(data.defaultQuantityPerBatch) ?? 0) : undefined,
+      stackingLimit: asInt(data.stackingLimit),
+      batchNumber: data.batchNumber !== undefined ? data.batchNumber : undefined,
+      subCategoryId: data.subCategoryId || undefined,
+      categoryName: data.categoryName !== undefined ? data.categoryName : undefined,
+      supplierName: data.supplierName !== undefined ? data.supplierName : undefined,
       videoUrl: data.videoUrl !== undefined ? data.videoUrl : undefined,
-      leadTimeDays: data.leadTimeDays !== undefined ? (parseInt(data.leadTimeDays) >= 0 ? parseInt(data.leadTimeDays) : 0) : undefined,
-      reorderPoint: data.reorderPoint !== undefined ? (parseInt(data.reorderPoint) >= 0 ? parseInt(data.reorderPoint) : 0) : undefined,
+      leadTimeDays: data.leadTimeDays !== undefined ? (asInt(data.leadTimeDays) ?? 0) : undefined,
+      reorderPoint: data.reorderPoint !== undefined ? (asInt(data.reorderPoint) ?? 0) : undefined,
       supplierSku: data.supplierSku !== undefined ? data.supplierSku : undefined,
-      landingCost: data.landingCost !== undefined ? parseFloat(data.landingCost) : undefined,
+      landingCost: asFloat(data.landingCost),
       mainImage: data.mainImage !== undefined ? data.mainImage : undefined,
       images: data.images !== undefined ? data.images : undefined,
       barcodeImage: data.barcodeImage !== undefined ? data.barcodeImage : undefined,
       totalValue,
       availableStock,
       updatedAt: new Date(),
-      // Relations - using category and supplier (NOT categoryId or supplierId)
       updater: data.updatedBy ? { connect: { id: data.updatedBy } } : undefined,
       category: data.categoryId ? { connect: { id: data.categoryId } } : undefined,
       supplier: data.supplierId ? { connect: { id: data.supplierId } } : undefined

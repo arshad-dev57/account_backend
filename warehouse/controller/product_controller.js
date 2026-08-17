@@ -3,6 +3,140 @@
 const ProductModel = require('../models/Product');
 const prisma = require('../../prisma/client');
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const FIELD_ALIASES = {
+  currency: 'currencyCode',
+  leadTime: 'leadTimeDays',
+  shelfLife: 'shelfLifeDays',
+  defaultBatchQuantity: 'defaultQuantityPerBatch',
+  tempMin: 'temperatureMin',
+  tempMax: 'temperatureMax',
+  zone: 'zoneName',
+  storageCondition: 'storageConditionName',
+  countryOfOrigin: 'countryOfOriginName',
+  stockUnit: 'stockUnitName'
+};
+
+const INT_FIELDS = [
+  'currentStock', 'minimumStock', 'maximumStock',
+  'warrantyPeriod', 'returnDays', 'shelfLifeDays',
+  'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit'
+];
+
+const FLOAT_FIELDS = [
+  'costPrice', 'sellingPrice', 'weight', 'length', 'width', 'height',
+  'taxRate', 'temperatureMin', 'temperatureMax', 'landingCost'
+];
+
+const BOOLEAN_FIELDS = [
+  'hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
+  'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods'
+];
+
+const ARRAY_FIELDS = ['tags', 'colors', 'sizes'];
+const UUID_FIELDS = [
+  'categoryId', 'supplierId', 'subCategoryId', 'rackLocationId', 'zoneId', 'brandId'
+];
+
+const isBlank = (v) =>
+  v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+
+function normalizeIncomingProduct(raw) {
+  const data = { ...(raw || {}) };
+
+  Object.entries(FIELD_ALIASES).forEach(([alias, canonical]) => {
+    if (data[alias] !== undefined) {
+      if (data[canonical] === undefined) data[canonical] = data[alias];
+      delete data[alias];
+    }
+  });
+
+  INT_FIELDS.forEach((field) => {
+    if (!(field in data)) return;
+    if (isBlank(data[field])) {
+      delete data[field];
+      return;
+    }
+    const n = parseInt(data[field], 10);
+    if (Number.isFinite(n)) data[field] = n;
+    else delete data[field];
+  });
+
+  FLOAT_FIELDS.forEach((field) => {
+    if (!(field in data)) return;
+    if (isBlank(data[field])) {
+      delete data[field];
+      return;
+    }
+    const n = parseFloat(data[field]);
+    if (Number.isFinite(n)) data[field] = n;
+    else delete data[field];
+  });
+
+  BOOLEAN_FIELDS.forEach((field) => {
+    if (data[field] === undefined) return;
+    data[field] = data[field] === true || data[field] === 'true' || data[field] === '1';
+  });
+
+  ARRAY_FIELDS.forEach((field) => {
+    if (data[field] === undefined) return;
+    if (Array.isArray(data[field])) return;
+    if (typeof data[field] === 'string') {
+      if (data[field].trim() === '') {
+        data[field] = [];
+        return;
+      }
+      try {
+        const parsed = JSON.parse(data[field]);
+        data[field] = Array.isArray(parsed) ? parsed : [String(parsed)];
+      } catch {
+        data[field] = data[field]
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean);
+      }
+    }
+  });
+
+  UUID_FIELDS.forEach((field) => {
+    if (data[field] === undefined) return;
+    if (isBlank(data[field]) || !UUID_RE.test(String(data[field]))) {
+      delete data[field];
+    }
+  });
+
+  if (data.barcodeNumber !== undefined && isBlank(data.barcodeNumber)) {
+    data.barcodeNumber = null;
+  }
+
+  ['expiryDate', 'manufacturingDate'].forEach((field) => {
+    if (!data[field]) return;
+    const d = new Date(data[field]);
+    data[field] = Number.isNaN(d.getTime()) ? null : d;
+  });
+
+  [
+    'currencyName',
+    'currencySymbol',
+    'countryOfOriginFlag',
+    'id',
+    '_id',
+    'createdAt',
+    'updatedAt',
+    'category',
+    'supplier',
+    'creator',
+    'updater',
+    'company',
+    'variants',
+    'stockMovements'
+  ].forEach((key) => delete data[key]);
+
+  return data;
+}
+
 const getProducts = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -339,78 +473,9 @@ const createProduct = async (req, res) => {
       data.barcodeImage = uploadedBarcodeImage;
     }
 
-    // ─── Normalize field names (Flutter short names → Prisma names) ────
-    const fieldAliases = {
-      currency: 'currencyCode',
-      leadTime: 'leadTimeDays',
-      shelfLife: 'shelfLifeDays',
-      defaultBatchQuantity: 'defaultQuantityPerBatch',
-      tempMin: 'temperatureMin',
-      tempMax: 'temperatureMax',
-      zone: 'zoneName',
-      storageCondition: 'storageConditionName',
-      countryOfOrigin: 'countryOfOriginName',
-      stockUnit: 'stockUnitName'
-    };
-    Object.entries(fieldAliases).forEach(([alias, canonical]) => {
-      if (data[alias] !== undefined) {
-        data[canonical] = data[canonical] !== undefined ? data[canonical] : data[alias];
-        delete data[alias];
-      }
-    });
+    data = normalizeIncomingProduct(data);
 
-    // ─── Convert numeric fields ────────────────────────────
-    const numericFields = [
-      'costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock',
-      'weight', 'length', 'width', 'height', 'taxRate',
-      'warrantyPeriod', 'returnDays', 'shelfLifeDays',
-      'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit',
-      'temperatureMin', 'temperatureMax', 'landingCost',
-    ];
-    
-    numericFields.forEach(field => {
-      if (data[field] !== undefined && data[field] !== null && data[field] !== '') {
-        const intFields = ['currentStock', 'minimumStock', 'maximumStock',
-          'warrantyPeriod', 'returnDays', 'shelfLifeDays',
-          'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit'];
-        data[field] = intFields.includes(field) ? parseInt(data[field]) : parseFloat(data[field]);
-      }
-    });
-
-    // ─── Convert boolean fields ────────────────────────────
-    const booleanFields = ['hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
-      'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods'];
-    
-    booleanFields.forEach(field => {
-      if (data[field] !== undefined) {
-        data[field] = data[field] === 'true' || data[field] === true;
-      }
-    });
-
-    // ─── Handle arrays ─────────────────────────────────────
-    const arrayFields = ['tags', 'colors', 'sizes'];
-    arrayFields.forEach(field => {
-      if (data[field] !== undefined && typeof data[field] === 'string') {
-        if (data[field] === '') {
-          data[field] = [];
-        } else {
-          try {
-            data[field] = JSON.parse(data[field]);
-          } catch {
-            data[field] = data[field].split(',').map(t => t.trim());
-          }
-        }
-      }
-    });
-
-    if (data.expiryDate) {
-      data.expiryDate = new Date(data.expiryDate);
-    }
-    if (data.manufacturingDate) {
-      data.manufacturingDate = new Date(data.manufacturingDate);
-    }
-
-    // ✅ FIXED: Ensure rackLocationName has a value
+    // ✅ Ensure rackLocationName has a value
     const productData = {
       ...data,
       // Set default values for required fields if not provided
@@ -529,8 +594,10 @@ const updateProduct = async (req, res) => {
     }
     delete data.clearBarcodeImage;
 
+    data = normalizeIncomingProduct(data);
+
     // ─── Check duplicate SKU ──────────────────────────────
-    if (data.sku && data.sku.toUpperCase() !== existing.sku) {
+    if (data.sku && String(data.sku).toUpperCase() !== String(existing.sku || '').toUpperCase()) {
       console.log('🔵 [updateProduct] SKU changed from', existing.sku, 'to', data.sku);
       const duplicateSku = await ProductModel.checkSkuExists(data.sku, companyId, id);
       if (duplicateSku) {
@@ -544,7 +611,9 @@ const updateProduct = async (req, res) => {
     }
 
     // ─── Check duplicate barcode ──────────────────────────
-    if (data.barcodeNumber && data.barcodeNumber.toUpperCase() !== existing.barcodeNumber) {
+    const nextBarcode = data.barcodeNumber ? String(data.barcodeNumber).trim() : '';
+    const prevBarcode = existing.barcodeNumber ? String(existing.barcodeNumber).trim() : '';
+    if (nextBarcode && nextBarcode.toUpperCase() !== prevBarcode.toUpperCase()) {
       console.log('🔵 [updateProduct] Barcode changed from', existing.barcodeNumber, 'to', data.barcodeNumber);
       const duplicateBarcode = await ProductModel.checkBarcodeExists(data.barcodeNumber, companyId, id);
       if (duplicateBarcode) {
@@ -557,76 +626,19 @@ const updateProduct = async (req, res) => {
       console.log('✅ [updateProduct] Barcode is unique');
     }
 
-    // ─── Normalize field names (Flutter short names → Prisma names) ────
-    const fieldAliasesUpdate = {
-      currency: 'currencyCode',
-      leadTime: 'leadTimeDays',
-      shelfLife: 'shelfLifeDays',
-      defaultBatchQuantity: 'defaultQuantityPerBatch',
-      tempMin: 'temperatureMin',
-      tempMax: 'temperatureMax',
-      zone: 'zoneName',
-      storageCondition: 'storageConditionName',
-      countryOfOrigin: 'countryOfOriginName',
-      stockUnit: 'stockUnitName'
-    };
-    Object.entries(fieldAliasesUpdate).forEach(([alias, canonical]) => {
-      if (data[alias] !== undefined) {
-        data[canonical] = data[canonical] !== undefined ? data[canonical] : data[alias];
-        delete data[alias];
-      }
-    });
-
-    // ─── Convert numeric fields ────────────────────────────
-    const numericFields = [
-      'costPrice', 'sellingPrice', 'currentStock', 'minimumStock', 'maximumStock',
-      'weight', 'length', 'width', 'height', 'taxRate',
-      'warrantyPeriod', 'returnDays', 'shelfLifeDays',
-      'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit',
-      'temperatureMin', 'temperatureMax', 'landingCost',
-    ];
-    
-    numericFields.forEach(field => {
-      if (data[field] !== undefined && data[field] !== null && data[field] !== '') {
-        const intFields = ['currentStock', 'minimumStock', 'maximumStock',
-          'warrantyPeriod', 'returnDays', 'shelfLifeDays',
-          'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit'];
-        data[field] = intFields.includes(field) ? parseInt(data[field]) : parseFloat(data[field]);
-      }
-    });
-
-    // ─── Convert boolean fields ────────────────────────────
-    const booleanFields = ['hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
-      'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods'];
-    
-    booleanFields.forEach(field => {
-      if (data[field] !== undefined) {
-        data[field] = data[field] === 'true' || data[field] === true;
-      }
-    });
-
-    // ─── Handle arrays ─────────────────────────────────────
-    const arrayFields = ['tags', 'colors', 'sizes'];
-    arrayFields.forEach(field => {
-      if (data[field] !== undefined && typeof data[field] === 'string') {
-        if (data[field] === '') {
-          data[field] = [];
-        } else {
-          try {
-            data[field] = JSON.parse(data[field]);
-          } catch {
-            data[field] = data[field].split(',').map(t => t.trim());
-          }
-        }
-      }
-    });
-
-    // ─── Handle dates ──────────────────────────────────────
-    if (data.expiryDate) {
-      data.expiryDate = new Date(data.expiryDate);
+    if (data.categoryId) {
+      const cat = await prisma.category.findUnique({
+        where: { id: data.categoryId },
+        select: { name: true }
+      });
+      if (cat) data.categoryName = cat.name;
     }
-    if (data.manufacturingDate) {
-      data.manufacturingDate = new Date(data.manufacturingDate);
+    if (data.supplierId) {
+      const sup = await prisma.supplier.findUnique({
+        where: { id: data.supplierId },
+        select: { name: true }
+      });
+      if (sup) data.supplierName = sup.name;
     }
 
     // ✅ FIXED: Ensure rackLocationName has a value
