@@ -3,7 +3,6 @@ const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 const { getOrCreateApAccount } = require('../utils/apAccountHelper');
 
-/** Bill has no fiscalYearId column — filter by bill date within the FY window. */
 async function applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId) {
   if (!fiscalYearId) return;
   const fy = await getCompanyFiscalYear(companyId, fiscalYearId);

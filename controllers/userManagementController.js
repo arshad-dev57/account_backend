@@ -1,5 +1,19 @@
 const prisma = require('../prisma/client');
 const bcrypt = require('bcryptjs');
+const emailService = require('../services/emailService');
+
+function formatRoleLabel(role, customName) {
+  if (customName && String(customName).trim()) return String(customName).trim();
+  const map = {
+    user: 'User',
+    admin: 'Admin',
+    manager: 'Manager',
+    staff: 'Staff',
+    viewer: 'Viewer'
+  };
+  const key = String(role || 'user').toLowerCase();
+  return map[key] || (role ? String(role) : 'User');
+}
 
 /**
  * Canonical permission catalog (module + pages).
@@ -363,10 +377,15 @@ const createUser = async (req, res) => {
 
     console.log('✅ [createUser] Authorization passed');
 
-    console.log('🔍 [createUser] Checking if email exists:', email);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedPhone = phone != null ? String(phone).trim() : '';
+
+    console.log('🔍 [createUser] Checking if email exists:', normalizedEmail);
     
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        email: { equals: normalizedEmail, mode: 'insensitive' }
+      },
       select: {
         id: true,
         email: true,
@@ -382,8 +401,26 @@ const createUser = async (req, res) => {
       console.log('   - Email:', existingUser.email);
       return res.status(400).json({
         success: false,
-        message: 'Email already exists'
+        code: 'EMAIL_EXISTS',
+        message: `A user already exists with this email (${normalizedEmail}).`
       });
+    }
+
+    if (normalizedPhone && currentUser.companyId) {
+      const existingPhone = await prisma.user.findFirst({
+        where: {
+          companyId: currentUser.companyId,
+          phone: normalizedPhone
+        },
+        select: { id: true, email: true, phone: true }
+      });
+      if (existingPhone) {
+        return res.status(400).json({
+          success: false,
+          code: 'PHONE_EXISTS',
+          message: `A user already exists with this phone number (${normalizedPhone}).`
+        });
+      }
     }
 
     console.log('✅ [createUser] Email is available:', email);
@@ -417,9 +454,9 @@ const createUser = async (req, res) => {
       data: {
         firstName,
         lastName,
-        email,
+        email: normalizedEmail,
         password: hashedPassword,
-        phone: phone || '',
+        phone: normalizedPhone,
         country: country || 'Pakistan',
         role: role || 'user',
         roleId: roleId || null,
@@ -494,13 +531,46 @@ const createUser = async (req, res) => {
       console.log('📌 [createUser] No permissions provided, skipping');
     }
 
+    let emailSent = false;
     try {
-      console.log('📧 [createUser] Sending welcome email to:', email);
-      const emailService = require('../../services/emailService');
-      await emailService.sendWelcomeEmail(email, firstName);
-      console.log('✅ [createUser] Welcome email sent successfully');
+      let companyName = 'BisonsTechs';
+      if (currentUser.companyId) {
+        const company = await prisma.company.findUnique({
+          where: { id: currentUser.companyId },
+          select: { name: true }
+        });
+        if (company?.name) companyName = company.name;
+      }
+
+      let customRoleName = '';
+      if (roleId) {
+        const namedRole = await prisma.role.findUnique({
+          where: { id: roleId },
+          select: { name: true }
+        });
+        if (namedRole?.name) customRoleName = namedRole.name;
+      }
+
+      const invitedBy = [currentUser.firstName, currentUser.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || currentUser.email;
+
+      console.log('📧 [createUser] Sending invite email to:', email);
+      await emailService.sendTeamInviteEmail({
+        to: email,
+        firstName,
+        lastName,
+        loginEmail: email,
+        password,
+        roleLabel: formatRoleLabel(role || newUser.role, customRoleName),
+        companyName,
+        invitedBy
+      });
+      emailSent = true;
+      console.log('✅ [createUser] Invite email sent successfully');
     } catch (emailError) {
-      console.error('⚠️ [createUser] Failed to send welcome email:', emailError.message);
+      console.error('⚠️ [createUser] Failed to send invite email:', emailError.message);
     }
 
     console.log('✅ [createUser] Operation completed successfully');
@@ -509,7 +579,10 @@ const createUser = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'User created successfully',
+      emailSent,
+      message: emailSent
+        ? 'User created. Login details sent to their email.'
+        : 'User created, but the invite email could not be sent.',
       data: newUser
     });
 
@@ -518,6 +591,20 @@ const createUser = async (req, res) => {
     console.error('❌ [createUser] Error Stack:', error.stack);
     console.error('❌ [createUser] Error Name:', error.name);
     console.log('═══════════════════════════════════════════════════');
+
+    if (error.code === 'P2002') {
+      const fields = Array.isArray(error.meta?.target) ? error.meta.target : [];
+      const field = fields.includes('email')
+        ? 'email'
+        : fields.includes('phone')
+          ? 'phone number'
+          : (fields[0] || 'value');
+      return res.status(400).json({
+        success: false,
+        code: 'DUPLICATE',
+        message: `A user already exists with this ${field}.`
+      });
+    }
     
     res.status(500).json({
       success: false,
@@ -590,15 +677,20 @@ const updateUser = async (req, res) => {
     }
 
     // Check if email is being changed and if it already exists
-    if (email && email !== existingUser.email) {
-      const emailExists = await prisma.user.findUnique({
-        where: { email }
+    if (email && email.trim().toLowerCase() !== String(existingUser.email || '').toLowerCase()) {
+      const normalizedEmail = email.trim().toLowerCase();
+      const emailExists = await prisma.user.findFirst({
+        where: {
+          email: { equals: normalizedEmail, mode: 'insensitive' },
+          NOT: { id }
+        }
       });
 
       if (emailExists) {
         return res.status(400).json({
           success: false,
-          message: 'Email already exists'
+          code: 'EMAIL_EXISTS',
+          message: `A user already exists with this email (${normalizedEmail}).`
         });
       }
     }

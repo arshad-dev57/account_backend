@@ -465,6 +465,167 @@ class EmailService {
       throw error;
     }
   }
+
+  /**
+   * Team invite: login email, temporary password, role, and app links.
+   */
+  async sendTeamInviteEmail({
+    to,
+    firstName = '',
+    lastName = '',
+    loginEmail,
+    password,
+    roleLabel = 'User',
+    companyName = 'BisonsTechs',
+    invitedBy = ''
+  }) {
+    if (!this.transporter) {
+      throw new Error('Email service not configured properly');
+    }
+
+    const identity = this._mailIdentity();
+    const webBase = (process.env.FRONTEND_URL || 'https://app.bisonstechs.com').replace(/\/$/, '');
+    const loginUrl = `${webBase}/login`;
+    const androidUrl = (process.env.ANDROID_APP_URL || '').trim();
+    const iosUrl = (process.env.IOS_APP_URL || '').trim();
+    const supportEmail = identity.replyTo || 'support@bisonstechs.com';
+
+    const esc = (value) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || 'there';
+    const safeName = esc(fullName);
+    const safeCompany = esc(companyName);
+    const safeRole = esc(roleLabel);
+    const safeEmail = esc(loginEmail);
+    const safePassword = esc(password);
+    const safeInviter = esc(invitedBy);
+    const year = new Date().getFullYear();
+
+    const storeLinks = [];
+    if (androidUrl) {
+      storeLinks.push(
+        `<a href="${esc(androidUrl)}" style="color:#1AB4F5;text-decoration:none;font-weight:600;">Android app</a>`
+      );
+    }
+    if (iosUrl) {
+      storeLinks.push(
+        `<a href="${esc(iosUrl)}" style="color:#1AB4F5;text-decoration:none;font-weight:600;">iOS app</a>`
+      );
+    }
+    const storeLine = storeLinks.length
+      ? `You can also open BisonsTechs on ${storeLinks.join(' or ')} with the same login.`
+      : 'You can use the same email and password in the BisonsTechs mobile app.';
+
+    const mailOptions = {
+      from: identity.fromHeader,
+      to,
+      replyTo: identity.replyTo,
+      subject: `You're invited to ${companyName} on BisonsTechs`,
+      text: [
+        `Hello ${fullName},`,
+        '',
+        `${invitedBy || 'Your admin'} added you to ${companyName} on BisonsTechs.`,
+        `Role: ${roleLabel}`,
+        `Email: ${loginEmail}`,
+        `Password: ${password}`,
+        '',
+        `Sign in here: ${loginUrl}`,
+        storeLine.replace(/<[^>]+>/g, ''),
+        '',
+        'Please change your password after you log in.',
+        '',
+        '— BisonsTechs'
+      ].join('\n'),
+      html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" border="0"
+        style="max-width:560px;width:100%;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.12);">
+        <tr>
+          <td style="background:linear-gradient(135deg,#014582 0%,#0A3D5C 55%,#0f2744 100%);padding:40px 40px 28px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.4px;">BisonsTechs</div>
+            <div style="margin-top:14px;font-size:24px;font-weight:800;color:#ffffff;letter-spacing:-0.4px;line-height:1.25;">
+              You've been added to the team
+            </div>
+            <div style="margin-top:8px;font-size:14px;color:rgba(255,255,255,0.75);">
+              ${safeCompany} · ${safeRole}
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#ffffff;padding:36px 40px 28px;">
+            <p style="font-size:15px;color:#374151;line-height:1.8;margin:0 0 22px 0;">
+              Hello <strong style="color:#111827;">${safeName}</strong>,<br/>
+              ${safeInviter ? `<strong>${safeInviter}</strong> added you to` : 'You were added to'}
+              <strong style="color:#111827;">${safeCompany}</strong> on BisonsTechs.
+              Use the details below to sign in.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:22px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
+              <tr>
+                <td style="padding:18px 20px;">
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="padding:6px 0;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;">Email</td>
+                      <td align="right" style="padding:6px 0;font-size:14px;font-weight:700;color:#0f172a;">${safeEmail}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;">Password</td>
+                      <td align="right" style="padding:6px 0;font-size:14px;font-weight:700;color:#0f172a;font-family:Consolas,Monaco,monospace;">${safePassword}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;">Role</td>
+                      <td align="right" style="padding:6px 0;font-size:14px;font-weight:700;color:#014582;">${safeRole}</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+            <div style="text-align:center;margin:8px 0 24px;">
+              <a href="${esc(loginUrl)}"
+                 style="display:inline-block;background:linear-gradient(135deg,#1AB4F5,#014582);color:#ffffff;text-decoration:none;padding:14px 40px;border-radius:50px;font-weight:700;font-size:15px;">
+                Open BisonsTechs →
+              </a>
+            </div>
+            <p style="font-size:13px;color:#64748b;line-height:1.7;margin:0 0 16px 0;text-align:center;">
+              ${storeLine}
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+              <tr><td style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 16px;font-size:13px;color:#9a3412;line-height:1.6;">
+                For security, change this password after you log in.
+              </td></tr>
+            </table>
+            <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:0;">
+              Questions? <span style="color:#014582;">${esc(supportEmail)}</span>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:20px 40px;">
+            <p style="font-size:12px;color:#9ca3af;line-height:1.7;margin:0;">
+              © ${year} BisonsTechs. All rights reserved.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
+    };
+
+    const info = await this.transporter.sendMail(mailOptions);
+    console.log('✅ Team invite email sent:', info.messageId, '→', to);
+    return { success: true, messageId: info.messageId };
+  }
 }
 
 const emailService = new EmailService();

@@ -755,6 +755,137 @@ async function buildCapitalPosition({
   };
 }
 
+async function sumEquityJournalLines(companyId, equityIds, endDate) {
+  if (!equityIds.length) return [];
+  try {
+    return await prisma.journalLine.groupBy({
+      by: ['accountId'],
+      where: {
+        accountId: { in: equityIds },
+        journal: {
+          companyId,
+          status: 'Posted',
+          date: { lte: endDate }
+        }
+      },
+      _sum: { debit: true, credit: true }
+    });
+  } catch (_) {
+    const rows = await prisma.journalLine.findMany({
+      where: {
+        accountId: { in: equityIds },
+        journal: {
+          companyId,
+          status: 'Posted',
+          date: { lte: endDate }
+        }
+      },
+      select: { accountId: true, debit: true, credit: true }
+    });
+    const map = {};
+    rows.forEach((row) => {
+      if (!map[row.accountId]) {
+        map[row.accountId] = {
+          accountId: row.accountId,
+          _sum: { debit: 0, credit: 0 }
+        };
+      }
+      map[row.accountId]._sum.debit += toNum(row.debit);
+      map[row.accountId]._sum.credit += toNum(row.credit);
+    });
+    return Object.values(map);
+  }
+}
+
+function isOwnerCapitalName(name, type) {
+  const n = String(name || '').toLowerCase();
+  const t = String(type || '').toLowerCase();
+  if (isCurrentYearEarningsName(name)) return false;
+  if (n.includes('retained') || t.includes('retained')) return false;
+  if (n.includes('drawing') || t.includes('drawing')) return false;
+  return true;
+}
+
+function buildLiteCapitalPosition(equityAccounts, lineSums, periodPl, equityModuleAccounts) {
+  const sumByAccount = {};
+  (lineSums || []).forEach((row) => {
+    sumByAccount[row.accountId] = row._sum || {};
+  });
+
+  const owners = (equityAccounts || []).map((acc) => {
+    const sums = sumByAccount[acc.id] || {};
+    const debit = toNum(sums.debit);
+    const credit = toNum(sums.credit);
+    const fromJournal = credit - debit;
+    const hasJournal = debit !== 0 || credit !== 0;
+    const balance = hasJournal
+      ? fromJournal
+      : toNum(acc.currentBalance) || toNum(acc.openingBalance);
+    return { name: acc.name, balance };
+  });
+
+  let yourCapital = owners
+    .filter((item) => isOwnerCapitalName(item.name))
+    .reduce((sum, item) => sum + toNum(item.balance), 0);
+
+  if (Math.abs(yourCapital) < 0.0001 && Array.isArray(equityModuleAccounts)) {
+    yourCapital = equityModuleAccounts
+      .filter((item) => isOwnerCapitalName(item.accountName, item.accountType))
+      .reduce(
+        (sum, item) => sum + (toNum(item.currentBalance) || toNum(item.openingBalance)),
+        0
+      );
+  }
+
+  const retainedEarnings = owners
+    .filter((item) => /retained/i.test(item.name || ''))
+    .reduce((sum, item) => sum + toNum(item.balance), 0);
+
+  const periodEarnings = toNum(periodPl?.netProfit);
+  const currentEquity = yourCapital + retainedEarnings + periodEarnings;
+  const isIncrease = periodEarnings >= 0;
+
+  return {
+    openingCapital: yourCapital,
+    currentCapital: yourCapital,
+    retainedEarnings,
+    drawings: 0,
+    bookedEarnings: retainedEarnings,
+    periodEarnings,
+    currentEquity,
+    changeOnCapital: currentEquity - yourCapital,
+    isIncrease,
+    chart: [
+      {
+        month: 'Capital',
+        label: 'Capital',
+        opening: yourCapital,
+        capital: yourCapital,
+        earnings: 0
+      },
+      {
+        month: 'Now',
+        label: 'Now',
+        opening: yourCapital,
+        capital: currentEquity,
+        earnings: periodEarnings
+      }
+    ],
+    kpi: {
+      amount: currentEquity,
+      formatted: formatAmount(currentEquity),
+      opening: yourCapital,
+      openingFormatted: formatAmount(yourCapital),
+      periodEarnings,
+      periodEarningsFormatted: formatAmount(periodEarnings),
+      changeOnCapital: currentEquity - yourCapital,
+      changeFormatted: formatAmount(currentEquity - yourCapital),
+      isPositive: isIncrease,
+      period: 'Current'
+    }
+  };
+}
+
 /**
  * Single source of truth for the accounting dashboard.
  * All KPIs, charts, categories and recent txns share the same date window.
@@ -768,11 +899,7 @@ async function buildDashboardOverview({
   fiscalYearId = null,
   txnLimit = 10
 }) {
-  const { start: previousStartDate, end: previousEndDate } = getPreviousPeriod(
-    startDate,
-    endDate
-  );
-  const fetchFrom = previousStartDate;
+  const fetchFrom = startDate;
   const fetchTo = endDate;
 
   const [
@@ -793,6 +920,8 @@ async function buildDashboardOverview({
     periodTxnInvoices,
     periodTxnBills,
     periodTxnPurchases,
+    equityAccounts,
+    equityModuleAccounts,
   ] = await Promise.all([
     prisma.income.findMany({
       where: {
@@ -1028,6 +1157,19 @@ async function buildDashboardOverview({
         invoiceDate: true
       }
     }),
+    prisma.chartOfAccount.findMany({
+      where: { companyId, isActive: true, type: 'Equity' },
+      select: { id: true, name: true, openingBalance: true, currentBalance: true }
+    }),
+    prisma.equityAccount.findMany({
+      where: { companyId },
+      select: {
+        accountName: true,
+        accountType: true,
+        currentBalance: true,
+        openingBalance: true
+      }
+    }),
   ]);
 
   const mergedSalesRows = mergeSalesInvoiceRows(
@@ -1053,24 +1195,22 @@ async function buildDashboardOverview({
     startDate,
     endDate
   );
-  const previous = computePeriodTotals(
-    allIncomes,
-    mappedSales,
-    allCreditNotes,
-    allExpenses,
-    mappedPurchases,
-    previousStartDate,
-    previousEndDate
-  );
-
   const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
-  const [currentPl, previousPl, ledgerChart] = await Promise.all([
+  const equityIds = (equityAccounts || []).map((a) => a.id).filter(Boolean);
+  const [currentPl, ledgerChart, equityLineSums] = await Promise.all([
     buildProfitLossFromLedger(companyId, startDate, endDate),
-    buildProfitLossFromLedger(companyId, previousStartDate, previousEndDate),
-    buildLedgerChartSeries(companyId, startDate, endDate)
+    buildLedgerChartSeries(companyId, startDate, endDate),
+    equityIds.length
+      ? sumEquityJournalLines(companyId, equityIds, endDate)
+      : Promise.resolve([])
   ]);
+  const capitalPosition = buildLiteCapitalPosition(
+    equityAccounts,
+    equityLineSums,
+    currentPl,
+    equityModuleAccounts
+  );
   const ledger = plKpis(currentPl);
-  const prevLedger = plKpis(previousPl);
 
   const salesInPeriod = mappedSales.filter((d) => inRange(d.date, startDate, endDate));
   const totalSalesPaid = salesInPeriod.reduce((s, d) => s + toNum(d.paidAmount), 0);
@@ -1106,16 +1246,11 @@ async function buildDashboardOverview({
   const cashAccount = await findCashAccount(companyId);
   const cashOnlyBalance = toNum(cashAccount?.currentBalance);
 
-  const prevSalesPaid = mappedSales
-    .filter((d) => inRange(d.date, previousStartDate, previousEndDate))
-    .reduce((s, d) => s + toNum(d.paidAmount), 0);
-  const prevNetProfit = prevLedger.netProfit;
-
-  const revenueChange = pct(ledger.revenue, prevLedger.revenue);
-  const expenseChange = pct(ledgerExpenseTotal, prevLedger.expenses);
-  const profitChange = pct(netProfitAmount, prevNetProfit);
-  const salesChange = pct(totalSalesPaid, prevSalesPaid);
-  const purchasesChange = pct(current.purchases, previous.purchases);
+  const revenueChange = 0;
+  const expenseChange = 0;
+  const profitChange = 0;
+  const salesChange = 0;
+  const purchasesChange = 0;
 
   const { chartData: moduleChart, useDaily } = buildChartSeries({
     incomes: allIncomes,
@@ -1146,7 +1281,6 @@ async function buildDashboardOverview({
     txnLimit
   );
 
-  // Chart totals must equal KPI period totals
   const chartTotals = chartData.reduce(
     (acc, row) => {
       acc.revenue += row.revenue;
@@ -1158,15 +1292,6 @@ async function buildDashboardOverview({
     },
     { revenue: 0, sales: 0, expenses: 0, purchases: 0, profit: 0 }
   );
-
-  const capitalPosition = await buildCapitalPosition({
-    companyId,
-    userId,
-    startDate,
-    endDate,
-    fiscalYearId,
-    periodPl: currentPl
-  });
 
   return {
     kpi: {
