@@ -8,11 +8,14 @@ const {
   getAllStockHistory,
   getTodayMovements,
   updateStockMovement,
-  deleteStockMovement
+  deleteStockMovement,
+  getStockReasons,
 } = require('../controller/stock_controller');
 
 // All routes protected
 router.use(protect);
+
+router.get('/reasons', getStockReasons);
 
 // ─── POST Routes ──────────────────────────────────────────────
 router.post('/in', addStock);

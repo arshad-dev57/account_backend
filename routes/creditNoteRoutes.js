@@ -33,14 +33,12 @@ router.use(
 router.post('/', createCreditNote);
 router.get('/', getCreditNotes);
 router.get('/summary', getSummary);
-router.get('/:id', getCreditNote);
-router.delete('/:id', deleteCreditNote);
-
-// ─── Special Operations ───────────────────────────────────────────
 router.get('/unpaid-invoices/:customerId', getUnpaidInvoices);
+router.get('/number/:creditNumber', getCreditNoteByNumber);
 router.post('/apply', applyCreditNote);
 router.post('/expire', expireCreditNotes);
 router.post('/:id/void', voidCreditNote);
-router.get('/number/:creditNumber', getCreditNoteByNumber);
+router.get('/:id', getCreditNote);
+router.delete('/:id', deleteCreditNote);
 
 module.exports = router;

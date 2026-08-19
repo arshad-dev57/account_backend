@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "build": "prisma generate",
     "postinstall": "prisma generate",
     "vercel-build": "prisma generate && prisma migrate deploy"
   },

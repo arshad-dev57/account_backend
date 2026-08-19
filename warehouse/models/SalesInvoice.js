@@ -6,6 +6,7 @@ const {
   getOrCreateArAccount,
   getOrCreateSalesRevenueAccount,
 } = require('../../utils/arAccountHelper');
+const { postSalesInvoiceCOGS } = require('../services/salesAccountingService');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -475,6 +476,18 @@ class SalesInvoiceModel {
         await tx.customer.update({
           where: { id: invoice.customerId },
           data: { outstandingBalance: { increment: invoice.grandTotal } }
+        });
+      }
+
+      const invoiceWithItems = await tx.salesInvoice.findUnique({
+        where: { id: invoiceId },
+        include: { items: { include: { product: true } } },
+      });
+      if (invoiceWithItems) {
+        await postSalesInvoiceCOGS(tx, {
+          invoice: invoiceWithItems,
+          userId,
+          companyId,
         });
       }
 

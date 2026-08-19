@@ -65,7 +65,6 @@ function endOfDay(d) {
   return x;
 }
 
-/** Parse yyyy-MM-dd as a local calendar date (avoids UTC midnight shift). */
 function parseLocalDate(value) {
   if (value instanceof Date) return new Date(value.getTime());
   const raw = String(value || '').trim();
@@ -84,7 +83,6 @@ function getDateRangeFromTimePeriod(timePeriod) {
       return { start: startOfDay(now), end: endOfDay(now) };
 
     case 'Last Week': {
-      // Rolling last 7 days (matches Flutter UI label)
       const start = startOfDay(new Date(now));
       start.setDate(start.getDate() - 6);
       return { start, end: endOfDay(now) };
@@ -246,11 +244,6 @@ function salesInvoiceWhere(companyId, userId, extra = {}) {
   };
 }
 
-/**
- * Merge WarehouseInvoice + SalesInvoice without double-counting.
- * Prefer SalesInvoice when both exist for the same orderId.
- * Rows without orderId are kept from both sources (manual invoices).
- */
 function mergeSalesInvoiceRows(warehouseRows = [], moduleRows = []) {
   const moduleOrderIds = new Set(
     moduleRows.filter((r) => r.orderId).map((r) => r.orderId)
@@ -308,10 +301,8 @@ function computePeriodTotals(
   const operatingExpenses = sumDocs(curExp, expenseAmt);
   const purchases = sumDocs(curPurch, invoiceAmt);
 
-  // Revenue uses PAID sales only (not unpaid invoice totals)
   const salesRevenue = salesPaid;
   const revenue = salesPaid + otherIncome - creditNotesTotal;
-  // Purchases already flow into expenses — only subtract expenses for net profit
   const totalCosts = operatingExpenses;
   const netProfit = revenue - operatingExpenses;
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
@@ -1494,7 +1485,6 @@ const getDashboardOverview = async (req, res) => {
   }
 };
 
-// ─── Get Dashboard Summary ─────────────────────────────────────
 
 const getDashboardSummary = async (req, res) => {
   try {
@@ -1531,7 +1521,6 @@ const getDashboardSummary = async (req, res) => {
   }
 };
 
-// ─── Get Chart Data ────────────────────────────────────────────
 
 const getChartData = async (req, res) => {
   try {
@@ -1772,7 +1761,6 @@ const getQuickActions = async (req, res) => {
   });
 };
 
-// ─── Get Yearly Summary ───────────────────────────────────────
 
 const getYearlySummary = async (req, res) => {
   try {

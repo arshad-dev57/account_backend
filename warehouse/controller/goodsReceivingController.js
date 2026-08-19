@@ -86,7 +86,7 @@ const createGoodsReceiving = async (req, res) => {
       receivedBy: receivedBy || '',
       notes: notes || '',
       items: processedItems,
-      status: status || 'Confirmed',
+      status: status || 'Draft',
       createdBy: userId,
       companyId: companyId  // ✅ Use companyId
     };
@@ -235,10 +235,17 @@ const getGoodsReceivings = async (req, res) => {
       GoodsReceiving.getStats(companyId)  // ✅ Pass companyId
     ]);
 
+    const enriched = grns.map((grn) => ({
+      ...grn,
+      canConfirm:
+        grn.status === 'Draft' &&
+        !grn.confirmedAt,
+    }));
+
     res.status(200).json({
       success: true,
-      count: grns.length,
-      data: grns,
+      count: enriched.length,
+      data: enriched,
       stats,
       pagination: {
         page: pageNum,
@@ -279,7 +286,10 @@ const getGoodsReceivingById = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: grn
+      data: {
+        ...grn,
+        canConfirm: grn.status === 'Draft' && !grn.confirmedAt,
+      },
     });
   } catch (error) {
     console.error('Get goods receiving error:', error);

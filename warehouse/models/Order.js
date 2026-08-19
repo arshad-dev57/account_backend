@@ -99,18 +99,14 @@ class OrderModel {
           }
         });
 
-        // Deduct stock only for Sales Orders
+        // Reserve stock for Sales Orders (physical issue happens on delivery confirm)
         if (data.orderType !== 'Purchase Order') {
           await tx.product.update({
             where: { id: item.productId },
             data: {
-              currentStock: {
-                decrement: item.quantity
-              },
-              availableStock: {
-                decrement: item.quantity
-              }
-            }
+              reservedStock: { increment: item.quantity },
+              availableStock: { decrement: item.quantity },
+            },
           });
         }
       }
@@ -375,17 +371,30 @@ class OrderModel {
       if (!order) return null;
 
       if (order.orderType !== 'Purchase Order') {
+        const deliveries = await tx.delivery.findMany({
+          where: { salesOrderId: id, isActive: true, isDeleted: false },
+          include: { items: true },
+        });
+        const deliveredByProduct = {};
+        for (const d of deliveries) {
+          if (!d.confirmedAt) continue;
+          for (const di of d.items || []) {
+            deliveredByProduct[di.productId] =
+              (deliveredByProduct[di.productId] || 0) +
+              (Number(di.deliveredQuantity) || 0);
+          }
+        }
+
         for (const item of order.items) {
+          const delivered = deliveredByProduct[item.productId] || 0;
+          const toRelease = Math.max(0, item.quantity - delivered);
+          if (toRelease <= 0) continue;
           await tx.product.update({
             where: { id: item.productId },
             data: {
-              currentStock: {
-                increment: item.quantity
-              },
-              availableStock: {
-                increment: item.quantity
-              }
-            }
+              reservedStock: { decrement: toRelease },
+              availableStock: { increment: toRelease },
+            },
           });
         }
       }
