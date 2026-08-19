@@ -1,6 +1,7 @@
 // warehouse/models/Return.js - COMPLETE FIXED
 
 const prisma = require('../../prisma/client');
+const { postSalesReturnAccounting } = require('../services/salesAccountingService');
 
 function generateReturnNumber(returnType) {
   const date = new Date();
@@ -114,32 +115,7 @@ class ReturnModel {
           }
         });
 
-        // ─── Update Stock ─────────────────────────────────────
-        if (data.returnType === 'Sales Return') {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              currentStock: {
-                increment: item.returnQuantity
-              },
-              availableStock: {
-                increment: item.returnQuantity
-              }
-            }
-          });
-        } else if (data.returnType === 'Purchase Return') {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              currentStock: {
-                decrement: item.returnQuantity
-              },
-              availableStock: {
-                decrement: item.returnQuantity
-              }
-            }
-          });
-        }
+        // Stock + GL applied on approve/complete — not at create
       }
 
       // ─── Update Order Status ──────────────────────────────
@@ -397,19 +373,80 @@ class ReturnModel {
   // COMPLETE RETURN
   // ============================================================
   static async complete(id, userId, receivedDate = null) {
-    return await prisma.return.update({
-      where: { id },
-      data: {
-        returnStatus: 'Completed',
-        receivedDate: receivedDate || new Date(),
-        updatedBy: userId
-      },
-      include: {
-        items: true,
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
+    return await prisma.$transaction(async (tx) => {
+      const returnRecord = await tx.return.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+      if (!returnRecord) throw new Error('Return not found');
+      if (returnRecord.returnStatus === 'Completed') return returnRecord;
+
+      for (const item of returnRecord.items) {
+        const qty = Number(item.returnQuantity) || 0;
+        if (qty <= 0) continue;
+
+        if (returnRecord.returnType === 'Sales Return') {
+          const product = await tx.product.findUnique({
+            where: { id: item.productId },
+          });
+          const prev = product?.currentStock || 0;
+          const next = prev + qty;
+          await tx.product.update({
+            where: { id: item.productId },
+            data: {
+              currentStock: next,
+              availableStock: { increment: qty },
+            },
+          });
+          await tx.stockMovement.create({
+            data: {
+              productId: item.productId,
+              productName: item.productName,
+              type: 'stock_in',
+              quantity: qty,
+              previousStock: prev,
+              newStock: next,
+              reason: `Sales Return #${returnRecord.returnNumber}`,
+              reference: returnRecord.returnNumber,
+              status: 'Completed',
+              createdBy: userId,
+              companyId: returnRecord.companyId,
+            },
+          });
+        } else if (returnRecord.returnType === 'Purchase Return') {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: {
+              currentStock: { decrement: qty },
+              availableStock: { decrement: qty },
+            },
+          });
         }
       }
+
+      if (returnRecord.returnType === 'Sales Return') {
+        await postSalesReturnAccounting(tx, {
+          returnRecord,
+          items: returnRecord.items,
+          userId,
+          companyId: returnRecord.companyId,
+        });
+      }
+
+      return await tx.return.update({
+        where: { id },
+        data: {
+          returnStatus: 'Completed',
+          receivedDate: receivedDate || new Date(),
+          updatedBy: userId,
+        },
+        include: {
+          items: true,
+          creator: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      });
     });
   }
 

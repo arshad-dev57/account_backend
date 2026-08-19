@@ -6,7 +6,7 @@ const prisma = require('../../prisma/client');
 // ============================================================
 // HELPER: Auto-create Refund on Return Complete
 // ============================================================
-const autoCreateRefund = async (returnData, userId) => {
+const autoCreateRefund = async (returnData, userId, companyId) => {
   try {
     const refundNumber = (() => {
       const date = new Date();
@@ -433,7 +433,7 @@ const completeReturn = async (req, res) => {
 
     // Auto-create refund only for Sales Returns
     if (returnData.returnType === 'Sales Return') {
-      const refund = await autoCreateRefund(returnData, userId);
+      const refund = await autoCreateRefund(returnData, userId, companyId);
       return res.status(200).json({
         success: true,
         message: 'Return completed successfully',

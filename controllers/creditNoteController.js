@@ -5,6 +5,12 @@ const CreditNoteModel = require('../models/CreditNote');
 const Order = require('../warehouse/models/Order');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const BalanceCalculator = require('../utils/balanceCalculator');
+const {
+  computeItemsCOGS,
+  findOrCreateCOGSAccount,
+} = require('../warehouse/services/salesAccountingService');
+const { findOrCreateInventoryAccount } = require('../warehouse/services/stockAccountingService');
 // ============================================================
 // ACCOUNTING CONSTANTS
 // ============================================================
@@ -593,7 +599,7 @@ exports.createCreditNote = async (req, res) => {
       });
 
       // 2. Journal Entry: Dr Contra-Revenue / Dr Tax  Cr AR
-      await tx.journalEntry.create({
+      const cnJe = await tx.journalEntry.create({
         data: {
           entryNumber: `JE-CN-${Date.now()}`,
           date: postingDate,
@@ -607,7 +613,6 @@ exports.createCreditNote = async (req, res) => {
           postedAt: new Date(),
           lines: {
             create: [
-              // Dr Contra-Revenue (net amount)
               {
                 accountId: contraRevenueAccount.id,
                 accountName: contraRevenueAccount.name,
@@ -616,7 +621,6 @@ exports.createCreditNote = async (req, res) => {
                 credit: 0,
                 isReconciled: false
               },
-              // Dr Tax reversal (if applicable)
               ...(taxAmount > 0 ? [{
                 accountId: taxAccount.id,
                 accountName: taxAccount.name,
@@ -625,7 +629,6 @@ exports.createCreditNote = async (req, res) => {
                 credit: 0,
                 isReconciled: false
               }] : []),
-              // Cr Accounts Receivable (full credit amount)
               {
                 accountId: arAccount.id,
                 accountName: arAccount.name,
@@ -636,8 +639,10 @@ exports.createCreditNote = async (req, res) => {
               },
             ]
           }
-        }
+        },
+        include: { lines: true }
       });
+      await BalanceCalculator.applyJournalLines(tx, cnJe.lines);
 
       // 3. Inventory stock return for Return/Damaged Goods
       const isStockReturn = ['Return', 'Damaged Goods'].includes(reasonType);
@@ -680,6 +685,74 @@ exports.createCreditNote = async (req, res) => {
         }
       }
 
+      // 3b. COGS reversal for stock returns
+      if (isStockReturn && Array.isArray(items) && items.length > 0) {
+        const cogsItems = await Promise.all(
+          items.map(async (item) => {
+            const product = item.productId
+              ? await tx.product.findUnique({
+                  where: { id: item.productId },
+                  select: { costPrice: true },
+                })
+              : null;
+            return {
+              productId: item.productId,
+              quantity: item.quantity,
+              unitCost: product?.costPrice,
+            };
+          })
+        );
+        const totalCOGS = await computeItemsCOGS(tx, cogsItems);
+        if (totalCOGS > 0) {
+          const cogsRef = `${cn.creditNumber}-COGS`;
+          const existingCogs = await tx.journalEntry.findFirst({
+            where: { companyId, reference: cogsRef, status: 'Posted' },
+          });
+          if (!existingCogs) {
+            const cogsAcc = await findOrCreateCOGSAccount(tx, companyId, userId);
+            const inventoryAcc = await findOrCreateInventoryAccount(
+              tx,
+              companyId,
+              userId
+            );
+            const cogsJe = await tx.journalEntry.create({
+              data: {
+                entryNumber: `JE-CN-COGS-${Date.now()}`,
+                date: postingDate,
+                description: `COGS reversal — Credit note ${cn.creditNumber}`,
+                reference: cogsRef,
+                status: 'Posted',
+                createdBy: userId,
+                postedBy: userId,
+                postedAt: new Date(),
+                companyId,
+                fiscalYearId,
+                lines: {
+                  create: [
+                    {
+                      accountId: inventoryAcc.id,
+                      accountName: inventoryAcc.name,
+                      accountCode: inventoryAcc.code,
+                      debit: totalCOGS,
+                      credit: 0,
+                    },
+                    {
+                      accountId: cogsAcc.id,
+                      accountName: cogsAcc.name,
+                      accountCode: cogsAcc.code,
+                      debit: 0,
+                      credit: totalCOGS,
+                    },
+                  ],
+                },
+              },
+              include: { lines: true },
+            });
+            await BalanceCalculator.applyJournalLines(tx, cogsJe.lines);
+          }
+        }
+      }
+
       // 4. Reduce customer AR balance
       await tx.customer.update({
         where: { id: customer.id },
@@ -703,11 +776,6 @@ exports.createCreditNote = async (req, res) => {
 
       return cn;
     });
-
-    // Update account balances outside transaction
-    await updateAccountBalances(contraRevenueAccount.id, netAmount, true);
-    if (taxAmount > 0) await updateAccountBalances(taxAccount.id, taxAmount, true);
-    await updateAccountBalances(arAccount.id, amount, false);
 
     res.status(201).json({
       success: true,
@@ -1507,53 +1575,100 @@ exports.voidCreditNote = async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    const creditNote = await prisma.creditNote.findFirst({
-      where: {
-        id,
-        companyId: companyId}
-    });
 
-    if (!creditNote) {
-      return res.status(404).json({
-        success: false,
-        message: 'Credit note not found'
+    await prisma.$transaction(async (tx) => {
+      const creditNote = await tx.creditNote.findFirst({
+        where: { id, companyId },
       });
-    }
 
-    if (creditNote.status === 'Voided') {
-      return res.status(400).json({
-        success: false,
-        message: 'Credit note is already voided'
-      });
-    }
-
-    if (creditNote.appliedAmount > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot void credit note that has been applied'
-      });
-    }
-
-    await prisma.creditNote.update({
-      where: { id: id },
-      data: {
-        status: 'Voided',
-        notes: `${creditNote.notes}\nVoided: ${reason || 'No reason provided'}`
+      if (!creditNote) {
+        throw new Error('Credit note not found');
       }
+      if (creditNote.status === 'Voided') {
+        throw new Error('Credit note is already voided');
+      }
+      if (creditNote.appliedAmount > 0) {
+        throw new Error('Cannot void credit note that has been applied');
+      }
+
+      const refs = [creditNote.creditNumber, `${creditNote.creditNumber}-COGS`];
+      for (const ref of refs) {
+        const original = await tx.journalEntry.findFirst({
+          where: { companyId, reference: ref, status: 'Posted' },
+          include: { lines: true },
+        });
+        if (!original) continue;
+
+        const reverseLines = original.lines.map((line) => ({
+          accountId: line.accountId,
+          accountName: line.accountName,
+          accountCode: line.accountCode,
+          debit: line.credit,
+          credit: line.debit,
+          isReconciled: false,
+        }));
+
+        const reverseJe = await tx.journalEntry.create({
+          data: {
+            entryNumber: `JE-CN-VOID-${Date.now()}`,
+            date: new Date(),
+            description: `Void credit note ${creditNote.creditNumber}`,
+            reference: `${ref}-VOID`,
+            status: 'Posted',
+            createdBy: userId,
+            postedBy: userId,
+            postedAt: new Date(),
+            companyId,
+            lines: { create: reverseLines },
+          },
+          include: { lines: true },
+        });
+        await BalanceCalculator.applyJournalLines(tx, reverseJe.lines);
+      }
+
+      const stockMoves = await tx.stockMovement.findMany({
+        where: { reference: creditNote.creditNumber, type: 'Return' },
+      });
+      for (const move of stockMoves) {
+        const product = await tx.product.findUnique({
+          where: { id: move.productId },
+        });
+        if (!product) continue;
+        const qty = Math.abs(move.quantity || 0);
+        await tx.product.update({
+          where: { id: move.productId },
+          data: {
+            currentStock: { decrement: qty },
+          },
+        });
+      }
+
+      if (creditNote.customerId) {
+        await tx.customer.update({
+          where: { id: creditNote.customerId },
+          data: { outstandingBalance: { increment: creditNote.amount } },
+        });
+      }
+
+      await tx.creditNote.update({
+        where: { id },
+        data: {
+          status: 'Voided',
+          notes: `${creditNote.notes}\nVoided: ${reason || 'No reason provided'}`,
+        },
+      });
     });
 
     res.status(200).json({
       success: true,
-      message: 'Credit note voided successfully'
+      message: 'Credit note voided and accounting reversed',
     });
-
-} catch (error) {
+  } catch (error) {
     console.error('❌ [CN] Void credit note error:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };

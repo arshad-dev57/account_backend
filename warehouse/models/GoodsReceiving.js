@@ -178,59 +178,26 @@ class GoodsReceivingModel {
         receivingProgress
       };
 
-      // ─── Update Inventory Stock ──────────────────────────────
+      // Stock is applied only via confirmReceiving — not on create
       if (data.status === 'Confirmed') {
-        for (const item of receivingItems) {
-          const product = await tx.product.findUnique({
-            where: { id: item.productId }
-          });
-
-          if (product) {
-            const newStock = product.currentStock + item.receivingQuantity;
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                currentStock: newStock,
-                availableStock: newStock
-              }
-            });
-
-            await tx.stockMovement.create({
-              data: {
-                productId: item.productId,
-                productName: item.productName,
-                type: 'Goods Receiving',
-                quantity: item.receivingQuantity,
-                previousStock: product.currentStock,
-                newStock: newStock,
-                reason: `GRN #${grnNumber} - PO #${purchaseOrder.orderNumber}`,
-                reference: grnNumber,
-                status: 'Completed',
-                createdBy: data.createdBy,
-                companyId: data.companyId,  // ✅ FIXED
-                supplierId: purchaseOrder.supplierId,
-                supplierName: purchaseOrder.supplierName
-              }
-            });
-          }
-        }
-
-        const allItemsFullyReceived = receivingItems.every(item => item.remainingQuantity === 0);
+        const allItemsFullyReceived = receivingItems.every(
+          (item) => item.remainingQuantity === 0
+        );
         if (allItemsFullyReceived) {
           await tx.purchaseOrder.update({
             where: { id: data.purchaseOrderId },
             data: {
               status: 'Received',
-              updatedBy: data.createdBy
-            }
+              updatedBy: data.createdBy,
+            },
           });
         } else if (!['Received', 'Cancelled'].includes(purchaseOrder.status)) {
           await tx.purchaseOrder.update({
             where: { id: data.purchaseOrderId },
             data: {
               status: 'Partially Received',
-              updatedBy: data.createdBy
-            }
+              updatedBy: data.createdBy,
+            },
           });
         }
       }
@@ -265,13 +232,16 @@ class GoodsReceivingModel {
         throw new Error('Goods receiving not found');
       }
 
-      if (goodsReceiving.status === 'Fully Received') {
-        throw new Error('Goods receiving already fully confirmed');
-      }
-
       if (goodsReceiving.confirmedAt) {
         throw new Error('Goods receiving already confirmed');
       }
+
+      const stockAlreadyApplied = await tx.stockMovement.count({
+        where: {
+          reference: goodsReceiving.grnNumber,
+          type: 'Goods Receiving',
+        },
+      });
 
       const previousGRNs = await tx.goodsReceiving.findMany({
         where: {
@@ -303,39 +273,42 @@ class GoodsReceivingModel {
       for (const item of goodsReceiving.items) {
         const alreadyReceived = previousReceivedQty[item.purchaseOrderItemId] || 0;
         const orderedQuantity = item.purchaseOrderItem.quantity;
-        const remainingQuantity = orderedQuantity - (alreadyReceived + item.receivingQuantity);
+        const remainingQuantity =
+          orderedQuantity - (alreadyReceived + item.receivingQuantity);
 
-        const product = await tx.product.findUnique({
-          where: { id: item.productId }
-        });
-
-        if (product) {
-          const newStock = product.currentStock + item.receivingQuantity;
-          await tx.product.update({
+        if (stockAlreadyApplied === 0) {
+          const product = await tx.product.findUnique({
             where: { id: item.productId },
-            data: {
-              currentStock: newStock,
-              availableStock: newStock
-            }
           });
 
-          await tx.stockMovement.create({
-            data: {
-              productId: item.productId,
-              productName: item.productName,
-              type: 'Goods Receiving',
-              quantity: item.receivingQuantity,
-              previousStock: product.currentStock,
-              newStock: newStock,
-              reason: `GRN #${goodsReceiving.grnNumber} confirmed - PO #${goodsReceiving.purchaseOrder.orderNumber}`,
-              reference: goodsReceiving.grnNumber,
-              status: 'Completed',
-              createdBy: userId,
-              companyId: companyId,  // ✅ FIXED
-              supplierId: goodsReceiving.purchaseOrder.supplierId,
-              supplierName: goodsReceiving.purchaseOrder.supplierName
-            }
-          });
+          if (product) {
+            const newStock = product.currentStock + item.receivingQuantity;
+            await tx.product.update({
+              where: { id: item.productId },
+              data: {
+                currentStock: newStock,
+                availableStock: newStock,
+              },
+            });
+
+            await tx.stockMovement.create({
+              data: {
+                productId: item.productId,
+                productName: item.productName,
+                type: 'Goods Receiving',
+                quantity: item.receivingQuantity,
+                previousStock: product.currentStock,
+                newStock: newStock,
+                reason: `GRN #${goodsReceiving.grnNumber} confirmed - PO #${goodsReceiving.purchaseOrder.orderNumber}`,
+                reference: goodsReceiving.grnNumber,
+                status: 'Completed',
+                createdBy: userId,
+                companyId: companyId,
+                supplierId: goodsReceiving.purchaseOrder.supplierId,
+                supplierName: goodsReceiving.purchaseOrder.supplierName,
+              },
+            });
+          }
         }
 
         await tx.goodsReceivingItem.update({

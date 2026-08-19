@@ -226,6 +226,64 @@ function billOpenBalance(bill) {
   };
 }
 
+function billToResponseShape(bill) {
+  const { totalAmount, paidAmount, outstanding } = billOpenBalance(bill);
+  const vendor = bill.vendor || {};
+  return {
+    ...bill,
+    supplierId: bill.vendorId || vendor.id,
+    supplierName: bill.vendorName || vendor.name || '',
+    totalAmount,
+    paidAmount,
+    outstanding,
+    source: bill.source || 'bill'
+  };
+}
+
+function computeOpenPayablesSummary(openPayables) {
+  const now = new Date();
+  const endOfWeek = new Date(now);
+  endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+  const totalOutstanding = openPayables.reduce(
+    (sum, doc) => sum + (Number(doc.outstanding) || 0),
+    0
+  );
+
+  const overdue = openPayables
+    .filter((doc) => doc.dueDate && new Date(doc.dueDate) < now && doc.status !== 'Paid')
+    .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
+
+  const dueThisWeek = openPayables
+    .filter(
+      (doc) =>
+        doc.dueDate &&
+        new Date(doc.dueDate) >= now &&
+        new Date(doc.dueDate) <= endOfWeek &&
+        doc.status !== 'Paid'
+    )
+    .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
+
+  const dueThisMonth = openPayables
+    .filter(
+      (doc) =>
+        doc.dueDate &&
+        new Date(doc.dueDate) >= now &&
+        new Date(doc.dueDate) <= endOfMonth &&
+        doc.status !== 'Paid'
+    )
+    .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
+
+  return {
+    totalOutstanding,
+    overdue,
+    dueThisWeek,
+    dueThisMonth,
+    totalBills: openPayables.length
+  };
+}
+
 async function fetchCompanyPurchaseInvoices(companyId, extraWhere = {}) {
   return prisma.purchaseInvoice.findMany({
     where: {
@@ -573,7 +631,7 @@ exports.createBill = async (req, res) => {
           const apAccount = await getOrCreatePayableAccount(userId, companyId, tx);
           const expenseAccount = await getOrCreateExpenseAccount(userId, companyId, tx);
 
-          await tx.journalEntry.create({
+          const billJe = await tx.journalEntry.create({
             data: {
               entryNumber: `JE-${Date.now()}-${attempt}`,
               date: new Date(),
@@ -604,13 +662,12 @@ exports.createBill = async (req, res) => {
                   }
                 ]
               }
-            }
+            },
+            include: { lines: true }
           });
 
-          await tx.chartOfAccount.update({
-            where: { id: apAccount.id },
-            data: { currentBalance: { increment: totalAmount } }
-          });
+          const BalanceCalculator = require('../utils/balanceCalculator');
+          await BalanceCalculator.applyJournalLines(tx, billJe.lines);
 
           return bill;
         });
@@ -738,10 +795,33 @@ exports.getBills = async (req, res) => {
 
     mapped.sort((a, b) => new Date(b.date) - new Date(a.date));
 
+    const shaped = mapped.map((row) =>
+      row.source === 'purchaseInvoice' ? row : billToResponseShape(row)
+    );
+
+    const openPayables = shaped.filter((doc) => (Number(doc.outstanding) || 0) > 0);
+    const summary = computeOpenPayablesSummary(openPayables);
+
+    const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 10));
+    const total = shaped.length;
+    const pages = Math.max(1, Math.ceil(total / limitNum));
+    const start = (pageNum - 1) * limitNum;
+    const paged = shaped.slice(start, start + limitNum);
+
     res.status(200).json({
       success: true,
-      count: mapped.length,
-      data: mapped
+      count: total,
+      data: paged,
+      summary,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages,
+        hasNext: pageNum < pages,
+        hasPrev: pageNum > 1
+      }
     });
   } catch (error) {
     console.error('❌ [AP] Get bills error:', error);
@@ -1097,7 +1177,7 @@ exports.recordPayment = async (req, res) => {
         debitAccount = await getOrCreateCashAccount(userId, companyId, tx);
       }
 
-      await tx.journalEntry.create({
+      const paymentEntry = await tx.journalEntry.create({
         data: {
           entryNumber: `JE-${Date.now()}`,
           date: paymentDate ? new Date(paymentDate) : new Date(),
@@ -1128,30 +1208,18 @@ exports.recordPayment = async (req, res) => {
               }
             ]
           }
-        }
+        },
+        include: { lines: true }
       });
 
-      await tx.chartOfAccount.update({
-        where: { id: apAccount.id },
-        data: { currentBalance: { decrement: amount } }
-      });
+      const BalanceCalculator = require('../utils/balanceCalculator');
+      await BalanceCalculator.applyJournalLines(tx, paymentEntry.lines);
 
       if (bankAccountData) {
-        const newBankBalance = bankAccountData.currentBalance - amount;
+        const newBankBalance = Number(bankAccountData.currentBalance) - amount;
         await tx.bankAccount.update({
           where: { id: bankAccountData.id },
           data: { currentBalance: newBankBalance }
-        });
-        if (bankAccountData.chartOfAccountId) {
-          await tx.chartOfAccount.update({
-            where: { id: bankAccountData.chartOfAccountId },
-            data: { currentBalance: newBankBalance }
-          });
-        }
-      } else if (debitAccount) {
-        await tx.chartOfAccount.update({
-          where: { id: debitAccount.id },
-          data: { currentBalance: { decrement: amount } }
         });
       }
 
@@ -1252,42 +1320,7 @@ exports.getSummary = async (req, res) => {
       ...purchaseInvoices.map(purchaseInvoiceToBillShape)
     ].filter((doc) => (Number(doc.outstanding) || 0) > 0);
 
-    const totalOutstanding = openPayables.reduce(
-      (sum, doc) => sum + (Number(doc.outstanding) || 0),
-      0
-    );
-
-    const now = new Date();
-    const endOfWeek = new Date(now);
-    endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-    const overdue = openPayables
-      .filter((doc) => doc.dueDate && new Date(doc.dueDate) < now && doc.status !== 'Paid')
-      .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
-
-    const dueThisWeek = openPayables
-      .filter((doc) => doc.dueDate && new Date(doc.dueDate) >= now && new Date(doc.dueDate) <= endOfWeek && doc.status !== 'Paid')
-      .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
-
-    const dueThisMonth = openPayables
-      .filter((doc) => doc.dueDate && new Date(doc.dueDate) >= now && new Date(doc.dueDate) <= endOfMonth && doc.status !== 'Paid')
-      .reduce((sum, doc) => sum + (Number(doc.outstanding) || 0), 0);
-
-    const activeSuppliers = await prisma.supplier.count({
-      where: {
-        companyId: companyId,
-        status: 'active'
-      }
-    });
-
-    const summaryData = {
-      totalOutstanding,
-      overdue,
-      dueThisWeek,
-      dueThisMonth,
-      activeSuppliers
-    };
+    const summaryData = computeOpenPayablesSummary(openPayables);
 
     res.status(200).json({
       success: true,

@@ -110,7 +110,10 @@ const getDashboardMetrics = async (req, res) => {
       prisma.stockMovement.count({ where: { companyId, type: 'stock_out', createdAt: { gte: start, lte: end } } }),
     ]);
 
-    const totalStockValue = products.reduce((s, p) => s + (p.sellingPrice * p.currentStock), 0);
+    const totalStockValue = products.reduce(
+      (s, p) => s + (p.costPrice || 0) * (p.currentStock || 0),
+      0
+    );
     const lowStockCount   = products.filter(p => p.minimumStock > 0 && p.currentStock > 0 && p.currentStock <= p.minimumStock).length;
     const overstockCount  = products.filter(p => p.maximumStock > 0 && p.currentStock >= p.maximumStock * 1.2).length;
 

@@ -1,6 +1,7 @@
 // warehouse/models/Refunds.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const { postRefundPaymentAccounting } = require('../services/salesAccountingService');
 
 // ─── Generate Refund Number Function ──────────────────────
 function generateRefundNumber(refundType) {
@@ -307,22 +308,51 @@ class RefundModel {
   // ============================================================
   // COMPLETE REFUND (Processing → Completed)
   // ============================================================
-  static async complete(id, userId) {
-    return await prisma.refund.update({
-      where: { id },
-      data: {
-        refundStatus: 'Completed',
-        completedAt: new Date(),
-        updatedBy: userId
-      },
-      include: {
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        processor: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        }
+  static async complete(id, userId, options = {}) {
+    return await prisma.$transaction(async (tx) => {
+      const refund = await tx.refund.findUnique({ where: { id } });
+      if (!refund) throw new Error('Refund not found');
+      if (refund.refundStatus === 'Completed') {
+        return await tx.refund.findUnique({
+          where: { id },
+          include: {
+            creator: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+            processor: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+          },
+        });
       }
+
+      if (refund.refundType === 'Sales Refund' || !refund.refundType) {
+        await postRefundPaymentAccounting(tx, {
+          refund,
+          userId,
+          companyId: refund.companyId,
+          bankAccountId: options.bankAccountId || null,
+        });
+      }
+
+      return await tx.refund.update({
+        where: { id },
+        data: {
+          refundStatus: 'Completed',
+          completedAt: new Date(),
+          updatedBy: userId,
+          processedBy: userId,
+          processedAt: refund.processedAt || new Date(),
+        },
+        include: {
+          creator: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+          processor: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      });
     });
   }
 

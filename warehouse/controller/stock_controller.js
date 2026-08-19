@@ -1,6 +1,22 @@
 // warehouse/controller/stockController.js - MULTI-TENANT VERSION
 
 const prisma = require('../../prisma/client');
+const {
+  validateStockInReason,
+  validateStockOutReason,
+  postStockInAccounting,
+  postStockOutAccounting,
+  createStockCreditPayableBill,
+  listStockReasons,
+} = require('../services/stockAccountingService');
+
+// ============================================================
+// @desc    Stock in/out reason catalog (for UI)
+// @route   GET /api/warehouse/stock/reasons
+// ============================================================
+const getStockReasons = async (_req, res) => {
+  res.json({ success: true, data: listStockReasons() });
+};
 
 // ============================================================
 // @desc    Add stock (Stock In) with Box Support (User-specific)
@@ -10,6 +26,7 @@ const prisma = require('../../prisma/client');
 const addStock = async (req, res) => {
   try {
     const companyId = req.user.companyId;
+    const userId = req.user.id;
     const {
       productId,
       stockType,
@@ -19,46 +36,64 @@ const addStock = async (req, res) => {
       supplierId,
       supplierName,
       reference,
-      notes
+      notes,
+      stockSourceReason,
+      unitCost: unitCostInput,
+      bankAccountId,
     } = req.body;
-
-    console.log("===== STOCK IN API =====");
-    console.log("Body:", req.body);
 
     if (!productId || !quantity) {
       return res.status(400).json({
         success: false,
-        message: 'Product ID and quantity are required'
+        message: 'Product ID and quantity are required',
       });
     }
 
-    // ✅ Product must belong to company
+    if (!stockSourceReason) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'stockSourceReason is required (e.g. opening_stock, supplier_credit, cash_purchase)',
+      });
+    }
+
+    let reasonMeta;
+    try {
+      reasonMeta = validateStockInReason(stockSourceReason);
+    } catch (e) {
+      return res.status(e.statusCode || 400).json({ success: false, message: e.message });
+    }
+
+    if (reasonMeta.requiresSupplier && !supplierId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Supplier is required for this stock source reason',
+      });
+    }
+
+    if (reasonMeta.requiresBankAccount && !bankAccountId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bank account is required for Cash / Bank Purchase',
+      });
+    }
+
     const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        companyId: companyId
-      }
+      where: { id: productId, companyId },
     });
 
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
+      return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    // ✅ Supplier must belong to company
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
-        where: {
-          id: supplierId,
-          companyId: companyId
-        }
+        where: { id: supplierId, companyId },
       });
       if (!supplier) {
         return res.status(404).json({
           success: false,
-          message: 'Supplier not found or does not belong to you'
+          message: 'Supplier not found or does not belong to you',
         });
       }
     }
@@ -68,90 +103,135 @@ const addStock = async (req, res) => {
     let totalPieces = 0;
     let stockDetails = {};
 
-    // ─── BULK STOCK ────────────────────────────────────────────
     if (stockType === 'bulk' || !stockType) {
-      totalPieces = parseInt(quantity);
+      totalPieces = parseInt(quantity, 10);
       newStock = previousStock + totalPieces;
-      stockDetails = {
-        type: 'bulk',
-        quantityAdded: totalPieces
-      };
-    }
-    
-    // ─── BOX STOCK ─────────────────────────────────────────────
-    else if (stockType === 'box') {
-      const boxes = parseInt(boxCount) || 0;
-      const pieces = parseInt(piecesPerBox) || 0;
+      stockDetails = { type: 'bulk', quantityAdded: totalPieces };
+    } else if (stockType === 'box') {
+      const boxes = parseInt(boxCount, 10) || 0;
+      const pieces = parseInt(piecesPerBox, 10) || 0;
       totalPieces = boxes * pieces;
       newStock = previousStock + totalPieces;
-      
-      stockDetails = {
-        type: 'box',
-        boxCount: boxes,
-        piecesPerBox: pieces,
-        totalPieces: totalPieces
-      };
+      stockDetails = { type: 'box', boxCount: boxes, piecesPerBox: pieces, totalPieces };
     }
 
-    // Update product stock
-    await prisma.product.update({
-      where: { id: productId },
-      data: {
-        currentStock: newStock,
-        availableStock: newStock,
-        totalValue: newStock * product.costPrice
+    const unitCost =
+      unitCostInput != null && unitCostInput !== ''
+        ? Number(unitCostInput)
+        : Number(product.costPrice) || 0;
+
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id: productId },
+        data: {
+          currentStock: newStock,
+          availableStock: newStock,
+          totalValue: newStock * (unitCost || product.costPrice || 0),
+        },
+      });
+
+      const movementData = {
+        productId,
+        productName: product.name,
+        type: 'stock_in',
+        quantity: totalPieces,
+        previousStock,
+        newStock,
+        stockType: stockType || 'bulk',
+        stockDetails,
+        reason: reasonMeta.label,
+        reference: reference || '',
+        notes: notes
+          ? `${notes}${notes.includes('stockSourceReason') ? '' : `\n[source:${stockSourceReason}]`}`
+          : `[source:${stockSourceReason}]`,
+        status: 'Completed',
+        createdBy: userId,
+        companyId,
+      };
+
+      if (supplierId) movementData.supplierId = supplierId;
+      if (supplierName) movementData.supplierName = supplierName;
+
+      const movement = await tx.stockMovement.create({ data: movementData });
+
+      let journalEntry = null;
+      let payableBill = null;
+      try {
+        journalEntry = await postStockInAccounting(tx, {
+          reasonKey: stockSourceReason,
+          companyId,
+          userId,
+          productName: product.name,
+          quantity: totalPieces,
+          unitCost,
+          reference,
+          supplierId,
+          bankAccountId,
+          movementId: movement.id,
+        });
+
+        if (stockSourceReason === 'supplier_credit' && journalEntry) {
+          const accountingAmount = totalPieces * unitCost;
+          payableBill = await createStockCreditPayableBill(tx, {
+            companyId,
+            userId,
+            supplierId,
+            supplierName,
+            productName: product.name,
+            quantity: totalPieces,
+            unitCost,
+            amount: accountingAmount,
+            movementId: movement.id,
+            reference,
+          });
+        }
+      } catch (accErr) {
+        console.error('Stock In accounting error:', accErr);
+        throw accErr;
       }
+
+      return { movement, journalEntry, payableBill };
     });
 
-    // Create movement record with companyId
-    const movementData = {
-      productId,
-      productName: product.name,
-      type: 'stock_in',
-      quantity: totalPieces,
-      previousStock,
-      newStock,
-      stockType: stockType || 'bulk',
-      stockDetails: stockDetails,
-      reason: 'Purchase',
-      reference: reference || '',
-      notes: notes || '',
-      createdBy: req.user.id,
-      companyId: companyId // 👈 CRITICAL
-    };
-
-    if (supplierId) movementData.supplierId = supplierId;
-    if (supplierName) movementData.supplierName = supplierName;
-
-    const movement = await prisma.stockMovement.create({
-      data: movementData
-    });
-
-    // Get updated product
     const updatedProduct = await prisma.product.findFirst({
-      where: { id: productId, companyId: companyId }
+      where: { id: productId, companyId },
     });
 
     res.status(201).json({
       success: true,
-      message: 'Stock added successfully',
+      message: result.journalEntry
+        ? 'Stock added and posted to accounting'
+        : 'Stock added successfully',
       data: {
-        movement,
+        movement: result.movement,
+        journalEntry: result.journalEntry
+          ? {
+              id: result.journalEntry.id,
+              entryNumber: result.journalEntry.entryNumber,
+              reference: result.journalEntry.reference,
+            }
+          : null,
+        payableBill: result.payableBill
+          ? {
+              id: result.payableBill.id,
+              billNumber: result.payableBill.billNumber,
+              outstanding: result.payableBill.outstanding,
+            }
+          : null,
         product: {
           id: updatedProduct.id,
           name: updatedProduct.name,
-          currentStock: updatedProduct.currentStock
+          currentStock: updatedProduct.currentStock,
         },
-        stockDetails
-      }
+        stockDetails,
+        accountingAmount: totalPieces * unitCost,
+      },
     });
-
   } catch (error) {
     console.error('Stock In error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: error.message || 'Server error',
     });
   }
 };
@@ -164,99 +244,128 @@ const addStock = async (req, res) => {
 const removeStock = async (req, res) => {
   try {
     const companyId = req.user.companyId;
+    const userId = req.user.id;
     const {
       productId,
       quantity,
       reason,
+      stockOutReason,
       customerName,
       reference,
-      notes
+      notes,
+      unitCost: unitCostInput,
     } = req.body;
 
-    console.log("===== STOCK OUT API =====");
-    console.log("Body:", req.body);
-
-    if (!productId || !quantity || !reason) {
+    const outReasonKey = stockOutReason || reason;
+    if (!productId || !quantity || !outReasonKey) {
       return res.status(400).json({
         success: false,
-        message: 'Product ID, quantity and reason are required'
+        message: 'Product ID, quantity and stockOutReason are required',
       });
     }
 
-    // ✅ Product must belong to company
+    let reasonMeta;
+    try {
+      reasonMeta = validateStockOutReason(outReasonKey);
+    } catch (e) {
+      return res.status(e.statusCode || 400).json({ success: false, message: e.message });
+    }
+
     const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        companyId: companyId
-      }
+      where: { id: productId, companyId },
     });
 
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
+      return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
     if (product.currentStock < quantity) {
       return res.status(400).json({
         success: false,
-        message: `Insufficient stock. Available: ${product.currentStock}`
+        message: `Insufficient stock. Available: ${product.currentStock}`,
       });
     }
 
     const previousStock = product.currentStock;
-    const newStock = previousStock - parseInt(quantity);
+    const newStock = previousStock - parseInt(quantity, 10);
+    const unitCost =
+      unitCostInput != null && unitCostInput !== ''
+        ? Number(unitCostInput)
+        : Number(product.costPrice) || 0;
 
-    await prisma.product.update({
-      where: { id: productId },
-      data: {
-        currentStock: newStock,
-        availableStock: newStock,
-        totalValue: newStock * product.costPrice
-      }
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id: productId },
+        data: {
+          currentStock: newStock,
+          availableStock: newStock,
+          totalValue: newStock * unitCost,
+        },
+      });
 
-    const movement = await prisma.stockMovement.create({
-      data: {
-        productId,
+      const movement = await tx.stockMovement.create({
+        data: {
+          productId,
+          productName: product.name,
+          type: 'stock_out',
+          quantity: parseInt(quantity, 10),
+          previousStock,
+          newStock,
+          reason: reasonMeta.label,
+          customerName: customerName || '',
+          reference: reference || '',
+          notes: notes
+            ? `${notes}\n[source:${outReasonKey}]`
+            : `[source:${outReasonKey}]`,
+          status: 'Completed',
+          createdBy: userId,
+          companyId,
+        },
+      });
+
+      const journalEntry = await postStockOutAccounting(tx, {
+        reasonKey: outReasonKey,
+        companyId,
+        userId,
         productName: product.name,
-        type: 'stock_out',
-        quantity: parseInt(quantity),
-        previousStock,
-        newStock,
-        reason,
-        customerName: customerName || '',
-        reference: reference || '',
-        notes: notes || '',
-        createdBy: req.user.id,
-        companyId: companyId // 👈 CRITICAL
-      }
+        quantity: parseInt(quantity, 10),
+        unitCost,
+        reference,
+        movementId: movement.id,
+      });
+
+      return { movement, journalEntry };
     });
 
     const updatedProduct = await prisma.product.findFirst({
-      where: { id: productId, companyId: companyId }
+      where: { id: productId, companyId },
     });
 
     res.status(201).json({
       success: true,
-      message: 'Stock removed successfully',
+      message: result.journalEntry
+        ? 'Stock removed and posted to accounting'
+        : 'Stock removed successfully',
       data: {
-        movement,
+        movement: result.movement,
+        journalEntry: result.journalEntry
+          ? {
+              id: result.journalEntry.id,
+              entryNumber: result.journalEntry.entryNumber,
+            }
+          : null,
         product: {
           id: updatedProduct.id,
           name: updatedProduct.name,
-          currentStock: updatedProduct.currentStock
-        }
-      }
+          currentStock: updatedProduct.currentStock,
+        },
+      },
     });
-
   } catch (error) {
     console.error('Stock Out error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: error.message || 'Server error',
     });
   }
 };
@@ -967,5 +1076,6 @@ module.exports = {
   getStockMovementById,
   bulkStockAdjust,
   getLowStockProducts,
-  getStockValue
+  getStockValue,
+  getStockReasons,
 };

@@ -162,6 +162,15 @@ const createSalesOrder = async (req, res) => {
         });
       }
 
+      const freeToSell =
+        (product.currentStock || 0) - (product.reservedStock || 0);
+      if (freeToSell < item.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient available stock for ${product.name}. Free to sell: ${Math.max(0, freeToSell)}`,
+        });
+      }
+
       const unitPrice = item.unitPrice || product.sellingPrice;
       const totalPrice = unitPrice * item.quantity;
       const taxAmount = (totalPrice * (item.taxRate || 0)) / 100;

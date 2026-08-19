@@ -297,14 +297,16 @@ class DeliveryModel {
         totalDeliveredQuantity += item.deliveredQuantity;
       }
 
-      // Determine delivery status
+      // Always create as Pending — stock moves only on confirm
       let deliveryStatus = 'Pending';
-      const allItemsFullyDelivered = deliveryItems.every(item => item.remainingQuantity === 0);
-      
-      if (allItemsFullyDelivered) {
-        deliveryStatus = 'Delivered';
+      const allItemsFullyDelivered = deliveryItems.every(
+        (item) => item.remainingQuantity === 0
+      );
+      if (allItemsFullyDelivered && totalDeliveredQuantity > 0) {
+        // Will mark Delivered after confirm; keep Pending until then
+        deliveryStatus = 'Pending';
       } else if (totalDeliveredQuantity > 0) {
-        deliveryStatus = 'Partially Delivered';
+        deliveryStatus = 'Pending';
       }
 
       // Create delivery with validated customerId
@@ -336,27 +338,7 @@ class DeliveryModel {
         }
       });
 
-      // Update sales order status if fully delivered
-      if (deliveryStatus === 'Delivered') {
-        await tx.order.update({
-          where: { id: data.salesOrderId },
-          data: {
-            deliveryDate: new Date(),
-            orderStatus: 'Delivered'
-          }
-        });
-      } else if (deliveryStatus === 'Partially Delivered') {
-        // Only update if not already Delivered or Cancelled
-        if (salesOrder.orderStatus !== 'Delivered' && salesOrder.orderStatus !== 'Cancelled') {
-          await tx.order.update({
-            where: { id: data.salesOrderId },
-            data: {
-              orderStatus: 'Partially Delivered'
-            }
-          });
-        }
-      }
-
+      // Order status updates after confirm only
       return delivery;
     });
   }
@@ -382,44 +364,64 @@ class DeliveryModel {
         throw new Error('Delivery not found');
       }
 
-      if (delivery.deliveryStatus === 'Delivered') {
-        throw new Error('Delivery is already confirmed');
-      }
-
       if (delivery.confirmedAt) {
         throw new Error('Delivery has already been confirmed');
       }
 
-      // Update stock for each item
+      const companyId =
+        delivery.salesOrder?.companyId || delivery.companyId || null;
+
+      const alreadyMoved = await tx.stockMovement.count({
+        where: {
+          reference: delivery.deliveryNumber,
+          type: 'Delivery',
+        },
+      });
+      if (alreadyMoved > 0) {
+        return await tx.delivery.update({
+          where: { id },
+          data: {
+            deliveryStatus: 'Delivered',
+            confirmedBy: userId,
+            confirmedAt: delivery.confirmedAt || new Date(),
+            updatedBy: userId,
+          },
+          include: { items: true, salesOrder: true },
+        });
+      }
+
+      // Update stock for each item (single stock-out point)
       for (const item of delivery.items) {
         if (item.deliveredQuantity > 0) {
           const product = await tx.product.findUnique({
-            where: { id: item.productId }
+            where: { id: item.productId },
           });
 
           if (!product) {
             throw new Error(`Product ${item.productId} not found`);
           }
 
-          // Reduce stock
           const newStock = product.currentStock - item.deliveredQuantity;
-          
+          const newReserved = Math.max(
+            0,
+            (product.reservedStock || 0) - item.deliveredQuantity
+          );
+
           if (newStock < 0) {
             throw new Error(
               `Insufficient stock for product ${product.name}. Available: ${product.currentStock}, Required: ${item.deliveredQuantity}`
             );
           }
 
-          // Update product stock
           await tx.product.update({
             where: { id: item.productId },
             data: {
               currentStock: newStock,
-              availableStock: Math.max(0, newStock - product.reservedStock)
-            }
+              reservedStock: newReserved,
+              availableStock: Math.max(0, newStock - newReserved),
+            },
           });
 
-          // Create stock movement record
           await tx.stockMovement.create({
             data: {
               productId: item.productId,
@@ -432,8 +434,9 @@ class DeliveryModel {
               reference: delivery.deliveryNumber,
               status: 'Completed',
               createdBy: userId,
-              userId: delivery.userId
-            }
+              userId: delivery.userId,
+              companyId,
+            },
           });
         }
       }
@@ -461,13 +464,40 @@ class DeliveryModel {
         }
       });
 
-      // Update sales order delivery status
+      // Update sales order status based on cumulative confirmed deliveries
+      const orderWithItems = await tx.order.findUnique({
+        where: { id: delivery.salesOrderId },
+        include: { items: true },
+      });
+      const confirmedDeliveries = await tx.delivery.findMany({
+        where: {
+          salesOrderId: delivery.salesOrderId,
+          confirmedAt: { not: null },
+        },
+        include: { items: true },
+      });
+      const deliveredByProduct = {};
+      for (const d of confirmedDeliveries) {
+        for (const di of d.items || []) {
+          deliveredByProduct[di.productId] =
+            (deliveredByProduct[di.productId] || 0) +
+            (Number(di.deliveredQuantity) || 0);
+        }
+      }
+      let allDelivered = true;
+      for (const oi of orderWithItems?.items || []) {
+        const delivered = deliveredByProduct[oi.productId] || 0;
+        if (delivered < oi.quantity) {
+          allDelivered = false;
+          break;
+        }
+      }
       await tx.order.update({
         where: { id: delivery.salesOrderId },
         data: {
           deliveryDate: new Date(),
-          orderStatus: 'Delivered'
-        }
+          orderStatus: allDelivered ? 'Delivered' : 'Partially Delivered',
+        },
       });
 
       return updatedDelivery;

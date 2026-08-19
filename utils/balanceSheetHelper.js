@@ -387,6 +387,30 @@ async function buildBalanceSheetFromLedger(
     addedCurrentEarnings = retainedEarnings;
   }
 
+  // Merge duplicate Accounts Payable COA lines (legacy 2001 + canonical 2010)
+  const apPattern = /accounts\s*payable|trade\s*payables|creditors/i;
+  const apCodes = new Set(['2010', '2001', '2000']);
+  for (const bucket of ['current', 'longTerm', 'other']) {
+    const items = liabilitiesData[bucket];
+    const apItems = items.filter(
+      (i) => apCodes.has(String(i.code)) || apPattern.test(String(i.name))
+    );
+    if (apItems.length <= 1) continue;
+    const nonAp = items.filter(
+      (i) => !(apCodes.has(String(i.code)) || apPattern.test(String(i.name)))
+    );
+    const mergedBalance = apItems.reduce((s, i) => s + i.balance, 0);
+    liabilitiesData[bucket] = [
+      ...nonAp,
+      {
+        code: '2010',
+        name: 'Accounts Payable',
+        balance: mergedBalance,
+        parent: 'Current Liabilities'
+      }
+    ];
+  }
+
   const finalTotalAssets = totalAssets;
   const finalTotalLiabilities = totalLiabilities;
   const finalTotalEquity = totalEquityFromAccounts + addedCurrentEarnings;

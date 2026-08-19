@@ -435,6 +435,16 @@ const createProduct = async (req, res) => {
       }
     }
 
+    // Opening stock must go through Stock Movement (posts accounting entry)
+    const requestedStock = Number(data.currentStock) || 0;
+    if (requestedStock > 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Do not set opening stock on product create. Add inventory via Warehouse → Stock Movement → Opening Stock.',
+      });
+    }
+
     // ─── Handle Cloudinary uploads (same pattern as register logo/signature) ──
     const uploadedImageUrls = [];
     if (req.files?.images?.length) {
@@ -494,9 +504,9 @@ const createProduct = async (req, res) => {
       productType: data.productType || 'Physical',
       isReturnable: data.isReturnable !== undefined ? data.isReturnable : true,
       returnDays: data.returnDays || 7,
-      // Calculate total value
-      totalValue: (data.costPrice || 0) * (data.currentStock || 0),
-      availableStock: data.availableStock || data.currentStock || 0,
+      currentStock: 0,
+      totalValue: 0,
+      availableStock: 0,
       createdBy: userId,
       companyId: companyId
     };
@@ -639,6 +649,20 @@ const updateProduct = async (req, res) => {
         select: { name: true }
       });
       if (sup) data.supplierName = sup.name;
+    }
+
+    // Stock qty changes only via Stock Movement (with accounting)
+    if (data.currentStock !== undefined && data.currentStock !== null) {
+      const newStock = Number(data.currentStock);
+      const oldStock = Number(existing.currentStock) || 0;
+      if (newStock !== oldStock) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Cannot change stock quantity here. Use Warehouse → Stock Movement (Opening Stock, Adjustment, etc.).',
+        });
+      }
+      delete data.currentStock;
     }
 
     // ✅ FIXED: Ensure rackLocationName has a value
@@ -954,6 +978,7 @@ const bulkCreateProducts = async (req, res) => {
 
     const created = [];
     for (const productData of products) {
+      const openingQty = Number(productData.currentStock) || 0;
       const data = {
         ...productData,
         rackLocationName: productData.rackLocationName || 'A-1-B1',
@@ -970,13 +995,14 @@ const bulkCreateProducts = async (req, res) => {
         productType: productData.productType || 'Physical',
         isReturnable: productData.isReturnable !== undefined ? productData.isReturnable : true,
         returnDays: productData.returnDays || 7,
-        totalValue: (productData.costPrice || 0) * (productData.currentStock || 0),
-        availableStock: productData.availableStock || productData.currentStock || 0,
+        currentStock: 0,
+        totalValue: 0,
+        availableStock: 0,
         createdBy: userId,
         companyId: companyId
       };
       const product = await ProductModel.create(data);
-      created.push(product);
+      created.push({ product, skippedOpeningStock: openingQty });
     }
 
     res.status(201).json({
