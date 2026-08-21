@@ -2,6 +2,7 @@
 
 const Order = require('../models/Order');
 const prisma = require('../../prisma/client');
+const { resolveLocationId } = require('../services/locationService');
 
 // ============================================================
 // HELPER: Auto-Generate Invoice
@@ -98,7 +99,8 @@ const createSalesOrder = async (req, res) => {
       discountTotal,
       customerNotes,
       internalNotes,
-      tags
+      tags,
+      locationId,
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
@@ -113,6 +115,22 @@ const createSalesOrder = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Sales order must have at least one item'
+      });
+    }
+
+    // Resolve warehouse early so stock checks use the correct location
+    let resolvedLocationId;
+    try {
+      resolvedLocationId = await resolveLocationId(
+        prisma,
+        companyId,
+        locationId,
+        userId
+      );
+    } catch (locErr) {
+      return res.status(locErr.statusCode || 400).json({
+        success: false,
+        message: locErr.message || 'Invalid warehouse',
       });
     }
 
@@ -155,19 +173,23 @@ const createSalesOrder = async (req, res) => {
         });
       }
 
-      if (product.currentStock < item.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock for ${product.name}. Available: ${product.currentStock}`
-        });
-      }
+      // Stock must be available at the selected warehouse
+      const locationStock = await prisma.productStock.findUnique({
+        where: {
+          productId_locationId: {
+            productId: product.id,
+            locationId: resolvedLocationId,
+          },
+        },
+      });
+      const locCurrent = locationStock?.currentStock || 0;
+      const locReserved = locationStock?.reservedStock || 0;
+      const freeToSell = Math.max(0, locCurrent - locReserved);
 
-      const freeToSell =
-        (product.currentStock || 0) - (product.reservedStock || 0);
       if (freeToSell < item.quantity) {
         return res.status(400).json({
           success: false,
-          message: `Insufficient available stock for ${product.name}. Free to sell: ${Math.max(0, freeToSell)}`,
+          message: `Insufficient stock at this warehouse for ${product.name}. Available: ${freeToSell}`,
         });
       }
 
@@ -240,6 +262,7 @@ const createSalesOrder = async (req, res) => {
       tags: tags || [],
       createdBy: userId,      // ✅ Use createdBy
       companyId: companyId,   // ✅ Use companyId
+      locationId: resolvedLocationId,
     };
 
     const order = await Order.create(orderData);
@@ -279,16 +302,20 @@ const getSalesOrders = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'orderDate',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
-    // ✅ FIXED: Use createdBy instead of userId
+    // Company + optional warehouse — all users of the company see location orders
     const filter = {
       isActive: true,
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       orderType: 'Sales Order'
     };
+
+    if (locationId) {
+      filter.locationId = locationId;
+    }
 
     if (search) {
       filter.OR = [

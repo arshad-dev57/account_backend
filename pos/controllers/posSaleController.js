@@ -33,6 +33,7 @@ const completeSale = async (req, res) => {
       discountTotal: discountTotal || 0,
       taxTotal:      taxTotal      || 0,
       notes,
+      locationId: req.body.locationId || null,
       companyId, createdBy: userId,
       isOffline:        !!isOffline,
       offlineCreatedAt: offlineCreatedAt || null
@@ -154,12 +155,18 @@ const deleteHeldSale = async (req, res) => {
 const listSales = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { page = 1, limit = 20, status, shiftId, cashierId, startDate, endDate } = req.query;
+    const { page = 1, limit = 20, status, shiftId, cashierId, startDate, endDate, locationId } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    const {
+      normalizeLocationId,
+      posSaleLocationWhere,
+    } = require('../../utils/accountingLocationHelper');
+    const locId = normalizeLocationId(locationId);
     const filter = { companyId };
     if (status)    filter.status   = status;
     if (shiftId)   filter.shiftId  = shiftId;
     if (cashierId) filter.createdBy = cashierId;
+    if (locId) Object.assign(filter, posSaleLocationWhere(locId));
     if (startDate || endDate) {
       filter.createdAt = {};
       if (startDate) filter.createdAt.gte = new Date(startDate);
@@ -221,29 +228,58 @@ const processReturn = async (req, res) => {
 const getDailyReport = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { date } = req.query;
+    const { date, locationId } = req.query;
+    const {
+      normalizeLocationId,
+      posSaleLocationWhere,
+    } = require('../../utils/accountingLocationHelper');
+    const locId = normalizeLocationId(locationId);
+    const locFilter = posSaleLocationWhere(locId);
     const targetDate = date ? new Date(date) : new Date();
     const start = new Date(targetDate); start.setHours(0,0,0,0);
     const end   = new Date(targetDate); end.setHours(23,59,59,999);
 
+    const saleWhere = {
+      companyId,
+      status: 'Completed',
+      createdAt: { gte: start, lte: end },
+      ...locFilter,
+    };
+    const returnWhere = {
+      companyId,
+      createdAt: { gte: start, lte: end },
+      ...(locId
+        ? { originalSale: { terminal: { locationId: locId } } }
+        : {}),
+    };
+
     const [sales, returns, payments] = await Promise.all([
       prisma.pOSSale.aggregate({
-        where: { companyId, status: 'Completed', createdAt: { gte: start, lte: end } },
+        where: saleWhere,
         _sum:   { grandTotal: true, discountTotal: true },
         _count: { id: true }
       }),
       prisma.pOSReturn.aggregate({
-        where: { companyId, createdAt: { gte: start, lte: end } },
+        where: returnWhere,
         _sum: { refundedAmount: true }, _count: { id: true }
       }),
       prisma.pOSSalePayment.groupBy({
         by:    ['paymentMethod'],
-        where: { posSale: { companyId, status: 'Completed', createdAt: { gte: start, lte: end } } },
+        where: { posSale: saleWhere },
         _sum:  { amount: true }
       })
     ]);
 
-    res.json({ success: true, data: { date: targetDate, sales, returns, paymentBreakdown: payments } });
+    res.json({
+      success: true,
+      data: {
+        date: targetDate,
+        locationId: locId || null,
+        sales,
+        returns,
+        paymentBreakdown: payments,
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -254,36 +290,124 @@ const getDailyReport = async (req, res) => {
 const searchProducts = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { q, categoryId, page = 1, limit = 30 } = req.query;
+    const { q, categoryId, page = 1, limit = 30, locationId } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { normalizeLocationId } = require('../../utils/accountingLocationHelper');
+    const resolvedLocationId = normalizeLocationId(locationId);
 
-    const filter = { companyId, isActive: true, currentStock: { gt: 0 } };
+    let locationStockMap = null;
+    let productIdFilter = null;
+
+    if (resolvedLocationId) {
+      const loc = await prisma.location.findFirst({
+        where: { id: resolvedLocationId, companyId, isDeleted: false },
+        select: { id: true },
+      });
+      if (!loc) {
+        return res.status(400).json({
+          success: false,
+          message: 'Location not found',
+        });
+      }
+      const stocks = await prisma.productStock.findMany({
+        where: {
+          companyId,
+          locationId: resolvedLocationId,
+          currentStock: { gt: 0 },
+        },
+        select: {
+          productId: true,
+          currentStock: true,
+          availableStock: true,
+          reservedStock: true,
+        },
+      });
+      locationStockMap = new Map(stocks.map((s) => [s.productId, s]));
+      productIdFilter = stocks.map((s) => s.productId);
+      if (!productIdFilter.length) {
+        return res.json({
+          success: true,
+          data: [],
+          total: 0,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          locationId: resolvedLocationId,
+        });
+      }
+    }
+
+    const filter = {
+      companyId,
+      isActive: true,
+      ...(resolvedLocationId
+        ? { id: { in: productIdFilter } }
+        : { currentStock: { gt: 0 } }),
+    };
     if (categoryId) filter.categoryId = categoryId;
     if (q) {
       filter.OR = [
-        { name:          { contains: q, mode: 'insensitive' } },
-        { sku:           { contains: q, mode: 'insensitive' } },
-        { barcodeNumber: { contains: q, mode: 'insensitive' } }
+        { name: { contains: q, mode: 'insensitive' } },
+        { sku: { contains: q, mode: 'insensitive' } },
+        { barcodeNumber: { contains: q, mode: 'insensitive' } },
       ];
     }
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({
-        where: filter, skip, take: parseInt(limit),
+        where: filter,
+        skip,
+        take: parseInt(limit),
         orderBy: { name: 'asc' },
         select: {
-          id: true, name: true, sku: true, barcodeNumber: true,
-          sellingPrice: true, costPrice: true, currentStock: true,
-          availableStock: true, mainImage: true, categoryId: true, categoryName: true,
-          taxRate: true, stockUnitName: true,
-          isVariant: true, parentProductId: true, variantType: true, variantAttributes: true,
-          isSerialManaged: true, isBatchManaged: true, hasExpiry: true
-        }
+          id: true,
+          name: true,
+          sku: true,
+          barcodeNumber: true,
+          sellingPrice: true,
+          costPrice: true,
+          currentStock: true,
+          availableStock: true,
+          mainImage: true,
+          categoryId: true,
+          categoryName: true,
+          taxRate: true,
+          stockUnitName: true,
+          isVariant: true,
+          parentProductId: true,
+          variantType: true,
+          variantAttributes: true,
+          isSerialManaged: true,
+          isBatchManaged: true,
+          hasExpiry: true,
+        },
       }),
-      prisma.product.count({ where: filter })
+      prisma.product.count({ where: filter }),
     ]);
 
-    res.json({ success: true, data: products, total, page: parseInt(page), limit: parseInt(limit) });
+    const data = products.map((p) => {
+      if (!locationStockMap) return p;
+      const s = locationStockMap.get(p.id);
+      const qty = s?.currentStock ?? 0;
+      const reserved = s?.reservedStock ?? 0;
+      const available =
+        s?.availableStock ?? Math.max(0, qty - reserved);
+      return {
+        ...p,
+        companyStock: p.currentStock,
+        currentStock: qty,
+        availableStock: available,
+        locationId: resolvedLocationId,
+      };
+    });
+
+    res.json({
+      success: true,
+      data,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      locationId: resolvedLocationId || null,
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -295,6 +419,8 @@ const getProductByBarcode = async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const code = decodeURIComponent(req.params.code || '').trim();
+    const { normalizeLocationId } = require('../../utils/accountingLocationHelper');
+    const locationId = normalizeLocationId(req.query.locationId);
     if (!code) {
       return res.status(400).json({ success: false, message: 'Barcode is required' });
     }
@@ -318,6 +444,36 @@ const getProductByBarcode = async (req, res) => {
 
     if (!product) {
       return res.status(404).json({ success: false, message: `No product found for barcode ${code}` });
+    }
+
+    if (locationId) {
+      const stock = await prisma.productStock.findUnique({
+        where: {
+          productId_locationId: {
+            productId: product.id,
+            locationId,
+          },
+        },
+      });
+      const qty = stock?.currentStock ?? 0;
+      if (qty <= 0) {
+        return res.status(404).json({
+          success: false,
+          message: `Product found but no stock at this warehouse`,
+        });
+      }
+      return res.json({
+        success: true,
+        data: {
+          ...product,
+          companyStock: product.currentStock,
+          currentStock: qty,
+          availableStock:
+            stock?.availableStock ??
+            Math.max(0, qty - (stock?.reservedStock || 0)),
+          locationId,
+        },
+      });
     }
 
     res.json({ success: true, data: product });

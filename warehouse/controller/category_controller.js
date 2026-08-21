@@ -161,10 +161,31 @@ const createCategory = async (req, res) => {
     });
 
     if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: 'Category with this name already exists for your company'
-      });
+      // Soft-deleted leftover still holds unique(name, companyId) — remove it so name can be reused
+      if (existing.isActive === false || existing.isDeleted === true) {
+        const staleIds = await getAllChildrenIds(companyId, existing.id);
+        const linkedProducts = await prisma.product.count({
+          where: {
+            companyId,
+            OR: [
+              { categoryId: { in: staleIds } },
+              { subCategoryId: { in: staleIds } },
+            ],
+          },
+        });
+        if (linkedProducts > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Category with this name already exists (inactive) and still has ${linkedProducts} linked products. Reassign products or use another name.`,
+          });
+        }
+        await hardDeleteCategoryTree(companyId, staleIds, existing.parentId);
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Category with this name already exists for your company'
+        });
+      }
     }
 
     // If parentId is provided, validate parent
@@ -404,12 +425,52 @@ const getAllChildrenIds = async (companyId, categoryId) => {
   return allIds;
 };
 
-// ─── DELETE CATEGORY (with Sub-category cascade) ──────────
+const hardDeleteCategoryTree = async (companyId, allIds, parentIdToUpdate = null) => {
+  await prisma.$transaction(async (tx) => {
+    // Detach products so FK does not block delete
+    await tx.product.updateMany({
+      where: { categoryId: { in: allIds }, companyId },
+      data: { categoryId: null, categoryName: null },
+    });
+    await tx.product.updateMany({
+      where: { subCategoryId: { in: allIds }, companyId },
+      data: { subCategoryId: null, subCategoryName: null },
+    });
+
+    // Break self-FK among the tree, then delete
+    await tx.category.updateMany({
+      where: { id: { in: allIds }, companyId },
+      data: { parentId: null, parentName: null },
+    });
+
+    await tx.category.deleteMany({
+      where: { id: { in: allIds }, companyId },
+    });
+
+    if (parentIdToUpdate) {
+      const remaining = await tx.category.count({
+        where: { parentId: parentIdToUpdate, companyId },
+      });
+      await tx.category.update({
+        where: { id: parentIdToUpdate },
+        data: { subCategoryCount: remaining },
+      });
+    }
+  });
+};
+
+// ─── DELETE CATEGORY (hard delete + cascade sub-categories) ──
 const deleteCategory = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    const categoryId = req.params.id;
+    const categoryId = String(req.params.id || '').trim();
+
+    if (!categoryId || categoryId === 'undefined' || categoryId === 'null') {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid category id is required',
+      });
+    }
 
     const category = await prisma.category.findFirst({
       where: {
@@ -425,12 +486,18 @@ const deleteCategory = async (req, res) => {
       });
     }
 
-    // Check if category has products
+    const allIds = await getAllChildrenIds(companyId, categoryId);
+    const descendantCount = allIds.length - 1;
+
+    // Block only when active products still use these categories
     const hasProducts = await prisma.product.count({
       where: {
-        categoryId: categoryId,
         companyId: companyId,
-        isActive: true
+        isActive: true,
+        OR: [
+          { categoryId: { in: allIds } },
+          { subCategoryId: { in: allIds } },
+        ],
       }
     });
 
@@ -441,37 +508,13 @@ const deleteCategory = async (req, res) => {
       });
     }
 
-    // Get all descendant IDs
-    const allIds = await getAllChildrenIds(companyId, categoryId);
-    const descendantCount = allIds.length - 1;
-
-    // Soft delete - mark as inactive
-    await prisma.category.updateMany({
-      where: {
-        id: { in: allIds },
-        companyId: companyId
-      },
-      data: {
-        isActive: false,
-        updatedBy: userId
-      }
-    });
-
-    // Update parent's subCategoryCount
-    if (category.parentId) {
-      await prisma.category.update({
-        where: { id: category.parentId },
-        data: {
-          subCategoryCount: {
-            decrement: 1
-          }
-        }
-      });
-    }
+    await hardDeleteCategoryTree(companyId, allIds, category.parentId);
 
     res.status(200).json({
       success: true,
-      message: `Category and ${descendantCount} sub-categories deleted successfully`,
+      message: descendantCount > 0
+        ? `Category and ${descendantCount} sub-categories deleted successfully`
+        : 'Category deleted successfully',
       data: {
         categoryId: categoryId,
         descendantsDeleted: descendantCount
@@ -479,9 +522,15 @@ const deleteCategory = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete category error:', error);
+    if (error.code === 'P2003') {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete category — linked records still exist. Reassign products first.',
+      });
+    }
     res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: error.message || 'Server error',
       error: error.message
     });
   }

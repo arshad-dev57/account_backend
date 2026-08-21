@@ -86,10 +86,78 @@ model Company {
   posAuditLogs       POSAuditLog[]
   pdfReportSettings  PdfReportSetting[]
   supportTickets     SupportTicket[]
+  locations          Location[]
+  productStocks      ProductStock[]
 
   @@index([email])
   @@index([isActive])
   @@map("companies")
+}
+
+// ============================================================
+// MULTI-LOCATION (Shop / Warehouse)
+// ============================================================
+
+model Location {
+  id          String  @id @default(uuid())
+  companyId   String  @map("company_id")
+  name        String
+  code        String
+  type        String  @default("Shop") // Warehouse | Shop | POS_Store
+  address     String?
+  phone       String?
+  isDefault   Boolean @default(false) @map("is_default")
+  isActive    Boolean @default(true) @map("is_active")
+  isDeleted   Boolean @default(false) @map("is_deleted")
+  notes       String?
+  createdBy   String? @map("created_by")
+  updatedBy   String? @map("updated_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productStocks    ProductStock[]
+  stockMovements   StockMovement[]
+  orders           Order[]
+  deliveries       Delivery[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceivings  GoodsReceiving[]
+  posTerminals     POSTerminal[]
+  salesInvoices    SalesInvoice[]
+  purchaseInvoices PurchaseInvoice[]
+  quotations       Quotation[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([isActive])
+  @@index([isDefault])
+  @@map("locations")
+}
+
+model ProductStock {
+  id             String @id @default(uuid())
+  companyId      String @map("company_id")
+  productId      String @map("product_id")
+  locationId     String @map("location_id")
+  currentStock   Int    @default(0) @map("current_stock")
+  reservedStock  Int    @default(0) @map("reserved_stock")
+  availableStock Int    @default(0) @map("available_stock")
+  minimumStock   Int    @default(0) @map("minimum_stock")
+  reorderLevel   Int    @default(0) @map("reorder_level")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, locationId])
+  @@index([companyId])
+  @@index([productId])
+  @@index([locationId])
+  @@map("product_stocks")
 }
 
 // ============================================================
@@ -743,6 +811,7 @@ model Product {
   posSaleItems         POSSaleItem[]
   posReturnItems       POSReturnItem[]
   taxExemptions        TaxExemption[]          @relation("ProductTaxExemptions")
+  productStocks        ProductStock[]
 
   @@unique([sku, companyId])
   @@index([sku])
@@ -928,7 +997,10 @@ model StockMovement {
 
   createdBy String @map("created_by")
 
-  companyId String? @map("company_id")
+  companyId          String? @map("company_id")
+  locationId         String? @map("location_id")
+  fromLocationId     String? @map("from_location_id")
+  toLocationId       String? @map("to_location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -939,6 +1011,7 @@ model StockMovement {
   purchase WarehousePurchase? @relation(fields: [purchaseId], references: [id])
   creator  User?              @relation("StockMovementCreator", fields: [createdBy], references: [id])
   company  Company?           @relation("StockMovementCompany", fields: [companyId], references: [id])
+  location Location?          @relation(fields: [locationId], references: [id])
 
   @@index([productId])
   @@index([type])
@@ -947,6 +1020,7 @@ model StockMovement {
   @@index([supplierId])
   @@index([purchaseId])
   @@index([companyId])
+  @@index([locationId])
   @@map("stock_movements")
 }
 
@@ -1057,7 +1131,8 @@ model Order {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  companyId String? @map("company_id")
+  companyId  String? @map("company_id")
+  locationId String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1074,6 +1149,7 @@ model Order {
   packer             User?              @relation("OrderPacker", fields: [packedBy], references: [id])
   shipper            User?              @relation("OrderShipper", fields: [shippedBy], references: [id])
   company            Company?           @relation("OrderCompany", fields: [companyId], references: [id])
+  location           Location?          @relation(fields: [locationId], references: [id])
   deliveries         Delivery[]         @relation("SalesOrderDeliveries")
   convertedQuotation Quotation?         @relation("ConvertedQuotation")
   salesInvoices      SalesInvoice[]
@@ -1087,6 +1163,7 @@ model Order {
   @@index([priority])
   @@index([isActive])
   @@index([companyId])
+  @@index([locationId])
   @@map("orders")
 }
 
@@ -2620,7 +2697,8 @@ model Delivery {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  companyId String? @map("company_id")
+  companyId  String? @map("company_id")
+  locationId String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2633,6 +2711,7 @@ model Delivery {
   updater       User?          @relation("DeliveryUpdater", fields: [updatedBy], references: [id])
   confirmer     User?          @relation("DeliveryConfirmer", fields: [confirmedBy], references: [id])
   company       Company?       @relation("DeliveryCompany", fields: [companyId], references: [id])
+  location      Location?      @relation(fields: [locationId], references: [id])
   salesInvoices SalesInvoice[]
 
   @@index([deliveryNumber])
@@ -2642,6 +2721,7 @@ model Delivery {
   @@index([deliveryDate])
   @@index([isActive])
   @@index([companyId])
+  @@index([locationId])
   @@map("deliveries")
 }
 
@@ -2711,6 +2791,8 @@ model Quotation {
 
   companyId String? @map("company_id")
 
+  locationId String? @map("location_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2721,6 +2803,7 @@ model Quotation {
   updater        User?           @relation("QuotationUpdater", fields: [updatedBy], references: [id])
   company        Company?        @relation("QuotationCompany", fields: [companyId], references: [id])
   convertedOrder Order?          @relation("ConvertedQuotation", fields: [convertedOrderId], references: [id])
+  location       Location?       @relation(fields: [locationId], references: [id])
 
   @@unique([convertedOrderId])
   @@index([quotationNumber])
@@ -2730,6 +2813,7 @@ model Quotation {
   @@index([validUntil])
   @@index([isActive])
   @@index([companyId])
+  @@index([locationId])
   @@map("quotations")
 }
 
@@ -2796,7 +2880,8 @@ model PurchaseOrder {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  companyId String? @map("company_id")
+  companyId  String? @map("company_id")
+  locationId String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2807,6 +2892,7 @@ model PurchaseOrder {
   creator          User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
   updater          User?               @relation("PurchaseOrderUpdater", fields: [updatedBy], references: [id])
   company          Company?            @relation("PurchaseOrderCompany", fields: [companyId], references: [id])
+  location         Location?           @relation(fields: [locationId], references: [id])
   goodsReceivings  GoodsReceiving[]
   purchaseInvoices PurchaseInvoice[]
 
@@ -2816,6 +2902,7 @@ model PurchaseOrder {
   @@index([orderDate])
   @@index([isActive])
   @@index([companyId])
+  @@index([locationId])
   @@map("purchase_orders")
 }
 
@@ -2872,7 +2959,8 @@ model GoodsReceiving {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
-  companyId String? @map("company_id")
+  companyId  String? @map("company_id")
+  locationId String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2885,6 +2973,7 @@ model GoodsReceiving {
   updater          User?                @relation("GoodsReceivingUpdater", fields: [updatedBy], references: [id])
   confirmer        User?                @relation("GoodsReceivingConfirmer", fields: [confirmedBy], references: [id])
   company          Company?             @relation("GoodsReceivingCompany", fields: [companyId], references: [id])
+  location         Location?            @relation(fields: [locationId], references: [id])
   purchaseInvoices PurchaseInvoice[]
 
   @@index([grnNumber])
@@ -2894,6 +2983,7 @@ model GoodsReceiving {
   @@index([receivingDate])
   @@index([isActive])
   @@index([companyId])
+  @@index([locationId])
   @@map("goods_receivings")
 }
 
@@ -2976,6 +3066,7 @@ model PurchaseInvoice {
 
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
+  locationId   String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2988,6 +3079,7 @@ model PurchaseInvoice {
   creator            User?                    @relation("PurchaseInvoiceCreator", fields: [createdBy], references: [id])
   updater            User?                    @relation("PurchaseInvoiceUpdater", fields: [updatedBy], references: [id])
   company            Company?                 @relation("PurchaseInvoiceCompany", fields: [companyId], references: [id])
+  location           Location?                @relation(fields: [locationId], references: [id])
   journalEntry       JournalEntry?            @relation(fields: [journalEntryId], references: [id])
   accountsPayable    AccountsPayable[]
   inventoryAccount   ChartOfAccount?          @relation("InventoryAccount", fields: [inventoryAccountId], references: [id])
@@ -3008,6 +3100,7 @@ model PurchaseInvoice {
   @@index([isActive])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([locationId])
   @@map("purchase_invoices")
 }
 
@@ -3088,6 +3181,7 @@ model SalesInvoice {
 
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
+  locationId   String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3100,6 +3194,7 @@ model SalesInvoice {
   creator             User?                 @relation("SalesInvoiceCreator", fields: [createdBy], references: [id])
   updater             User?                 @relation("SalesInvoiceUpdater", fields: [updatedBy], references: [id])
   company             Company?              @relation("SalesInvoiceCompany", fields: [companyId], references: [id])
+  location            Location?             @relation(fields: [locationId], references: [id])
   journalEntry        JournalEntry?         @relation(fields: [journalEntryId], references: [id])
   accountsReceivable  AccountsReceivable[]
   salesRevenueAccount ChartOfAccount?       @relation("SalesRevenueAccount", fields: [salesRevenueAccountId], references: [id])
@@ -3119,6 +3214,7 @@ model SalesInvoice {
   @@index([isActive])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([locationId])
   @@map("sales_invoices")
 }
 
@@ -3199,19 +3295,22 @@ model POSTerminal {
   deviceInfo Json?     @map("device_info")
   lastSyncAt DateTime? @map("last_sync_at")
   companyId  String    @map("company_id")
+  locationId String?   @map("location_id")
   createdBy  String    @map("created_by")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  company Company    @relation(fields: [companyId], references: [id])
-  creator User       @relation("TerminalCreator", fields: [createdBy], references: [id])
-  shifts  POSShift[]
-  sales   POSSale[]
+  company  Company    @relation(fields: [companyId], references: [id])
+  location Location?  @relation(fields: [locationId], references: [id])
+  creator  User       @relation("TerminalCreator", fields: [createdBy], references: [id])
+  shifts   POSShift[]
+  sales    POSSale[]
 
   @@unique([code, companyId])
   @@index([companyId])
+  @@index([locationId])
   @@map("pos_terminals")
 }
 

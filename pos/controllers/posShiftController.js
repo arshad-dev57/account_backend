@@ -94,9 +94,14 @@ const getCurrentShift = async (req, res) => {
 
 const getShiftHistory = async (req, res) => {
   try {
-    const { page = 1, limit = 20, cashierId } = req.query;
+    const { page = 1, limit = 20, cashierId, locationId } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const result = await POSShiftModel.getHistory(req.user.companyId, { skip, take: parseInt(limit), cashierId });
+    const result = await POSShiftModel.getHistory(req.user.companyId, {
+      skip,
+      take: parseInt(limit),
+      cashierId,
+      locationId,
+    });
     res.json({ success: true, ...result, page: parseInt(page), limit: parseInt(limit) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

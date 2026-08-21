@@ -1,6 +1,10 @@
 // warehouse/models/GoodsReceiving.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../services/locationService');
 
 // ─── Generate GRN Number Function ──────────────────────────
 function generateGRNNumber() {
@@ -119,6 +123,13 @@ class GoodsReceivingModel {
         status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
       }
 
+      const locationId = await resolveLocationId(
+        tx,
+        data.companyId,
+        data.locationId || purchaseOrder.locationId,
+        data.createdBy
+      );
+
       // ─── Create Goods Receiving ──────────────────────────────
       const goodsReceiving = await tx.goodsReceiving.create({
         data: {
@@ -133,6 +144,7 @@ class GoodsReceivingModel {
           notes: data.notes || null,
           createdBy: data.createdBy,
           companyId: data.companyId,  // ✅ FIXED: Use companyId instead of userId
+          locationId,
           items: {
             create: receivingItems
           }
@@ -282,13 +294,19 @@ class GoodsReceivingModel {
           });
 
           if (product) {
-            const newStock = product.currentStock + item.receivingQuantity;
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                currentStock: newStock,
-                availableStock: newStock,
-              },
+            const locationId = await resolveLocationId(
+              tx,
+              companyId,
+              goodsReceiving.locationId ||
+                goodsReceiving.purchaseOrder?.locationId,
+              userId
+            );
+
+            const adj = await adjustLocationStock(tx, {
+              companyId,
+              productId: item.productId,
+              locationId,
+              delta: item.receivingQuantity,
             });
 
             await tx.stockMovement.create({
@@ -297,13 +315,14 @@ class GoodsReceivingModel {
                 productName: item.productName,
                 type: 'Goods Receiving',
                 quantity: item.receivingQuantity,
-                previousStock: product.currentStock,
-                newStock: newStock,
+                previousStock: adj.previousLocationStock,
+                newStock: adj.newLocationStock,
                 reason: `GRN #${goodsReceiving.grnNumber} confirmed - PO #${goodsReceiving.purchaseOrder.orderNumber}`,
                 reference: goodsReceiving.grnNumber,
                 status: 'Completed',
                 createdBy: userId,
                 companyId: companyId,
+                locationId,
                 supplierId: goodsReceiving.purchaseOrder.supplierId,
                 supplierName: goodsReceiving.purchaseOrder.supplierName,
               },
@@ -836,7 +855,7 @@ class GoodsReceivingModel {
   // ============================================================
   // GET GOODS RECEIVING STATS - ✅ FIXED
   // ============================================================
-  static async getStats(companyId) {  // ✅ Use companyId instead of userId
+  static async getStats(companyId, locationId = null) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -844,7 +863,8 @@ class GoodsReceivingModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      companyId: companyId  // ✅ Use companyId
+      companyId: companyId,
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     const todayGRNs = await prisma.goodsReceiving.count({

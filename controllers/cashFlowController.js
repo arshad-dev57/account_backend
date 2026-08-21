@@ -1,6 +1,11 @@
 // controllers/cashFlowController.js
 
 const prisma = require('../prisma/client');
+const {
+  normalizeLocationId,
+  journalEntryLocationWhere,
+  warehouseInvoiceLocationWhere
+} = require('../utils/accountingLocationHelper');
 function amountOf(record) {
   return Number(record.totalAmount ?? record.amount ?? 0) || 0;
 }
@@ -82,7 +87,7 @@ async function resolveCashFlowPeriod({
   return { start, end, labelPeriod };
 }
 
-async function getCashBalanceAsOf(companyId, asOfDate) {
+async function getCashBalanceAsOf(companyId, asOfDate, locationId = null) {
   const bankAccounts = await prisma.bankAccount.findMany({
     where: { companyId, status: 'Active' },
     select: {
@@ -122,7 +127,8 @@ async function getCashBalanceAsOf(companyId, asOfDate) {
     where: {
       companyId,
       status: 'Posted',
-      date: { lte: asOfDate }
+      date: { lte: asOfDate },
+      ...journalEntryLocationWhere(locationId)
     },
     include: { lines: true }
   });
@@ -279,7 +285,7 @@ function buildOperatingBreakdown(incomes, expenses, customerPayments, billPaymen
 // ==================== GET CASH FLOW STATEMENT ====================
 exports.getCashFlowStatement = async (req, res) => {
   try {
-    const { period, startDate, endDate, fiscalYearId } = req.query;
+    const { period, startDate, endDate, fiscalYearId, locationId } = req.query;
     const companyId = req.user.companyId;
 
     if (!companyId) {
@@ -297,45 +303,57 @@ exports.getCashFlowStatement = async (req, res) => {
       companyId
     });
 
+    const loc = normalizeLocationId(locationId);
+    const scopedLocation = Boolean(loc);
+    const whLoc = warehouseInvoiceLocationWhere(loc);
+
     // Filter by date range only — FY is applied via resolveCashFlowPeriod dates
     const withCompany = (extra = {}) => ({ companyId, ...extra });
 
     // ==================== OPERATING ====================
+    // Manual income/expense/bill have no locationId — skip when location scoped
     const [incomes, expenses, customerPayments, billPayments] =
       await Promise.all([
-        prisma.income.findMany({
-          where: {
-            ...withCompany({
-              date: { gte: start, lte: end },
-              status: 'Posted'
-            })
-          }
-        }),
-        prisma.expense.findMany({
-          where: {
-            ...withCompany({
-              date: { gte: start, lte: end },
-              status: 'Posted'
-            })
-          }
-        }),
+        scopedLocation
+          ? Promise.resolve([])
+          : prisma.income.findMany({
+              where: {
+                ...withCompany({
+                  date: { gte: start, lte: end },
+                  status: 'Posted'
+                })
+              }
+            }),
+        scopedLocation
+          ? Promise.resolve([])
+          : prisma.expense.findMany({
+              where: {
+                ...withCompany({
+                  date: { gte: start, lte: end },
+                  status: 'Posted'
+                })
+              }
+            }),
         prisma.paymentReceived.findMany({
           where: {
             ...withCompany({
               paymentDate: { gte: start, lte: end },
-              status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] }
+              status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] },
+              ...(scopedLocation ? { invoice: whLoc } : {})
             })
           }
         }),
-        prisma.paymentMade.findMany({
-          where: {
-            ...withCompany({
-              paymentDate: { gte: start, lte: end },
-              billId: { not: null },
-              status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] }
-            })
-          }
-        }),
+        scopedLocation
+          ? Promise.resolve([])
+          : prisma.paymentMade.findMany({
+              where: {
+                ...withCompany({
+                  paymentDate: { gte: start, lte: end },
+                  billId: { not: null },
+                  status: { notIn: ['Pending', 'Cancelled', 'Draft', 'Failed'] }
+                })
+              }
+            }),
       ]);
 
     const operating = buildOperatingBreakdown(
@@ -460,11 +478,13 @@ exports.getCashFlowStatement = async (req, res) => {
 
     const openingCashBalance = await getCashBalanceAsOf(
       companyId,
-      dayBeforeStart
+      dayBeforeStart,
+      loc
     );
     const closingCashBalanceFromLedger = await getCashBalanceAsOf(
       companyId,
-      end
+      end,
+      loc
     );
 
     // Prefer ledger closing; fall back to opening + net if ledger empty

@@ -27,11 +27,13 @@ const createPurchaseOrder = async (req, res) => {
       items,
       notes,
       termsConditions,
-      status
+      status,
+      locationId,
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
-    if (!supplierId) {
+    const resolvedSupplierId = String(supplierId || '').trim();
+    if (!resolvedSupplierId || resolvedSupplierId === 'undefined' || resolvedSupplierId === 'null') {
       return res.status(400).json({
         success: false,
         message: 'Supplier is required'
@@ -90,7 +92,7 @@ const createPurchaseOrder = async (req, res) => {
     // ─── Create Purchase Order ──────────────────────────
     // ✅ FIXED: Use createdBy and companyId (NOT userId)
     const orderData = {
-      supplierId,
+      supplierId: resolvedSupplierId,
       supplierName,
       supplierEmail,
       supplierPhone,
@@ -103,6 +105,7 @@ const createPurchaseOrder = async (req, res) => {
       status: status || 'Approved',
       createdBy: userId,      // ✅ Use createdBy
       companyId: companyId,   // ✅ Use companyId
+      locationId: locationId || null,
     };
 
     const purchaseOrder = await PurchaseOrder.create(orderData);
@@ -138,15 +141,16 @@ const getPurchaseOrders = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'orderDate',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
-    // ✅ FIXED: Use createdBy and companyId (NOT userId)
+    // Company-wide (shared warehouse) + optional location
     const filter = {
-      createdBy: userId,      // ✅ Use createdBy instead of userId
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       isActive: true,
-      isDeleted: false
+      isDeleted: false,
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     if (search) {
@@ -184,7 +188,7 @@ const getPurchaseOrders = async (req, res) => {
     const [orders, total, stats] = await Promise.all([
       PurchaseOrder.findAll(filter, { skip, take: limitNum, orderBy }),
       PurchaseOrder.count(filter),
-      PurchaseOrder.getStats(companyId)  // ✅ Pass companyId
+      PurchaseOrder.getStats(companyId, locationId || null)  // ✅ Pass companyId + location
     ]);
 
     res.status(200).json({

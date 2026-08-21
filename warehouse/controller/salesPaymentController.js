@@ -17,6 +17,7 @@ const getCustomerInvoices = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const { customerId } = req.params;
+    const { locationId } = req.query;
 
     // ─── Check if customer exists ──────────────────────────
     const customer = await prisma.customer.findFirst({
@@ -35,7 +36,11 @@ const getCustomerInvoices = async (req, res) => {
       });
     }
 
-    const invoices = await SalesPaymentReceived.getCustomerInvoices(customerId, companyId);
+    const invoices = await SalesPaymentReceived.getCustomerInvoices(
+      customerId,
+      companyId,
+      locationId || undefined
+    );
 
     res.status(200).json({
       success: true,
@@ -157,7 +162,8 @@ const getPayments = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'paymentDate',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
     const filter = {
@@ -165,6 +171,15 @@ const getPayments = async (req, res) => {
       isActive: true,
       isDeleted: false
     };
+
+    // Payments linked via invoicePayments → invoice.locationId
+    if (locationId) {
+      filter.invoicePayments = {
+        some: {
+          invoice: { locationId },
+        },
+      };
+    }
 
     // ✅ FIXED: Search in customer relation as well
     if (search) {

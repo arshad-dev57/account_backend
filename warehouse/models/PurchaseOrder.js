@@ -1,6 +1,7 @@
 // warehouse/models/PurchaseOrder.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const { resolveLocationId } = require('../services/locationService');
 
 // ─── Generate Order Number Function ──────────────────────
 function generateOrderNumber() {
@@ -22,16 +23,19 @@ class PurchaseOrderModel {
     
     return await prisma.$transaction(async (tx) => {
       // ─── Validate Supplier ──────────────────────────────────
+      const supplierId = String(data.supplierId || '').trim();
       const supplier = await tx.supplier.findFirst({
         where: {
-          id: data.supplierId,
-          companyId: data.companyId,  // ✅ Use companyId instead of userId
-          status: 'active'
+          id: supplierId,
+          companyId: data.companyId,
         }
       });
 
       if (!supplier) {
-        throw new Error('Supplier not found');
+        throw new Error('Supplier not found for your company');
+      }
+      if (String(supplier.status || '').toLowerCase() !== 'active') {
+        throw new Error('Supplier is inactive. Reactivate it or pick an active supplier.');
       }
 
       // ─── Validate Products ──────────────────────────────────
@@ -81,6 +85,13 @@ class PurchaseOrderModel {
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
+      const locationId = await resolveLocationId(
+        tx,
+        data.companyId,
+        data.locationId,
+        data.createdBy
+      );
+
       // ─── Create Purchase Order ──────────────────────────────
       // ✅ FIXED: Use createdBy and companyId (NOT userId)
       const purchaseOrder = await tx.purchaseOrder.create({
@@ -103,6 +114,7 @@ class PurchaseOrderModel {
           termsConditions: data.termsConditions || null,
           createdBy: data.createdBy,        // ✅ Use createdBy
           companyId: data.companyId,        // ✅ Use companyId
+          locationId,
           items: {
             create: orderItems
           }
@@ -562,7 +574,7 @@ class PurchaseOrderModel {
   // ============================================================
   // GET PURCHASE ORDER STATS - ✅ FIXED
   // ============================================================
-  static async getStats(companyId) {  // ✅ Use companyId instead of userId
+  static async getStats(companyId, locationId = null) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -570,7 +582,8 @@ class PurchaseOrderModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      companyId: companyId  // ✅ Use companyId
+      companyId: companyId,
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     const todayOrders = await prisma.purchaseOrder.count({

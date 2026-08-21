@@ -9,109 +9,101 @@ const prisma = require('../../prisma/client');
 // ============================================================
 const getInventoryValuation = async (req, res) => {
   try {
-    console.log('\n========== 🚀 INVENTORY VALUATION API START ==========');
-    console.log('📌 User ID from token:', req.user?.id);
-    console.log('📌 Query params:', req.query);
-
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { category, search, sortBy = 'name', sortOrder = 'asc' } = req.query;
+    const {
+      category,
+      search,
+      sortBy = 'name',
+      sortOrder = 'asc',
+      locationId,
+    } = req.query;
 
-    console.log('📌 User ID:', userId);
-    console.log('📌 Category filter:', category);
-    console.log('📌 Search term:', search);
-    console.log('📌 Sort by:', sortBy, 'Order:', sortOrder);
-
-    // ✅ Build filter with companyId
-    const filter = {
-      companyId: companyId,
-      isActive: true
-    };
-    console.log('📌 Initial filter:', JSON.stringify(filter, null, 2));
-
-    // ─── CATEGORY FILTER ──────────────────────────────────────
-    if (category && category !== 'all') {
-      console.log('🔍 Checking category existence for user:', userId);
-      
-      const categoryExists = await prisma.category.findFirst({
-        where: {
-          id: category,
-          companyId: companyId
-        },
-        select: { id: true, name: true }
+    if (locationId) {
+      const loc = await prisma.location.findFirst({
+        where: { id: locationId, companyId, isDeleted: false },
+        select: { id: true },
       });
-      
-      console.log('📌 Category found:', categoryExists ? 'YES ✅' : 'NO ❌');
-      console.log('📌 Category details:', categoryExists);
-
-      if (!categoryExists) {
-        console.log('❌ Category not found for this user');
-        return res.status(404).json({
+      if (!loc) {
+        return res.status(400).json({
           success: false,
-          message: 'Category not found'
+          message: 'Location not found',
         });
       }
-      filter.categoryId = category;
-      console.log('📌 Added categoryId filter:', category);
     }
 
-    // ─── SEARCH FILTER ─────────────────────────────────────────
+    const filter = {
+      companyId,
+      isActive: true,
+    };
+
+    if (locationId) {
+      filter.productStocks = { some: { locationId, companyId } };
+    }
+
+    // Category: accept id or name (UI sends name)
+    if (category && category !== 'all') {
+      const categoryExists = await prisma.category.findFirst({
+        where: {
+          companyId,
+          OR: [{ id: category }, { name: category }],
+        },
+        select: { id: true, name: true },
+      });
+
+      if (!categoryExists) {
+        return res.status(404).json({
+          success: false,
+          message: 'Category not found',
+        });
+      }
+      filter.categoryId = categoryExists.id;
+    }
+
     if (search) {
-      console.log('🔍 Applying search filter:', search);
       filter.OR = [
         { name: { contains: search, mode: 'insensitive' } },
-        { sku: { contains: search, mode: 'insensitive' } }
+        { sku: { contains: search, mode: 'insensitive' } },
       ];
-      console.log('📌 Search filter applied');
     }
 
-    console.log('📌 Final filter:', JSON.stringify(filter, null, 2));
-
-    // ─── GET PRODUCTS ──────────────────────────────────────────
-    console.log('🔄 Fetching products from database...');
-    
     const products = await prisma.product.findMany({
       where: filter,
       include: {
         category: {
-          select: { id: true, name: true }
-        }
+          select: { id: true, name: true },
+        },
+        ...(locationId
+          ? {
+              productStocks: {
+                where: { locationId, companyId },
+                select: { currentStock: true },
+              },
+            }
+          : {}),
       },
       orderBy: {
-        [sortBy]: sortOrder === 'asc' ? 'asc' : 'desc'
-      }
+        [sortBy]: sortOrder === 'asc' ? 'asc' : 'desc',
+      },
     });
 
-    console.log(`📦 Found ${products.length} products`);
-    console.log('📌 First product sample:', products.length > 0 ? JSON.stringify(products[0], null, 2) : 'No products found');
-
-    // ─── CALCULATE VALUATION DATA ─────────────────────────────
-    console.log('🔄 Calculating valuation data...');
-    
-    const valuationData = products.map((product, index) => {
+    const valuationData = products.map((product) => {
+      const qty = locationId
+        ? product.productStocks?.[0]?.currentStock ?? 0
+        : product.currentStock || 0;
       const unitCost = product.costPrice || 0;
-      const totalCostValue = product.currentStock * product.costPrice;
-      const sellingValue = product.currentStock * product.sellingPrice;
+      const sellingPrice = product.sellingPrice || 0;
+      const totalCostValue = qty * unitCost;
+      const sellingValue = qty * sellingPrice;
       const potentialProfit = sellingValue - totalCostValue;
-      
-      let status = 'OK';
-      if (product.currentStock <= product.minimumStock) {
-        status = 'LOW';
-      } else if (product.currentStock >= product.maximumStock) {
-        status = 'OVER';
-      }
 
-      if (index === 0) {
-        console.log('📌 Sample valuation calculation:', {
-          name: product.name,
-          currentStock: product.currentStock,
-          costPrice: product.costPrice,
-          sellingPrice: product.sellingPrice,
-          totalCostValue,
-          sellingValue,
-          potentialProfit,
-          status
-        });
+      let status = 'OK';
+      if (qty <= (product.minimumStock || 0)) {
+        status = 'LOW';
+      } else if (
+        (product.maximumStock || 0) > 0 &&
+        qty >= product.maximumStock
+      ) {
+        status = 'OVER';
       }
 
       return {
@@ -120,55 +112,62 @@ const getInventoryValuation = async (req, res) => {
         sku: product.sku,
         category: product.category ? product.category.name : 'Uncategorized',
         categoryId: product.categoryId,
-        qty: product.currentStock,
-        unitCost: product.costPrice,
-        sellingPrice: product.sellingPrice,
-        totalCostValue: totalCostValue,
-        sellingValue: sellingValue,
-        potentialProfit: potentialProfit,
-        profitMargin: product.costPrice > 0 
-          ? ((product.sellingPrice - product.costPrice) / product.costPrice * 100).toFixed(1)
-          : 0,
+        qty,
+        unitCost,
+        sellingPrice,
+        totalCostValue,
+        sellingValue,
+        potentialProfit,
+        profitMargin:
+          unitCost > 0
+            ? (((sellingPrice - unitCost) / unitCost) * 100).toFixed(1)
+            : 0,
         minStock: product.minimumStock,
         maxStock: product.maximumStock,
-        status: status,
+        status,
         rackLocationName: product.rackLocationName,
-        expiryDate: product.expiryDate
+        expiryDate: product.expiryDate,
+        locationId: locationId || null,
       };
     });
 
-    console.log(`📊 Valuation data processed for ${valuationData.length} products`);
-
-    // ─── CALCULATE SUMMARY ────────────────────────────────────
-    console.log('🔄 Calculating summary...');
-    
     const summary = {
       totalItems: valuationData.length,
       totalQty: valuationData.reduce((sum, item) => sum + item.qty, 0),
-      totalCostValue: valuationData.reduce((sum, item) => sum + item.totalCostValue, 0),
-      totalSellingValue: valuationData.reduce((sum, item) => sum + item.sellingValue, 0),
-      totalPotentialProfit: valuationData.reduce((sum, item) => sum + item.potentialProfit, 0),
-      avgProfitMargin: valuationData.length > 0
-        ? valuationData.reduce((sum, item) => sum + parseFloat(item.profitMargin), 0) / valuationData.length
-        : 0,
-      lowStockCount: valuationData.filter(item => item.status === 'LOW').length,
-      overStockCount: valuationData.filter(item => item.status === 'OVER').length
+      totalCostValue: valuationData.reduce(
+        (sum, item) => sum + item.totalCostValue,
+        0
+      ),
+      totalSellingValue: valuationData.reduce(
+        (sum, item) => sum + item.sellingValue,
+        0
+      ),
+      totalPotentialProfit: valuationData.reduce(
+        (sum, item) => sum + item.potentialProfit,
+        0
+      ),
+      avgProfitMargin:
+        valuationData.length > 0
+          ? valuationData.reduce(
+              (sum, item) => sum + parseFloat(item.profitMargin),
+              0
+            ) / valuationData.length
+          : 0,
+      lowStockCount: valuationData.filter((item) => item.status === 'LOW')
+        .length,
+      overStockCount: valuationData.filter((item) => item.status === 'OVER')
+        .length,
     };
 
-    console.log('📊 Summary:', JSON.stringify(summary, null, 2));
-
-    // ─── CATEGORY BREAKDOWN ──────────────────────────────────
-    console.log('🔄 Calculating category breakdown...');
-    
     const categoryBreakdown = {};
-    valuationData.forEach(item => {
+    valuationData.forEach((item) => {
       const catName = item.category;
       if (!categoryBreakdown[catName]) {
         categoryBreakdown[catName] = {
           category: catName,
           items: 0,
           qty: 0,
-          value: 0
+          value: 0,
         };
       }
       categoryBreakdown[catName].items++;
@@ -176,35 +175,22 @@ const getInventoryValuation = async (req, res) => {
       categoryBreakdown[catName].value += item.totalCostValue;
     });
 
-    console.log('📊 Category breakdown:', Object.keys(categoryBreakdown).length, 'categories found');
-    console.log('📌 Breakdown sample:', Object.values(categoryBreakdown).slice(0, 3));
-
-    console.log('✅ INVENTORY VALUATION API COMPLETED SUCCESSFULLY');
-    console.log('========== 🏁 END ==========\n');
-
     res.status(200).json({
       success: true,
       data: {
         items: valuationData,
-        summary: summary,
-        categoryBreakdown: Object.values(categoryBreakdown)
-      }
+        summary,
+        categoryBreakdown: Object.values(categoryBreakdown),
+        locationId: locationId || null,
+      },
     });
-
   } catch (error) {
-    console.error('\n❌❌❌ INVENTORY VALUATION ERROR ❌❌❌');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('Error code:', error.code);
-    console.error('Full error:', JSON.stringify(error, null, 2));
-    console.log('========== 🏁 END ==========\n');
-    
+    console.error('❌ Inventory valuation error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
       error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 };
@@ -216,63 +202,116 @@ const getInventoryValuation = async (req, res) => {
 // ============================================================
 const getValuationSummary = async (req, res) => {
   try {
-    console.log('\n========== 🚀 VALUATION SUMMARY API START ==========');
-    console.log('📌 User ID:', req.user?.id);
-
-    const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    console.log('🔄 Fetching products for summary...');
+    const locationId = req.query.locationId || null;
+
+    if (locationId) {
+      const loc = await prisma.location.findFirst({
+        where: { id: locationId, companyId, isDeleted: false },
+        select: { id: true },
+      });
+      if (!loc) {
+        return res.status(400).json({
+          success: false,
+          message: 'Location not found',
+        });
+      }
+
+      const stocks = await prisma.productStock.findMany({
+        where: { companyId, locationId },
+        include: {
+          product: {
+            select: {
+              isActive: true,
+              costPrice: true,
+              sellingPrice: true,
+              minimumStock: true,
+              maximumStock: true,
+            },
+          },
+        },
+      });
+
+      const rows = stocks.filter((s) => s.product?.isActive !== false);
+      const summary = {
+        totalItems: rows.length,
+        totalQty: rows.reduce((sum, s) => sum + (s.currentStock || 0), 0),
+        totalCostValue: rows.reduce(
+          (sum, s) =>
+            sum + (s.currentStock || 0) * (s.product?.costPrice || 0),
+          0
+        ),
+        totalSellingValue: rows.reduce(
+          (sum, s) =>
+            sum + (s.currentStock || 0) * (s.product?.sellingPrice || 0),
+          0
+        ),
+        lowStockCount: rows.filter((s) => {
+          const min = s.product?.minimumStock || 0;
+          return (s.currentStock || 0) <= min;
+        }).length,
+        overStockCount: rows.filter((s) => {
+          const max = s.product?.maximumStock || 0;
+          return max > 0 && (s.currentStock || 0) >= max;
+        }).length,
+      };
+      summary.totalPotentialProfit =
+        summary.totalSellingValue - summary.totalCostValue;
+
+      return res.status(200).json({
+        success: true,
+        data: summary,
+        locationId,
+      });
+    }
 
     const products = await prisma.product.findMany({
       where: {
-        companyId: companyId,
-        isActive: true
+        companyId,
+        isActive: true,
       },
       select: {
         currentStock: true,
         costPrice: true,
         sellingPrice: true,
         minimumStock: true,
-        maximumStock: true
-      }
+        maximumStock: true,
+      },
     });
-
-    console.log(`📦 Found ${products.length} products for summary`);
 
     const summary = {
       totalItems: products.length,
       totalQty: products.reduce((sum, p) => sum + p.currentStock, 0),
-      totalCostValue: products.reduce((sum, p) => sum + (p.currentStock * p.costPrice), 0),
-      totalSellingValue: products.reduce((sum, p) => sum + (p.currentStock * p.sellingPrice), 0),
-      lowStockCount: products.filter(p => p.currentStock <= p.minimumStock).length,
-      overStockCount: products.filter(p => p.currentStock >= p.maximumStock).length
+      totalCostValue: products.reduce(
+        (sum, p) => sum + p.currentStock * p.costPrice,
+        0
+      ),
+      totalSellingValue: products.reduce(
+        (sum, p) => sum + p.currentStock * p.sellingPrice,
+        0
+      ),
+      lowStockCount: products.filter(
+        (p) => p.currentStock <= p.minimumStock
+      ).length,
+      overStockCount: products.filter(
+        (p) => p.currentStock >= p.maximumStock
+      ).length,
     };
 
-    summary.totalPotentialProfit = summary.totalSellingValue - summary.totalCostValue;
-
-    console.log('📊 Summary data:', JSON.stringify(summary, null, 2));
-    console.log('✅ VALUATION SUMMARY API COMPLETED SUCCESSFULLY');
-    console.log('========== 🏁 END ==========\n');
+    summary.totalPotentialProfit =
+      summary.totalSellingValue - summary.totalCostValue;
 
     res.status(200).json({
       success: true,
-      data: summary
+      data: summary,
     });
-
   } catch (error) {
-    console.error('\n❌❌❌ VALUATION SUMMARY ERROR ❌❌❌');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('Error code:', error.code);
-    console.log('========== 🏁 END ==========\n');
-    
+    console.error('❌ Valuation summary error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
       error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 };

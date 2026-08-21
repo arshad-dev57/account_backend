@@ -20,7 +20,8 @@ const createDelivery = async (req, res) => {
       deliveryPerson,
       trackingNumber,
       notes,
-      items
+      items,
+      locationId,
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
@@ -82,7 +83,8 @@ const createDelivery = async (req, res) => {
       notes,
       items,
       createdBy: userId,
-      userId: userId
+      companyId: companyId,
+      locationId: locationId || salesOrder.locationId || undefined,
     };
 
     const delivery = await Delivery.create(deliveryData);
@@ -355,14 +357,19 @@ const getDeliveries = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'deliveryDate',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
     const filter = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false
     };
+
+    if (locationId) {
+      filter.locationId = locationId;
+    }
 
     if (search) {
       filter.OR = [
@@ -424,7 +431,7 @@ const getDeliveries = async (req, res) => {
       };
     });
 
-    const kpi = await Delivery.getStatusCounts(userId);
+    const kpi = await Delivery.getStatusCounts(companyId, locationId || null);
 
     res.status(200).json({
       success: true,
@@ -574,9 +581,9 @@ const deleteDelivery = async (req, res) => {
 // @access  Private
 const getDeliveryStats = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    const stats = await Delivery.getStats(userId);
+    const { locationId } = req.query;
+    const stats = await Delivery.getStats(companyId, locationId || null);
     
     res.status(200).json({
       success: true,
@@ -597,9 +604,9 @@ const getDeliveryStats = async (req, res) => {
 // @access  Private
 const getDeliveryKPI = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    const kpi = await Delivery.getStatusCounts(userId);
+    const { locationId } = req.query;
+    const kpi = await Delivery.getStatusCounts(companyId, locationId || null);
     
     res.status(200).json({
       success: true,
@@ -620,11 +627,15 @@ const getDeliveryKPI = async (req, res) => {
 // @access  Private
 const getProductDeliverySummary = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, locationId } = req.query;
 
-    const summary = await Delivery.getProductDeliverySummary(userId, startDate, endDate);
+    const summary = await Delivery.getProductDeliverySummary(
+      companyId,
+      startDate,
+      endDate,
+      locationId || null
+    );
     
     res.status(200).json({
       success: true,
@@ -647,24 +658,37 @@ const getAvailableOrdersForDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { search, page = 1, limit = 20 } = req.query;
+    const { search, page = 1, limit = 20, locationId } = req.query;
 
-    const where = {
-      userId: userId,
-      isActive: true,
-      isDeleted: false,
-      orderType: 'Sales Order',
-      orderStatus: {
-        notIn: ['Delivered', 'Cancelled']
-      }
-    };
-
-    if (search) {
-      where.OR = [
-        { orderNumber: { contains: search, mode: 'insensitive' } },
-        { customerName: { contains: search, mode: 'insensitive' } }
-      ];
+    const locId = String(locationId || '').trim();
+    if (!locId) {
+      return res.status(400).json({
+        success: false,
+        message: 'locationId (warehouse) is required to search orders for delivery',
+        data: [],
+      });
     }
+
+    const and = [
+      { companyId },
+      { isActive: true },
+      { isDeleted: false },
+      { orderType: 'Sales Order' },
+      { orderStatus: { notIn: ['Delivered', 'Cancelled'] } },
+      { locationId: locId },
+    ];
+
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
+      and.push({
+        OR: [
+          { orderNumber: { contains: q, mode: 'insensitive' } },
+          { customerName: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const where = { AND: and };
 
     // Get orders with their deliveries
     const orders = await prisma.order.findMany({

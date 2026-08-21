@@ -4,6 +4,10 @@
 const prisma = require('../../prisma/client');
 const { randomUUID } = require('crypto');
 const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../../warehouse/services/locationService');
 
 // ─── Number Generators ─────────────────────────────────────────────────────
 function generatePOSInvoiceNumber() {
@@ -77,7 +81,8 @@ class POSSaleModel {
     const {
       id, shiftId, terminalId, customerId, customerName, customerEmail, customerPhone,
       items, payments, discountTotal = 0, taxTotal = 0, notes,
-      companyId, createdBy, isOffline = false, offlineCreatedAt = null
+      companyId, createdBy, isOffline = false, offlineCreatedAt = null,
+      locationId: locationIdInput,
     } = data;
 
     const taxProfile = await prisma.companyTaxProfile.findUnique({ where: { companyId } }).catch(() => null);
@@ -118,6 +123,20 @@ class POSSaleModel {
     const invoiceNumber = generatePOSInvoiceNumber();
 
     return await prisma.$transaction(async (tx) => {
+      let resolvedLocationId = locationIdInput || null;
+      if (!resolvedLocationId && terminalId) {
+        const terminal = await tx.pOSTerminal.findFirst({
+          where: { id: terminalId, companyId },
+          select: { locationId: true },
+        });
+        resolvedLocationId = terminal?.locationId || null;
+      }
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        resolvedLocationId,
+        createdBy
+      );
 
       // ── 1. Validate products + Reduce Stock ──────────────────
       let totalCOGS = 0;
@@ -126,15 +145,12 @@ class POSSaleModel {
           where: { id: item.productId, companyId, isActive: true }
         });
         if (!product) throw new Error(`Product not found or inactive: ${item.productName || item.productId}`);
-        if (product.currentStock < item.quantity) {
-          throw new Error(`Insufficient stock for "${product.name}". Available: ${product.currentStock}, Requested: ${item.quantity}`);
-        }
-        const prevStock = product.currentStock;
-        const newStock = prevStock - item.quantity;
 
-        await tx.product.update({
-          where: { id: product.id },
-          data: { currentStock: newStock, availableStock: newStock, totalValue: newStock * product.costPrice }
+        const adj = await adjustLocationStock(tx, {
+          companyId,
+          productId: product.id,
+          locationId,
+          delta: -item.quantity,
         });
 
         await tx.stockMovement.create({
@@ -143,14 +159,15 @@ class POSSaleModel {
             productName: product.name,
             type: 'stock_out',
             quantity: item.quantity,
-            previousStock: prevStock,
-            newStock,
+            previousStock: adj.previousLocationStock,
+            newStock: adj.newLocationStock,
             reason: 'POS Sale',
             customerName: customerName || 'Walk-in',
             reference: invoiceNumber,
             notes: `POS Sale — ${invoiceNumber}`,
             createdBy,
-            companyId
+            companyId,
+            locationId,
           }
         });
 
@@ -331,23 +348,40 @@ class POSSaleModel {
         grandTotal += lineTotal;
 
         const product = await tx.product.findFirst({ where: { id: ri.productId, companyId } });
-        const prevStock = product ? product.currentStock : 0;
-        const newStock = prevStock + ri.quantity;
 
-        // Restore inventory
+        // Restore inventory at terminal/default location
         if (product) {
-          await tx.product.update({
-            where: { id: product.id },
-            data: { currentStock: newStock, availableStock: newStock, totalValue: newStock * product.costPrice }
+          let returnLocationId = null;
+          if (originalSale.terminalId) {
+            const terminal = await tx.pOSTerminal.findFirst({
+              where: { id: originalSale.terminalId, companyId },
+              select: { locationId: true },
+            });
+            returnLocationId = terminal?.locationId || null;
+          }
+          const locationId = await resolveLocationId(
+            tx,
+            companyId,
+            returnLocationId,
+            createdBy
+          );
+          const adj = await adjustLocationStock(tx, {
+            companyId,
+            productId: product.id,
+            locationId,
+            delta: ri.quantity,
           });
           totalCOGS += product.costPrice * ri.quantity;
 
           await tx.stockMovement.create({
             data: {
               productId: product.id, productName: product.name,
-              type: 'stock_in', quantity: ri.quantity, previousStock: prevStock, newStock,
+              type: 'stock_in', quantity: ri.quantity,
+              previousStock: adj.previousLocationStock,
+              newStock: adj.newLocationStock,
               reason: 'POS Return', reference: originalSale.invoiceNumber,
-              notes: `POS Return from ${originalSale.invoiceNumber}`, createdBy, companyId
+              notes: `POS Return from ${originalSale.invoiceNumber}`, createdBy, companyId,
+              locationId,
             }
           });
         }
@@ -431,15 +465,26 @@ class POSSaleModel {
       for (const item of sale.items) {
         const product = await tx.product.findFirst({ where: { id: item.productId, companyId } });
         if (!product) continue;
-        const prevStock = product.currentStock;
-        const newStock = prevStock + item.quantity;
-        await tx.product.update({
-          where: { id: product.id },
-          data: {
-            currentStock: newStock,
-            availableStock: newStock,
-            totalValue: newStock * product.costPrice
-          }
+
+        let voidLocationId = null;
+        if (sale.terminalId) {
+          const terminal = await tx.pOSTerminal.findFirst({
+            where: { id: sale.terminalId, companyId },
+            select: { locationId: true },
+          });
+          voidLocationId = terminal?.locationId || null;
+        }
+        const locationId = await resolveLocationId(
+          tx,
+          companyId,
+          voidLocationId,
+          createdBy
+        );
+        const adj = await adjustLocationStock(tx, {
+          companyId,
+          productId: product.id,
+          locationId,
+          delta: item.quantity,
         });
         totalCOGS += product.costPrice * item.quantity;
         await tx.stockMovement.create({
@@ -448,13 +493,14 @@ class POSSaleModel {
             productName: product.name,
             type: 'stock_in',
             quantity: item.quantity,
-            previousStock: prevStock,
-            newStock,
+            previousStock: adj.previousLocationStock,
+            newStock: adj.newLocationStock,
             reason: 'POS Void',
             reference: sale.invoiceNumber,
             notes: `Void ${sale.invoiceNumber}: ${reason || ''}`,
             createdBy,
-            companyId
+            companyId,
+            locationId,
           }
         });
       }
@@ -596,7 +642,20 @@ class POSSaleModel {
       include: {
         items: true, payments: true,
         customer: { select: { id: true, name: true, phone: true } },
-        shift: { include: { cashier: { select: { id: true, firstName: true, lastName: true } }, terminal: true } }
+        shift: {
+          include: {
+            cashier: { select: { id: true, firstName: true, lastName: true } },
+            terminal: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                locationId: true,
+                location: { select: { id: true, name: true, code: true, type: true } },
+              },
+            },
+          },
+        },
       }
     });
   }

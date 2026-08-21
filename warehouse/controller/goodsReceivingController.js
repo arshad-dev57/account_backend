@@ -16,7 +16,8 @@ const createGoodsReceiving = async (req, res) => {
       receivedBy,
       notes,
       items,
-      status
+      status,
+      locationId,
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
@@ -88,7 +89,8 @@ const createGoodsReceiving = async (req, res) => {
       items: processedItems,
       status: status || 'Draft',
       createdBy: userId,
-      companyId: companyId  // ✅ Use companyId
+      companyId: companyId,
+      locationId: locationId || purchaseOrder.locationId || null,
     };
 
     const goodsReceiving = await GoodsReceiving.create(grnData);
@@ -182,15 +184,15 @@ const getGoodsReceivings = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'receivingDate',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
-    // ✅ FIXED: Use createdBy and companyId
     const filter = {
-      createdBy: userId,      // ✅ Use createdBy instead of userId
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       isActive: true,
-      isDeleted: false
+      isDeleted: false,
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     if (search) {
@@ -232,7 +234,7 @@ const getGoodsReceivings = async (req, res) => {
     const [grns, total, stats] = await Promise.all([
       GoodsReceiving.findAll(filter, { skip, take: limitNum, orderBy }),
       GoodsReceiving.count(filter),
-      GoodsReceiving.getStats(companyId)  // ✅ Pass companyId
+      GoodsReceiving.getStats(companyId, locationId || null)
     ]);
 
     const enriched = grns.map((grn) => ({
@@ -582,17 +584,16 @@ const getAvailablePurchaseOrders = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { search, page = 1, limit = 20 } = req.query;
+    const { search, page = 1, limit = 20, locationId } = req.query;
 
-    // ✅ FIXED: Use createdBy instead of userId
     const where = {
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       isActive: true,
       isDeleted: false,
       status: {
         notIn: ['Cancelled']
-      }
+      },
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     if (search) {

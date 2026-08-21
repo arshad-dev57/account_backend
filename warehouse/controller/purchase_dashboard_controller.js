@@ -94,6 +94,58 @@ const baseWhere = (companyId, userId, extra = {}) => ({
   ]
 });
 
+/** Direct locationId (PurchaseOrder, PurchaseInvoice, GoodsReceiving) */
+function withLocation(locationId) {
+  return locationId ? { locationId: String(locationId) } : {};
+}
+
+/** Purchase invoices: own location, or via PO / GRN */
+function purchaseInvoiceLocationWhere(locationId) {
+  if (!locationId) return {};
+  const loc = String(locationId);
+  return {
+    OR: [
+      { locationId: loc },
+      { locationId: null, purchaseOrder: { locationId: loc } },
+      { locationId: null, goodsReceiving: { locationId: loc } },
+    ],
+  };
+}
+
+/** Purchase returns via linked invoice / PO / GRN warehouse */
+function purchaseReturnLocationWhere(locationId) {
+  if (!locationId) return {};
+  const loc = String(locationId);
+  return {
+    purchaseInvoice: {
+      OR: [
+        { locationId: loc },
+        { purchaseOrder: { locationId: loc } },
+        { goodsReceiving: { locationId: loc } },
+      ],
+    },
+  };
+}
+
+/** Payments via linked purchase invoices */
+function purchasePaymentLocationWhere(locationId) {
+  if (!locationId) return {};
+  const loc = String(locationId);
+  return {
+    invoicePayments: {
+      some: {
+        invoice: {
+          OR: [
+            { locationId: loc },
+            { purchaseOrder: { locationId: loc } },
+            { goodsReceiving: { locationId: loc } },
+          ],
+        },
+      },
+    },
+  };
+}
+
 const getLabelFromDate = (dateStr, groupBy) => {
   const d = new Date(dateStr);
   if (groupBy === 'hour') return `${d.getHours()}:00`;
@@ -145,25 +197,29 @@ const getMetrics = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
       fiscalYearId
     });
 
     const orderWhere = baseWhere(companyId, userId, {
-      createdAt: { gte: start, lte: end }
+      createdAt: { gte: start, lte: end },
+      ...withLocation(locationId),
     });
     const invoiceWhere = baseWhere(companyId, userId, {
       invoiceDate: { gte: start, lte: end },
-      invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+      invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      ...purchaseInvoiceLocationWhere(locationId),
     });
     const returnWhere = baseWhere(companyId, userId, {
-      createdAt: { gte: start, lte: end }
+      createdAt: { gte: start, lte: end },
+      ...purchaseReturnLocationWhere(locationId),
     });
     const paymentWhere = baseWhere(companyId, userId, {
       paymentDate: { gte: start, lte: end },
-      status: { not: 'Cancelled' }
+      status: { not: 'Cancelled' },
+      ...purchasePaymentLocationWhere(locationId),
     });
 
     const [orders, invoices, returnsRows, paymentsAgg] = await Promise.all([
@@ -277,7 +333,7 @@ const getSpendTrend = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end, groupBy } = await parsePeriod(period, startDate, endDate, {
       companyId,
       fiscalYearId
@@ -286,7 +342,8 @@ const getSpendTrend = async (req, res) => {
     const [invoices, orders] = await Promise.all([
       prisma.purchaseInvoice.findMany({
         where: baseWhere(companyId, userId, {
-          invoiceDate: { gte: start, lte: end }
+          invoiceDate: { gte: start, lte: end },
+          ...purchaseInvoiceLocationWhere(locationId),
         }),
         select: {
           invoiceDate: true,
@@ -298,7 +355,8 @@ const getSpendTrend = async (req, res) => {
       }),
       prisma.purchaseOrder.findMany({
         where: baseWhere(companyId, userId, {
-          createdAt: { gte: start, lte: end }
+          createdAt: { gte: start, lte: end },
+          ...withLocation(locationId),
         }),
         select: { createdAt: true, grandTotal: true },
         orderBy: { createdAt: 'asc' }
@@ -351,7 +409,7 @@ const getOrderStatusDistribution = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
       fiscalYearId
@@ -359,7 +417,8 @@ const getOrderStatusDistribution = async (req, res) => {
 
     const orders = await prisma.purchaseOrder.findMany({
       where: baseWhere(companyId, userId, {
-        createdAt: { gte: start, lte: end }
+        createdAt: { gte: start, lte: end },
+        ...withLocation(locationId),
       }),
       select: { status: true, grandTotal: true }
     });
@@ -410,7 +469,7 @@ const getTopSuppliers = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
+    const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
       fiscalYearId
@@ -419,7 +478,8 @@ const getTopSuppliers = async (req, res) => {
     // Prefer invoices (actual spend); fall back to orders if none
     const invoices = await prisma.purchaseInvoice.findMany({
       where: baseWhere(companyId, userId, {
-        invoiceDate: { gte: start, lte: end }
+        invoiceDate: { gte: start, lte: end },
+        ...purchaseInvoiceLocationWhere(locationId),
       }),
       select: { supplierId: true, supplierName: true, grandTotal: true }
     });
@@ -442,7 +502,8 @@ const getTopSuppliers = async (req, res) => {
     if (Object.keys(map).length === 0) {
       const orders = await prisma.purchaseOrder.findMany({
         where: baseWhere(companyId, userId, {
-          createdAt: { gte: start, lte: end }
+          createdAt: { gte: start, lte: end },
+          ...withLocation(locationId),
         }),
         select: { supplierId: true, supplierName: true, grandTotal: true }
       });
@@ -479,7 +540,26 @@ const getRecentActivities = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const scope = baseWhere(companyId, userId);
+    const { locationId } = req.query;
+    const scope = baseWhere(companyId, userId, withLocation(locationId));
+    const invoiceScope = baseWhere(
+      companyId,
+      userId,
+      purchaseInvoiceLocationWhere(locationId)
+    );
+    const returnScope = baseWhere(
+      companyId,
+      userId,
+      purchaseReturnLocationWhere(locationId)
+    );
+    const paymentScope = {
+      AND: [
+        companyScope(companyId, userId),
+        { isActive: true },
+        { isDeleted: false },
+        purchasePaymentLocationWhere(locationId),
+      ],
+    };
 
     const [recentOrders, recentInvoices, recentReturns, recentPayments] =
       await Promise.all([
@@ -497,7 +577,7 @@ const getRecentActivities = async (req, res) => {
           take: 5
         }),
         prisma.purchaseInvoice.findMany({
-          where: scope,
+          where: invoiceScope,
           select: {
             id: true,
             invoiceNumber: true,
@@ -511,7 +591,7 @@ const getRecentActivities = async (req, res) => {
           take: 5
         }),
         prisma.purchaseReturn.findMany({
-          where: scope,
+          where: returnScope,
           select: {
             id: true,
             returnNumber: true,
@@ -525,13 +605,7 @@ const getRecentActivities = async (req, res) => {
           take: 3
         }),
         prisma.purchasePaymentMake.findMany({
-          where: {
-            AND: [
-              companyScope(companyId, userId),
-              { isActive: true },
-              { isDeleted: false },
-            ]
-          },
+          where: paymentScope,
           select: {
             id: true,
             paymentNumber: true,

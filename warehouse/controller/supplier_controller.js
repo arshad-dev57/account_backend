@@ -485,95 +485,126 @@ const updateSupplier = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Delete supplier (User-specific)
+// @desc    Delete supplier permanently (hard delete)
 // @route   DELETE /api/warehouse/supplier/:id
-// @access  Private (Admin only)
+// @access  Private
 // ============================================================
 const deleteSupplier = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const supplierId = req.params.id;
+    const supplierId = String(req.params.id || '').trim();
 
-    // ✅ Check if supplier exists AND belongs to this company
+    if (!supplierId || supplierId === 'undefined' || supplierId === 'null') {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid supplier id is required',
+      });
+    }
+
     const existing = await prisma.supplier.findFirst({
       where: {
         id: supplierId,
-        companyId: companyId // 👈 CRITICAL
-      }
+        companyId: companyId,
+      },
     });
 
     if (!existing) {
       return res.status(404).json({
         success: false,
-        message: 'Supplier not found'
+        message: 'Supplier not found',
       });
     }
 
-    // ✅ Check if linked to any products (company-specific)
-    const productCount = await prisma.product.count({
-      where: {
-        supplierId: supplierId,
-        companyId: companyId, // 👈 Company-specific
-        isActive: true
-      }
+    // Count required (blocking) links — these cannot be nullified
+    const related = await prisma.supplier.findFirst({
+      where: { id: supplierId },
+      select: {
+        _count: {
+          select: {
+            purchases: true,
+            bills: true,
+            purchaseOrders: true,
+            goodsReceivings: true,
+            purchaseInvoices: true,
+            accountsPayable: true,
+            paymentsMade: true,
+            purchaseReturns: true,
+            purchasePayments: true,
+          },
+        },
+      },
     });
 
-    // Check if linked to any purchases (company-specific)
-    const purchaseCount = await prisma.warehousePurchase.count({
-      where: {
-        supplierId: supplierId,
-        companyId: companyId // 👈 Company-specific
-      }
-    });
+    const blocking = related?._count || {};
+    const blockingParts = Object.entries(blocking)
+      .filter(([, n]) => Number(n) > 0)
+      .map(([key, n]) => `${key}: ${n}`);
 
-    // Check if linked to any bills (company-specific)
-    const billCount = await prisma.bill.count({
-      where: {
-        vendorId: supplierId,
-        companyId: companyId // 👈 Company-specific
-      }
-    });
-
-    const hasLinkedRecords = productCount > 0 || purchaseCount > 0 || billCount > 0;
-
-    if (hasLinkedRecords) {
-      // Soft delete: deactivate instead of hard delete
-      await prisma.supplier.update({
-        where: { id: supplierId },
-        data: {
-          status: 'inactive',
-          updatedBy: req.user.id
-        }
-      });
-
-      return res.status(200).json({
-        success: true,
-        message: 'Supplier deactivated (has linked records)',
-        data: {
-          supplierId,
-          status: 'inactive',
-          linkedProducts: productCount,
-          linkedPurchases: purchaseCount,
-          linkedBills: billCount
-        }
+    if (blockingParts.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete supplier — linked records exist (${blockingParts.join(', ')}). Remove those first.`,
+        data: { supplierId, blocking },
       });
     }
 
-    // Hard delete if no linked records
-    await prisma.supplier.delete({
-      where: { id: supplierId }
+    // Nullify optional FKs, then hard-delete supplier
+    await prisma.$transaction(async (tx) => {
+      await Promise.all([
+        tx.product.updateMany({
+          where: { supplierId },
+          data: { supplierId: null },
+        }),
+        tx.stockMovement.updateMany({
+          where: { supplierId },
+          data: { supplierId: null },
+        }),
+        tx.expense.updateMany({
+          where: { vendorId: supplierId },
+          data: { vendorId: null },
+        }),
+        tx.fixedAsset.updateMany({
+          where: { supplierId },
+          data: { supplierId: null },
+        }),
+        tx.refund.updateMany({
+          where: { supplierId },
+          data: { supplierId: null },
+        }),
+        tx.return.updateMany({
+          where: { supplierId },
+          data: { supplierId: null },
+        }),
+        tx.loan.updateMany({
+          where: { lenderId: supplierId },
+          data: { lenderId: null },
+        }),
+        tx.transaction.updateMany({
+          where: { vendorId: supplierId },
+          data: { vendorId: null },
+        }),
+      ]);
+
+      await tx.supplier.delete({ where: { id: supplierId } });
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: 'Supplier deleted successfully'
+      message: 'Supplier deleted successfully',
     });
   } catch (error) {
     console.error('Delete supplier error:', error);
+    if (error.code === 'P2003') {
+      return res.status(409).json({
+        success: false,
+        message:
+          'Cannot delete supplier — it still has linked purchase/accounting records. Remove those first.',
+      });
+    }
     res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: error.message || 'Server error',
+      error: error.message,
     });
   }
 };
@@ -912,7 +943,6 @@ const toggleSupplierStatus = async (req, res) => {
       where: { id: supplierId },
       data: {
         status: newStatus,
-        updatedBy: req.user.id
       }
     });
 

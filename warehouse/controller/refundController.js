@@ -58,17 +58,20 @@ const getSalesRefunds = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
-    // ✅ FIXED: Use createdBy and companyId instead of userId
     const filter = {
       isActive: true,
       isDeleted: false,
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       refundType: 'Sales Refund'
     };
+
+    if (locationId) {
+      filter.order = { locationId };
+    }
 
     if (search) {
       filter.OR = [
