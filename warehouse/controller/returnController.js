@@ -94,16 +94,20 @@ const getSalesReturns = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
    const filter = {
   isActive: true,
   isDeleted: false,
-  createdBy: userId,      // ✅ Use createdBy instead of userId
-  companyId: companyId,   // ✅ Use companyId
+  companyId: companyId,
   returnType: 'Sales Return'
 };
+
+    if (locationId) {
+      filter.order = { locationId };
+    }
 
     if (search) {
       filter.OR = [

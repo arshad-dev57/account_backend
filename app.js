@@ -164,6 +164,7 @@ app.use('/api/sales/refunds', refundRoutes);
 app.use('/api/settings', settingRoutes);
 app.use('/api/warehouse/dashboard', DashboardRoutes);
 app.use('/api/warehouse/stock', StockRoutes);
+app.use('/api/warehouse/locations', require('./warehouse/routes/locationRoutes'));
 app.use('/api/warehouse/reports/expiry', expiryReportRoutes);
 app.use('/api/warehouse/reports/low-stock', lowStockReportRoutes);
 app.use('/api/email', emailRoutes);

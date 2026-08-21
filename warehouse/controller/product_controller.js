@@ -2,6 +2,10 @@
 
 const ProductModel = require('../models/Product');
 const prisma = require('../../prisma/client');
+const {
+  resolveLocationId,
+  getOrCreateProductStock,
+} = require('../services/locationService');
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -153,7 +157,9 @@ const getProducts = async (req, res) => {
       sortBy = 'name',
       sortOrder = 'asc',
       page = 1,
-      limit = 20
+      limit = 20,
+      locationId,
+      scope,
     } = req.query;
 
     const searchQuery = search || q;
@@ -181,7 +187,8 @@ const getProducts = async (req, res) => {
       filter.supplierId = supplierId;
     }
 
-    if (stockStatus) {
+    // Company-level stock filter only when no location selected
+    if (stockStatus && !locationId) {
       if (stockStatus === 'low') {
         filter.currentStock = { lte: prisma.product.fields.minimumStock };
       } else if (stockStatus === 'out') {
@@ -197,6 +204,88 @@ const getProducts = async (req, res) => {
       if (maxPrice) filter.sellingPrice.lte = parseFloat(maxPrice);
     }
 
+    let locationStockMap = null;
+    const companyScope = String(scope || '') === 'company';
+    if (locationId) {
+      const loc = await prisma.location.findFirst({
+        where: { id: locationId, companyId, isDeleted: false },
+      });
+      if (!loc) {
+        return res.status(400).json({
+          success: false,
+          message: 'Location not found',
+        });
+      }
+
+      const stocks = await prisma.productStock.findMany({
+        where: { companyId, locationId },
+        select: {
+          productId: true,
+          currentStock: true,
+          reservedStock: true,
+          availableStock: true,
+        },
+      });
+      locationStockMap = new Map(
+        stocks.map((s) => [s.productId, s])
+      );
+
+      // Default: only products assigned to this location.
+      // scope=company: full catalog (for stock-in search) with location qty overlay.
+      if (!companyScope) {
+        const locationProductIds = stocks.map((s) => s.productId);
+        filter.id = {
+          in: locationProductIds.length ? locationProductIds : ['__none__'],
+        };
+      }
+
+      if (stockStatus && !companyScope) {
+        const locationProductIds = stocks.map((s) => s.productId);
+        const candidates = await prisma.product.findMany({
+          where: {
+            companyId,
+            isActive: true,
+            id: { in: locationProductIds.length ? locationProductIds : ['__none__'] },
+            ...(categoryId ? { categoryId } : {}),
+            ...(supplierId ? { supplierId } : {}),
+            ...(searchQuery
+              ? {
+                  OR: [
+                    { name: { contains: searchQuery, mode: 'insensitive' } },
+                    { sku: { contains: searchQuery, mode: 'insensitive' } },
+                    {
+                      barcodeNumber: {
+                        contains: searchQuery,
+                        mode: 'insensitive',
+                      },
+                    },
+                  ],
+                }
+              : {}),
+          },
+          select: { id: true, minimumStock: true },
+        });
+
+        const matchingIds = candidates
+          .filter((p) => {
+            const qty = locationStockMap.get(p.id)?.currentStock ?? 0;
+            if (stockStatus === 'out') return qty === 0;
+            if (stockStatus === 'in') return qty > 0;
+            if (stockStatus === 'low') {
+              return (
+                (p.minimumStock || 0) > 0 &&
+                qty > 0 &&
+                qty <= (p.minimumStock || 0)
+              );
+            }
+            return true;
+          })
+          .map((p) => p.id);
+
+        filter.id = { in: matchingIds.length ? matchingIds : ['__none__'] };
+      }
+    }
+
     const orderBy = {};
     orderBy[sortBy] = sortOrder === 'asc' ? 'asc' : 'desc';
 
@@ -209,15 +298,48 @@ const getProducts = async (req, res) => {
       ProductModel.count(filter)
     ]);
 
-    console.log('🔵 [getProducts] Returning', products.length, 'products');
-    if (products.length > 0) {
-      console.log('🔵 [getProducts] First product ID:', products[0].id);
-    }
+    const data = products.map((p) => {
+      // Prisma rows → plain object so location stock reliably overrides company total
+      const plain = JSON.parse(JSON.stringify(p));
+      if (!locationStockMap) {
+        return {
+          ...plain,
+          locationStock: plain.currentStock ?? 0,
+        };
+      }
+      const s = locationStockMap.get(plain.id);
+      const locQty = s?.currentStock ?? 0;
+      const locReserved = s?.reservedStock ?? 0;
+      const locAvailable = s?.availableStock ?? Math.max(0, locQty - locReserved);
+      return {
+        ...plain,
+        companyStock: plain.currentStock ?? 0,
+        currentStock: locQty,
+        locationStock: locQty,
+        reservedStock: locReserved,
+        availableStock: locAvailable,
+        locationId,
+      };
+    });
+
+    console.log(
+      '🔵 [getProducts] Returning',
+      data.length,
+      'products',
+      locationId ? `(location ${locationId})` : '',
+      locationStockMap
+        ? `stocks=${locationStockMap.size} sample=${data
+            .slice(0, 3)
+            .map((x) => `${x.name}:${x.currentStock}`)
+            .join(',')}`
+        : ''
+    );
 
     res.status(200).json({
       success: true,
-      count: products.length,
-      data: products,
+      count: data.length,
+      data,
+      locationId: locationId || null,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -485,6 +607,9 @@ const createProduct = async (req, res) => {
 
     data = normalizeIncomingProduct(data);
 
+    const locationIdInput = data.locationId || null;
+    delete data.locationId;
+
     // ✅ Ensure rackLocationName has a value
     const productData = {
       ...data,
@@ -514,6 +639,32 @@ const createProduct = async (req, res) => {
     console.log('🔵 [createProduct] Final product data:', JSON.stringify(productData, null, 2));
 
     const product = await ProductModel.create(productData);
+
+    // Assign product to selected location (0 stock) so it appears in that warehouse catalog
+    try {
+      const locationId = await resolveLocationId(
+        prisma,
+        companyId,
+        locationIdInput,
+        userId
+      );
+      await getOrCreateProductStock(prisma, {
+        companyId,
+        productId: product.id,
+        locationId,
+      });
+      console.log(
+        '✅ [createProduct] Assigned to location',
+        locationId,
+        'product',
+        product.id
+      );
+    } catch (locErr) {
+      console.error(
+        '⚠️ [createProduct] Location assign failed (non-fatal):',
+        locErr.message
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -765,7 +916,7 @@ const deleteProduct = async (req, res) => {
 const searchProducts = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { q, page = 1, limit = 20 } = req.query;
+    const { q, page = 1, limit = 20, locationId } = req.query;
 
     if (!q) {
       return res.status(400).json({
@@ -778,12 +929,39 @@ const searchProducts = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    const { products, total } = await ProductModel.search(q, companyId, { skip, take: limitNum });
+    const { products, total } = await ProductModel.search(q, companyId, {
+      skip,
+      take: limitNum,
+    });
+
+    let data = products;
+    if (locationId) {
+      const stocks = await prisma.productStock.findMany({
+        where: {
+          companyId,
+          locationId,
+          productId: { in: products.map((p) => p.id) },
+        },
+      });
+      const byProduct = new Map(stocks.map((s) => [s.productId, s]));
+      data = products.map((p) => {
+        const s = byProduct.get(p.id);
+        const currentStock = s?.currentStock ?? 0;
+        const reservedStock = s?.reservedStock ?? 0;
+        return {
+          ...p,
+          currentStock,
+          reservedStock,
+          availableStock: Math.max(0, currentStock - reservedStock),
+          locationId,
+        };
+      });
+    }
 
     res.status(200).json({
       success: true,
-      count: products.length,
-      data: products,
+      count: data.length,
+      data,
       pagination: {
         page: pageNum,
         limit: limitNum,

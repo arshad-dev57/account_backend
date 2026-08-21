@@ -9,6 +9,10 @@ const {
   createStockCreditPayableBill,
   listStockReasons,
 } = require('../services/stockAccountingService');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../services/locationService');
 
 // ============================================================
 // @desc    Stock in/out reason catalog (for UI)
@@ -40,6 +44,7 @@ const addStock = async (req, res) => {
       stockSourceReason,
       unitCost: unitCostInput,
       bankAccountId,
+      locationId: locationIdInput,
     } = req.body;
 
     if (!productId || !quantity) {
@@ -99,19 +104,16 @@ const addStock = async (req, res) => {
     }
 
     const previousStock = product.currentStock;
-    let newStock;
     let totalPieces = 0;
     let stockDetails = {};
 
     if (stockType === 'bulk' || !stockType) {
       totalPieces = parseInt(quantity, 10);
-      newStock = previousStock + totalPieces;
       stockDetails = { type: 'bulk', quantityAdded: totalPieces };
     } else if (stockType === 'box') {
       const boxes = parseInt(boxCount, 10) || 0;
       const pieces = parseInt(piecesPerBox, 10) || 0;
       totalPieces = boxes * pieces;
-      newStock = previousStock + totalPieces;
       stockDetails = { type: 'box', boxCount: boxes, piecesPerBox: pieces, totalPieces };
     }
 
@@ -121,13 +123,18 @@ const addStock = async (req, res) => {
         : Number(product.costPrice) || 0;
 
     const result = await prisma.$transaction(async (tx) => {
-      await tx.product.update({
-        where: { id: productId },
-        data: {
-          currentStock: newStock,
-          availableStock: newStock,
-          totalValue: newStock * (unitCost || product.costPrice || 0),
-        },
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        locationIdInput,
+        userId
+      );
+
+      const adj = await adjustLocationStock(tx, {
+        companyId,
+        productId,
+        locationId,
+        delta: totalPieces,
       });
 
       const movementData = {
@@ -135,10 +142,10 @@ const addStock = async (req, res) => {
         productName: product.name,
         type: 'stock_in',
         quantity: totalPieces,
-        previousStock,
-        newStock,
+        previousStock: adj.previousLocationStock,
+        newStock: adj.newLocationStock,
         stockType: stockType || 'bulk',
-        stockDetails,
+        stockDetails: { ...stockDetails, locationId },
         reason: reasonMeta.label,
         reference: reference || '',
         notes: notes
@@ -147,6 +154,7 @@ const addStock = async (req, res) => {
         status: 'Completed',
         createdBy: userId,
         companyId,
+        locationId,
       };
 
       if (supplierId) movementData.supplierId = supplierId;
@@ -190,7 +198,7 @@ const addStock = async (req, res) => {
         throw accErr;
       }
 
-      return { movement, journalEntry, payableBill };
+      return { movement, journalEntry, payableBill, locationId, adj };
     });
 
     const updatedProduct = await prisma.product.findFirst({
@@ -254,6 +262,7 @@ const removeStock = async (req, res) => {
       reference,
       notes,
       unitCost: unitCostInput,
+      locationId: locationIdInput,
     } = req.body;
 
     const outReasonKey = stockOutReason || reason;
@@ -286,21 +295,25 @@ const removeStock = async (req, res) => {
       });
     }
 
-    const previousStock = product.currentStock;
-    const newStock = previousStock - parseInt(quantity, 10);
     const unitCost =
       unitCostInput != null && unitCostInput !== ''
         ? Number(unitCostInput)
         : Number(product.costPrice) || 0;
+    const qty = parseInt(quantity, 10);
 
     const result = await prisma.$transaction(async (tx) => {
-      await tx.product.update({
-        where: { id: productId },
-        data: {
-          currentStock: newStock,
-          availableStock: newStock,
-          totalValue: newStock * unitCost,
-        },
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        locationIdInput,
+        userId
+      );
+
+      const adj = await adjustLocationStock(tx, {
+        companyId,
+        productId,
+        locationId,
+        delta: -qty,
       });
 
       const movement = await tx.stockMovement.create({
@@ -308,9 +321,9 @@ const removeStock = async (req, res) => {
           productId,
           productName: product.name,
           type: 'stock_out',
-          quantity: parseInt(quantity, 10),
-          previousStock,
-          newStock,
+          quantity: qty,
+          previousStock: adj.previousLocationStock,
+          newStock: adj.newLocationStock,
           reason: reasonMeta.label,
           customerName: customerName || '',
           reference: reference || '',
@@ -320,6 +333,8 @@ const removeStock = async (req, res) => {
           status: 'Completed',
           createdBy: userId,
           companyId,
+          locationId,
+          stockDetails: { locationId },
         },
       });
 
@@ -328,13 +343,13 @@ const removeStock = async (req, res) => {
         companyId,
         userId,
         productName: product.name,
-        quantity: parseInt(quantity, 10),
+        quantity: qty,
         unitCost,
         reference,
         movementId: movement.id,
       });
 
-      return { movement, journalEntry };
+      return { movement, journalEntry, locationId };
     });
 
     const updatedProduct = await prisma.product.findFirst({
@@ -448,12 +463,16 @@ const getStockHistory = async (req, res) => {
 const getAllStockHistory = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { page = 1, limit = 50, type, search, startDate, endDate } = req.query;
+    const { page = 1, limit = 50, type, search, startDate, endDate, locationId } = req.query;
 
     // ✅ Base filter with companyId
     const filter = {
       companyId: companyId // 👈 CRITICAL
     };
+
+    if (locationId) {
+      filter.locationId = locationId;
+    }
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);

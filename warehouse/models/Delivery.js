@@ -1,6 +1,10 @@
 // warehouse/models/Delivery.js - FIXED DUPLICATE EMAIL ISSUE
 
 const prisma = require('../../prisma/client');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../services/locationService');
 
 // ─── Generate Delivery Number Function ──────────────────────
 function generateDeliveryNumber() {
@@ -14,9 +18,10 @@ function generateDeliveryNumber() {
 }
 
 // ─── Helper: Find or Create Customer ────────────────────────
-async function findOrCreateCustomer(tx, salesOrder, userId, createdBy) {
+async function findOrCreateCustomer(tx, salesOrder, companyId, createdBy) {
   let customerId = salesOrder.customerId;
   let customer = null;
+  const companyScope = companyId ? { companyId } : {};
 
   // If customerId exists, verify it's valid
   if (customerId) {
@@ -35,7 +40,7 @@ async function findOrCreateCustomer(tx, salesOrder, userId, createdBy) {
     customer = await tx.customer.findFirst({
       where: {
         email: salesOrder.customerEmail,
-        userId: userId,
+        ...companyScope,
         isActive: true,
         isDeleted: false
       }
@@ -55,7 +60,7 @@ async function findOrCreateCustomer(tx, salesOrder, userId, createdBy) {
     customer = await tx.customer.findFirst({
       where: {
         phone: salesOrder.customerPhone,
-        userId: userId,
+        ...companyScope,
         isActive: true,
         isDeleted: false
       }
@@ -70,12 +75,12 @@ async function findOrCreateCustomer(tx, salesOrder, userId, createdBy) {
     }
   }
 
-  // Try to find by name and company (fallback)
+  // Try to find by name (fallback)
   if (salesOrder.customerName) {
     customer = await tx.customer.findFirst({
       where: {
         name: salesOrder.customerName,
-        userId: userId,
+        ...companyScope,
         isActive: true,
         isDeleted: false
       }
@@ -132,9 +137,9 @@ async function findOrCreateCustomer(tx, salesOrder, userId, createdBy) {
         name: salesOrder.customerName || 'Unknown Customer',
         email: email,
         phone: phone,
-        company: salesOrder.customerCompany || null,
+        companyName: salesOrder.customerCompany || salesOrder.companyName || null,
         customerType: salesOrder.customerType || 'Individual',
-        userId: userId,
+        companyId: companyId || null,
         createdBy: createdBy,
         isActive: true
       }
@@ -214,11 +219,11 @@ class DeliveryModel {
         throw new Error('Sales order not found');
       }
 
-      // ✅ Find or create customer
+      // ✅ Find or create customer (company-scoped)
       const { customerId, customer } = await findOrCreateCustomer(
         tx,
         salesOrder,
-        salesOrder.userId || data.userId,
+        salesOrder.companyId || data.companyId,
         data.createdBy
       );
 
@@ -309,6 +314,15 @@ class DeliveryModel {
         deliveryStatus = 'Pending';
       }
 
+      const companyId =
+        salesOrder.companyId || data.companyId || null;
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        data.locationId || salesOrder.locationId,
+        data.createdBy
+      );
+
       // Create delivery with validated customerId
       const delivery = await tx.delivery.create({
         data: {
@@ -323,7 +337,8 @@ class DeliveryModel {
           trackingNumber: data.trackingNumber || null,
           notes: data.notes || null,
           createdBy: data.createdBy,
-          userId: data.userId,
+          companyId,
+          locationId,
           items: {
             create: deliveryItems
           }
@@ -401,25 +416,19 @@ class DeliveryModel {
             throw new Error(`Product ${item.productId} not found`);
           }
 
-          const newStock = product.currentStock - item.deliveredQuantity;
-          const newReserved = Math.max(
-            0,
-            (product.reservedStock || 0) - item.deliveredQuantity
+          const locationId = await resolveLocationId(
+            tx,
+            companyId,
+            delivery.locationId || delivery.salesOrder?.locationId,
+            userId
           );
 
-          if (newStock < 0) {
-            throw new Error(
-              `Insufficient stock for product ${product.name}. Available: ${product.currentStock}, Required: ${item.deliveredQuantity}`
-            );
-          }
-
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              currentStock: newStock,
-              reservedStock: newReserved,
-              availableStock: Math.max(0, newStock - newReserved),
-            },
+          const adj = await adjustLocationStock(tx, {
+            companyId,
+            productId: item.productId,
+            locationId,
+            delta: -item.deliveredQuantity,
+            reservedDelta: -item.deliveredQuantity,
           });
 
           await tx.stockMovement.create({
@@ -428,14 +437,14 @@ class DeliveryModel {
               productName: item.productName,
               type: 'Delivery',
               quantity: -item.deliveredQuantity,
-              previousStock: product.currentStock,
-              newStock: newStock,
+              previousStock: adj.previousLocationStock,
+              newStock: adj.newLocationStock,
               reason: `Delivery #${delivery.deliveryNumber} confirmed`,
               reference: delivery.deliveryNumber,
               status: 'Completed',
               createdBy: userId,
-              userId: delivery.userId,
               companyId,
+              locationId,
             },
           });
         }
@@ -865,7 +874,7 @@ class DeliveryModel {
   // ============================================================
   // GET DELIVERY STATS / KPI
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId, locationId = null) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -878,7 +887,8 @@ class DeliveryModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId,
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     // Today's deliveries
@@ -952,11 +962,12 @@ class DeliveryModel {
   // ============================================================
   // GET DELIVERY STATUS COUNTS (KPI)
   // ============================================================
-  static async getStatusCounts(userId) {
+  static async getStatusCounts(companyId, locationId = null) {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId: companyId,
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     const [total, pending, partiallyDelivered, delivered] = await Promise.all([
@@ -977,15 +988,16 @@ class DeliveryModel {
   // ============================================================
   // GET AVAILABLE ORDERS FOR DELIVERY
   // ============================================================
-  static async getAvailableOrders(userId, search = '', page = 1, limit = 20) {
+  static async getAvailableOrders(companyId, search = '', page = 1, limit = 20, locationId = null) {
     const where = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false,
       orderType: 'Sales Order',
       orderStatus: {
         notIn: ['Delivered', 'Cancelled']
-      }
+      },
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     if (search) {
@@ -1066,12 +1078,13 @@ class DeliveryModel {
   // ============================================================
   // GET PRODUCT DELIVERY SUMMARY
   // ============================================================
-  static async getProductDeliverySummary(userId, startDate, endDate) {
+  static async getProductDeliverySummary(companyId, startDate, endDate, locationId = null) {
     const where = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false,
-      deliveryStatus: 'Delivered'
+      deliveryStatus: 'Delivered',
+      ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
     if (startDate || endDate) {

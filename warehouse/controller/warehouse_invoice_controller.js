@@ -1,6 +1,12 @@
 const WarehouseInvoice = require('../models/WarehouseInvoice');
 const Order = require('../models/Order');
 const prisma = require('../../prisma/client');
+const {
+  warehouseInvoiceLocationWhere,
+  salesInvoiceLocationWhere,
+  purchaseInvoiceLocationWhere,
+  normalizeLocationId,
+} = require('../../utils/accountingLocationHelper');
 
 function toNum(v) {
   const n = Number(v);
@@ -118,6 +124,10 @@ function buildSalesWhere(req) {
       ]
     });
   }
+  const locFilter = warehouseInvoiceLocationWhere(req.query.locationId);
+  if (normalizeLocationId(req.query.locationId)) {
+    andClauses.push(locFilter);
+  }
   return { AND: andClauses };
 }
 
@@ -167,6 +177,10 @@ function buildPurchaseWhere(req) {
         { supplierInvoiceNo: { contains: search, mode: 'insensitive' } },
       ]
     });
+  }
+  const locFilter = purchaseInvoiceLocationWhere(req.query.locationId);
+  if (normalizeLocationId(req.query.locationId)) {
+    andClauses.push(locFilter);
   }
   return { AND: andClauses };
 }
@@ -254,6 +268,10 @@ function buildSalesInvoiceWhere(req) {
         { orderNumber: { contains: search, mode: 'insensitive' } },
       ]
     });
+  }
+  const locFilter = salesInvoiceLocationWhere(req.query.locationId);
+  if (normalizeLocationId(req.query.locationId)) {
+    andClauses.push(locFilter);
   }
   return { AND: andClauses };
 }

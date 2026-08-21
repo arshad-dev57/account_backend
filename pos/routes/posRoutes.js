@@ -173,10 +173,11 @@ router.post('/send-receipt', protect, async (req, res) => {
               <tr><td style="padding:4px 0;color:#4b5563;">Amount paid</td><td style="padding:4px 0;text-align:right;font-weight:700;">${money(sale.paidAmount)}</td></tr>
               ${Number(sale.changeAmount) > 0 ? `<tr><td style="padding:4px 0;color:#4b5563;">Change</td><td style="padding:4px 0;text-align:right;">${money(sale.changeAmount)}</td></tr>` : ''}
             </table>
-            ${receiptMeta.barcodeDataUrl ? `
+            ${receiptMeta.barcodeDataUrl || receiptMeta.qrDataUrl ? `
               <div style="text-align:center;margin:8px 0 18px;">
-                <img src="${receiptMeta.barcodeDataUrl}" alt="${sale.invoiceNumber}" style="max-width:280px;height:auto;" />
-                <div style="font-size:11px;color:#6b7280;margin-top:4px;">Scan to look up receipt ${sale.invoiceNumber}</div>
+                ${receiptMeta.barcodeDataUrl ? `<img src="${receiptMeta.barcodeDataUrl}" alt="${sale.invoiceNumber}" style="max-width:320px;height:auto;" />` : ''}
+                ${receiptMeta.qrDataUrl ? `<div style="margin-top:12px;"><img src="${receiptMeta.qrDataUrl}" alt="Receipt QR" style="width:160px;height:160px;" /></div>` : ''}
+                <div style="font-size:11px;color:#6b7280;margin-top:6px;">Scan barcode / QR for full receipt data (${sale.invoiceNumber || ''})</div>
               </div>
             ` : ''}
             ${returnPolicy ? `<p style="font-size:11px;color:#6b7280;line-height:1.6;text-align:center;margin:0 0 10px 0;">${returnPolicy}</p>` : ''}

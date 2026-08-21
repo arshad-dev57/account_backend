@@ -1,5 +1,6 @@
 // controllers/accountingReportController.js
 const prisma = require('../prisma/client');
+const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
 
 function toNum(v) {
   const n = Number(v);
@@ -104,7 +105,8 @@ const getAccountingReports = async (req, res) => {
       startDate,
       endDate,
       page = 1,
-      limit = 50
+      limit = 50,
+      locationId
     } = req.query;
 
     const dateFilter = getDateFilter(period, startDate, endDate);
@@ -120,13 +122,28 @@ const getAccountingReports = async (req, res) => {
       where.status = String(status);
     }
 
+    const andClauses = [];
+
     if (search && String(search).trim()) {
       const q = String(search).trim();
-      where.OR = [
-        { entryNumber: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
-        { reference: { contains: q, mode: 'insensitive' } },
-      ];
+      andClauses.push({
+        OR: [
+          { entryNumber: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { reference: { contains: q, mode: 'insensitive' } },
+        ]
+      });
+    }
+
+    const locWhere = journalEntryLocationWhere(locationId);
+    if (Object.keys(locWhere).length > 0) {
+      andClauses.push(locWhere);
+    }
+
+    if (andClauses.length === 1) {
+      Object.assign(where, andClauses[0]);
+    } else if (andClauses.length > 1) {
+      where.AND = andClauses;
     }
 
     const entries = await prisma.journalEntry.findMany({

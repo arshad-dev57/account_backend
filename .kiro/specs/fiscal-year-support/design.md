@@ -1,6 +1,3 @@
-# Design Document: Fiscal Year Support
-
-## Overview
 
 This document describes the technical design for adding professional-grade Fiscal Year support to the Node.js/Express accounting ERP backend. The system uses PostgreSQL with Prisma ORM. There is no Company model — the User IS the company boundary. All records use `userId` for multi-tenancy.
 
@@ -18,7 +15,6 @@ The feature introduces:
 
 ---
 
-## Architecture
 
 The feature follows the existing layered architecture of the application:
 

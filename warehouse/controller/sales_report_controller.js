@@ -69,12 +69,13 @@ function emptySummary() {
   };
 }
 
-async function fetchOrderRows(companyId, dateFilter, { status, search }) {
+async function fetchOrderRows(companyId, dateFilter, { status, search, locationId }) {
   const where = {
     companyId,
     isActive: true,
     isDeleted: false,
-    orderDate: dateFilter
+    orderDate: dateFilter,
+    ...(locationId ? { locationId } : {}),
   };
   if (status && status !== 'all') {
     where.orderStatus = status;
@@ -119,11 +120,13 @@ async function fetchOrderRows(companyId, dateFilter, { status, search }) {
   }));
 }
 
-async function fetchPosRows(companyId, dateFilter, { status, search }) {
+async function fetchPosRows(companyId, dateFilter, { status, search, locationId }) {
   const where = {
     companyId,
     createdAt: dateFilter,
-    status: status && status !== 'all' ? status : { in: ['Completed', 'Invoiced'] }
+    status: status && status !== 'all' ? status : { in: ['Completed', 'Invoiced'] },
+    // POSSale has no locationId — scope via terminal warehouse
+    ...(locationId ? { terminal: { locationId: String(locationId) } } : {}),
   };
   if (search) {
     where.OR = [
@@ -165,40 +168,46 @@ async function fetchPosRows(companyId, dateFilter, { status, search }) {
   }));
 }
 
-async function fetchInvoiceRows(companyId, dateFilter, { status, search }) {
+async function fetchInvoiceRows(companyId, dateFilter, { status, search, locationId }) {
   const baseWhere = {
     companyId,
     isActive: true,
     isDeleted: false,
-    invoiceDate: dateFilter
+    invoiceDate: dateFilter,
+    ...(locationId ? { locationId } : {}),
   };
 
   const [warehouseRows, salesRows] = await Promise.all([
-    prisma.warehouseInvoice.findMany({
-      where: {
-        ...baseWhere,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
-      },
-      select: {
-        id: true,
-        orderId: true,
-        invoiceNumber: true,
-        invoiceDate: true,
-        customerName: true,
-        invoiceStatus: true,
-        paymentStatus: true,
-        subtotal: true,
-        taxTotal: true,
-        discountTotal: true,
-        grandTotal: true
-      },
-      orderBy: { invoiceDate: 'desc' },
-      take: 2000
-    }),
+    locationId
+      ? Promise.resolve([]) // WarehouseInvoice has no locationId — skip when scoped
+      : prisma.warehouseInvoice.findMany({
+          where: {
+            companyId,
+            isActive: true,
+            isDeleted: false,
+            invoiceDate: dateFilter,
+            invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+          },
+          select: {
+            id: true,
+            orderId: true,
+            invoiceNumber: true,
+            invoiceDate: true,
+            customerName: true,
+            invoiceStatus: true,
+            paymentStatus: true,
+            subtotal: true,
+            taxTotal: true,
+            discountTotal: true,
+            grandTotal: true,
+          },
+          orderBy: { invoiceDate: 'desc' },
+          take: 2000,
+        }),
     prisma.salesInvoice.findMany({
       where: {
         ...baseWhere,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
       },
       select: {
         id: true,
@@ -211,10 +220,10 @@ async function fetchInvoiceRows(companyId, dateFilter, { status, search }) {
         subtotal: true,
         taxTotal: true,
         discountTotal: true,
-        grandTotal: true
+        grandTotal: true,
       },
       orderBy: { invoiceDate: 'desc' },
-      take: 2000
+      take: 2000,
     }),
   ]);
 
@@ -286,7 +295,8 @@ const getSalesReport = async (req, res) => {
       status = 'all',
       search = '',
       page = '1',
-      limit = '50'
+      limit = '50',
+      locationId,
     } = req.query;
 
     const dateFilter = await resolveQueryDateFilter({
@@ -298,7 +308,8 @@ const getSalesReport = async (req, res) => {
     });
     const filters = {
       status: status || 'all',
-      search: String(search || '').trim()
+      search: String(search || '').trim(),
+      locationId: locationId || undefined,
     };
 
     const channelKey = String(channel || 'all').toLowerCase();

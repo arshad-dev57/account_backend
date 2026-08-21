@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
 const { sendToUser } = require('../services/onesignal');
 const { initializeDefaultChartOfAccounts } = require('../services/defaultChartOfAccountsService');
+const { ensureDefaultLocation } = require('../warehouse/services/locationService');
 
 // Lazy require — avoid circular load with pdfReportSettingsController
 function getPdfReportSettingsForUserId(userId) {
@@ -284,6 +285,13 @@ exports.register = async (req, res) => {
       console.log('✅ [register] Default Chart of Accounts initialized:', coaResult.message);
     } catch (coaError) {
       console.error('⚠️ [register] Default Chart of Accounts initialization failed (non-fatal):', coaError.message);
+    }
+
+    try {
+      await ensureDefaultLocation(prisma, company.id, user._id);
+      console.log('✅ [register] Default location (Main Warehouse) created');
+    } catch (locError) {
+      console.error('⚠️ [register] Default location creation failed (non-fatal):', locError.message);
     }
 
     try {

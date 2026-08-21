@@ -1,6 +1,15 @@
 
 const prisma = require('../prisma/client');
 const { findCashAccount } = require('../utils/cashAccountHelper');
+const {
+  normalizeLocationId,
+  salesInvoiceLocationWhere,
+  warehouseInvoiceLocationWhere,
+  purchaseInvoiceLocationWhere,
+  creditNoteLocationWhere,
+  journalEntryLocationWhere,
+  posSaleLocationWhere
+} = require('../utils/accountingLocationHelper');
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -413,7 +422,7 @@ function chartBuckets(startDate, endDate) {
   return { useDaily, buckets };
 }
 
-async function buildLedgerChartSeries(companyId, startDate, endDate) {
+async function buildLedgerChartSeries(companyId, startDate, endDate, locationId = null) {
   const windowStart = startOfDay(startDate);
   const windowEnd = endOfDay(endDate);
   const { useDaily, buckets } = chartBuckets(startDate, endDate);
@@ -430,7 +439,8 @@ async function buildLedgerChartSeries(companyId, startDate, endDate) {
     where: {
       companyId,
       status: 'Posted',
-      date: { gte: windowStart, lte: windowEnd }
+      date: { gte: windowStart, lte: windowEnd },
+      ...journalEntryLocationWhere(locationId)
     },
     include: {
       lines: {
@@ -668,7 +678,8 @@ async function buildCapitalPosition({
   startDate,
   endDate,
   fiscalYearId,
-  periodPl: periodPlIn = null
+  periodPl: periodPlIn = null,
+  locationId = null
 }) {
   const { buildBalanceSheetFromLedger } = require('../utils/balanceSheetHelper');
   const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
@@ -679,11 +690,14 @@ async function buildCapitalPosition({
       companyId,
       'All Time',
       endDate,
-      fiscalYearId
+      fiscalYearId,
+      null,
+      null,
+      locationId
     ),
     periodPlIn
       ? Promise.resolve(periodPlIn)
-      : buildProfitLossFromLedger(companyId, startDate, endDate)
+      : buildProfitLossFromLedger(companyId, startDate, endDate, locationId)
   ]);
 
   const owners = bs.equity?.owners || [];
@@ -746,18 +760,20 @@ async function buildCapitalPosition({
   };
 }
 
-async function sumEquityJournalLines(companyId, equityIds, endDate) {
+async function sumEquityJournalLines(companyId, equityIds, endDate, locationId = null) {
   if (!equityIds.length) return [];
+  const journalScope = {
+    companyId,
+    status: 'Posted',
+    date: { lte: endDate },
+    ...journalEntryLocationWhere(locationId)
+  };
   try {
     return await prisma.journalLine.groupBy({
       by: ['accountId'],
       where: {
         accountId: { in: equityIds },
-        journal: {
-          companyId,
-          status: 'Posted',
-          date: { lte: endDate }
-        }
+        journal: journalScope
       },
       _sum: { debit: true, credit: true }
     });
@@ -765,11 +781,7 @@ async function sumEquityJournalLines(companyId, equityIds, endDate) {
     const rows = await prisma.journalLine.findMany({
       where: {
         accountId: { in: equityIds },
-        journal: {
-          companyId,
-          status: 'Posted',
-          date: { lte: endDate }
-        }
+        journal: journalScope
       },
       select: { accountId: true, debit: true, credit: true }
     });
@@ -888,10 +900,19 @@ async function buildDashboardOverview({
   endDate,
   timePeriod,
   fiscalYearId = null,
-  txnLimit = 10
+  txnLimit = 10,
+  locationId = null
 }) {
   const fetchFrom = startDate;
   const fetchTo = endDate;
+  const loc = normalizeLocationId(locationId);
+  const scopedLocation = Boolean(loc);
+  const whLoc = warehouseInvoiceLocationWhere(loc);
+  const salesLoc = salesInvoiceLocationWhere(loc);
+  const purchLoc = purchaseInvoiceLocationWhere(loc);
+  const cnLoc = creditNoteLocationWhere(loc);
+
+  const emptyList = Promise.resolve([]);
 
   const [
     allIncomes,
@@ -914,27 +935,30 @@ async function buildDashboardOverview({
     equityAccounts,
     equityModuleAccounts,
   ] = await Promise.all([
-    prisma.income.findMany({
-      where: {
-        companyId,
-        date: { gte: fetchFrom, lte: fetchTo },
-        status: 'Posted'
-      },
-      select: {
-        id: true,
-        date: true,
-        amount: true,
-        totalAmount: true,
-        description: true,
-        incomeType: true,
-        incomeNumber: true,
-        reference: true
-      }
-    }),
+    scopedLocation
+      ? emptyList
+      : prisma.income.findMany({
+          where: {
+            companyId,
+            date: { gte: fetchFrom, lte: fetchTo },
+            status: 'Posted'
+          },
+          select: {
+            id: true,
+            date: true,
+            amount: true,
+            totalAmount: true,
+            description: true,
+            incomeType: true,
+            incomeNumber: true,
+            reference: true
+          }
+        }),
     prisma.warehouseInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        ...whLoc
       }),
       select: {
         id: true,
@@ -950,7 +974,8 @@ async function buildDashboardOverview({
     prisma.salesInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        ...salesLoc
       }),
       select: {
         id: true,
@@ -967,28 +992,32 @@ async function buildDashboardOverview({
       where: {
         companyId,
         date: { gte: fetchFrom, lte: fetchTo },
-        status: { notIn: ['Cancelled', 'Voided'] }
+        status: { notIn: ['Cancelled', 'Voided'] },
+        ...cnLoc
       },
       select: { date: true, amount: true }
     }),
-    prisma.expense.findMany({
-      where: expenseWhere(companyId, userId, {
-        date: { gte: fetchFrom, lte: fetchTo }
-      }),
-      select: {
-        id: true,
-        date: true,
-        amount: true,
-        totalAmount: true,
-        expenseType: true,
-        description: true,
-        expenseNumber: true,
-        reference: true
-      }
-    }),
+    scopedLocation
+      ? emptyList
+      : prisma.expense.findMany({
+          where: expenseWhere(companyId, userId, {
+            date: { gte: fetchFrom, lte: fetchTo }
+          }),
+          select: {
+            id: true,
+            date: true,
+            amount: true,
+            totalAmount: true,
+            expenseType: true,
+            description: true,
+            expenseNumber: true,
+            reference: true
+          }
+        }),
     prisma.purchaseInvoice.findMany({
       where: purchaseWhere(companyId, userId, {
-        invoiceDate: { gte: fetchFrom, lte: fetchTo }
+        invoiceDate: { gte: fetchFrom, lte: fetchTo },
+        ...purchLoc
       }),
       select: {
         id: true,
@@ -1003,7 +1032,8 @@ async function buildDashboardOverview({
         ...salesInvoiceWhere(companyId, userId, {
           paymentStatus: { in: ['Unpaid', 'Partial'] },
           outstanding: { gt: 0 },
-          invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+          ...whLoc
         })
       },
       select: { outstanding: true, orderId: true, invoiceStatus: true }
@@ -1013,20 +1043,23 @@ async function buildDashboardOverview({
         ...salesInvoiceWhere(companyId, userId, {
           paymentStatus: { in: ['Unpaid', 'Partial'] },
           outstanding: { gt: 0 },
-          invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+          invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+          ...salesLoc
         })
       },
       select: { outstanding: true, orderId: true, invoiceStatus: true }
     }),
-    prisma.bill.findMany({
-      where: {
-        companyId,
-        posted: true,
-        outstanding: { gt: 0 },
-        status: { notIn: ['Cancelled', 'Voided', 'Draft', 'Paid'] }
-      },
-      select: { outstanding: true }
-    }),
+    scopedLocation
+      ? emptyList
+      : prisma.bill.findMany({
+          where: {
+            companyId,
+            posted: true,
+            outstanding: { gt: 0 },
+            status: { notIn: ['Cancelled', 'Voided', 'Draft', 'Paid'] }
+          },
+          select: { outstanding: true }
+        }),
     prisma.purchaseInvoice.findMany({
       where: {
         AND: [
@@ -1038,7 +1071,8 @@ async function buildDashboardOverview({
             outstanding: { gt: 0 },
             invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
             isDeleted: false,
-            isActive: true
+            isActive: true,
+            ...purchLoc
           },
         ]
       },
@@ -1053,7 +1087,8 @@ async function buildDashboardOverview({
       where: {
         companyId,
         status: { notIn: ['Cancelled', 'Voided'] },
-        paymentDate: { gte: startDate, lte: endDate }
+        paymentDate: { gte: startDate, lte: endDate },
+        ...(scopedLocation ? { invoice: whLoc } : {})
       },
       orderBy: { paymentDate: 'desc' },
       take: txnLimit,
@@ -1066,46 +1101,51 @@ async function buildDashboardOverview({
         invoiceNumber: true
       }
     }),
-    prisma.income.findMany({
-      where: {
-        companyId,
-        status: 'Posted',
-        date: { gte: startDate, lte: endDate }
-      },
-      orderBy: { date: 'desc' },
-      take: txnLimit,
-      select: {
-        id: true,
-        description: true,
-        incomeType: true,
-        incomeNumber: true,
-        amount: true,
-        totalAmount: true,
-        date: true,
-        reference: true
-      }
-    }),
-    prisma.expense.findMany({
-      where: expenseWhere(companyId, userId, {
-        date: { gte: startDate, lte: endDate }
-      }),
-      orderBy: { date: 'desc' },
-      take: txnLimit,
-      select: {
-        id: true,
-        description: true,
-        expenseType: true,
-        expenseNumber: true,
-        amount: true,
-        totalAmount: true,
-        date: true,
-        reference: true
-      }
-    }),
+    scopedLocation
+      ? emptyList
+      : prisma.income.findMany({
+          where: {
+            companyId,
+            status: 'Posted',
+            date: { gte: startDate, lte: endDate }
+          },
+          orderBy: { date: 'desc' },
+          take: txnLimit,
+          select: {
+            id: true,
+            description: true,
+            incomeType: true,
+            incomeNumber: true,
+            amount: true,
+            totalAmount: true,
+            date: true,
+            reference: true
+          }
+        }),
+    scopedLocation
+      ? emptyList
+      : prisma.expense.findMany({
+          where: expenseWhere(companyId, userId, {
+            date: { gte: startDate, lte: endDate }
+          }),
+          orderBy: { date: 'desc' },
+          take: txnLimit,
+          select: {
+            id: true,
+            description: true,
+            expenseType: true,
+            expenseNumber: true,
+            amount: true,
+            totalAmount: true,
+            date: true,
+            reference: true
+          }
+        }),
     prisma.warehouseInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: startDate, lte: endDate },
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+        ...whLoc
       }),
       orderBy: { invoiceDate: 'desc' },
       take: txnLimit,
@@ -1117,26 +1157,29 @@ async function buildDashboardOverview({
         invoiceDate: true
       }
     }),
-    prisma.bill.findMany({
-      where: {
-        companyId,
-        posted: true,
-        status: { notIn: ['Cancelled', 'Voided', 'Draft'] },
-        date: { gte: startDate, lte: endDate }
-      },
-      orderBy: { date: 'desc' },
-      take: txnLimit,
-      select: {
-        id: true,
-        billNumber: true,
-        vendorName: true,
-        totalAmount: true,
-        date: true
-      }
-    }),
+    scopedLocation
+      ? emptyList
+      : prisma.bill.findMany({
+          where: {
+            companyId,
+            posted: true,
+            status: { notIn: ['Cancelled', 'Voided', 'Draft'] },
+            date: { gte: startDate, lte: endDate }
+          },
+          orderBy: { date: 'desc' },
+          take: txnLimit,
+          select: {
+            id: true,
+            billNumber: true,
+            vendorName: true,
+            totalAmount: true,
+            date: true
+          }
+        }),
     prisma.purchaseInvoice.findMany({
       where: purchaseWhere(companyId, userId, {
-        invoiceDate: { gte: startDate, lte: endDate }
+        invoiceDate: { gte: startDate, lte: endDate },
+        ...purchLoc
       }),
       orderBy: { invoiceDate: 'desc' },
       take: txnLimit,
@@ -1189,10 +1232,10 @@ async function buildDashboardOverview({
   const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
   const equityIds = (equityAccounts || []).map((a) => a.id).filter(Boolean);
   const [currentPl, ledgerChart, equityLineSums] = await Promise.all([
-    buildProfitLossFromLedger(companyId, startDate, endDate),
-    buildLedgerChartSeries(companyId, startDate, endDate),
+    buildProfitLossFromLedger(companyId, startDate, endDate, loc),
+    buildLedgerChartSeries(companyId, startDate, endDate, loc),
     equityIds.length
-      ? sumEquityJournalLines(companyId, equityIds, endDate)
+      ? sumEquityJournalLines(companyId, equityIds, endDate, loc)
       : Promise.resolve([])
   ]);
   const capitalPosition = buildLiteCapitalPosition(
@@ -1206,6 +1249,20 @@ async function buildDashboardOverview({
   const salesInPeriod = mappedSales.filter((d) => inRange(d.date, startDate, endDate));
   const totalSalesPaid = salesInPeriod.reduce((s, d) => s + toNum(d.paidAmount), 0);
   const totalSalesCount = salesInPeriod.length;
+
+  const posAgg = await prisma.pOSSale.aggregate({
+    where: {
+      companyId,
+      status: 'Completed',
+      createdAt: { gte: startDate, lte: endDate },
+      ...posSaleLocationWhere(loc)
+    },
+    _sum: { grandTotal: true, paidAmount: true },
+    _count: { id: true }
+  });
+  const posSalesAmount = toNum(posAgg._sum?.grandTotal);
+  const posSalesCount = posAgg._count?.id || 0;
+
   const expenseScreenTotal = current.operatingExpenses;
   const expenseScreenCount = allExpenses.filter((d) =>
     inRange(d.date, startDate, endDate)
@@ -1310,6 +1367,15 @@ async function buildDashboardOverview({
         period: timePeriod,
         count: totalSalesCount,
         source: 'Sales invoices paid amount (selected period)'
+      },
+      posSales: {
+        amount: posSalesAmount,
+        formatted: formatAmount(posSalesAmount),
+        change: 0,
+        isPositive: true,
+        period: timePeriod,
+        count: posSalesCount,
+        source: 'POS completed sales (selected period)'
       },
       totalPurchases: {
         amount: current.purchases,
@@ -1467,6 +1533,7 @@ const getDashboardOverview = async (req, res) => {
       fiscalYearId
     } = await resolveDateRange(req.query, companyId);
     const txnLimit = parseInt(req.query.limit, 10) || 10;
+    const locationId = req.query.locationId || null;
 
     const data = await buildDashboardOverview({
       userId,
@@ -1475,7 +1542,8 @@ const getDashboardOverview = async (req, res) => {
       endDate,
       timePeriod,
       fiscalYearId,
-      txnLimit
+      txnLimit,
+      locationId
     });
 
     return res.status(200).json({ success: true, data });
@@ -1494,13 +1562,16 @@ const getDashboardSummary = async (req, res) => {
       req.query,
       companyId
     );
+    const locationId = req.query.locationId || null;
 
     const overview = await buildDashboardOverview({
       userId,
       companyId,
       startDate,
       endDate,
-      timePeriod
+      timePeriod,
+      fiscalYearId,
+      locationId
     });
 
     const summaryData = {
@@ -1526,17 +1597,20 @@ const getChartData = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { start: startDate, end: endDate, timePeriod } = await resolveDateRange(
+    const { start: startDate, end: endDate, timePeriod, fiscalYearId } = await resolveDateRange(
       req.query,
       companyId
     );
+    const locationId = req.query.locationId || null;
 
     const overview = await buildDashboardOverview({
       userId,
       companyId,
       startDate,
       endDate,
-      timePeriod
+      timePeriod,
+      fiscalYearId,
+      locationId
     });
 
     res.status(200).json({
@@ -1555,17 +1629,20 @@ const getExpenseCategories = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { start: startDate, end: endDate, timePeriod } = await resolveDateRange(
+    const { start: startDate, end: endDate, timePeriod, fiscalYearId } = await resolveDateRange(
       req.query,
       companyId
     );
+    const locationId = req.query.locationId || null;
 
     const overview = await buildDashboardOverview({
       userId,
       companyId,
       startDate,
       endDate,
-      timePeriod
+      timePeriod,
+      fiscalYearId,
+      locationId
     });
 
     res.status(200).json({

@@ -82,40 +82,155 @@ const getDashboardMetrics = async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const { start, end } = parsePeriodFilter(req.query);
+    const locationId = req.query.locationId || null;
+    const movementWhere = {
+      companyId,
+      ...(locationId ? { locationId } : {}),
+    };
+
+    let totalProducts;
+    let productsForStats;
+    let outOfStockCount;
+    let expiringCount;
+    let totalStockValue;
+    let lowStockCount;
+    let overstockCount;
+
+    if (locationId) {
+      const stocks = await prisma.productStock.findMany({
+        where: { companyId, locationId },
+        include: {
+          product: {
+            select: {
+              costPrice: true,
+              minimumStock: true,
+              maximumStock: true,
+              isActive: true,
+              expiryDate: true,
+            },
+          },
+        },
+      });
+
+      const now = new Date();
+      const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const activeStocks = stocks.filter((s) => s.product?.isActive !== false);
+
+      // Only products assigned to this warehouse
+      totalProducts = activeStocks.length;
+      outOfStockCount = activeStocks.filter(
+        (row) => (row.currentStock || 0) === 0
+      ).length;
+      expiringCount = activeStocks.filter((row) => {
+        const exp = row.product?.expiryDate;
+        if (!exp) return false;
+        const d = new Date(exp);
+        return d >= now && d <= in30;
+      }).length;
+      totalStockValue = activeStocks.reduce(
+        (s, row) => s + (row.product?.costPrice || 0) * (row.currentStock || 0),
+        0
+      );
+      lowStockCount = activeStocks.filter((row) => {
+        const min = row.product?.minimumStock || 0;
+        return min > 0 && row.currentStock > 0 && row.currentStock <= min;
+      }).length;
+      overstockCount = activeStocks.filter((row) => {
+        const max = row.product?.maximumStock || 0;
+        return max > 0 && row.currentStock >= max * 1.2;
+      }).length;
+    } else {
+      const [
+        tp,
+        products,
+        oos,
+        exp,
+      ] = await Promise.all([
+        prisma.product.count({ where: { companyId, isActive: true } }),
+        prisma.product.findMany({
+          where: { companyId, isActive: true },
+          select: {
+            costPrice: true,
+            sellingPrice: true,
+            currentStock: true,
+            minimumStock: true,
+            maximumStock: true,
+          },
+        }),
+        prisma.product.count({
+          where: { companyId, isActive: true, currentStock: 0 },
+        }),
+        prisma.product.count({
+          where: {
+            companyId,
+            isActive: true,
+            expiryDate: {
+              gte: new Date(),
+              lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            },
+          },
+        }),
+      ]);
+      totalProducts = tp;
+      productsForStats = products;
+      outOfStockCount = oos;
+      expiringCount = exp;
+      totalStockValue = productsForStats.reduce(
+        (s, p) => s + (p.costPrice || 0) * (p.currentStock || 0),
+        0
+      );
+      lowStockCount = productsForStats.filter(
+        (p) =>
+          p.minimumStock > 0 &&
+          p.currentStock > 0 &&
+          p.currentStock <= p.minimumStock
+      ).length;
+      overstockCount = productsForStats.filter(
+        (p) => p.maximumStock > 0 && p.currentStock >= p.maximumStock * 1.2
+      ).length;
+    }
 
     const [
-      totalProducts,
-      products,
-      outOfStockCount,
-      expiringCount,
       todayStockIn,
       todayStockOut,
       periodStockIn,
       periodStockOut,
     ] = await Promise.all([
-      prisma.product.count({ where: { companyId, isActive: true } }),
-      prisma.product.findMany({
-        where: { companyId, isActive: true },
-        select: { sellingPrice: true, currentStock: true, minimumStock: true, maximumStock: true }
+      prisma.stockMovement.count({
+        where: {
+          ...movementWhere,
+          type: 'stock_in',
+          createdAt: {
+            gte: getTodayRange().today,
+            lt: getTodayRange().tomorrow,
+          },
+        },
       }),
-      prisma.product.count({ where: { companyId, isActive: true, currentStock: 0 } }),
-      prisma.product.count({
-        where: { companyId, isActive: true, expiryDate: { gte: new Date(), lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } }
+      prisma.stockMovement.count({
+        where: {
+          ...movementWhere,
+          type: 'stock_out',
+          createdAt: {
+            gte: getTodayRange().today,
+            lt: getTodayRange().tomorrow,
+          },
+        },
       }),
-      // Always today's counts (not period-filtered — header stats)
-      prisma.stockMovement.count({ where: { companyId, type: 'stock_in',  createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
-      prisma.stockMovement.count({ where: { companyId, type: 'stock_out', createdAt: { gte: getTodayRange().today, lt: getTodayRange().tomorrow } } }),
-      // Period-filtered movement counts
-      prisma.stockMovement.count({ where: { companyId, type: 'stock_in',  createdAt: { gte: start, lte: end } } }),
-      prisma.stockMovement.count({ where: { companyId, type: 'stock_out', createdAt: { gte: start, lte: end } } }),
+      prisma.stockMovement.count({
+        where: {
+          ...movementWhere,
+          type: 'stock_in',
+          createdAt: { gte: start, lte: end },
+        },
+      }),
+      prisma.stockMovement.count({
+        where: {
+          ...movementWhere,
+          type: 'stock_out',
+          createdAt: { gte: start, lte: end },
+        },
+      }),
     ]);
-
-    const totalStockValue = products.reduce(
-      (s, p) => s + (p.costPrice || 0) * (p.currentStock || 0),
-      0
-    );
-    const lowStockCount   = products.filter(p => p.minimumStock > 0 && p.currentStock > 0 && p.currentStock <= p.minimumStock).length;
-    const overstockCount  = products.filter(p => p.maximumStock > 0 && p.currentStock >= p.maximumStock * 1.2).length;
 
     res.status(200).json({
       success: true,
@@ -131,7 +246,8 @@ const getDashboardMetrics = async (req, res) => {
         periodStockIn,
         periodStockOut,
         pendingOrders: 0,
-        todayRevenue: 0
+        todayRevenue: 0,
+        locationId: locationId || null,
       }
     });
   } catch (error) {
@@ -149,9 +265,13 @@ const getRecentActivities = async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const { limit = 10 } = req.query;
+    const locationId = req.query.locationId || null;
 
     const movements = await prisma.stockMovement.findMany({
-      where: { companyId },
+      where: {
+        companyId,
+        ...(locationId ? { locationId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: parseInt(limit)
     });
@@ -253,9 +373,14 @@ const getStockMovementChart = async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const { start, end, groupBy } = parsePeriodFilter(req.query);
+    const locationId = req.query.locationId || null;
 
     const movements = await prisma.stockMovement.findMany({
-      where: { companyId, createdAt: { gte: start, lte: end } },
+      where: {
+        companyId,
+        createdAt: { gte: start, lte: end },
+        ...(locationId ? { locationId } : {}),
+      },
       select: { type: true, quantity: true, createdAt: true }
     });
 
@@ -333,75 +458,68 @@ const getStockMovementChart = async (req, res) => {
 // ============================================================
 const getCategoryDistribution = async (req, res) => {
   try {
-    console.log("\n========== CATEGORY DISTRIBUTION API ==========");
-    console.log("Method:", req.method);
-    console.log("URL:", req.originalUrl);
-    console.log("User:", req.user?.id, req.user?.email);
-    console.log("Timestamp:", new Date().toISOString());
-
     const companyId = req.user.companyId;
+    const locationId = req.query.locationId || null;
 
-    // Get categories with product counts (company-specific)
+    const productWhere = {
+      companyId,
+      isActive: true,
+      ...(locationId
+        ? { productStocks: { some: { locationId, companyId } } }
+        : {}),
+    };
+
     const categories = await prisma.category.findMany({
       where: {
-        companyId: companyId,
-        isActive: true
+        companyId,
+        isActive: true,
       },
       select: {
         id: true,
         name: true,
         products: {
-          where: {
-            companyId: companyId,
-            isActive: true
-          },
-          select: { id: true }
-        }
-      }
+          where: productWhere,
+          select: { id: true },
+        },
+      },
     });
 
-    console.log("📊 Categories found:", categories.length);
+    const totalProducts = categories.reduce(
+      (sum, cat) => sum + cat.products.length,
+      0
+    );
 
-    // Calculate product counts
-    const totalProducts = categories.reduce((sum, cat) => sum + cat.products.length, 0);
-    console.log("📦 Total Products:", totalProducts);
-
-    const categoryData = categories.map((cat, index) => {
-      const productCount = cat.products.length;
-      const percentage = totalProducts > 0 ? (productCount / totalProducts * 100) : 0;
-      
-      console.log(`📌 ${cat.name}: ${productCount} products (${percentage.toFixed(1)}%)`);
-
-      return {
-        categoryId: cat.id,
-        categoryName: cat.name,
-        productCount: productCount,
-        percentage: percentage,
-        color: getColorForIndex(index),
-        icon: 'inventory'
-      };
-    });
-
-    const responseData = {
-      categories: categoryData,
-      totalProducts
-    };
-
-    console.log("✅ Response Data:", JSON.stringify(responseData, null, 2));
-    console.log("========== END CATEGORIES ==========\n");
+    const categoryData = categories
+      .map((cat, index) => {
+        const productCount = cat.products.length;
+        const percentage =
+          totalProducts > 0 ? (productCount / totalProducts) * 100 : 0;
+        return {
+          categoryId: cat.id,
+          categoryName: cat.name,
+          productCount,
+          percentage,
+          color: getColorForIndex(index),
+          icon: 'inventory',
+        };
+      })
+      .filter((c) => c.productCount > 0);
 
     res.status(200).json({
       success: true,
-      data: responseData
+      data: {
+        categories: categoryData,
+        totalProducts,
+        locationId: locationId || null,
+      },
     });
-
   } catch (error) {
     console.error('❌ Category distribution error:', error);
     console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -413,57 +531,63 @@ const getCategoryDistribution = async (req, res) => {
 // ============================================================
 const getTopProducts = async (req, res) => {
   try {
-    console.log("\n========== TOP PRODUCTS API ==========");
-    console.log("Method:", req.method);
-    console.log("URL:", req.originalUrl);
-    console.log("User:", req.user?.id, req.user?.email);
-    console.log("Timestamp:", new Date().toISOString());
-
     const companyId = req.user.companyId;
+    const locationId = req.query.locationId || null;
 
-    // Get top products by stock movement quantity (company-specific)
+    // Location view: top by stock qty at that warehouse
+    if (locationId) {
+      const stocks = await prisma.productStock.findMany({
+        where: {
+          companyId,
+          locationId,
+          currentStock: { gt: 0 },
+          product: { isActive: true },
+        },
+        include: {
+          product: { select: { name: true, sku: true } },
+        },
+        orderBy: { currentStock: 'desc' },
+        take: 5,
+      });
+
+      const chartData = stocks.map((s, index) => ({
+        label: s.product?.name || `Product ${index + 1}`,
+        value: s.currentStock || 0,
+        color: getColorForIndex(index),
+      }));
+
+      return res.status(200).json({
+        success: true,
+        data: chartData,
+        locationId,
+      });
+    }
+
     const topProducts = await prisma.stockMovement.groupBy({
       by: ['productId', 'productName'],
-      where: {
-        companyId: companyId
-      },
-      _sum: {
-        quantity: true
-      },
-      orderBy: {
-        _sum: {
-          quantity: 'desc'
-        }
-      },
-      take: 5
+      where: { companyId },
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: 'desc' } },
+      take: 5,
     });
 
-    console.log("🏆 Top Products found:", topProducts.length);
-
-    const chartData = topProducts.map((p, index) => {
-      console.log(`🥇 #${index + 1}: ${p.productName} - ${p._sum.quantity} units`);
-      return {
-        label: p.productName || `Product ${index + 1}`,
-        value: p._sum.quantity || 0,
-        color: getColorForIndex(index)
-      };
-    });
-
-    console.log("✅ Chart Data:", JSON.stringify(chartData, null, 2));
-    console.log("========== END TOP PRODUCTS ==========\n");
+    const chartData = topProducts.map((p, index) => ({
+      label: p.productName || `Product ${index + 1}`,
+      value: p._sum.quantity || 0,
+      color: getColorForIndex(index),
+    }));
 
     res.status(200).json({
       success: true,
-      data: chartData
+      data: chartData,
     });
-
   } catch (error) {
     console.error('❌ Top products error:', error);
     console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -482,18 +606,19 @@ const getOrderStatusDistribution = async (req, res) => {
     console.log("Timestamp:", new Date().toISOString());
 
     const companyId = req.user.companyId;
+    const locationId = req.query.locationId || null;
 
-    // Get order status counts (company-specific)
     const statusCounts = await prisma.order.groupBy({
       by: ['orderStatus'],
       where: {
-        companyId: companyId,
+        companyId,
         isActive: true,
-        isDeleted: false
+        isDeleted: false,
+        ...(locationId ? { locationId } : {}),
       },
       _count: {
-        _all: true
-      }
+        _all: true,
+      },
     });
 
     console.log("📊 Status Counts:", JSON.stringify(statusCounts, null, 2));

@@ -19,7 +19,7 @@ class SalesPaymentReceivedModel {
   // ============================================================
   // GET CUSTOMER INVOICES (Unpaid & Partially Paid)
   // ============================================================
-  static async getCustomerInvoices(customerId, companyId) {
+  static async getCustomerInvoices(customerId, companyId, locationId) {
     const invoices = await prisma.salesInvoice.findMany({
       where: {
         customerId: customerId,
@@ -28,7 +28,8 @@ class SalesPaymentReceivedModel {
         isDeleted: false,
         invoiceStatus: {
           notIn: ['Paid', 'Cancelled']
-        }
+        },
+        ...(locationId ? { locationId } : {}),
       },
       orderBy: {
         invoiceDate: 'asc'

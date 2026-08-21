@@ -3,7 +3,7 @@
 const { buildBalanceSheetFromLedger } = require('../utils/balanceSheetHelper');
 exports.getBalanceSheet = async (req, res) => {
   try {
-    const { period, asOfDate, fiscalYearId, startDate, endDate } = req.query;
+    const { period, asOfDate, fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
@@ -14,7 +14,7 @@ exports.getBalanceSheet = async (req, res) => {
       });
     }
 
-    // Correct argument order: userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate
+    // Correct argument order: userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate, locationId
     const data = await buildBalanceSheetFromLedger(
       userId,
       companyId,
@@ -22,7 +22,8 @@ exports.getBalanceSheet = async (req, res) => {
       asOfDate || null,
       fiscalYearId || null,
       startDate || null,
-      endDate || null
+      endDate || null,
+      locationId || null
     );
 
     res.status(200).json({
@@ -40,7 +41,7 @@ exports.getBalanceSheet = async (req, res) => {
 
 exports.getSummary = async (req, res) => {
   try {
-    const { fiscalYearId, startDate, endDate, asOfDate } = req.query;
+    const { fiscalYearId, startDate, endDate, asOfDate, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
@@ -58,7 +59,8 @@ exports.getSummary = async (req, res) => {
       asOfDate || null,
       fiscalYearId || null,
       startDate || null,
-      endDate || null
+      endDate || null,
+      locationId || null
     );
 
     const summaryData = {
@@ -86,7 +88,7 @@ exports.getSummary = async (req, res) => {
 exports.getBalanceSheetByDate = async (req, res) => {
   try {
     const { date } = req.params;
-    const { fiscalYearId, startDate, endDate } = req.query;
+    const { fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
@@ -104,7 +106,8 @@ exports.getBalanceSheetByDate = async (req, res) => {
       date,
       fiscalYearId || null,
       startDate || null,
-      endDate || null
+      endDate || null,
+      locationId || null
     );
 
     const assets = [];
@@ -163,7 +166,7 @@ exports.getBalanceSheetByDate = async (req, res) => {
 
 exports.getAssetsBreakdown = async (req, res) => {
   try {
-    const { asOfDate, fiscalYearId, startDate, endDate } = req.query;
+    const { asOfDate, fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
@@ -181,7 +184,8 @@ exports.getAssetsBreakdown = async (req, res) => {
       asOfDate || null,
       fiscalYearId || null,
       startDate || null,
-      endDate || null
+      endDate || null,
+      locationId || null
     );
 
     let currentAssets = 0;
@@ -227,7 +231,7 @@ exports.getAssetsBreakdown = async (req, res) => {
 
 exports.getLiabilitiesBreakdown = async (req, res) => {
   try {
-    const { asOfDate, fiscalYearId, startDate, endDate } = req.query;
+    const { asOfDate, fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
@@ -245,7 +249,8 @@ exports.getLiabilitiesBreakdown = async (req, res) => {
       asOfDate || null,
       fiscalYearId || null,
       startDate || null,
-      endDate || null
+      endDate || null,
+      locationId || null
     );
 
     let currentLiabilities = 0;

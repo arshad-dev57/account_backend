@@ -39,7 +39,14 @@ class POSShiftModel {
 
     const shift = await prisma.pOSShift.create({
       data: { terminalId, cashierId, companyId, openingCash, notes: notes || null, status: 'Open' },
-      include: { terminal: true, cashier: { select: { id:true, firstName:true, lastName:true, email:true } } }
+      include: {
+        terminal: {
+          include: {
+            location: { select: { id: true, name: true, code: true, type: true } },
+          },
+        },
+        cashier: { select: { id:true, firstName:true, lastName:true, email:true } },
+      },
     });
 
     await prisma.pOSAuditLog.create({
@@ -171,7 +178,11 @@ class POSShiftModel {
     return prisma.pOSShift.findFirst({
       where: { cashierId, companyId, status: { in: ['Open','Suspended'] } },
       include: {
-        terminal: true,
+        terminal: {
+          include: {
+            location: { select: { id: true, name: true, code: true, type: true } },
+          },
+        },
         cashier: { select: { id:true, firstName:true, lastName:true } },
         cashTransactions: { orderBy: { createdAt: 'desc' }, take: 20 },
         sales: { where: { status: 'Completed' }, select: { id:true, grandTotal:true, createdAt:true } }
@@ -183,16 +194,27 @@ class POSShiftModel {
   // SHIFT HISTORY
   // ============================================================
   static async getHistory(companyId, options = {}) {
-    const { skip, take = 20, cashierId } = options;
+    const { skip, take = 20, cashierId, locationId } = options;
+    const { normalizeLocationId } = require('../../utils/accountingLocationHelper');
+    const locId = normalizeLocationId(locationId);
     const filter = { companyId };
     if (cashierId) filter.cashierId = cashierId;
+    if (locId) filter.terminal = { locationId: locId };
 
     const [shifts, total] = await Promise.all([
       prisma.pOSShift.findMany({
         where: filter, skip, take,
         orderBy: { openedAt: 'desc' },
         include: {
-          terminal: { select: { id:true, name:true, code:true } },
+          terminal: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              locationId: true,
+              location: { select: { id: true, name: true, code: true, type: true } },
+            },
+          },
           cashier: { select: { id:true, firstName:true, lastName:true } },
           _count: { select: { sales: true, returns: true } }
         }

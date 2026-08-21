@@ -73,8 +73,11 @@ function emptySummary() {
   };
 }
 
-async function fetchOrderRows(companyId, userId, dateFilter, { status, search }) {
-  const extra = { orderDate: dateFilter };
+async function fetchOrderRows(companyId, userId, dateFilter, { status, search, locationId }) {
+  const extra = {
+    orderDate: dateFilter,
+    ...(locationId ? { locationId: String(locationId) } : {}),
+  };
   if (status && status !== 'all') {
     extra.status = status;
   }
@@ -126,10 +129,19 @@ async function fetchOrderRows(companyId, userId, dateFilter, { status, search })
     }));
 }
 
-async function fetchInvoiceRows(companyId, userId, dateFilter, { status, search }) {
+async function fetchInvoiceRows(companyId, userId, dateFilter, { status, search, locationId }) {
   const extra = {
     invoiceDate: dateFilter,
-    invoiceStatus: { notIn: ['Draft', 'Cancelled'] }
+    invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+    ...(locationId
+      ? {
+          OR: [
+            { locationId: String(locationId) },
+            { locationId: null, purchaseOrder: { locationId: String(locationId) } },
+            { locationId: null, goodsReceiving: { locationId: String(locationId) } },
+          ],
+        }
+      : {}),
   };
 
   const where = baseWhere(companyId, userId, extra);
@@ -184,12 +196,26 @@ async function fetchInvoiceRows(companyId, userId, dateFilter, { status, search 
   }));
 }
 
-async function fetchPaymentRows(companyId, userId, dateFilter, { status, search }) {
+async function fetchPaymentRows(companyId, userId, dateFilter, { status, search, locationId }) {
   const extra = { paymentDate: dateFilter };
   if (status && status !== 'all') {
     extra.status = status;
   } else {
     extra.status = { not: 'Cancelled' };
+  }
+  if (locationId) {
+    // PurchasePaymentMake has no locationId — scope via linked invoices
+    extra.invoicePayments = {
+      some: {
+        invoice: {
+          OR: [
+            { locationId: String(locationId) },
+            { purchaseOrder: { locationId: String(locationId) } },
+            { goodsReceiving: { locationId: String(locationId) } },
+          ],
+        },
+      },
+    };
   }
 
   const where = baseWhere(companyId, userId, extra);
@@ -233,8 +259,21 @@ async function fetchPaymentRows(companyId, userId, dateFilter, { status, search 
   }));
 }
 
-async function fetchReturnRows(companyId, userId, dateFilter, { status, search }) {
-  const extra = { returnDate: dateFilter };
+async function fetchReturnRows(companyId, userId, dateFilter, { status, search, locationId }) {
+  const extra = {
+    returnDate: dateFilter,
+    ...(locationId
+      ? {
+          purchaseInvoice: {
+            OR: [
+              { locationId: String(locationId) },
+              { purchaseOrder: { locationId: String(locationId) } },
+              { goodsReceiving: { locationId: String(locationId) } },
+            ],
+          },
+        }
+      : {}),
+  };
   if (status && status !== 'all') {
     extra.status = status;
   }
@@ -319,7 +358,8 @@ const getPurchaseReport = async (req, res) => {
       status = 'all',
       search = '',
       page = '1',
-      limit = '50'
+      limit = '50',
+      locationId,
     } = req.query;
 
     const dateFilter = await resolveQueryDateFilter({
@@ -331,7 +371,8 @@ const getPurchaseReport = async (req, res) => {
     });
     const filters = {
       status: status || 'all',
-      search: String(search || '').trim()
+      search: String(search || '').trim(),
+      locationId: locationId ? String(locationId) : null,
     };
 
     const channelKey = String(channel || 'all').toLowerCase();
@@ -379,7 +420,8 @@ const getPurchaseReport = async (req, res) => {
           startDate: startDate || null,
           endDate: endDate || null,
           status: filters.status,
-          search: filters.search
+          search: filters.search,
+          locationId: filters.locationId,
         },
         summary,
         rows: pagedRows,

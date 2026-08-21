@@ -2,6 +2,10 @@ const prisma = require('../prisma/client');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 const { getOrCreateApAccount } = require('../utils/apAccountHelper');
+const {
+  normalizeLocationId,
+  purchaseInvoiceLocationWhere
+} = require('../utils/accountingLocationHelper');
 
 async function applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId) {
   if (!fiscalYearId) return;
@@ -284,13 +288,14 @@ function computeOpenPayablesSummary(openPayables) {
   };
 }
 
-async function fetchCompanyPurchaseInvoices(companyId, extraWhere = {}) {
+async function fetchCompanyPurchaseInvoices(companyId, extraWhere = {}, locationId = null) {
   return prisma.purchaseInvoice.findMany({
     where: {
       companyId,
       isActive: true,
       isDeleted: false,
       invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      ...purchaseInvoiceLocationWhere(locationId),
       ...extraWhere
     },
     include: {
@@ -343,9 +348,10 @@ exports.getSuppliers = async (req, res) => {
   console.log('📦 [AP] getSuppliers called');
 
   try {
-    const { search, status } = req.query;
+    const { search, status, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const filter = { companyId: companyId };
 
@@ -380,10 +386,12 @@ exports.getSuppliers = async (req, res) => {
     });
 
     const [bills, purchaseInvoices] = await Promise.all([
-      prisma.bill.findMany({
-        where: { companyId }
-      }),
-      fetchCompanyPurchaseInvoices(companyId)
+      scopedLocation
+        ? Promise.resolve([])
+        : prisma.bill.findMany({
+            where: { companyId }
+          }),
+      fetchCompanyPurchaseInvoices(companyId, {}, locationId)
     ]);
 
     const openDocs = [
@@ -450,6 +458,8 @@ exports.getSupplier = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+    const locationId = req.query.locationId || null;
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const supplier = await prisma.supplier.findFirst({
       where: {
@@ -476,14 +486,16 @@ exports.getSupplier = async (req, res) => {
     }
 
     const [bills, purchaseInvoices] = await Promise.all([
-      prisma.bill.findMany({
-        where: {
-          vendorId: supplier.id,
-          companyId: companyId
-        },
-        orderBy: { date: 'desc' }
-      }),
-      fetchCompanyPurchaseInvoices(companyId, { supplierId: supplier.id })
+      scopedLocation
+        ? Promise.resolve([])
+        : prisma.bill.findMany({
+            where: {
+              vendorId: supplier.id,
+              companyId: companyId
+            },
+            orderBy: { date: 'desc' }
+          }),
+      fetchCompanyPurchaseInvoices(companyId, { supplierId: supplier.id }, locationId)
     ]);
 
     const mappedBills = [
@@ -705,9 +717,10 @@ exports.getBills = async (req, res) => {
   console.log('📦 [AP] getBills called');
 
   try {
-    const { supplierId, status, startDate, endDate, fiscalYearId } = req.query;
+    const { supplierId, status, startDate, endDate, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const filter = { companyId: companyId };
 
@@ -748,38 +761,40 @@ exports.getBills = async (req, res) => {
     }
 
     const [bills, purchaseInvoices] = await Promise.all([
-      prisma.bill.findMany({
-        where: filter,
-        orderBy: { date: 'desc' },
-        include: {
-          vendor: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true
+      scopedLocation
+        ? Promise.resolve([])
+        : prisma.bill.findMany({
+            where: filter,
+            orderBy: { date: 'desc' },
+            include: {
+              vendor: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  phone: true
+                }
+              },
+              creator: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              },
+              paymentsMade: {
+                select: {
+                  id: true,
+                  paymentNumber: true,
+                  amount: true,
+                  paymentDate: true,
+                  status: true
+                }
+              }
             }
-          },
-          creator: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          paymentsMade: {
-            select: {
-              id: true,
-              paymentNumber: true,
-              amount: true,
-              paymentDate: true,
-              status: true
-            }
-          }
-        }
-      }),
-      fetchCompanyPurchaseInvoices(companyId, piWhere)
+          }),
+      fetchCompanyPurchaseInvoices(companyId, piWhere, locationId)
     ]);
 
     let mapped = [
@@ -1293,7 +1308,8 @@ exports.getSummary = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { fiscalYearId } = req.query;
+    const { fiscalYearId, locationId } = req.query;
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const filter = {
       companyId: companyId,
@@ -1303,12 +1319,15 @@ exports.getSummary = async (req, res) => {
     await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
     const [bills, purchaseInvoices] = await Promise.all([
-      prisma.bill.findMany({
-        where: filter
-      }),
+      scopedLocation
+        ? Promise.resolve([])
+        : prisma.bill.findMany({
+            where: filter
+          }),
       fetchCompanyPurchaseInvoices(
         companyId,
-        filter.date ? { invoiceDate: filter.date } : {}
+        filter.date ? { invoiceDate: filter.date } : {},
+        locationId
       )
     ]);
 
@@ -1344,7 +1363,8 @@ exports.getAgedPayables = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { fiscalYearId } = req.query;
+    const { fiscalYearId, locationId } = req.query;
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const filter = {
       companyId: companyId,
@@ -1354,22 +1374,25 @@ exports.getAgedPayables = async (req, res) => {
     await applyBillFiscalYearDateFilter(filter, companyId, fiscalYearId);
 
     const [bills, purchaseInvoices] = await Promise.all([
-      prisma.bill.findMany({
-        where: filter,
-        include: {
-          vendor: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true
+      scopedLocation
+        ? Promise.resolve([])
+        : prisma.bill.findMany({
+            where: filter,
+            include: {
+              vendor: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  phone: true
+                }
+              }
             }
-          }
-        }
-      }),
+          }),
       fetchCompanyPurchaseInvoices(
         companyId,
-        filter.date ? { invoiceDate: filter.date } : {}
+        filter.date ? { invoiceDate: filter.date } : {},
+        locationId
       )
     ]);
 
@@ -1480,6 +1503,8 @@ exports.getUnpaidBills = async (req, res) => {
     const { supplierId } = req.params;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+    const locationId = req.query.locationId || null;
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const supplier = await prisma.supplier.findFirst({
       where: {
@@ -1496,26 +1521,28 @@ exports.getUnpaidBills = async (req, res) => {
     }
 
     const [bills, purchaseInvoices] = await Promise.all([
-      prisma.bill.findMany({
-        where: {
-          vendorId: supplierId,
-          companyId: companyId,
-          status: { not: 'Paid' }
-        },
-        orderBy: { dueDate: 'asc' },
-        include: {
-          paymentsMade: {
-            select: {
-              id: true,
-              paymentNumber: true,
-              amount: true,
-              paymentDate: true,
-              status: true
+      scopedLocation
+        ? Promise.resolve([])
+        : prisma.bill.findMany({
+            where: {
+              vendorId: supplierId,
+              companyId: companyId,
+              status: { not: 'Paid' }
+            },
+            orderBy: { dueDate: 'asc' },
+            include: {
+              paymentsMade: {
+                select: {
+                  id: true,
+                  paymentNumber: true,
+                  amount: true,
+                  paymentDate: true,
+                  status: true
+                }
+              }
             }
-          }
-        }
-      }),
-      fetchCompanyPurchaseInvoices(companyId, { supplierId })
+          }),
+      fetchCompanyPurchaseInvoices(companyId, { supplierId }, locationId)
     ]);
 
     const unpaidBills = [

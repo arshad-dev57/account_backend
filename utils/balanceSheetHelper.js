@@ -1,6 +1,7 @@
 // utils/balanceSheetHelper.js
 
 const prisma = require('../prisma/client');
+const { journalEntryLocationWhere } = require('./accountingLocationHelper');
 
 function classifyAssetBucket(parentAccount = '') {
   const parent = parentAccount.toLowerCase();
@@ -234,7 +235,7 @@ function periodNetForPnL(account, allEntries, start, end) {
  * Build a proper point-in-time Balance Sheet from posted journal entries.
  *
  * Signature (fixed):
- *   buildBalanceSheetFromLedger(userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate)
+ *   buildBalanceSheetFromLedger(userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate, locationId)
  */
 async function buildBalanceSheetFromLedger(
   userId,
@@ -243,7 +244,8 @@ async function buildBalanceSheetFromLedger(
   asOfDate = null,
   fiscalYearId = null,
   startDate = null,
-  endDate = null
+  endDate = null,
+  locationId = null
 ) {
   if (!companyId) {
     throw new Error('companyId is required to build balance sheet');
@@ -319,7 +321,8 @@ async function buildBalanceSheetFromLedger(
     where: {
       companyId,
       status: 'Posted',
-      date: dateFilter
+      date: dateFilter,
+      ...journalEntryLocationWhere(locationId)
     },
     include: { lines: true },
     orderBy: { date: 'asc' }
@@ -450,7 +453,8 @@ async function getBalanceSheetSummary(
   asOfDate,
   fiscalYearId,
   startDate,
-  endDate
+  endDate,
+  locationId = null
 ) {
   const balanceSheet = await buildBalanceSheetFromLedger(
     userId,
@@ -459,7 +463,8 @@ async function getBalanceSheetSummary(
     asOfDate,
     fiscalYearId,
     startDate,
-    endDate
+    endDate,
+    locationId
   );
 
   const currentAssets = balanceSheet.assets.current.reduce(

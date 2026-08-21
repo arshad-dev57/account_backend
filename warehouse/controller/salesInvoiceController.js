@@ -104,7 +104,8 @@ const createManualInvoice = async (req, res) => {
       dueDate,
       paymentTerms,
       notes,
-      invoiceDate
+      invoiceDate,
+      locationId,
     } = req.body;
 
     const postingDate = invoiceDate ? new Date(invoiceDate) : new Date();
@@ -195,6 +196,7 @@ const createManualInvoice = async (req, res) => {
       createdBy: userId,
       fiscalYearId: fiscalYearId,
       companyId: companyId,  // ✅ Added companyId
+      locationId: locationId || null,
     };
 
     const invoice = await SalesInvoice.createManual(invoiceData);
@@ -300,16 +302,20 @@ const getSalesInvoices = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'invoiceDate',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
-    // ✅ FIXED: Use createdBy instead of userId
+    // Company + optional warehouse — shared visibility for the location
     const filter = {
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       isActive: true,
       isDeleted: false
     };
+
+    if (locationId) {
+      filter.locationId = locationId;
+    }
 
     if (search) {
       filter.OR = [
@@ -823,32 +829,44 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { search, page = 1, limit = 20 } = req.query;
+    const { search, page = 1, limit = 20, locationId } = req.query;
 
-    const where = {
-      isActive: true,
-      isDeleted: false,
-      orderType: 'Sales Order',
-      orderStatus: { notIn: ['Cancelled'] },
-      OR: [
-        { companyId: companyId },
-        { companyId: null, createdBy: userId },
-      ]
-    };
+    const locId = String(locationId || '').trim();
+    if (!locId) {
+      return res.status(400).json({
+        success: false,
+        message: 'locationId (warehouse) is required to search orders for invoicing',
+        data: [],
+      });
+    }
+
+    const and = [
+      { isActive: true },
+      { isDeleted: false },
+      { orderType: 'Sales Order' },
+      { orderStatus: { notIn: ['Cancelled'] } },
+      { locationId: locId },
+      {
+        OR: [
+          { companyId },
+          { companyId: null, createdBy: userId },
+        ],
+      },
+    ];
 
     if (search && String(search).trim()) {
       const q = String(search).trim();
-      where.AND = [
-        {
-          OR: [
-            { orderNumber: { contains: q, mode: 'insensitive' } },
-            { customerName: { contains: q, mode: 'insensitive' } },
-            { customerEmail: { contains: q, mode: 'insensitive' } },
-            { customerPhone: { contains: q, mode: 'insensitive' } },
-          ]
-        },
-      ];
+      and.push({
+        OR: [
+          { orderNumber: { contains: q, mode: 'insensitive' } },
+          { customerName: { contains: q, mode: 'insensitive' } },
+          { customerEmail: { contains: q, mode: 'insensitive' } },
+          { customerPhone: { contains: q, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    const where = { AND: and };
 
     const orders = await prisma.order.findMany({
       where,
@@ -917,6 +935,7 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
           totalItems: itemCount,
           totalQuantity: itemsQty,
           customerNotes: order.customerNotes,
+          locationId: order.locationId,
           items
         };
       });
@@ -938,8 +957,8 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
     console.error('Get available orders error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message || 'Server error',
+      data: [],
     });
   }
 };

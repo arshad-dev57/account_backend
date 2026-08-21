@@ -2,6 +2,10 @@
 
 const prisma = require('../../prisma/client');
 const { postSalesReturnAccounting } = require('../services/salesAccountingService');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../services/locationService');
 
 function generateReturnNumber(returnType) {
   const date = new Date();
@@ -376,51 +380,71 @@ class ReturnModel {
     return await prisma.$transaction(async (tx) => {
       const returnRecord = await tx.return.findUnique({
         where: { id },
-        include: { items: true },
+        include: {
+          items: true,
+          order: { select: { id: true, locationId: true, companyId: true } },
+        },
       });
       if (!returnRecord) throw new Error('Return not found');
       if (returnRecord.returnStatus === 'Completed') return returnRecord;
+
+      const companyId = returnRecord.companyId;
+      let locationId = returnRecord.order?.locationId || null;
+      if (returnRecord.returnType === 'Sales Return') {
+        locationId = await resolveLocationId(
+          tx,
+          companyId,
+          locationId,
+          userId
+        );
+      }
 
       for (const item of returnRecord.items) {
         const qty = Number(item.returnQuantity) || 0;
         if (qty <= 0) continue;
 
         if (returnRecord.returnType === 'Sales Return') {
-          const product = await tx.product.findUnique({
-            where: { id: item.productId },
-          });
-          const prev = product?.currentStock || 0;
-          const next = prev + qty;
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              currentStock: next,
-              availableStock: { increment: qty },
-            },
-          });
+          const { previousLocationStock, newLocationStock } =
+            await adjustLocationStock(tx, {
+              companyId,
+              productId: item.productId,
+              locationId,
+              delta: qty,
+            });
           await tx.stockMovement.create({
             data: {
               productId: item.productId,
               productName: item.productName,
               type: 'stock_in',
               quantity: qty,
-              previousStock: prev,
-              newStock: next,
+              previousStock: previousLocationStock,
+              newStock: newLocationStock,
               reason: `Sales Return #${returnRecord.returnNumber}`,
               reference: returnRecord.returnNumber,
               status: 'Completed',
               createdBy: userId,
-              companyId: returnRecord.companyId,
+              companyId,
+              locationId,
             },
           });
         } else if (returnRecord.returnType === 'Purchase Return') {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              currentStock: { decrement: qty },
-              availableStock: { decrement: qty },
-            },
-          });
+          // Purchase return: decrease stock at PO location when available
+          if (locationId) {
+            await adjustLocationStock(tx, {
+              companyId,
+              productId: item.productId,
+              locationId,
+              delta: -qty,
+            });
+          } else {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: {
+                currentStock: { decrement: qty },
+                availableStock: { decrement: qty },
+              },
+            });
+          }
         }
       }
 

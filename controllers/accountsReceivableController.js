@@ -4,6 +4,10 @@ const prisma = require('../prisma/client');
 const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const {
+  salesInvoiceLocationWhere,
+  warehouseInvoiceLocationWhere
+} = require('../utils/accountingLocationHelper');
 
 async function warehouseInvoiceFyDateFilter(companyId, fiscalYearId) {
   if (!fiscalYearId) return null;
@@ -308,7 +312,7 @@ const getCustomers = async (req, res) => {
   console.log('📦 [AR] getCustomers called');
   
   try {
-    const { search, status, refresh } = req.query;
+    const { search, status, refresh, locationId } = req.query;
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
@@ -348,6 +352,9 @@ const getCustomers = async (req, res) => {
       }
     });
 
+    const whLoc = warehouseInvoiceLocationWhere(locationId);
+    const salesLoc = salesInvoiceLocationWhere(locationId);
+
     // Warehouse + Sales invoices (sales is the active invoicing module).
     // Include Paid rows — balance is recomputed from payments + credit notes.
     const [warehouseInvoices, salesInvoices] = await Promise.all([
@@ -355,7 +362,8 @@ const getCustomers = async (req, res) => {
         where: {
           companyId: companyId,
           isDeleted: false,
-          invoiceStatus: { not: 'Cancelled' }
+          invoiceStatus: { not: 'Cancelled' },
+          ...whLoc
         }
       }),
       prisma.salesInvoice.findMany({
@@ -363,7 +371,8 @@ const getCustomers = async (req, res) => {
           companyId: companyId,
           isDeleted: false,
           isActive: true,
-          invoiceStatus: { not: 'Cancelled' }
+          invoiceStatus: { not: 'Cancelled' },
+          ...salesLoc
         },
         include: salesOpenInclude
       }),
@@ -756,11 +765,14 @@ const getInvoices = async (req, res) => {
   console.log('📦 [AR] getInvoices called');
   
   try {
-    const { customerId, status, startDate, endDate, fiscalYearId } = req.query;
+    const { customerId, status, startDate, endDate, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    const filter = { companyId: companyId };
+    const filter = {
+      companyId: companyId,
+      ...warehouseInvoiceLocationWhere(locationId)
+    };
 
     if (customerId) {
       const customer = await prisma.customer.findFirst({
@@ -979,7 +991,8 @@ const getUnpaidInvoices = async (req, res) => {
           companyId,
           isActive: true,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Paid', 'Cancelled'] }
+          invoiceStatus: { notIn: ['Paid', 'Cancelled'] },
+          ...warehouseInvoiceLocationWhere(req.query.locationId)
         },
         orderBy: { dueDate: 'asc' }
       }),
@@ -989,7 +1002,8 @@ const getUnpaidInvoices = async (req, res) => {
           companyId,
           isActive: true,
           isDeleted: false,
-          invoiceStatus: { notIn: ['Cancelled'] }
+          invoiceStatus: { notIn: ['Cancelled'] },
+          ...salesInvoiceLocationWhere(req.query.locationId)
         },
         include: salesOpenInclude,
         orderBy: { dueDate: 'asc' }
@@ -1318,18 +1332,22 @@ const getSummary = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { fiscalYearId } = req.query;
+    const { fiscalYearId, locationId } = req.query;
+    const whLoc = warehouseInvoiceLocationWhere(locationId);
+    const salesLoc = salesInvoiceLocationWhere(locationId);
 
     const baseWh = {
       companyId: companyId,
       isDeleted: false,
-      invoiceStatus: { not: 'Cancelled' }
+      invoiceStatus: { not: 'Cancelled' },
+      ...whLoc
     };
     const baseSi = {
       companyId: companyId,
       isDeleted: false,
       isActive: true,
-      invoiceStatus: { not: 'Cancelled' }
+      invoiceStatus: { not: 'Cancelled' },
+      ...salesLoc
     };
 
     // WarehouseInvoice has no fiscalYearId — use invoiceDate window.
@@ -1419,12 +1437,15 @@ const getAgedReceivables = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { fiscalYearId } = req.query;
+    const { fiscalYearId, locationId } = req.query;
+    const whLoc = warehouseInvoiceLocationWhere(locationId);
+    const salesLoc = salesInvoiceLocationWhere(locationId);
 
     const filter = {
       companyId: companyId,
       isDeleted: false,
-      invoiceStatus: { not: 'Cancelled' }
+      invoiceStatus: { not: 'Cancelled' },
+      ...whLoc
     };
 
     const fyDates = await warehouseInvoiceFyDateFilter(companyId, fiscalYearId);
@@ -1452,6 +1473,7 @@ const getAgedReceivables = async (req, res) => {
         isDeleted: false,
         isActive: true,
         invoiceStatus: { not: 'Cancelled' },
+        ...salesLoc,
         ...(fyDates ? { invoiceDate: fyDates } : fiscalYearId ? { fiscalYearId } : {})
       },
       include: {

@@ -206,6 +206,7 @@ class SalesInvoiceModel {
           createdBy: userId,          // ✅ Use createdBy
           companyId: companyId,       // ✅ Use companyId
           fiscalYearId: fiscalYearId,
+          locationId: order.locationId || null,
           items: { create: invoiceItems }
         },
         include: {
@@ -236,7 +237,8 @@ class SalesInvoiceModel {
       const {
         customerId, customerName, customerEmail, customerPhone,
         billingAddress, shippingAddress, items, dueDate,
-        paymentTerms, notes, userId, createdBy, fiscalYearId, companyId
+        paymentTerms, notes, userId, createdBy, fiscalYearId, companyId,
+        locationId,
       } = data;
 
       if (!customerId && !customerName) throw new Error('Customer is required');
@@ -343,6 +345,7 @@ class SalesInvoiceModel {
           createdBy: createdBy || userId,   // ✅ Use createdBy
           companyId: companyId,             // ✅ Use companyId
           fiscalYearId: fiscalYearId,
+          locationId: locationId || null,
           items: { create: invoiceItems }
         },
         include: {
@@ -732,14 +735,16 @@ class SalesInvoiceModel {
           });
         }
 
-        if (invoice.accountsReceivable) {
-          await tx.accountsReceivable.delete({ where: { id: invoice.accountsReceivable.id } });
-        }
-
-        await tx.customer.update({
-          where: { id: invoice.customerId },
-          data: { outstandingBalance: { decrement: invoice.grandTotal } }
+        await tx.accountsReceivable.deleteMany({
+          where: { invoiceId: invoice.id },
         });
+
+        if (invoice.customerId) {
+          await tx.customer.update({
+            where: { id: invoice.customerId },
+            data: { outstandingBalance: { decrement: invoice.grandTotal } },
+          });
+        }
       }
 
       return await tx.salesInvoice.update({

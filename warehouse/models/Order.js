@@ -1,6 +1,11 @@
 // warehouse/models/Order.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
+const {
+  resolveLocationId,
+  reserveLocationStock,
+  releaseLocationReservation,
+} = require('../services/locationService');
 
 // ─── Generate Order Number Function ──────────────────────
 function generateOrderNumber(orderType) {
@@ -25,6 +30,23 @@ class OrderModel {
     const orderNumber = generateOrderNumber(data.orderType || 'Sales Order');
     
     return await prisma.$transaction(async (tx) => {
+      const locationId =
+        data.orderType === 'Purchase Order'
+          ? data.locationId
+            ? await resolveLocationId(
+                tx,
+                data.companyId,
+                data.locationId,
+                data.createdBy || data.userId
+              )
+            : null
+          : await resolveLocationId(
+              tx,
+              data.companyId,
+              data.locationId,
+              data.createdBy || data.userId
+            );
+
       // Create order
       const order = await tx.order.create({
         data: {
@@ -60,6 +82,7 @@ class OrderModel {
           tags: data.tags || [],
           createdBy: data.createdBy || data.userId,  // ✅ Use createdBy
           companyId: data.companyId,                 // ✅ Use companyId
+          locationId,
           // Sales orders start as Pending (not Draft). Draft only if explicitly sent.
           orderStatus:
             data.orderStatus ||
@@ -100,13 +123,12 @@ class OrderModel {
         });
 
         // Reserve stock for Sales Orders (physical issue happens on delivery confirm)
-        if (data.orderType !== 'Purchase Order') {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              reservedStock: { increment: item.quantity },
-              availableStock: { decrement: item.quantity },
-            },
+        if (data.orderType !== 'Purchase Order' && locationId) {
+          await reserveLocationStock(tx, {
+            companyId: data.companyId,
+            productId: item.productId,
+            locationId,
+            qty: item.quantity,
           });
         }
       }
@@ -389,13 +411,22 @@ class OrderModel {
           const delivered = deliveredByProduct[item.productId] || 0;
           const toRelease = Math.max(0, item.quantity - delivered);
           if (toRelease <= 0) continue;
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              reservedStock: { decrement: toRelease },
-              availableStock: { increment: toRelease },
-            },
-          });
+          if (order.locationId && order.companyId) {
+            await releaseLocationReservation(tx, {
+              companyId: order.companyId,
+              productId: item.productId,
+              locationId: order.locationId,
+              qty: toRelease,
+            });
+          } else {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: {
+                reservedStock: { decrement: toRelease },
+                availableStock: { increment: toRelease },
+              },
+            });
+          }
         }
       }
 

@@ -1,6 +1,7 @@
 // Profit & Loss from posted journal lines (same source as Balance Sheet CYE).
 
 const prisma = require('../prisma/client');
+const { journalEntryLocationWhere } = require('./accountingLocationHelper');
 
 function startOfDay(d) {
   const x = new Date(d);
@@ -58,8 +59,9 @@ function isOtherExpenseAccount(account) {
 
 /**
  * Build P&L from posted JEs on Revenue / Expense accounts.
+ * locationId omit/all = company-wide; set = JE location filter.
  */
-async function buildProfitLossFromLedger(companyId, start, end) {
+async function buildProfitLossFromLedger(companyId, start, end, locationId = null) {
   const windowStart = startOfDay(start);
   const windowEnd = endOfDay(end);
 
@@ -77,6 +79,7 @@ async function buildProfitLossFromLedger(companyId, start, end) {
       companyId,
       status: 'Posted',
       date: { gte: windowStart, lte: windowEnd },
+      ...journalEntryLocationWhere(locationId),
     },
     include: { lines: true },
     orderBy: { date: 'asc' },
@@ -158,12 +161,17 @@ function isCurrentYearEarningsAccount(account = {}) {
   return code === '3200' || /current year earnings/i.test(name);
 }
 
-async function liveCurrentYearEarnings(companyId, start, end) {
+async function liveCurrentYearEarnings(companyId, start, end, locationId = null) {
   if (!companyId) return 0;
   const now = new Date();
   const windowStart = start ? new Date(start) : new Date(now.getFullYear(), 0, 1);
   const windowEnd = end ? new Date(end) : now;
-  const pl = await buildProfitLossFromLedger(companyId, windowStart, windowEnd);
+  const pl = await buildProfitLossFromLedger(
+    companyId,
+    windowStart,
+    windowEnd,
+    locationId
+  );
   return Number(pl.netProfit) || 0;
 }
 

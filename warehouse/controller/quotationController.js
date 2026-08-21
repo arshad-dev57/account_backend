@@ -26,7 +26,8 @@ const createQuotation = async (req, res) => {
       items,
       notes,
       termsConditions,
-      status
+      status,
+      locationId,
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
@@ -117,6 +118,22 @@ const createQuotation = async (req, res) => {
     }
 
     // ─── Create Quotation ──────────────────────────────
+    const { resolveLocationId } = require('../services/locationService');
+    let resolvedLocationId = null;
+    try {
+      resolvedLocationId = await resolveLocationId(
+        prisma,
+        companyId,
+        locationId,
+        userId
+      );
+    } catch (locErr) {
+      return res.status(locErr.statusCode || 400).json({
+        success: false,
+        message: locErr.message || 'Invalid warehouse',
+      });
+    }
+
     const quotationData = {
       customerId: customerId || '',
       customerName: finalCustomerName,
@@ -131,7 +148,8 @@ const createQuotation = async (req, res) => {
       termsConditions: termsConditions || '',
       status: status || 'Draft',
       createdBy: userId,
-      userId: userId
+      companyId: companyId,
+      locationId: resolvedLocationId,
     };
 
     const quotation = await Quotation.create(quotationData);
@@ -167,14 +185,19 @@ const getQuotations = async (req, res) => {
       fromDate,
       toDate,
       sortBy = 'quotationDate',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      locationId,
     } = req.query;
 
     const filter = {
-      userId: userId,
+      companyId: companyId,
       isActive: true,
       isDeleted: false
     };
+
+    if (locationId) {
+      filter.locationId = locationId;
+    }
 
     if (search) {
       filter.OR = [

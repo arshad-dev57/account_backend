@@ -1,6 +1,7 @@
 // controllers/trialBalanceController.js - PostgreSQL Version
 
 const prisma = require('../prisma/client');
+const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
 
 const FRONTEND_TYPE_MAP = {
   Asset: 'Assets',
@@ -150,7 +151,7 @@ function buildAccountTrialBalance(account, allPostedEntries, priorEntries, perio
 // ============================================================
 exports.getTrialBalance = async (req, res) => {
   try {
-    const { startDate, endDate, accountType, showZeroBalance, fiscalYearId, search } =
+    const { startDate, endDate, accountType, showZeroBalance, fiscalYearId, search, locationId } =
       req.query;
     const companyId = req.user.companyId;
 
@@ -164,7 +165,8 @@ exports.getTrialBalance = async (req, res) => {
     const allPostedEntries = await prisma.journalEntry.findMany({
       where: {
         companyId,
-        status: 'Posted'
+        status: 'Posted',
+        ...journalEntryLocationWhere(locationId)
       },
       include: { lines: true }
     });

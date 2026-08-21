@@ -12,7 +12,7 @@ const LedgerHelper = require('../utils/ledgerHelper');
 // @access  Private
 // ============================================================
 exports.getAccountSummaries = asyncHandler(async (req, res) => {
-  const { startDate, endDate, fiscalYearId } = req.query;
+  const { startDate, endDate, fiscalYearId, locationId } = req.query;
   const userId = req.user.id;
   const companyId = req.user.companyId;
 
@@ -51,6 +51,8 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
     fiscalYearFilter = LedgerHelper.buildFiscalYearFilter(fiscalYearId);
   }
 
+  const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
+
   // Get posted journal entries for this user
   const journalEntries = await prisma.journalEntry.findMany({
     where: {
@@ -58,7 +60,8 @@ exports.getAccountSummaries = asyncHandler(async (req, res) => {
       companyId: companyId,
       status: 'Posted',
       ...dateFilter,
-      ...fiscalYearFilter
+      ...fiscalYearFilter,
+      ...journalEntryLocationWhere(locationId)
     },
     include: {
       lines: {
@@ -313,7 +316,8 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
     page = 1,
     limit = 10,
     showDebitOnly,
-    showCreditOnly
+    showCreditOnly,
+    locationId
   } = req.query;
   const userId = req.user.id;
 
@@ -328,9 +332,12 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
     return ApiResponse.notFound(res, 'Account not found');
   }
 
+  const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
+
   let query = {
     companyId: companyId,
-    status: 'Posted'
+    status: 'Posted',
+    ...journalEntryLocationWhere(locationId)
   };
 
   const dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
@@ -444,7 +451,8 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
     sortBy = 'date',
     sortOrder = 'desc',
     showDebitOnly,
-    showCreditOnly
+    showCreditOnly,
+    locationId
   } = req.query;
 
   const userId = req.user.id;
@@ -456,9 +464,12 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
   if (pageNum === 1) {
   }
 
+  const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
+
   let query = {
     companyId: companyId,
-    status: 'Posted'
+    status: 'Posted',
+    ...journalEntryLocationWhere(locationId)
   };
 
   const dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);

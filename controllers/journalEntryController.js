@@ -383,29 +383,35 @@ const getJournalEntries = async (req, res) => {
       endDate,
       page = 1,
       limit = 10,
-      status
+      status,
+      locationId
     } = req.query;
 
-    console.log('getJournalEntries called with params:', { search, startDate, endDate, page, limit, status });
+    console.log('getJournalEntries called with params:', { search, startDate, endDate, page, limit, status, locationId });
 
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const filter = {
-      companyId: companyId
-    };
+    const {
+      journalEntryLocationWhere,
+      normalizeLocationId,
+    } = require('../utils/accountingLocationHelper');
+
+    const andClauses = [{ companyId }];
 
     // Only filter by status if explicitly provided
     if (status && status !== 'All') {
-      filter.status = status;
+      andClauses.push({ status });
     }
 
     const searchTerm = typeof search === 'string' ? search.trim() : '';
     if (searchTerm) {
-      filter.OR = [
-        { entryNumber: { contains: searchTerm, mode: 'insensitive' } },
-        { description: { contains: searchTerm, mode: 'insensitive' } },
-        { reference: { contains: searchTerm, mode: 'insensitive' } },
-      ];
+      andClauses.push({
+        OR: [
+          { entryNumber: { contains: searchTerm, mode: 'insensitive' } },
+          { description: { contains: searchTerm, mode: 'insensitive' } },
+          { reference: { contains: searchTerm, mode: 'insensitive' } },
+        ],
+      });
     }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -416,8 +422,14 @@ const getJournalEntries = async (req, res) => {
       const start = new Date(startDate);
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
-      filter.date = { gte: start, lte: end };
+      andClauses.push({ date: { gte: start, lte: end } });
     }
+
+    if (normalizeLocationId(locationId)) {
+      andClauses.push(journalEntryLocationWhere(locationId));
+    }
+
+    const filter = { AND: andClauses };
 
     const [journalEntries, total, lineSums, statusCounts] = await Promise.all([
       prisma.journalEntry.findMany({

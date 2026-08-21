@@ -1,6 +1,11 @@
 // controllers/reportController.js - MULTI-TENANT VERSION (FULLY FIXED)
 
 const prisma = require('../prisma/client');
+const {
+  normalizeLocationId,
+  warehouseInvoiceLocationWhere,
+  journalEntryLocationWhere
+} = require('../utils/accountingLocationHelper');
 
 // ============================================================
 // HELPER FUNCTIONS
@@ -75,7 +80,7 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('\n========== PROFIT & LOSS STATEMENT ==========');
     console.log('🔍 User ID:', req.user.id);
 
-    const { startDate, endDate, period, fiscalYearId } = req.query;
+    const { startDate, endDate, period, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
     let { start, end } = getDateRange(period, startDate, endDate);
@@ -96,7 +101,7 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
     const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
-    const pl = await buildProfitLossFromLedger(companyId, start, end);
+    const pl = await buildProfitLossFromLedger(companyId, start, end, locationId || null);
 
     res.status(200).json({
       success: true,
@@ -133,10 +138,11 @@ exports.getBalanceSheet = async (req, res) => {
     console.log('\n========== BALANCE SHEET ==========');
     console.log('🔍 User ID:', req.user.id);
 
-    const { period, asOfDate, fiscalYearId } = req.query;
+    const { period, asOfDate, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
     let reportDate;
     let startDate, endDate;
     const now = new Date();
@@ -243,7 +249,8 @@ exports.getBalanceSheet = async (req, res) => {
       where: {
         companyId: companyId,
         paymentStatus: { in: ['Unpaid', 'Partial'] },
-        outstanding: { gt: 0 }
+        outstanding: { gt: 0 },
+        ...warehouseInvoiceLocationWhere(locationId)
       }
     });
 
@@ -261,13 +268,16 @@ exports.getBalanceSheet = async (req, res) => {
     }
 
     // ─── GET ACCOUNTS PAYABLE (User-specific) ──────────────────
-    const unpaidBills = await prisma.bill.findMany({
-      where: {
-        companyId: companyId,
-        status: { in: ['Unpaid', 'Partial'] },
-        outstanding: { gt: 0 }
-      }
-    });
+    // Manual bills have no locationId — exclude when location scoped
+    const unpaidBills = scopedLocation
+      ? []
+      : await prisma.bill.findMany({
+          where: {
+            companyId: companyId,
+            status: { in: ['Unpaid', 'Partial'] },
+            outstanding: { gt: 0 }
+          }
+        });
 
     let totalPayables = 0;
     for (const bill of unpaidBills) {
@@ -304,21 +314,26 @@ exports.getBalanceSheet = async (req, res) => {
     }
 
     // ─── GET RETAINED EARNINGS (User-specific) ──────────────────
-    const incomes = await prisma.income.findMany({
-      where: {
-        companyId: companyId,
-        date: { gte: startDate, lte: endDate },
-        status: 'Posted'
-      }
-    });
+    // Manual income/expense have no locationId — skip when location scoped
+    const incomes = scopedLocation
+      ? []
+      : await prisma.income.findMany({
+          where: {
+            companyId: companyId,
+            date: { gte: startDate, lte: endDate },
+            status: 'Posted'
+          }
+        });
 
-    const expenses = await prisma.expense.findMany({
-      where: {
-        companyId: companyId,
-        date: { gte: startDate, lte: endDate },
-        status: 'Posted'
-      }
-    });
+    const expenses = scopedLocation
+      ? []
+      : await prisma.expense.findMany({
+          where: {
+            companyId: companyId,
+            date: { gte: startDate, lte: endDate },
+            status: 'Posted'
+          }
+        });
 
     const totalIncome = incomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
     const totalExpense = expenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
@@ -388,10 +403,11 @@ exports.getCashFlowStatement = async (req, res) => {
     console.log('\n========== CASH FLOW STATEMENT ==========');
     console.log('🔍 User ID:', req.user.id);
 
-    const { startDate, endDate, period, fiscalYearId } = req.query;
+    const { startDate, endDate, period, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const { start, end } = getDateRange(period, startDate, endDate);
+    const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
@@ -404,23 +420,28 @@ exports.getCashFlowStatement = async (req, res) => {
     }
 
     // ─── OPERATING ACTIVITIES (User-specific) ──────────────────
-    const incomes = await prisma.income.findMany({
-      where: {
-        companyId: companyId,
-        date: { gte: start, lte: end },
-        status: 'Posted',
-        ...fiscalYearFilter
-      }
-    });
+    // Manual income/expense have no locationId — skip when location scoped
+    const incomes = scopedLocation
+      ? []
+      : await prisma.income.findMany({
+          where: {
+            companyId: companyId,
+            date: { gte: start, lte: end },
+            status: 'Posted',
+            ...fiscalYearFilter
+          }
+        });
 
-    const expenses = await prisma.expense.findMany({
-      where: {
-        companyId: companyId,
-        date: { gte: start, lte: end },
-        status: 'Posted',
-        ...fiscalYearFilter
-      }
-    });
+    const expenses = scopedLocation
+      ? []
+      : await prisma.expense.findMany({
+          where: {
+            companyId: companyId,
+            date: { gte: start, lte: end },
+            status: 'Posted',
+            ...fiscalYearFilter
+          }
+        });
 
     const cashReceiptsFromCustomers = incomes.reduce((sum, inc) => sum + (inc.totalAmount || inc.amount || 0), 0);
     const cashPaidToSuppliers = expenses.reduce((sum, exp) => sum + (exp.totalAmount || exp.amount || 0), 0);
@@ -565,7 +586,8 @@ exports.getJournalEntries = async (req, res) => {
       startDate,
       endDate,
       page = 1,
-      limit = 10
+      limit = 10,
+      locationId
     } = req.query;
 
     const userId = req.user.id;
@@ -586,12 +608,24 @@ exports.getJournalEntries = async (req, res) => {
       };
     }
 
+    const andClauses = [];
     if (search) {
-      where.OR = [
-        { entryNumber: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-        { reference: { contains: search, mode: 'insensitive' } }
-      ];
+      andClauses.push({
+        OR: [
+          { entryNumber: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { reference: { contains: search, mode: 'insensitive' } }
+        ]
+      });
+    }
+    const locWhere = journalEntryLocationWhere(locationId);
+    if (Object.keys(locWhere).length > 0) {
+      andClauses.push(locWhere);
+    }
+    if (andClauses.length === 1) {
+      Object.assign(where, andClauses[0]);
+    } else if (andClauses.length > 1) {
+      where.AND = andClauses;
     }
 
     // ─── GET JOURNAL ENTRIES ──────────────────────────────────

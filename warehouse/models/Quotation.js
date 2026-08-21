@@ -73,7 +73,8 @@ class QuotationModel {
           notes: data.notes || null,
           termsConditions: data.termsConditions || null,
           createdBy: data.createdBy,
-          userId: data.userId,
+          companyId: data.companyId || null,
+          locationId: data.locationId || null,
           items: {
             create: quotationItems
           }
@@ -99,6 +100,11 @@ class QuotationModel {
   // CONVERT QUOTATION TO SALES ORDER
   // ============================================================
   static async convertToOrder(id, userId) {
+    const {
+      resolveLocationId,
+      reserveLocationStock,
+    } = require('../services/locationService');
+
     return await prisma.$transaction(async (tx) => {
       const quotation = await tx.quotation.findUnique({
         where: { id },
@@ -122,6 +128,37 @@ class QuotationModel {
 
       if (quotation.status === 'Rejected' || quotation.status === 'Expired') {
         throw new Error(`Cannot convert ${quotation.status} quotation`);
+      }
+
+      const companyId = quotation.companyId;
+      if (!companyId) {
+        throw new Error('Quotation has no company');
+      }
+
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        quotation.locationId,
+        userId
+      );
+
+      // Validate + reserve stock at warehouse
+      for (const item of quotation.items) {
+        const stock = await tx.productStock.findUnique({
+          where: {
+            productId_locationId: {
+              productId: item.productId,
+              locationId,
+            },
+          },
+        });
+        const available =
+          (stock?.currentStock || 0) - (stock?.reservedStock || 0);
+        if (item.quantity > available) {
+          throw new Error(
+            `Insufficient stock at warehouse for ${item.productName}. Available: ${Math.max(0, available)}`
+          );
+        }
       }
 
       // Generate order number
@@ -151,7 +188,8 @@ class QuotationModel {
           orderStatus: 'Pending',
           paymentStatus: 'Pending',
           createdBy: userId,
-          userId: quotation.userId,
+          companyId,
+          locationId,
           salesPerson: quotation.salesPerson,
           customerNotes: quotation.notes,
           items: {
@@ -174,6 +212,15 @@ class QuotationModel {
         }
       });
 
+      for (const item of quotation.items) {
+        await reserveLocationStock(tx, {
+          companyId,
+          productId: item.productId,
+          locationId,
+          qty: item.quantity,
+        });
+      }
+
       // Update quotation status
       const updatedQuotation = await tx.quotation.update({
         where: { id },
@@ -181,19 +228,16 @@ class QuotationModel {
           status: 'Converted',
           convertedAt: new Date(),
           convertedOrderId: order.id,
-          updatedBy: userId
+          updatedBy: userId,
         },
         include: {
           items: true,
           customer: true,
-          convertedOrder: true
-        }
+          convertedOrder: true,
+        },
       });
 
-      return {
-        quotation: updatedQuotation,
-        order: order
-      };
+      return { quotation: updatedQuotation, order };
     });
   }
 

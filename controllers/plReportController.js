@@ -86,8 +86,8 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('\n========== PROFIT & LOSS STATEMENT DEBUG ==========');
     console.log('🔍 User ID from token:', req.user.id);
 
-    const { startDate, endDate, period, fiscalYearId } = req.query;
-    console.log('📅 Request params:', { startDate, endDate, period, fiscalYearId });
+    const { startDate, endDate, period, fiscalYearId, locationId } = req.query;
+    console.log('📅 Request params:', { startDate, endDate, period, fiscalYearId, locationId });
 
     const userId = req.user.id;
     const companyId = req.user.companyId;
@@ -109,7 +109,7 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('📆 Date range:', { start: start.toISOString(), end: end.toISOString() });
 
     const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
-    const pl = await buildProfitLossFromLedger(companyId, start, end);
+    const pl = await buildProfitLossFromLedger(companyId, start, end, locationId || null);
 
     res.status(200).json({
       success: true,
