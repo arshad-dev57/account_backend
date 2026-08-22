@@ -102,7 +102,13 @@ const getShiftHistory = async (req, res) => {
       cashierId,
       locationId,
     });
-    res.json({ success: true, ...result, page: parseInt(page), limit: parseInt(limit) });
+    res.json({
+      success: true,
+      data: result.shifts,
+      ...result,
+      page: parseInt(page),
+      limit: parseInt(limit),
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

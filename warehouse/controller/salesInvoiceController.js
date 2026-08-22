@@ -78,7 +78,7 @@ const createInvoiceFromOrder = async (req, res) => {
     });
   } catch (error) {
     console.error('Create invoice from order error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 400).json({
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -218,7 +218,7 @@ const createManualInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error('Create manual invoice error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 400).json({
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -277,7 +277,7 @@ const postInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error('Post invoice error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 400).json({
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined

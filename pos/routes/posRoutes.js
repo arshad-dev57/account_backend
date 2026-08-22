@@ -28,6 +28,7 @@ router.post ('/cash-flow',            protect, shiftCtrl.recordCashFlow);
 
 // ─── Sale Routes ──────────────────────────────────────────────────────────────
 router.get  ('/sales',            protect, saleCtrl.listSales);
+router.get  ('/sales/lookup',     protect, saleCtrl.lookupSale);
 router.post ('/sales',            protect, saleCtrl.completeSale);
 router.get  ('/sales/held',       protect, saleCtrl.getHeldSales);
 router.post ('/sales/hold',       protect, saleCtrl.holdSale);

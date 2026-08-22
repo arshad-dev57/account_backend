@@ -1,4 +1,8 @@
 const prisma = require('../../prisma/client');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../services/locationService');
 
 function generatePurchaseNumber() {
   const d = new Date();
@@ -132,17 +136,25 @@ class WarehousePurchaseModel {
         const product = await tx.product.findUnique({ where: { id: line.productId } });
         if (!product) throw new Error(`Product not found: ${line.productName}`);
 
-        const previousStock = product.currentStock;
-        const newStock = previousStock + qty;
+        const locationId = await resolveLocationId(
+          tx,
+          purchase.companyId,
+          purchase.locationId,
+          userId
+        );
+        const adj = await adjustLocationStock(tx, {
+          companyId: purchase.companyId,
+          productId: line.productId,
+          locationId,
+          delta: qty,
+          productName: line.productName,
+        });
+        const previousStock = adj.previousLocationStock;
+        const newStock = adj.newLocationStock;
 
         await tx.product.update({
           where: { id: line.productId },
-          data: {
-            currentStock: newStock,
-            availableStock: newStock,
-            costPrice: line.unitCost,
-            totalValue: newStock * line.unitCost
-          }
+          data: { costPrice: line.unitCost },
         });
 
         await tx.stockMovement.create({
@@ -153,6 +165,8 @@ class WarehousePurchaseModel {
             quantity: qty,
             previousStock,
             newStock,
+            locationId,
+            companyId: purchase.companyId,
             stockType: 'bulk',
             stockDetails: { type: 'bulk', quantityAdded: qty, purchaseNumber: purchase.purchaseNumber },
             reason: 'Purchase Order',

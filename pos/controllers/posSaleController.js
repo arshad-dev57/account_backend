@@ -61,7 +61,7 @@ const completeSale = async (req, res) => {
     res.status(201).json({ success: true, message: 'Sale completed successfully', data: { sale, journalEntry } });
   } catch (err) {
     console.error('POS Sale Error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err.statusCode || 400).json({ success: false, message: err.message });
   }
 };
 
@@ -183,6 +183,41 @@ const listSales = async (req, res) => {
   }
 };
 
+// @desc  Lookup POS sale by QR JSON, sale id, or invoice number
+// @route GET /api/pos/sales/lookup?q=
+const lookupSale = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    let q = String(req.query.q || req.query.invoice || '').trim();
+    if (!q) {
+      return res.status(400).json({ success: false, message: 'Scan a receipt QR or enter an invoice number' });
+    }
+
+    let saleId = '';
+    let invoice = q;
+    if (q.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(q);
+        if (parsed.id) saleId = String(parsed.id);
+        if (parsed.inv) invoice = String(parsed.inv);
+      } catch {
+        /* use raw string */
+      }
+    }
+
+    let sale = null;
+    if (saleId) sale = await POSSaleModel.findById(saleId, companyId);
+    if (!sale && invoice) sale = await POSSaleModel.findByInvoice(invoice, companyId);
+    if (!sale) sale = await POSSaleModel.findById(q, companyId);
+    if (!sale) {
+      return res.status(404).json({ success: false, message: 'No matching POS sale found for this receipt' });
+    }
+    res.json({ success: true, data: sale });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // @desc  Get single POS sale
 // @route GET /api/pos/sales/:id
 const getSale = async (req, res) => {
@@ -201,8 +236,10 @@ const processReturn = async (req, res) => {
   try {
     const userId    = req.user.id;
     const companyId = req.user.companyId;
-    if (!['manager','admin','owner','superadmin'].includes(String(req.user.role||'').toLowerCase())) {
-      return res.status(403).json({ success: false, message: 'Only managers or admins can process returns' });
+    const role = String(req.user.role || '').toLowerCase();
+    const canReturn = ['cashier', 'manager', 'admin', 'owner', 'superadmin'].includes(role);
+    if (!canReturn) {
+      return res.status(403).json({ success: false, message: 'Not allowed to process POS returns' });
     }
     const { originalSaleId, returnItems, refundMethod, reason } = req.body;
     if (!originalSaleId || !returnItems?.length || !refundMethod || !reason) {
@@ -394,11 +431,12 @@ const searchProducts = async (req, res) => {
       return {
         ...p,
         companyStock: p.currentStock,
-        currentStock: qty,
+        physicalStock: qty,
+        currentStock: available,
         availableStock: available,
         locationId: resolvedLocationId,
       };
-    });
+    }).filter((p) => !resolvedLocationId || (p.availableStock ?? p.currentStock) > 0);
 
     res.json({
       success: true,
@@ -456,10 +494,13 @@ const getProductByBarcode = async (req, res) => {
         },
       });
       const qty = stock?.currentStock ?? 0;
-      if (qty <= 0) {
+      const available =
+        stock?.availableStock ??
+        Math.max(0, qty - (stock?.reservedStock || 0));
+      if (available <= 0) {
         return res.status(404).json({
           success: false,
-          message: `Product found but no stock at this warehouse`,
+          message: `Product found but no available stock at this warehouse`,
         });
       }
       return res.json({
@@ -467,10 +508,9 @@ const getProductByBarcode = async (req, res) => {
         data: {
           ...product,
           companyStock: product.currentStock,
-          currentStock: qty,
-          availableStock:
-            stock?.availableStock ??
-            Math.max(0, qty - (stock?.reservedStock || 0)),
+          physicalStock: qty,
+          currentStock: available,
+          availableStock: available,
           locationId,
         },
       });
@@ -487,7 +527,8 @@ const getProductByBarcode = async (req, res) => {
 const getAuditLogs = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    if (!['manager','admin'].includes(req.user.role)) {
+    const role = String(req.user.role || '').toLowerCase();
+    if (!['manager', 'admin', 'owner', 'superadmin'].includes(role)) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
     const { page = 1, limit = 50, action } = req.query;
@@ -780,6 +821,6 @@ const getShiftReport = async (req, res) => {
 
 module.exports = {
   completeSale, syncSales, holdSale, getHeldSales, deleteHeldSale,
-  listSales, getSale, processReturn, getDailyReport, searchProducts, getProductByBarcode, getAuditLogs,
+  listSales, lookupSale, getSale, processReturn, getDailyReport, searchProducts, getProductByBarcode, getAuditLogs,
   convertToInvoice, voidSale, verifyManager, getShiftReport
 };

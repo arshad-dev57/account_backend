@@ -288,13 +288,6 @@ const removeStock = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    if (product.currentStock < quantity) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient stock. Available: ${product.currentStock}`,
-      });
-    }
-
     const unitCost =
       unitCostInput != null && unitCostInput !== ''
         ? Number(unitCostInput)
@@ -314,6 +307,8 @@ const removeStock = async (req, res) => {
         productId,
         locationId,
         delta: -qty,
+        checkAvailable: true,
+        productName: product.name,
       });
 
       const movement = await tx.stockMovement.create({

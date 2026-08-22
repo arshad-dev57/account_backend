@@ -4,7 +4,9 @@ const prisma = require('../../prisma/client');
 const {
   resolveLocationId,
   adjustLocationStock,
+  getLocationAvailability,
 } = require('../services/locationService');
+const { getIssuedByInvoiceQty } = require('../services/inventoryService');
 
 // ─── Generate Delivery Number Function ──────────────────────
 function generateDeliveryNumber() {
@@ -273,7 +275,6 @@ class DeliveryModel {
           );
         }
 
-        // Check stock availability
         const product = await tx.product.findUnique({
           where: { id: item.productId }
         });
@@ -282,9 +283,19 @@ class DeliveryModel {
           throw new Error(`Product ${item.productId} not found`);
         }
 
-        if (product.currentStock < item.deliveredQuantity) {
+        const locationId = await resolveLocationId(
+          tx,
+          salesOrder.companyId,
+          data.locationId || salesOrder.locationId,
+          data.createdBy
+        );
+        const locStock = await getLocationAvailability(tx, {
+          productId: item.productId,
+          locationId,
+        });
+        if (locStock.current < item.deliveredQuantity) {
           throw new Error(
-            `Insufficient stock for product ${orderItem.productName}. Available: ${product.currentStock}, Required: ${item.deliveredQuantity}`
+            `Insufficient stock at this warehouse for ${orderItem.productName}. On hand: ${locStock.current}, Required: ${item.deliveredQuantity}`
           );
         }
 
@@ -423,30 +434,40 @@ class DeliveryModel {
             userId
           );
 
+          const alreadyIssued = await getIssuedByInvoiceQty(tx, {
+            companyId,
+            productId: item.productId,
+            orderId: delivery.salesOrderId,
+          });
+          const qtyToIssue = Math.max(0, item.deliveredQuantity - alreadyIssued);
+
           const adj = await adjustLocationStock(tx, {
             companyId,
             productId: item.productId,
             locationId,
-            delta: -item.deliveredQuantity,
+            delta: -qtyToIssue,
             reservedDelta: -item.deliveredQuantity,
+            productName: item.productName,
           });
 
-          await tx.stockMovement.create({
-            data: {
-              productId: item.productId,
-              productName: item.productName,
-              type: 'Delivery',
-              quantity: -item.deliveredQuantity,
-              previousStock: adj.previousLocationStock,
-              newStock: adj.newLocationStock,
-              reason: `Delivery #${delivery.deliveryNumber} confirmed`,
-              reference: delivery.deliveryNumber,
-              status: 'Completed',
-              createdBy: userId,
-              companyId,
-              locationId,
-            },
-          });
+          if (qtyToIssue > 0) {
+            await tx.stockMovement.create({
+              data: {
+                productId: item.productId,
+                productName: item.productName,
+                type: 'Delivery',
+                quantity: -qtyToIssue,
+                previousStock: adj.previousLocationStock,
+                newStock: adj.newLocationStock,
+                reason: `Delivery #${delivery.deliveryNumber} confirmed`,
+                reference: delivery.deliveryNumber,
+                status: 'Completed',
+                createdBy: userId,
+                companyId,
+                locationId,
+              },
+            });
+          }
         }
       }
 

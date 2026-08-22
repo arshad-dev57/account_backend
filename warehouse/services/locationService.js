@@ -73,6 +73,47 @@ async function getOrCreateProductStock(tx, { companyId, productId, locationId })
   });
 }
 
+/**
+ * If Product.currentStock is higher than the sum of location rows
+ * (legacy data / poisoned 0-row), move the leftover onto this location.
+ */
+async function absorbUnallocatedStock(tx, { productId, locationId }) {
+  const product = await tx.product.findUnique({
+    where: { id: productId },
+    select: { currentStock: true, reservedStock: true },
+  });
+  if (!product) return 0;
+
+  const agg = await tx.productStock.aggregate({
+    where: { productId },
+    _sum: { currentStock: true, reservedStock: true },
+  });
+  const allocated = agg._sum.currentStock || 0;
+  const unallocated = (product.currentStock || 0) - allocated;
+  if (unallocated <= 0) return 0;
+
+  const row = await tx.productStock.findUnique({
+    where: { productId_locationId: { productId, locationId } },
+  });
+  if (!row) return 0;
+
+  const reservedUnallocated = Math.max(
+    0,
+    (product.reservedStock || 0) - (agg._sum.reservedStock || 0)
+  );
+  const newCurrent = row.currentStock + unallocated;
+  const newReserved = (row.reservedStock || 0) + reservedUnallocated;
+  await tx.productStock.update({
+    where: { id: row.id },
+    data: {
+      currentStock: newCurrent,
+      reservedStock: newReserved,
+      availableStock: Math.max(0, newCurrent - newReserved),
+    },
+  });
+  return unallocated;
+}
+
 async function syncProductTotalStock(tx, productId) {
   const agg = await tx.productStock.aggregate({
     where: { productId },
@@ -98,24 +139,67 @@ async function syncProductTotalStock(tx, productId) {
   });
 }
 
-/**
- * Adjust physical stock at a location.
- * @returns {{ previousLocationStock, newLocationStock, product }}
- */
+async function getLocationAvailability(tx, { productId, locationId }) {
+  const stock = await tx.productStock.findUnique({
+    where: { productId_locationId: { productId, locationId } },
+  });
+  const current = stock?.currentStock || 0;
+  const reserved = stock?.reservedStock || 0;
+  return {
+    current,
+    reserved,
+    available: Math.max(0, current - reserved),
+  };
+}
+
 async function adjustLocationStock(
   tx,
-  { companyId, productId, locationId, delta, reservedDelta = 0 }
+  {
+    companyId,
+    productId,
+    locationId,
+    delta,
+    reservedDelta = 0,
+    checkAvailable = false,
+    productName,
+  }
 ) {
-  const stock = await getOrCreateProductStock(tx, {
+  await getOrCreateProductStock(tx, {
     companyId,
     productId,
     locationId,
   });
+  await absorbUnallocatedStock(tx, { productId, locationId });
+  const stock = await tx.productStock.findUnique({
+    where: { productId_locationId: { productId, locationId } },
+  });
 
   const previousLocationStock = stock.currentStock;
+  const label = productName ? ` for ${productName}` : '';
+
+  if (checkAvailable && delta < 0 && reservedDelta >= 0) {
+    const available = previousLocationStock - (stock.reservedStock || 0);
+    if (Math.abs(delta) > available) {
+      const err = new Error(
+        `Insufficient available stock${label}. Available: ${available}, Reserved: ${stock.reservedStock || 0}, Required: ${Math.abs(delta)}`
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
   const newLocationStock = previousLocationStock + delta;
   if (newLocationStock < 0) {
-    const err = new Error('Insufficient stock at this location');
+    const others = await tx.productStock.findMany({
+      where: { productId, currentStock: { gt: 0 }, locationId: { not: locationId } },
+      include: { location: { select: { name: true } } },
+    });
+    const hint = others.length
+      ? ` Stock is at: ${others.map((o) => `${o.location?.name || 'location'} (${o.currentStock})`).join(', ')}.`
+      : '';
+    const err = new Error(
+      `Insufficient stock${label} at this location. On hand: ${previousLocationStock}, Required: ${Math.abs(delta)}.${hint}`
+    );
     err.statusCode = 400;
     throw err;
   }
@@ -207,23 +291,46 @@ async function backfillCompanyLocationStock(companyId, userId) {
   });
 
   for (const p of products) {
+    const agg = await prisma.productStock.aggregate({
+      where: { productId: p.id },
+      _sum: { currentStock: true, reservedStock: true },
+    });
+    const allocated = agg._sum.currentStock || 0;
+    const unallocated = (p.currentStock || 0) - allocated;
+    if (unallocated <= 0) continue;
+
     const existing = await prisma.productStock.findUnique({
       where: {
         productId_locationId: { productId: p.id, locationId: location.id },
       },
     });
-    if (existing) continue;
+    if (existing) {
+      const newCurrent = existing.currentStock + unallocated;
+      const newReserved =
+        (existing.reservedStock || 0) +
+        Math.max(0, (p.reservedStock || 0) - (agg._sum.reservedStock || 0));
+      await prisma.productStock.update({
+        where: { id: existing.id },
+        data: {
+          currentStock: newCurrent,
+          reservedStock: newReserved,
+          availableStock: Math.max(0, newCurrent - newReserved),
+        },
+      });
+      continue;
+    }
 
     await prisma.productStock.create({
       data: {
         companyId,
         productId: p.id,
         locationId: location.id,
-        currentStock: p.currentStock || 0,
-        reservedStock: p.reservedStock || 0,
-        availableStock:
-          p.availableStock ??
-          Math.max(0, (p.currentStock || 0) - (p.reservedStock || 0)),
+        currentStock: unallocated,
+        reservedStock: Math.max(0, (p.reservedStock || 0) - (agg._sum.reservedStock || 0)),
+        availableStock: Math.max(
+          0,
+          unallocated - Math.max(0, (p.reservedStock || 0) - (agg._sum.reservedStock || 0))
+        ),
         minimumStock: p.minimumStock || 0,
         reorderLevel: p.reorderLevel || 0,
       },
@@ -237,6 +344,7 @@ module.exports = {
   ensureDefaultLocation,
   resolveLocationId,
   getOrCreateProductStock,
+  getLocationAvailability,
   syncProductTotalStock,
   adjustLocationStock,
   reserveLocationStock,
