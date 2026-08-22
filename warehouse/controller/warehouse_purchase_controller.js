@@ -1,6 +1,10 @@
 // warehouse/controller/purchaseController.js - MULTI-TENANT VERSION (CLEAN)
 
 const prisma = require('../../prisma/client');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../services/locationService');
 
 // ─── HELPERS ────────────────────────────────────────────────
 const generatePurchaseNumber = () => {
@@ -468,17 +472,21 @@ const receivePurchase = async (req, res) => {
       const receivedQty = parseInt(receiveItem.receivedQty) || 0;
       if (receivedQty <= 0) continue;
 
-      const previousStock = purchaseItem.product.currentStock;
-      const newStock = previousStock + receivedQty;
-
-      await prisma.product.update({
-        where: { id: purchaseItem.productId },
-        data: {
-          currentStock: { increment: receivedQty },
-          availableStock: { increment: receivedQty },
-          totalValue: { increment: receivedQty * purchaseItem.unitCost }
-        }
+      const locationId = await resolveLocationId(
+        prisma,
+        companyId,
+        purchase.locationId,
+        req.user.id
+      );
+      const adj = await adjustLocationStock(prisma, {
+        companyId,
+        productId: purchaseItem.productId,
+        locationId,
+        delta: receivedQty,
+        productName: purchaseItem.productName,
       });
+      const previousStock = adj.previousLocationStock;
+      const newStock = adj.newLocationStock;
 
       await prisma.stockMovement.create({
         data: {
@@ -488,6 +496,7 @@ const receivePurchase = async (req, res) => {
           quantity: receivedQty,
           previousStock,
           newStock,
+          locationId,
           stockType: 'bulk',
           stockDetails: {
             type: 'purchase',

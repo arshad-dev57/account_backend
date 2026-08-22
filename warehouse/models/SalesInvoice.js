@@ -7,6 +7,7 @@ const {
   getOrCreateSalesRevenueAccount,
 } = require('../../utils/arAccountHelper');
 const { postSalesInvoiceCOGS } = require('../services/salesAccountingService');
+const { applySalesInvoiceStockOut } = require('../services/inventoryService');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -491,6 +492,10 @@ class SalesInvoiceModel {
           invoice: invoiceWithItems,
           userId,
           companyId,
+        });
+        await applySalesInvoiceStockOut(tx, {
+          invoice: invoiceWithItems,
+          userId,
         });
       }
 

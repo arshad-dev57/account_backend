@@ -3,6 +3,10 @@
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
 const { getOrCreateApAccount } = require('../../utils/apAccountHelper');
+const {
+  resolveLocationId,
+  adjustLocationStock,
+} = require('../services/locationService');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -192,17 +196,28 @@ async function applyPurchaseInvoiceStockIn(tx, invoice, userId) {
     });
     if (!product) continue;
 
-    const prevStock = Number(product.currentStock) || 0;
-    const newStock = prevStock + addQty;
-    const reserved = Number(product.reservedStock) || 0;
+    let purchaseLocationId = invoice.locationId || null;
+    if (!purchaseLocationId && invoice.purchaseOrderId) {
+      const po = await tx.purchaseOrder.findUnique({
+        where: { id: invoice.purchaseOrderId },
+        select: { locationId: true },
+      });
+      purchaseLocationId = po?.locationId || null;
+    }
 
-    await tx.product.update({
-      where: { id: product.id },
-      data: {
-        currentStock: newStock,
-        availableStock: Math.max(0, newStock - reserved),
-        totalValue: newStock * (product.costPrice || 0)
-      }
+    const locationId = await resolveLocationId(
+      tx,
+      invoice.companyId,
+      purchaseLocationId,
+      userId
+    );
+
+    const adj = await adjustLocationStock(tx, {
+      companyId: invoice.companyId,
+      productId: product.id,
+      locationId,
+      delta: addQty,
+      productName: product.name,
     });
 
     await tx.stockMovement.create({
@@ -211,14 +226,15 @@ async function applyPurchaseInvoiceStockIn(tx, invoice, userId) {
         productName: item.productName || product.name,
         type: 'stock_in',
         quantity: addQty,
-        previousStock: prevStock,
-        newStock,
+        previousStock: adj.previousLocationStock,
+        newStock: adj.newLocationStock,
         stockType: 'bulk',
         reason: `Purchase Invoice #${invoice.invoiceNumber}`,
         reference: invoice.invoiceNumber,
         status: 'Completed',
         createdBy: userId || invoice.createdBy || 'SYSTEM',
         companyId: invoice.companyId,
+        locationId,
         supplierId: invoice.supplierId || null,
         supplierName: invoice.supplierName || null
       }

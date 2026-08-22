@@ -64,10 +64,45 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
 }
 
 // ─── GL Account for payment method ──────────────────────────────────────────
+async function findOrCreateCustomerCreditAccount(tx, companyId, userId) {
+  let acc = await tx.chartOfAccount.findFirst({
+    where: {
+      companyId,
+      isActive: true,
+      OR: [
+        { code: '2150' },
+        { name: { contains: 'Store Credit', mode: 'insensitive' } },
+        { name: { contains: 'Customer Credit', mode: 'insensitive' } },
+      ],
+    },
+  });
+  if (!acc) {
+    acc = await tx.chartOfAccount.create({
+      data: {
+        code: '2150',
+        name: 'Customer Store Credit',
+        type: 'Liability',
+        parentAccount: 'Current Liabilities',
+        openingBalance: 0,
+        currentBalance: 0,
+        balanceType: 'Credit',
+        description: 'POS store credit owed to customers',
+        isActive: true,
+        createdBy: userId,
+        companyId,
+      },
+    });
+  }
+  return acc;
+}
+
 async function resolveDebitAccountForPayment(tx, companyId, userId, paymentMethod) {
   const method = (paymentMethod || 'Cash').toLowerCase();
   if (method === 'cash') return findOrCreateCashAccount(tx, companyId, userId);
   if (['card', 'bank', 'bank transfer', 'mobile wallet', 'cheque'].includes(method)) return findOrCreateBankAccount(tx, companyId, userId);
+  if (method.includes('store credit') || method.includes('credit')) {
+    return findOrCreateCustomerCreditAccount(tx, companyId, userId);
+  }
   return findOrCreateCashAccount(tx, companyId, userId);
 }
 
@@ -151,6 +186,8 @@ class POSSaleModel {
           productId: product.id,
           locationId,
           delta: -item.quantity,
+          checkAvailable: true,
+          productName: product.name,
         });
 
         await tx.stockMovement.create({
@@ -334,6 +371,10 @@ class POSSaleModel {
       });
       if (!originalSale) throw new Error('Original POS sale not found');
       if (originalSale.status === 'Returned') throw new Error('Sale is already fully returned');
+      const isStoreCredit = String(refundMethod || '').toLowerCase().includes('store credit');
+      if (isStoreCredit && !originalSale.customerId) {
+        throw new Error('Store credit requires a named customer on the original sale');
+      }
 
       let subtotal = 0, grandTotal = 0, totalCOGS = 0;
       const returnItemsData = [];
@@ -619,6 +660,20 @@ class POSSaleModel {
   // ============================================================
   // GETTERS
   // ============================================================
+  static async findByInvoice(invoiceNumber, companyId) {
+    return prisma.pOSSale.findFirst({
+      where: { invoiceNumber: String(invoiceNumber).trim(), companyId },
+      include: {
+        items: { include: { product: { select: { id: true, name: true, sku: true, sellingPrice: true, mainImage: true } } } },
+        payments: true,
+        shift: { include: { cashier: { select: { id: true, firstName: true, lastName: true } }, terminal: true } },
+        terminal: true,
+        customer: true,
+        returns: { include: { items: true } },
+      },
+    });
+  }
+
   static async findById(id, companyId) {
     return prisma.pOSSale.findFirst({
       where: { id, companyId },
