@@ -2,45 +2,32 @@
 
 const prisma = require('../../prisma/client');
 const { applyFiscalYearWindow } = require('../../utils/fiscalYearHelper');
+const {
+  withLocation,
+  salesInvoiceLocationWhere,
+  warehouseInvoiceLocationWhere,
+} = require('../../utils/accountingLocationHelper');
+const { constraintIds } = require('../../utils/locationAccessHelper');
 
 function toNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Direct locationId on the model (Order, SalesInvoice, …) */
-function withLocation(locationId) {
-  return locationId ? { locationId: String(locationId) } : {};
-}
-
-/** Sales invoices: own locationId, or legacy rows via order.locationId */
-function salesInvoiceLocationWhere(locationId) {
-  if (!locationId) return {};
-  const loc = String(locationId);
-  return {
-    OR: [
-      { locationId: loc },
-      { locationId: null, order: { locationId: loc } },
-    ],
-  };
-}
-
-/** Warehouse invoices have no locationId — filter via linked order */
-function warehouseInvoiceLocationWhere(locationId) {
-  if (!locationId) return {};
-  return { order: { locationId: String(locationId) } };
-}
-
 /** Returns / refunds scoped by order warehouse */
 function viaOrderLocation(locationId) {
-  if (!locationId) return {};
-  return { order: { locationId: String(locationId) } };
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return { order: { locationId: { in: [] } } };
+  return { order: { locationId: { in: ids } } };
 }
 
 /** POS sales via terminal warehouse */
 function posLocationWhere(locationId) {
-  if (!locationId) return {};
-  return { terminal: { locationId: String(locationId) } };
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return { terminal: { locationId: { in: [] } } };
+  return { terminal: { locationId: { in: ids } } };
 }
 
 function invoiceDue(inv) {

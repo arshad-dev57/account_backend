@@ -38,6 +38,7 @@ async function ensureDefaultLocation(txOrPrisma, companyId, userId) {
 
 async function resolveLocationId(txOrPrisma, companyId, locationId, userId) {
   const db = txOrPrisma || prisma;
+  const { assertCanUseLocationId, getLocationScope } = require('../../utils/locationAccessHelper');
   if (locationId) {
     const loc = await db.location.findFirst({
       where: { id: locationId, companyId, isDeleted: false, isActive: true },
@@ -47,9 +48,20 @@ async function resolveLocationId(txOrPrisma, companyId, locationId, userId) {
       err.statusCode = 400;
       throw err;
     }
+    assertCanUseLocationId(loc.id);
     return loc.id;
   }
   const def = await ensureDefaultLocation(db, companyId, userId);
+  const scope = getLocationScope();
+  if (scope && !scope.isAdmin && Array.isArray(scope.ids) && scope.ids.length) {
+    if (scope.ids.includes(def.id)) return def.id;
+    return scope.ids[0];
+  }
+  if (scope && !scope.isAdmin) {
+    const err = new Error('No location assigned to this user');
+    err.statusCode = 403;
+    throw err;
+  }
   return def.id;
 }
 

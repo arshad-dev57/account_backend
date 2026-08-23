@@ -3,6 +3,7 @@
 
 const prisma = require('../../prisma/client');
 const { applyFiscalYearWindow } = require('../../utils/fiscalYearHelper');
+const { withLocation } = require('../../utils/locationAccessHelper');
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -93,11 +94,6 @@ const baseWhere = (companyId, userId, extra = {}) => ({
     extra,
   ]
 });
-
-/** Direct locationId (PurchaseOrder, PurchaseInvoice, GoodsReceiving) */
-function withLocation(locationId) {
-  return locationId ? { locationId: String(locationId) } : {};
-}
 
 /** Purchase invoices: own location, or via PO / GRN */
 function purchaseInvoiceLocationWhere(locationId) {

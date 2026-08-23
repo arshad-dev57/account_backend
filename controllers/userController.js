@@ -627,8 +627,63 @@ exports.verifyLoginOTP = async (req, res) => {
         subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
         endDate: updatedUser.subscription.endDate,
         trialEndDate: updatedUser.subscription.trialEndDate
-      }
+      },
+      locations: [],
+      locationIds: [],
+      isLocationAdmin: false,
     };
+
+    try {
+      const {
+        isLocationAdminRole,
+        formatUserLocations,
+      } = require('../utils/locationAccessHelper');
+      const prismaUser = await prisma.user.findUnique({
+        where: { id: String(updatedUser._id || updatedUser.id) },
+        select: {
+          companyId: true,
+          role: true,
+          userLocations: {
+            include: {
+              location: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  type: true,
+                  isDefault: true,
+                  isActive: true,
+                  isDeleted: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      responseUser.isLocationAdmin = isLocationAdminRole(updatedUser.role);
+      if (responseUser.isLocationAdmin && prismaUser?.companyId) {
+        const allLocs = await prisma.location.findMany({
+          where: { companyId: prismaUser.companyId, isDeleted: false },
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            type: true,
+            isDefault: true,
+            isActive: true,
+          },
+          orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+        });
+        responseUser.locations = allLocs;
+        responseUser.locationIds = allLocs.map((l) => l.id);
+      } else {
+        const assigned = formatUserLocations(prismaUser);
+        responseUser.locations = assigned.locations;
+        responseUser.locationIds = assigned.locationIds;
+      }
+    } catch (locErr) {
+      console.error('⚠️ [verifyLoginOTP] Location load failed:', locErr.message);
+    }
 
     console.log('📤 [verifyLoginOTP] Response User Object:');
     console.log('   - ID:', responseUser.id);
