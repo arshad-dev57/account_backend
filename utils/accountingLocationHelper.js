@@ -1,7 +1,9 @@
 /**
  * Shared location filters for accounting dashboards & ledger-derived reports.
- * Omit / "all" = company-wide. Specific id = warehouse/shop scoped.
+ * Admin omit / "all" = company-wide. Staff without a location = assigned locations only.
  */
+
+const { constraintIds } = require('./locationAccessHelper');
 
 function normalizeLocationId(locationId) {
   if (locationId == null) return null;
@@ -10,97 +12,103 @@ function normalizeLocationId(locationId) {
   return s;
 }
 
-function withLocation(locationId) {
-  const loc = normalizeLocationId(locationId);
-  return loc ? { locationId: loc } : {};
+function none() {
+  return { id: { in: [] } };
 }
 
-/** Sales invoices: own locationId, or legacy rows via order.locationId */
+function withLocation(locationId) {
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return { locationId: { in: [] } };
+  if (ids.length === 1) return { locationId: ids[0] };
+  return { locationId: { in: ids } };
+}
+
 function salesInvoiceLocationWhere(locationId) {
-  const loc = normalizeLocationId(locationId);
-  if (!loc) return {};
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return none();
   return {
     OR: [
-      { locationId: loc },
-      { locationId: null, order: { locationId: loc } },
+      { locationId: { in: ids } },
+      { locationId: null, order: { locationId: { in: ids } } },
     ],
   };
 }
 
-/** Warehouse invoices have no locationId — filter via linked order */
 function warehouseInvoiceLocationWhere(locationId) {
-  const loc = normalizeLocationId(locationId);
-  if (!loc) return {};
-  return { order: { locationId: loc } };
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return none();
+  return { order: { locationId: { in: ids } } };
 }
 
-/** Purchase invoices: own location, or via PO / GRN */
 function purchaseInvoiceLocationWhere(locationId) {
-  const loc = normalizeLocationId(locationId);
-  if (!loc) return {};
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return none();
   return {
     OR: [
-      { locationId: loc },
-      { locationId: null, purchaseOrder: { locationId: loc } },
-      { locationId: null, goodsReceiving: { locationId: loc } },
+      { locationId: { in: ids } },
+      { locationId: null, purchaseOrder: { locationId: { in: ids } } },
+      { locationId: null, goodsReceiving: { locationId: { in: ids } } },
     ],
   };
 }
 
 function posSaleLocationWhere(locationId) {
-  const loc = normalizeLocationId(locationId);
-  if (!loc) return {};
-  return { terminal: { locationId: loc } };
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return none();
+  return { terminal: { locationId: { in: ids } } };
 }
 
 function creditNoteLocationWhere(locationId) {
-  const loc = normalizeLocationId(locationId);
-  if (!loc) return {};
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return none();
   return {
     OR: [
-      { salesInvoice: { locationId: loc } },
-      { salesInvoice: { locationId: null, order: { locationId: loc } } },
-      { originalInvoice: { order: { locationId: loc } } },
+      { salesInvoice: { locationId: { in: ids } } },
+      { salesInvoice: { locationId: null, order: { locationId: { in: ids } } } },
+      { originalInvoice: { order: { locationId: { in: ids } } } },
     ],
   };
 }
 
-/**
- * Journal entries linked to location-tagged source documents.
- * Manual / unlinked JEs are excluded when a location is selected.
- */
 function journalEntryLocationWhere(locationId) {
-  const loc = normalizeLocationId(locationId);
-  if (!loc) return {};
+  const ids = constraintIds(locationId);
+  if (ids == null) return {};
+  if (!ids.length) return none();
   return {
     OR: [
       {
         salesInvoice: {
           OR: [
-            { locationId: loc },
-            { locationId: null, order: { locationId: loc } },
+            { locationId: { in: ids } },
+            { locationId: null, order: { locationId: { in: ids } } },
           ],
         },
       },
       {
         PurchaseInvoice: {
           OR: [
-            { locationId: loc },
-            { locationId: null, purchaseOrder: { locationId: loc } },
-            { locationId: null, goodsReceiving: { locationId: loc } },
+            { locationId: { in: ids } },
+            { locationId: null, purchaseOrder: { locationId: { in: ids } } },
+            { locationId: null, goodsReceiving: { locationId: { in: ids } } },
           ],
         },
       },
-      { posSale: { terminal: { locationId: loc } } },
-      { posReturn: { originalSale: { terminal: { locationId: loc } } } },
+      { posSale: { terminal: { locationId: { in: ids } } } },
+      { posReturn: { originalSale: { terminal: { locationId: { in: ids } } } } },
       {
         salesPayment: {
           invoicePayments: {
             some: {
               invoice: {
                 OR: [
-                  { locationId: loc },
-                  { locationId: null, order: { locationId: loc } },
+                  { locationId: { in: ids } },
+                  { locationId: null, order: { locationId: { in: ids } } },
                 ],
               },
             },
@@ -113,9 +121,9 @@ function journalEntryLocationWhere(locationId) {
             some: {
               invoice: {
                 OR: [
-                  { locationId: loc },
-                  { locationId: null, purchaseOrder: { locationId: loc } },
-                  { locationId: null, goodsReceiving: { locationId: loc } },
+                  { locationId: { in: ids } },
+                  { locationId: null, purchaseOrder: { locationId: { in: ids } } },
+                  { locationId: null, goodsReceiving: { locationId: { in: ids } } },
                 ],
               },
             },
@@ -126,9 +134,9 @@ function journalEntryLocationWhere(locationId) {
         purchaseReturn: {
           purchaseInvoice: {
             OR: [
-              { locationId: loc },
-              { locationId: null, purchaseOrder: { locationId: loc } },
-              { locationId: null, goodsReceiving: { locationId: loc } },
+              { locationId: { in: ids } },
+              { locationId: null, purchaseOrder: { locationId: { in: ids } } },
+              { locationId: null, goodsReceiving: { locationId: { in: ids } } },
             ],
           },
         },

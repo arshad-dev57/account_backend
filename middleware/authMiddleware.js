@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const prisma = require('../prisma/client');
+const { attachLocationScope } = require('../utils/locationAccessHelper');
 
 const cleanToken = (token) => {
   if (!token) return null;
@@ -125,7 +126,7 @@ exports.protectOnly = async (req, res, next) => {
     const user = new User(userData);
     user.companyId = userData.companyId;
     req.user = user;
-    next();
+    return attachLocationScope(req, res, next);
 
   } catch (error) {
     console.error('Auth middleware error:', error);
@@ -184,7 +185,7 @@ exports.protect = async (req, res, next) => {
     }
 
     req.user = user;
-    next();
+    return attachLocationScope(req, res, next);
 
   } catch (error) {
     console.error('Auth middleware error:', error);

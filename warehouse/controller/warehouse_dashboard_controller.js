@@ -1,5 +1,6 @@
 // controllers/warehouse_dashboard_controller.js
 const prisma = require('../../prisma/client');
+const { withLocation } = require('../../utils/locationAccessHelper');
 
 // ============================================================
 // HELPER: Get Date Range from period query param
@@ -85,7 +86,7 @@ const getDashboardMetrics = async (req, res) => {
     const locationId = req.query.locationId || null;
     const movementWhere = {
       companyId,
-      ...(locationId ? { locationId } : {}),
+      ...withLocation(locationId),
     };
 
     let totalProducts;
@@ -270,7 +271,7 @@ const getRecentActivities = async (req, res) => {
     const movements = await prisma.stockMovement.findMany({
       where: {
         companyId,
-        ...(locationId ? { locationId } : {}),
+        ...withLocation(locationId),
       },
       orderBy: { createdAt: 'desc' },
       take: parseInt(limit)
@@ -379,7 +380,7 @@ const getStockMovementChart = async (req, res) => {
       where: {
         companyId,
         createdAt: { gte: start, lte: end },
-        ...(locationId ? { locationId } : {}),
+        ...withLocation(locationId),
       },
       select: { type: true, quantity: true, createdAt: true }
     });
@@ -614,7 +615,7 @@ const getOrderStatusDistribution = async (req, res) => {
         companyId,
         isActive: true,
         isDeleted: false,
-        ...(locationId ? { locationId } : {}),
+        ...withLocation(locationId),
       },
       _count: {
         _all: true,

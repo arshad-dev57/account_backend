@@ -1,6 +1,46 @@
 const prisma = require('../prisma/client');
 const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
+const {
+  isLocationAdminRole,
+  formatUserLocations,
+  replaceUserLocations,
+} = require('../utils/locationAccessHelper');
+
+const USER_LOCATION_SELECT = {
+  userLocations: {
+    include: {
+      location: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          type: true,
+          isDefault: true,
+          isActive: true,
+          isDeleted: true,
+        },
+      },
+    },
+  },
+};
+
+function withAssignedLocations(user) {
+  if (!user) return user;
+  const { userLocations, ...rest } = user;
+  const assigned = formatUserLocations({ userLocations });
+  return {
+    ...rest,
+    locations: assigned.locations,
+    locationIds: assigned.locationIds,
+  };
+}
+
+function parseLocationIds(body) {
+  const raw = body?.locationIds ?? body?.locationIds ?? [];
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((id) => String(id || '').trim()).filter(Boolean))];
+}
 
 function formatRoleLabel(role, customName) {
   if (customName && String(customName).trim()) return String(customName).trim();
@@ -172,14 +212,15 @@ const getAllUsers = async (req, res) => {
             canEdit: true,
             canDelete: true
           }
-        }
+        },
+        ...USER_LOCATION_SELECT,
       },
       orderBy: { createdAt: 'desc' }
     });
 
     res.status(200).json({
       success: true,
-      data: users
+      data: users.map(withAssignedLocations)
     });
   } catch (error) {
     console.error('Get all users error:', error);
@@ -246,7 +287,8 @@ const getUserById = async (req, res) => {
             canEdit: true,
             canDelete: true
           }
-        }
+        },
+        ...USER_LOCATION_SELECT,
       }
     });
 
@@ -259,7 +301,7 @@ const getUserById = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: user
+      data: withAssignedLocations(user)
     });
   } catch (error) {
     console.error('Get user by ID error:', error);
@@ -292,6 +334,7 @@ const createUser = async (req, res) => {
       managerId,
       permissions
     } = req.body;
+    const locationIds = parseLocationIds(req.body);
 
     // ─── Validation ──────────────────────────────────────────────
     console.log('🔍 [createUser] Validating required fields...');
@@ -376,6 +419,13 @@ const createUser = async (req, res) => {
     }
 
     console.log('✅ [createUser] Authorization passed');
+
+    if (!isLocationAdminRole(role || 'user') && locationIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Assign at least one store / location to this user',
+      });
+    }
 
     const normalizedEmail = String(email).trim().toLowerCase();
     const normalizedPhone = phone != null ? String(phone).trim() : '';
@@ -531,6 +581,16 @@ const createUser = async (req, res) => {
       console.log('📌 [createUser] No permissions provided, skipping');
     }
 
+    try {
+      await replaceUserLocations(newUser.id, currentUser.companyId, locationIds);
+    } catch (locError) {
+      console.error('⚠️ [createUser] Failed to assign locations:', locError.message);
+      return res.status(locError.statusCode || 400).json({
+        success: false,
+        message: locError.message || 'Failed to assign locations',
+      });
+    }
+
     let emailSent = false;
     try {
       let companyName = 'BisonsTechs';
@@ -583,7 +643,26 @@ const createUser = async (req, res) => {
       message: emailSent
         ? 'User created. Login details sent to their email.'
         : 'User created, but the invite email could not be sent.',
-      data: newUser
+      data: withAssignedLocations(
+        await prisma.user.findUnique({
+          where: { id: newUser.id },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            role: true,
+            roleId: true,
+            managerId: true,
+            isActive: true,
+            createdAt: true,
+            subscriptionPlan: true,
+            subscriptionStatus: true,
+            ...USER_LOCATION_SELECT,
+          },
+        })
+      )
     });
 
   } catch (error) {
@@ -721,6 +800,19 @@ const updateUser = async (req, res) => {
         createdAt: true
       }
     });
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'locationIds') ||
+        Object.prototype.hasOwnProperty.call(req.body, 'locationIds')) {
+      const nextLocationIds = parseLocationIds(req.body);
+      const nextRole = role || existingUser.role;
+      if (!isLocationAdminRole(nextRole) && nextLocationIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Assign at least one store / location to this user',
+        });
+      }
+      await replaceUserLocations(id, currentUser.companyId, nextLocationIds);
+    }
 
     // Update permissions if provided
     if (permissions && Array.isArray(permissions)) {

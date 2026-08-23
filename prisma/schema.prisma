@@ -127,12 +127,28 @@ model Location {
   salesInvoices    SalesInvoice[]
   purchaseInvoices PurchaseInvoice[]
   quotations       Quotation[]
+  userLocations    UserLocation[]
 
   @@unique([companyId, code])
   @@index([companyId])
   @@index([isActive])
   @@index([isDefault])
   @@map("locations")
+}
+
+model UserLocation {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  locationId String   @map("location_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@index([userId])
+  @@index([locationId])
+  @@map("user_locations")
 }
 
 model ProductStock {
@@ -284,6 +300,7 @@ model User {
   creator             User?                @relation("CreatedUsers", fields: [createdBy], references: [id])
   userRole            Role?                @relation(fields: [roleId], references: [id])
   permissions         UserPermission[]
+  userLocations        UserLocation[]
   company             Company?             @relation(fields: [companyId], references: [id])
   createdTerminals    POSTerminal[]        @relation("TerminalCreator")
   shifts              POSShift[]           @relation("CashierShift")

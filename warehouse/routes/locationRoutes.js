@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../../middleware/authMiddleware');
+const { requireLocationAdmin } = require('../../utils/locationAccessHelper');
 const {
   listLocations,
   createLocation,
@@ -15,12 +16,12 @@ const {
 router.use(protect);
 
 router.get('/', listLocations);
-router.post('/', createLocation);
-router.post('/transfer', transferStock);
-router.post('/migrate', migrateLegacyStock);
+router.post('/', requireLocationAdmin, createLocation);
+router.post('/transfer', requireLocationAdmin, transferStock);
+router.post('/migrate', requireLocationAdmin, migrateLegacyStock);
 router.get('/product/:productId/stocks', getProductLocationStocks);
 router.get('/:id/stock', getLocationStock);
-router.put('/:id', updateLocation);
-router.delete('/:id', deleteLocation);
+router.put('/:id', requireLocationAdmin, updateLocation);
+router.delete('/:id', requireLocationAdmin, deleteLocation);
 
 module.exports = router;

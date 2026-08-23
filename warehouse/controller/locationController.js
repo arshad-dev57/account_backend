@@ -5,6 +5,10 @@ const {
   adjustLocationStock,
   resolveLocationId,
 } = require('../services/locationService');
+const {
+  isLocationAdminRole,
+  filterLocationsForUser,
+} = require('../../utils/locationAccessHelper');
 
 function locationToJson(loc) {
   if (!loc) return null;
@@ -37,10 +41,12 @@ const listLocations = async (req, res) => {
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     });
 
+    const visible = filterLocationsForUser(req.user, locations);
+
     res.json({
       success: true,
-      count: locations.length,
-      data: locations.map(locationToJson),
+      count: visible.length,
+      data: visible.map(locationToJson),
     });
   } catch (error) {
     console.error('listLocations error:', error);
@@ -311,12 +317,19 @@ const getProductLocationStocks = async (req, res) => {
       orderBy: { location: { name: 'asc' } },
     });
 
+    const visibleLocations = filterLocationsForUser(
+      req.user,
+      stocks.map((s) => s.location).filter(Boolean)
+    );
+    const visibleIds = new Set(visibleLocations.map((l) => l.id));
+    const visibleStocks = stocks.filter((s) => visibleIds.has(s.locationId));
+
     res.json({
       success: true,
       data: {
         product,
         totalStock: product.currentStock,
-        locations: stocks.map((s) => ({
+        locations: visibleStocks.map((s) => ({
           locationId: s.locationId,
           locationName: s.location?.name,
           locationCode: s.location?.code,
