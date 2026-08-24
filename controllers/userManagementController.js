@@ -1056,6 +1056,59 @@ const getRoles = async (req, res) => {
   }
 };
 
+const PLATFORM_OWNER_EMAILS = [
+  'mfaisalakhan@gmail.com',
+  'kashif@gmail.com',
+];
+
+function isPlatformOwnerEmail(email) {
+  return PLATFORM_OWNER_EMAILS.includes(String(email || '').trim().toLowerCase());
+}
+
+const getAllRegisteredUsers = async (req, res) => {
+  try {
+    const current = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { email: true },
+    });
+
+    if (!isPlatformOwnerEmail(current?.email)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view registered users',
+      });
+    }
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        organizationName: true,
+        country: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: users,
+    });
+  } catch (error) {
+    console.error('Get registered users error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
@@ -1065,5 +1118,6 @@ module.exports = {
   updateUserPermissions,
   getPermissionCatalog,
   getRoles,
+  getAllRegisteredUsers,
   AVAILABLE_PERMISSION_MODULES
 };

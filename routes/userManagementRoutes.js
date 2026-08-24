@@ -9,7 +9,8 @@ const {
   deleteUser,
   updateUserPermissions,
   getPermissionCatalog,
-  getRoles
+  getRoles,
+  getAllRegisteredUsers,
 } = require('../controllers/userManagementController');
 
 // All routes are protected
@@ -21,6 +22,8 @@ router.get('/', getAllUsers);
 
 // Get available roles
 router.get('/roles', getRoles);
+
+router.get('/registered', getAllRegisteredUsers);
 
 // Permission catalog (modules + pages, includes Sales Credits)
 router.get('/permissions/catalog', getPermissionCatalog);
