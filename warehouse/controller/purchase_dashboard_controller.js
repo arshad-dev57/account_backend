@@ -3,7 +3,6 @@
 
 const prisma = require('../../prisma/client');
 const { applyFiscalYearWindow } = require('../../utils/fiscalYearHelper');
-const { withLocation } = require('../../utils/locationAccessHelper');
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -14,6 +13,7 @@ const parsePeriod = async (period, startDate, endDate, opts = {}) => {
   let groupBy;
 
   switch (String(period || 'month').toLowerCase()) {
+    case 'today':
     case 'today':
       start = new Date(now);
       start.setHours(0, 0, 0, 0);
@@ -95,20 +95,30 @@ const baseWhere = (companyId, userId, extra = {}) => ({
   ]
 });
 
-/** Purchase invoices: own location, or via PO / GRN */
+/** POs: selected store, or company-wide (no location set) */
+function purchaseOrderLocationWhere(locationId) {
+  if (!locationId) return {};
+  const loc = String(locationId);
+  return {
+    OR: [{ locationId: loc }, { locationId: null }],
+  };
+}
+
+/** Invoices: own location, unscoped, or via PO / GRN */
 function purchaseInvoiceLocationWhere(locationId) {
   if (!locationId) return {};
   const loc = String(locationId);
   return {
     OR: [
       { locationId: loc },
-      { locationId: null, purchaseOrder: { locationId: loc } },
-      { locationId: null, goodsReceiving: { locationId: loc } },
+      { locationId: null },
+      { purchaseOrder: { locationId: loc } },
+      { goodsReceiving: { locationId: loc } },
     ],
   };
 }
 
-/** Purchase returns via linked invoice / PO / GRN warehouse */
+/** Purchase returns via linked invoice / PO / GRN */
 function purchaseReturnLocationWhere(locationId) {
   if (!locationId) return {};
   const loc = String(locationId);
@@ -116,6 +126,7 @@ function purchaseReturnLocationWhere(locationId) {
     purchaseInvoice: {
       OR: [
         { locationId: loc },
+        { locationId: null },
         { purchaseOrder: { locationId: loc } },
         { goodsReceiving: { locationId: loc } },
       ],
@@ -128,17 +139,23 @@ function purchasePaymentLocationWhere(locationId) {
   if (!locationId) return {};
   const loc = String(locationId);
   return {
-    invoicePayments: {
-      some: {
-        invoice: {
-          OR: [
-            { locationId: loc },
-            { purchaseOrder: { locationId: loc } },
-            { goodsReceiving: { locationId: loc } },
-          ],
+    OR: [
+      { invoicePayments: { none: {} } },
+      {
+        invoicePayments: {
+          some: {
+            invoice: {
+              OR: [
+                { locationId: loc },
+                { locationId: null },
+                { purchaseOrder: { locationId: loc } },
+                { goodsReceiving: { locationId: loc } },
+              ],
+            },
+          },
         },
       },
-    },
+    ],
   };
 }
 
@@ -201,11 +218,11 @@ const getMetrics = async (req, res) => {
 
     const orderWhere = baseWhere(companyId, userId, {
       createdAt: { gte: start, lte: end },
-      ...withLocation(locationId),
+      ...purchaseOrderLocationWhere(locationId),
     });
     const invoiceWhere = baseWhere(companyId, userId, {
       invoiceDate: { gte: start, lte: end },
-      invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
+      invoiceStatus: { notIn: ['Cancelled'] },
       ...purchaseInvoiceLocationWhere(locationId),
     });
     const returnWhere = baseWhere(companyId, userId, {
@@ -352,7 +369,7 @@ const getSpendTrend = async (req, res) => {
       prisma.purchaseOrder.findMany({
         where: baseWhere(companyId, userId, {
           createdAt: { gte: start, lte: end },
-          ...withLocation(locationId),
+          ...purchaseOrderLocationWhere(locationId),
         }),
         select: { createdAt: true, grandTotal: true },
         orderBy: { createdAt: 'asc' }
@@ -414,7 +431,7 @@ const getOrderStatusDistribution = async (req, res) => {
     const orders = await prisma.purchaseOrder.findMany({
       where: baseWhere(companyId, userId, {
         createdAt: { gte: start, lte: end },
-        ...withLocation(locationId),
+        ...purchaseOrderLocationWhere(locationId),
       }),
       select: { status: true, grandTotal: true }
     });
@@ -499,7 +516,7 @@ const getTopSuppliers = async (req, res) => {
       const orders = await prisma.purchaseOrder.findMany({
         where: baseWhere(companyId, userId, {
           createdAt: { gte: start, lte: end },
-          ...withLocation(locationId),
+          ...purchaseOrderLocationWhere(locationId),
         }),
         select: { supplierId: true, supplierName: true, grandTotal: true }
       });
@@ -537,7 +554,7 @@ const getRecentActivities = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const { locationId } = req.query;
-    const scope = baseWhere(companyId, userId, withLocation(locationId));
+    const scope = baseWhere(companyId, userId, purchaseOrderLocationWhere(locationId));
     const invoiceScope = baseWhere(
       companyId,
       userId,

@@ -803,7 +803,9 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
       where.OR = [
         { grnNumber: { contains: search, mode: 'insensitive' } },
         { supplierName: { contains: search, mode: 'insensitive' } },
-        { purchaseOrderNumber: { contains: search, mode: 'insensitive' } }
+        { purchaseOrderNumber: { contains: search, mode: 'insensitive' } },
+        { supplier: { phone: { contains: search, mode: 'insensitive' } } },
+        { supplier: { email: { contains: search, mode: 'insensitive' } } }
       ];
     }
 
@@ -818,6 +820,9 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         },
         supplier: true,
         purchaseOrder: true,
+        location: {
+          select: { id: true, name: true, code: true, type: true }
+        },
         purchaseInvoices: {
           where: {
             isActive: true,
@@ -862,6 +867,15 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
         0
       );
+      const totalDiscount = items.reduce((sum, item) => {
+        const line = (item.quantity || 0) * (item.unitPrice || 0);
+        return sum + line * ((item.discount || 0) / 100);
+      }, 0);
+      const totalTax = items.reduce((sum, item) => {
+        const line = (item.quantity || 0) * (item.unitPrice || 0);
+        const afterDisc = line * (1 - (item.discount || 0) / 100);
+        return sum + afterDisc * ((item.taxRate || 0) / 100);
+      }, 0);
       const itemPreview = items
         .slice(0, 3)
         .map((item) => item.productName)
@@ -878,15 +892,21 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         supplierName: grn.supplierName,
         supplierEmail: grn.supplier?.email || grn.purchaseOrder?.supplierEmail,
         supplierPhone: grn.supplier?.phone || grn.purchaseOrder?.supplierPhone,
+        supplierAddress: grn.supplier?.address || grn.purchaseOrder?.supplierAddress,
         receivingDate: grn.receivingDate,
         status: grn.status,
+        locationId: grn.locationId,
+        locationName: grn.location?.name,
+        locationCode: grn.location?.code,
         hasInvoice: grn.purchaseInvoices.length > 0,
         invoiceCount: grn.purchaseInvoices.length,
         invoices: grn.purchaseInvoices,
         hasReceivedItems: true,
         totalQuantity,
         invoiceSubtotal,
-        grandTotal: invoiceSubtotal,
+        totalDiscount,
+        totalTax,
+        grandTotal: invoiceSubtotal - totalDiscount + totalTax,
         itemCount: items.length,
         itemPreview,
         items
@@ -952,6 +972,7 @@ const getAvailablePOsForInvoicing = async (req, res) => {
             { orderNumber: { contains: q, mode: 'insensitive' } },
             { supplierName: { contains: q, mode: 'insensitive' } },
             { supplierEmail: { contains: q, mode: 'insensitive' } },
+            { supplierPhone: { contains: q, mode: 'insensitive' } },
           ]
         },
       ];
@@ -963,6 +984,9 @@ const getAvailablePOsForInvoicing = async (req, res) => {
         include: {
           items: true,
           supplier: true,
+          location: {
+            select: { id: true, name: true, code: true, type: true }
+          },
           goodsReceivings: {
             where: {
               isActive: true,
@@ -1040,6 +1064,9 @@ const getAvailablePOsForInvoicing = async (req, res) => {
         orderDate: po.orderDate,
         expectedDeliveryDate: po.expectedDeliveryDate,
         status: po.status,
+        locationId: po.locationId,
+        locationName: po.location?.name,
+        locationCode: po.location?.code,
         subtotal: po.subtotal,
         totalDiscount: po.totalDiscount,
         totalTax: po.totalTax,
