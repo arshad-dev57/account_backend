@@ -186,21 +186,23 @@ async function adjustLocationStock(
     where: { productId_locationId: { productId, locationId } },
   });
 
+  const qtyDelta = Math.round(Number(delta) || 0);
+  const qtyReserved = Math.round(Number(reservedDelta) || 0);
   const previousLocationStock = stock.currentStock;
   const label = productName ? ` for ${productName}` : '';
 
-  if (checkAvailable && delta < 0 && reservedDelta >= 0) {
+  if (checkAvailable && qtyDelta < 0 && qtyReserved >= 0) {
     const available = previousLocationStock - (stock.reservedStock || 0);
-    if (Math.abs(delta) > available) {
+    if (Math.abs(qtyDelta) > available) {
       const err = new Error(
-        `Insufficient available stock${label}. Available: ${available}, Reserved: ${stock.reservedStock || 0}, Required: ${Math.abs(delta)}`
+        `Insufficient available stock${label}. Available: ${available}, Reserved: ${stock.reservedStock || 0}, Required: ${Math.abs(qtyDelta)}`
       );
       err.statusCode = 400;
       throw err;
     }
   }
 
-  const newLocationStock = previousLocationStock + delta;
+  const newLocationStock = previousLocationStock + qtyDelta;
   if (newLocationStock < 0) {
     const others = await tx.productStock.findMany({
       where: { productId, currentStock: { gt: 0 }, locationId: { not: locationId } },
@@ -210,13 +212,13 @@ async function adjustLocationStock(
       ? ` Stock is at: ${others.map((o) => `${o.location?.name || 'location'} (${o.currentStock})`).join(', ')}.`
       : '';
     const err = new Error(
-      `Insufficient stock${label} at this location. On hand: ${previousLocationStock}, Required: ${Math.abs(delta)}.${hint}`
+      `Insufficient stock${label} at this location. On hand: ${previousLocationStock}, Required: ${Math.abs(qtyDelta)}.${hint}`
     );
     err.statusCode = 400;
     throw err;
   }
 
-  const newReserved = Math.max(0, (stock.reservedStock || 0) + reservedDelta);
+  const newReserved = Math.max(0, (stock.reservedStock || 0) + qtyReserved);
   const newAvailable = Math.max(0, newLocationStock - newReserved);
 
   await tx.productStock.update({

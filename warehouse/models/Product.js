@@ -119,11 +119,29 @@ class ProductModel {
   }
 
   static async findByBarcode(barcode, companyId) {
+    const code = String(barcode || '').trim();
+    if (!code) return null;
+    let jsonId = '';
+    try {
+      const parsed = JSON.parse(code);
+      if (parsed && typeof parsed === 'object') {
+        jsonId = String(parsed.id || parsed.sku || '').trim();
+      }
+    } catch {
+      /* plain QR / barcode text */
+    }
     return await prisma.product.findFirst({
       where: {
-        barcodeNumber: barcode,
         companyId,
-        isActive: true
+        isActive: true,
+        OR: [
+          { qrCode: code },
+          { barcodeNumber: code },
+          { sku: { equals: code, mode: 'insensitive' } },
+          ...(jsonId
+            ? [{ id: jsonId }, { sku: { equals: jsonId, mode: 'insensitive' } }]
+            : []),
+        ],
       },
       include: {
         category: {
@@ -166,12 +184,25 @@ class ProductModel {
     return await prisma.product.findFirst({ where });
   }
 
+  static async checkQrCodeExists(qrCode, companyId, excludeId = null) {
+    const code = String(qrCode || '').trim();
+    if (!code) return null;
+    const where = {
+      qrCode: code,
+      companyId,
+      isActive: true,
+    };
+    if (excludeId) where.NOT = { id: excludeId };
+    return await prisma.product.findFirst({ where });
+  }
+
   // ✅ FIXED: create method with ALL required fields properly handled
   static async create(data) {
     const {
       name,
       sku,
       barcodeNumber,
+      qrCode,
       categoryId,
       supplierId,
       costPrice,
@@ -250,6 +281,7 @@ class ProductModel {
       name,
       sku: sku.toUpperCase(),
       barcodeNumber: barcodeNumber || null,
+      qrCode: qrCode ? String(qrCode).trim() : null,
       barcodeImage: barcodeImage || null,
       costPrice: costPrice || 0,
       sellingPrice: sellingPrice || 0,
@@ -423,6 +455,7 @@ class ProductModel {
       name: data.name !== undefined ? data.name : undefined,
       sku: data.sku ? data.sku.toUpperCase() : undefined,
       barcodeNumber: asBarcode(data.barcodeNumber),
+      qrCode: asBarcode(data.qrCode),
       costPrice: asFloat(data.costPrice),
       sellingPrice: asFloat(data.sellingPrice),
       currentStock: asInt(data.currentStock),

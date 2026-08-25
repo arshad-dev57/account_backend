@@ -39,13 +39,17 @@ const completeSale = async (req, res) => {
       offlineCreatedAt: offlineCreatedAt || null
     });
 
-    try {
+    res.status(201).json({ success: true, message: 'Sale completed successfully', data: { sale, journalEntry } });
+
+    // Record GST ledger after the sale is committed so a slow tax write
+    // cannot time out the POS request and trigger a second sale / stock hit.
+    setImmediate(() => {
       const taxCalculationService = require('../../tax/services/taxCalculationService');
-      await taxCalculationService.calculateTax({
+      taxCalculationService.calculateTax({
         items: (items || []).map((item) => ({
           productId: item.productId,
           categoryId: item.categoryId,
-          quantity: item.quantity,
+          quantity: Math.round(Number(item.quantity) || 0),
           unitPrice: item.unitPrice,
           pricingModel: item.pricingModel || (String(item.taxType || '').toLowerCase().includes('inclusive') ? 'inclusive' : 'exclusive')
         })),
@@ -53,12 +57,10 @@ const completeSale = async (req, res) => {
         companyId,
         transactionType: 'POSSale',
         transactionId: sale.id
+      }).catch((taxErr) => {
+        console.error('POS tax ledger recording failed:', taxErr.message);
       });
-    } catch (taxErr) {
-      console.error('POS tax ledger recording failed:', taxErr.message);
-    }
-
-    res.status(201).json({ success: true, message: 'Sale completed successfully', data: { sale, journalEntry } });
+    });
   } catch (err) {
     console.error('POS Sale Error:', err);
     res.status(err.statusCode || 400).json({ success: false, message: err.message });
@@ -386,6 +388,7 @@ const searchProducts = async (req, res) => {
         { name: { contains: q, mode: 'insensitive' } },
         { sku: { contains: q, mode: 'insensitive' } },
         { barcodeNumber: { contains: q, mode: 'insensitive' } },
+        { qrCode: { contains: q, mode: 'insensitive' } },
       ];
     }
 
@@ -400,6 +403,7 @@ const searchProducts = async (req, res) => {
           name: true,
           sku: true,
           barcodeNumber: true,
+          qrCode: true,
           sellingPrice: true,
           costPrice: true,
           currentStock: true,
@@ -463,17 +467,30 @@ const getProductByBarcode = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Barcode is required' });
     }
 
+    let jsonId = '';
+    try {
+      const parsed = JSON.parse(code);
+      if (parsed && typeof parsed === 'object') {
+        jsonId = String(parsed.sku || parsed.id || '').trim();
+      }
+    } catch {
+      /* plain QR / barcode */
+    }
     const product = await prisma.product.findFirst({
       where: {
         companyId,
         isActive: true,
         OR: [
+          { qrCode: { equals: code, mode: 'insensitive' } },
           { barcodeNumber: { equals: code, mode: 'insensitive' } },
           { sku: { equals: code, mode: 'insensitive' } },
+          ...(jsonId
+            ? [{ qrCode: jsonId }, { sku: { equals: jsonId, mode: 'insensitive' } }, { id: jsonId }]
+            : []),
         ]
       },
       select: {
-        id: true, name: true, sku: true, barcodeNumber: true,
+        id: true, name: true, sku: true, barcodeNumber: true, qrCode: true,
         sellingPrice: true, costPrice: true, currentStock: true,
         availableStock: true, mainImage: true, categoryId: true, categoryName: true,
         taxRate: true, stockUnitName: true

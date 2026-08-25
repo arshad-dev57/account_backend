@@ -661,6 +661,7 @@ model Product {
   name             String
   sku              String
   barcodeNumber    String?  @unique @map("barcode_number")
+  qrCode           String?  @map("qr_code")
   barcodeImage     String?  @map("barcode_image")
   description      String?
   shortDescription String?  @map("short_description")
@@ -839,6 +840,7 @@ model Product {
   @@index([isActive])
   @@index([status])
   @@index([barcodeNumber])
+  @@index([qrCode])
   @@index([companyId])
   @@map("products")
 }

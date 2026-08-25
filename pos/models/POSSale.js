@@ -120,14 +120,26 @@ class POSSaleModel {
       locationId: locationIdInput,
     } = data;
 
+    if (id) {
+      const existing = await prisma.pOSSale.findFirst({
+        where: { id, companyId },
+        include: { items: true, payments: true },
+      });
+      if (existing) {
+        return { sale: existing, journalEntry: null, duplicate: true };
+      }
+    }
+
     const taxProfile = await prisma.companyTaxProfile.findUnique({ where: { companyId } }).catch(() => null);
     const taxOn = Boolean(taxProfile?.taxEnabled);
 
-    // Pre-compute totals
+    // Pre-compute totals — quantity must be a whole unit (tax must never change qty)
     let subtotal = 0;
     const processedItems = [];
     for (const item of items) {
-      const lineTotal = parseFloat((item.quantity * item.unitPrice).toFixed(2));
+      const quantity = Math.max(0, Math.round(Number(item.quantity) || 0));
+      if (!item.productId || quantity <= 0) continue;
+      const lineTotal = parseFloat((quantity * item.unitPrice).toFixed(2));
       const discountAmt = item.discount ? parseFloat((lineTotal * item.discount / 100).toFixed(2)) : 0;
       const taxableAmt = lineTotal - discountAmt;
       const pricing = String(item.pricingModel || item.taxType || 'exclusive').toLowerCase();
@@ -145,7 +157,14 @@ class POSSaleModel {
         ? parseFloat(taxableAmt.toFixed(2))
         : parseFloat((taxableAmt + taxAmount).toFixed(2));
       subtotal += lineTotal;
-      processedItems.push({ ...item, lineTotal: finalLineTotal, taxAmount, discountAmount: discountAmt, inclusive });
+      processedItems.push({
+        ...item,
+        quantity,
+        lineTotal: finalLineTotal,
+        taxAmount,
+        discountAmount: discountAmt,
+        inclusive,
+      });
     }
     const anyInclusive = processedItems.some((i) => i.inclusive);
     const appliedTaxTotal = taxOn ? taxTotal : 0;
@@ -181,11 +200,12 @@ class POSSaleModel {
         });
         if (!product) throw new Error(`Product not found or inactive: ${item.productName || item.productId}`);
 
+        const qty = Math.max(0, Math.round(Number(item.quantity) || 0));
         const adj = await adjustLocationStock(tx, {
           companyId,
           productId: product.id,
           locationId,
-          delta: -item.quantity,
+          delta: -qty,
           checkAvailable: true,
           productName: product.name,
         });
@@ -195,7 +215,7 @@ class POSSaleModel {
             productId: product.id,
             productName: product.name,
             type: 'stock_out',
-            quantity: item.quantity,
+            quantity: qty,
             previousStock: adj.previousLocationStock,
             newStock: adj.newLocationStock,
             reason: 'POS Sale',
@@ -208,7 +228,7 @@ class POSSaleModel {
           }
         });
 
-        totalCOGS += product.costPrice * item.quantity;
+        totalCOGS += product.costPrice * qty;
       }
 
       // ── 2. Build Journal Entry lines ─────────────────────────

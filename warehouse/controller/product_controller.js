@@ -175,6 +175,7 @@ const getProducts = async (req, res) => {
         { name: { contains: searchQuery, mode: 'insensitive' } },
         { sku: { contains: searchQuery, mode: 'insensitive' } },
         { barcodeNumber: { contains: searchQuery, mode: 'insensitive' } },
+        { qrCode: { contains: searchQuery, mode: 'insensitive' } },
         { description: { contains: searchQuery, mode: 'insensitive' } }
       ];
     }
@@ -255,6 +256,12 @@ const getProducts = async (req, res) => {
                     { sku: { contains: searchQuery, mode: 'insensitive' } },
                     {
                       barcodeNumber: {
+                        contains: searchQuery,
+                        mode: 'insensitive',
+                      },
+                    },
+                    {
+                      qrCode: {
                         contains: searchQuery,
                         mode: 'insensitive',
                       },
@@ -546,6 +553,17 @@ const createProduct = async (req, res) => {
       }
     }
 
+    if (data.qrCode) {
+      data.qrCode = String(data.qrCode).trim();
+      const existingQr = await ProductModel.checkQrCodeExists(data.qrCode, companyId);
+      if (existingQr) {
+        return res.status(400).json({
+          success: false,
+          message: 'This QR is already assigned to another product',
+        });
+      }
+    }
+
     // Opening stock must go through Stock Movement (posts accounting entry)
     const requestedStock = Number(data.currentStock) || 0;
     if (requestedStock > 0) {
@@ -779,6 +797,17 @@ const updateProduct = async (req, res) => {
         });
       }
       console.log('✅ [updateProduct] Barcode is unique');
+    }
+
+    if (data.qrCode) {
+      data.qrCode = String(data.qrCode).trim();
+      const existingQr = await ProductModel.checkQrCodeExists(data.qrCode, companyId, id);
+      if (existingQr) {
+        return res.status(400).json({
+          success: false,
+          message: 'This QR is already assigned to another product',
+        });
+      }
     }
 
     if (data.categoryId) {
