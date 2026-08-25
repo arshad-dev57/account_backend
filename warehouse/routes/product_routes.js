@@ -12,7 +12,8 @@ const {
   searchProducts,
   getLowStockProducts,
   getProductByBarcode,
-  checkBarcodeExists
+  checkBarcodeExists,
+  generateSku,
 } = require('../controller/product_controller');
 
 // All routes protected (authentication + subscription)
@@ -38,6 +39,8 @@ router.get('/', getProducts);
 router.get('/:id', getProductById);
 
 // ─── POST Routes ──────────────────────────────────────────────
+router.post('/generate-sku', generateSku);
+
 // Create product (with image upload)
 router.post(
   '/',

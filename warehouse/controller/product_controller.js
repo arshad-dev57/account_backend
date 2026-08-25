@@ -530,30 +530,19 @@ const createProduct = async (req, res) => {
     }
 
     // ─── Validation ──────────────────────────────────────────
-    if (!data.name || !data.sku) {
+    if (!data.name) {
       return res.status(400).json({
         success: false,
-        message: 'Name and SKU are required'
+        message: 'Product name is required'
       });
     }
 
-    // ─── Check duplicate SKU ──────────────────────────────
-    const existingSku = await ProductModel.checkSkuExists(data.sku, companyId);
-    if (existingSku) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product with this SKU already exists'
-      });
-    }
+    data.sku = await ProductModel.generateSku(companyId, data.name, data.categoryId);
 
-    // ─── Check duplicate barcode ──────────────────────────
     if (data.barcodeNumber) {
       const existingBarcode = await ProductModel.checkBarcodeExists(data.barcodeNumber, companyId);
       if (existingBarcode) {
-        return res.status(400).json({
-          success: false,
-          message: 'Product with this barcode already exists'
-        });
+        data.barcodeNumber = `${data.sku}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
       }
     }
 
@@ -638,7 +627,18 @@ const createProduct = async (req, res) => {
 
     console.log('🔵 [createProduct] Final product data:', JSON.stringify(productData, null, 2));
 
-    const product = await ProductModel.create(productData);
+    let product;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        product = await ProductModel.create(productData);
+        break;
+      } catch (createErr) {
+        const isDup = createErr?.code === 'P2002';
+        if (!isDup || attempt === 7) throw createErr;
+        productData.sku = await ProductModel.generateSku(companyId, data.name, data.categoryId);
+        productData.barcodeNumber = `${productData.sku}-${String(attempt + 1)}`;
+      }
+    }
 
     // Assign product to selected location (0 stock) so it appears in that warehouse catalog
     try {
@@ -759,16 +759,10 @@ const updateProduct = async (req, res) => {
 
     // ─── Check duplicate SKU ──────────────────────────────
     if (data.sku && String(data.sku).toUpperCase() !== String(existing.sku || '').toUpperCase()) {
-      console.log('🔵 [updateProduct] SKU changed from', existing.sku, 'to', data.sku);
       const duplicateSku = await ProductModel.checkSkuExists(data.sku, companyId, id);
       if (duplicateSku) {
-        console.log('❌ [updateProduct] Duplicate SKU found:', duplicateSku.sku);
-        return res.status(400).json({
-          success: false,
-          message: 'Product with this SKU already exists'
-        });
+        data.sku = existing.sku;
       }
-      console.log('✅ [updateProduct] SKU is unique');
     }
 
     // ─── Check duplicate barcode ──────────────────────────
@@ -1112,14 +1106,6 @@ const generateSku = async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const { productName, categoryId } = req.body;
-
-    if (!productName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product name is required'
-      });
-    }
-
     const sku = await ProductModel.generateSku(companyId, productName, categoryId);
 
     res.status(200).json({

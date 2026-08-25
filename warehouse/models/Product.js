@@ -137,18 +137,16 @@ class ProductModel {
   }
 
   static async checkSkuExists(sku, companyId, excludeId = null) {
+    if (!sku) return null;
     const where = {
-      sku: sku.toUpperCase(),
-      companyId: companyId,
-      isActive: true
+      sku: String(sku).toUpperCase(),
+      companyId,
     };
-    
+
     if (excludeId) {
-      where.NOT = {
-        id: excludeId
-      };
+      where.NOT = { id: excludeId };
     }
-    
+
     return await prisma.product.findFirst({ where });
   }
 
@@ -737,45 +735,45 @@ class ProductModel {
   }
 
   static async generateSku(companyId, productName, categoryId) {
-    const prefix = productName.substring(0, 3).toUpperCase();
-    let categoryPrefix = '';
-    
-    if (categoryId) {
-      const category = await prisma.category.findUnique({
-        where: { id: categoryId }
-      });
-      if (category) {
-        categoryPrefix = category.name.substring(0, 2).toUpperCase();
-      }
-    }
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true },
+    });
+    const rawName = String(company?.name || productName || 'PRD');
+    const prefix = rawName
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 6) || 'PRD';
 
-    const baseSku = categoryPrefix ? `${categoryPrefix}-${prefix}` : prefix;
-    
-    const lastProduct = await prisma.product.findFirst({
+    const existing = await prisma.product.findMany({
       where: {
         companyId,
-        sku: {
-          startsWith: baseSku
-        }
+        sku: { startsWith: `${prefix}-` },
       },
-      orderBy: {
-        sku: 'desc'
-      },
-      select: {
-        sku: true
-      }
+      select: { sku: true },
     });
 
-    let sequence = 1;
-    if (lastProduct && lastProduct.sku) {
-      const parts = lastProduct.sku.split('-');
-      const lastSeq = parseInt(parts[parts.length - 1]);
-      if (!isNaN(lastSeq)) {
-        sequence = lastSeq + 1;
-      }
+    let maxSeq = 0;
+    for (const row of existing) {
+      const tail = String(row.sku || '').split('-').pop();
+      const n = parseInt(tail, 10);
+      if (!Number.isNaN(n) && n > maxSeq) maxSeq = n;
     }
 
-    return `${baseSku}-${String(sequence).padStart(3, '0')}`;
+    let sequence = maxSeq + 1;
+    let sku = `${prefix}-${String(sequence).padStart(4, '0')}`;
+    let guard = 0;
+    while (await this.checkSkuExists(sku, companyId)) {
+      sequence += 1;
+      guard += 1;
+      if (guard > 40) {
+        const rand = Date.now().toString(36).slice(-4).toUpperCase();
+        sku = `${prefix}-${String(sequence).padStart(4, '0')}${rand}`;
+        if (!(await this.checkSkuExists(sku, companyId))) break;
+      }
+      sku = `${prefix}-${String(sequence).padStart(4, '0')}`;
+    }
+    return sku;
   }
 }
 
