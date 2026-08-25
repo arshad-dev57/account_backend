@@ -3,6 +3,7 @@ const prisma = require('../prisma/client');
 const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
 
 function toNum(v) {
+  
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
