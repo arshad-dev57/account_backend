@@ -1,13 +1,9 @@
-// warehouse/models/Category.js - Prisma Version
 const prisma = require('../../prisma/client');
+const { recordCategoryChange, recordCategoryDeletes } = require('../../pos/sync/masterDataChangeLog');
 
 class CategoryModel {
-  // ============================================================
-  // GET ALL CATEGORIES
-  // ============================================================
   static async findAll(filter = {}, options = {}) {
-    const { orderBy = { name: 'asc' } } = options;
-    
+    const { orderBy = { name: 'asc' } } = options;    
     return await prisma.category.findMany({
       where: filter,
       orderBy,
@@ -21,10 +17,6 @@ class CategoryModel {
       }
     });
   }
-
-  // ============================================================
-  // GET CATEGORY BY ID
-  // ============================================================
   static async findById(id) {
     return await prisma.category.findUnique({
       where: { id },
@@ -41,28 +33,18 @@ class CategoryModel {
       }
     });
   }
-
-  // ============================================================
-  // FIND BY SLUG
-  // ============================================================
   static async findBySlug(slug) {
     return await prisma.category.findUnique({
       where: { slug }
     });
   }
 
-  // ============================================================
-  // FIND BY CODE
-  // ============================================================
   static async findByCode(code) {
     return await prisma.category.findUnique({
       where: { code }
     });
   }
 
-  // ============================================================
-  // GET CATEGORY TREE (Hierarchical)
-  // ============================================================
   static async getTree() {
     // Get all active categories
     const categories = await prisma.category.findMany({
@@ -70,7 +52,6 @@ class CategoryModel {
       orderBy: { name: 'asc' }
     });
 
-    // Build tree function
     const buildTree = (parentId = null) => {
       return categories
         .filter(c => c.parentId === parentId)
@@ -83,9 +64,6 @@ class CategoryModel {
     return buildTree(null);
   }
 
-  // ============================================================
-  // GET BREADCRUMB
-  // ============================================================
   static async getBreadcrumb(categoryId) {
     const breadcrumb = [];
     let current = await prisma.category.findUnique({
@@ -110,10 +88,6 @@ class CategoryModel {
 
     return breadcrumb;
   }
-
-  // ============================================================
-  // GET ALL CHILDREN IDs (including self)
-  // ============================================================
   static async getAllChildrenIds(categoryId) {
     const ids = [categoryId];
     const children = await prisma.category.findMany({
@@ -128,17 +102,12 @@ class CategoryModel {
     return ids;
   }
 
-  // ============================================================
-  // CREATE CATEGORY
-  // ============================================================
   static async create(data) {
-    // Generate slug from name
     let slug = data.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
 
-    // Check if slug exists, if yes add random suffix
     const existingSlug = await prisma.category.findUnique({
       where: { slug }
     });
@@ -146,15 +115,12 @@ class CategoryModel {
       slug = `${slug}-${Math.random().toString(36).substring(2, 6)}`;
     }
 
-    // Auto-generate code if not provided
     let code = data.code;
     if (!code) {
       const prefix = data.name.substring(0, 3).toUpperCase();
       const random = Math.random().toString(36).substring(2, 6).toUpperCase();
       code = `CAT-${prefix}-${random}`;
     }
-
-    // Calculate level and path based on parent
     let level = 1;
     let parentName = '';
     let path = '';
@@ -168,7 +134,6 @@ class CategoryModel {
         parentName = parent.name;
         path = parent.path ? `${parent.path}/${parent.id}` : parent.id;
       } else {
-        // if parent not found, treat as top-level
         data.parentId = null;
       }
     }
@@ -183,6 +148,7 @@ class CategoryModel {
       level,
       path,
       createdBy: data.createdBy,
+      companyId: data.companyId || null,
       isActive: data.isActive !== undefined ? data.isActive : true
     };
 
@@ -202,22 +168,16 @@ class CategoryModel {
       });
     }
 
+    await recordCategoryChange(category);
     return category;
   }
-
-  // ============================================================
-  // UPDATE CATEGORY
-  // ============================================================
   static async update(id, data) {
-    // Get existing category
-    const existing = await prisma.category.findUnique({
+     const existing = await prisma.category.findUnique({
       where: { id }
     });
     if (!existing) return null;
 
-    // Check if moving to new parent
     if (data.parentId !== undefined && data.parentId !== existing.parentId) {
-      // Remove from old parent's count
       if (existing.parentId) {
         await prisma.category.update({
           where: { id: existing.parentId },
@@ -228,8 +188,6 @@ class CategoryModel {
           }
         });
       }
-
-      // Add to new parent's count
       if (data.parentId) {
         const parent = await prisma.category.findUnique({
           where: { id: data.parentId }
@@ -249,20 +207,16 @@ class CategoryModel {
           }
         });
       } else {
-        // Moving to top level
         data.parentName = '';
         data.level = 1;
         data.path = '';
       }
     }
-
-    // Update slug if name changed
     if (data.name && data.name !== existing.name) {
       let slug = data.name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
-
       const existingSlug = await prisma.category.findUnique({
         where: { slug }
       });
@@ -271,30 +225,20 @@ class CategoryModel {
       }
       data.slug = slug;
     }
-
-    return await prisma.category.update({
+    const updated = await prisma.category.update({
       where: { id },
       data
     });
+    await recordCategoryChange(updated);
+    return updated;
   }
-
-  // ============================================================
-  // DELETE CATEGORY (Hard Delete with Cascade)
-  // ============================================================
   static async delete(id) {
-    // Get all descendant IDs
     const allIds = await this.getAllChildrenIds(id);
-    
-    // Get the category to check parent
     const category = await prisma.category.findUnique({
       where: { id }
     });
-
-    // Remove from parent's subCategoryCount
     if (category && category.parentId) {
-      // Count how many descendants (excluding self)
       const descendantCount = allIds.length - 1;
-      
       await prisma.category.update({
         where: { id: category.parentId },
         data: {
@@ -304,30 +248,25 @@ class CategoryModel {
         }
       });
     }
-
-    // Delete all descendants (including self)
+    const toDelete = await prisma.category.findMany({
+      where: { id: { in: allIds } },
+    });
     const result = await prisma.category.deleteMany({
       where: {
         id: { in: allIds }
       }
     });
-
+    await recordCategoryDeletes(toDelete);
     return { deletedCount: result.count, ids: allIds };
   }
-
-  // ============================================================
-  // SOFT DELETE (Deactivate)
-  // ============================================================
   static async deactivate(id) {
-    return await prisma.category.update({
+    const updated = await prisma.category.update({
       where: { id },
       data: { isActive: false }
     });
+    await recordCategoryChange(updated, { isDeleted: true });
+    return updated;
   }
-
-  // ============================================================
-  // CHECK IF CATEGORY HAS PRODUCTS
-  // ============================================================
   static async hasProducts(categoryId) {
     const count = await prisma.product.count({
       where: {
@@ -337,10 +276,6 @@ class CategoryModel {
     });
     return count > 0;
   }
-
-  // ============================================================
-  // GET CATEGORY WITH PRODUCT COUNT
-  // ============================================================
   static async getWithProductCount(categoryId) {
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
@@ -353,8 +288,7 @@ class CategoryModel {
           }
         }
       }
-    });
-    
+    });   
     return {
       ...category,
       productCount: category._count.products

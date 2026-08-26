@@ -138,7 +138,10 @@ class POSSaleModel {
     const processedItems = [];
     for (const item of items) {
       const quantity = Math.max(0, Math.round(Number(item.quantity) || 0));
-      if (!item.productId || quantity <= 0) continue;
+      const isCustom = Boolean(item.isCustom) || !item.productId || String(item.productId).startsWith('custom-');
+      if (quantity <= 0) continue;
+      if (!isCustom && !item.productId) continue;
+      if (!String(item.productName || '').trim()) continue;
       const lineTotal = parseFloat((quantity * item.unitPrice).toFixed(2));
       const discountAmt = item.discount ? parseFloat((lineTotal * item.discount / 100).toFixed(2)) : 0;
       const taxableAmt = lineTotal - discountAmt;
@@ -160,6 +163,10 @@ class POSSaleModel {
       processedItems.push({
         ...item,
         quantity,
+        isCustom,
+        productId: isCustom ? null : item.productId,
+        sku: isCustom ? (item.sku || 'CUSTOM') : (item.sku || ''),
+        productName: String(item.productName || 'Custom item').trim(),
         lineTotal: finalLineTotal,
         taxAmount,
         discountAmount: discountAmt,
@@ -195,6 +202,7 @@ class POSSaleModel {
       // ── 1. Validate products + Reduce Stock ──────────────────
       let totalCOGS = 0;
       for (const item of processedItems) {
+        if (item.isCustom || !item.productId) continue;
         const product = await tx.product.findFirst({
           where: { id: item.productId, companyId, isActive: true }
         });
@@ -289,9 +297,9 @@ class POSSaleModel {
           createdBy,
           items: {
             create: processedItems.map(item => ({
-              productId: item.productId,
+              productId: item.productId || null,
               productName: item.productName,
-              sku: item.sku || '',
+              sku: item.sku || (item.isCustom ? 'CUSTOM' : ''),
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               discount: item.discount || 0,
@@ -524,6 +532,7 @@ class POSSaleModel {
 
       let totalCOGS = 0;
       for (const item of sale.items) {
+        if (!item.productId) continue;
         const product = await tx.product.findFirst({ where: { id: item.productId, companyId } });
         if (!product) continue;
 

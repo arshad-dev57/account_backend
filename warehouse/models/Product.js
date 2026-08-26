@@ -1,6 +1,7 @@
 // warehouse/models/Product.js - COMPLETE FIXED
 
 const prisma = require('../../prisma/client');
+const { recordProductChange } = require('../../pos/sync/masterDataChangeLog');
 
 class ProductModel {
   static async findAll(filter = {}, options = {}) {
@@ -362,7 +363,7 @@ class ProductModel {
       }
     });
 
-    return await prisma.product.create({
+    const created = await prisma.product.create({
       data: createData,
       include: {
         category: {
@@ -379,6 +380,8 @@ class ProductModel {
         }
       }
     });
+    await recordProductChange(created);
+    return created;
   }
 
   static async update(id, data) {
@@ -541,7 +544,7 @@ class ProductModel {
       }
     });
 
-    return await prisma.product.update({
+    const updated = await prisma.product.update({
       where: { id },
       data: updateData,
       include: {
@@ -562,6 +565,8 @@ class ProductModel {
         }
       }
     });
+    await recordProductChange(updated);
+    return updated;
   }
 
   static async delete(id, userId) {
@@ -589,6 +594,7 @@ class ProductModel {
     });
 
     console.log('✅ [ProductModel.delete] Product soft deleted successfully:', deletedProduct.id, deletedProduct.name);
+    await recordProductChange(deletedProduct, { isDeleted: true });
     return deletedProduct;
   }
 

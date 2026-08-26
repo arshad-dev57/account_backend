@@ -842,6 +842,7 @@ model Product {
   @@index([barcodeNumber])
   @@index([qrCode])
   @@index([companyId])
+  @@index([companyId, updatedAt, id])
   @@map("products")
 }
 
@@ -887,7 +888,27 @@ model Category {
   @@index([code])
   @@index([isActive])
   @@index([companyId])
+  @@index([companyId, updatedAt, id])
   @@map("categories")
+}
+
+// ============================================================
+// POS MASTER DATA SYNC CHANGELOG
+// Monotonic sequence for Electron POS catalog replication.
+// ============================================================
+
+model PosMasterSyncChange {
+  id         BigInt   @id @default(autoincrement())
+  companyId  String    @map("company_id")
+  entityType String    @map("entity_type") // CATEGORY | SUBCATEGORY | PRODUCT
+  entityId   String    @map("entity_id")
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  payload    Json
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([companyId, id])
+  @@index([companyId, entityType, entityId])
+  @@map("pos_master_sync_changes")
 }
 
 // ============================================================
@@ -3440,7 +3461,7 @@ model POSSale {
 model POSSaleItem {
   id          String  @id @default(uuid())
   posSaleId   String  @map("pos_sale_id")
-  productId   String  @map("product_id")
+  productId   String? @map("product_id")
   productName String  @map("product_name")
   sku         String
   quantity    Float
@@ -3453,7 +3474,7 @@ model POSSaleItem {
 
   // Relations
   posSale POSSale @relation(fields: [posSaleId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
 
   @@index([posSaleId])
   @@index([productId])

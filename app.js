@@ -169,6 +169,8 @@ app.use('/api/warehouse/reports/expiry', expiryReportRoutes);
 app.use('/api/warehouse/reports/low-stock', lowStockReportRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/pos',   posRoutes);
+app.use('/api/pos/sync', require('./pos/sync/masterDataSyncRoutes'));
+app.use('/api/sync', require('./pos/sync/masterDataSyncRoutes'));
 app.use('/api/tax',   taxRoutes);
 
 app.use('/api/orders', OrderRoutes);

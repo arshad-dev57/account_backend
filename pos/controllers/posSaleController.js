@@ -375,12 +375,16 @@ const searchProducts = async (req, res) => {
       }
     }
 
+    const includeZeroStock =
+      String(req.query.includeZeroStock || req.query.includeZeroStock || '') === 'true';
     const filter = {
       companyId,
       isActive: true,
       ...(resolvedLocationId
         ? { id: { in: productIdFilter } }
-        : { currentStock: { gt: 0 } }),
+        : includeZeroStock
+          ? {}
+          : { currentStock: { gt: 0 } }),
     };
     if (categoryId) filter.categoryId = categoryId;
     if (q) {

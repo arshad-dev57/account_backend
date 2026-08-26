@@ -1,6 +1,7 @@
 // warehouse/controller/category_controller.js - WITH SUB-CATEGORY SUPPORT
 
 const prisma = require('../../prisma/client');
+const { recordCategoryChange, recordCategoryDeletes } = require('../../pos/sync/masterDataChangeLog');
 
 // ─── HELPERS ────────────────────────────────────────────────
 const buildCategoryTree = (categories, parentId = null) => {
@@ -243,6 +244,8 @@ const createCategory = async (req, res) => {
       });
     }
 
+    await recordCategoryChange(category);
+
     res.status(201).json({
       success: true,
       message: parentId ? 'Sub-category created successfully' : 'Category created successfully',
@@ -381,6 +384,8 @@ const updateCategory = async (req, res) => {
       data: updateData
     });
 
+    await recordCategoryChange(category);
+
     res.status(200).json({
       success: true,
       message: 'Category updated successfully',
@@ -508,7 +513,12 @@ const deleteCategory = async (req, res) => {
       });
     }
 
+    const toDelete = await prisma.category.findMany({
+      where: { id: { in: allIds } },
+    });
+
     await hardDeleteCategoryTree(companyId, allIds, category.parentId);
+    await recordCategoryDeletes(toDelete);
 
     res.status(200).json({
       success: true,
