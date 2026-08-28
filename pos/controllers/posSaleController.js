@@ -71,11 +71,28 @@ const completeSale = async (req, res) => {
 // @route POST /api/pos/sales/sync
 const syncSales = async (req, res) => {
   try {
-    const { transactions } = req.body;
-    if (!Array.isArray(transactions) || transactions.length === 0) {
-      return res.status(400).json({ success: false, message: 'transactions array is required' });
+    // Accept both legacy { transactions } and the desktop's { sales, returns } shape.
+    // Offline returns are tagged `type: 'RETURN'` so the model routes them through
+    // the processReturn bookkeeping path (stock restore + POSReturn + journal entry).
+    const { transactions, sales, returns } = req.body;
+    const txns = Array.isArray(transactions)
+      ? transactions
+      : []
+          .concat(
+            Array.isArray(sales)
+              ? sales.map((s) => ({ ...s, type: s.type || 'SALE' }))
+              : []
+          )
+          .concat(
+            Array.isArray(returns)
+              ? returns.map((r) => ({ ...r, type: 'RETURN' }))
+              : []
+          );
+
+    if (!Array.isArray(txns) || txns.length === 0) {
+      return res.status(400).json({ success: false, message: 'transactions (or sales/returns) array is required' });
     }
-    const results = await POSSaleModel.batchSync(transactions, req.user.companyId, req.user.id);
+    const results = await POSSaleModel.batchSync(txns, req.user.companyId, req.user.id);
     const succeeded = results.filter(r => r.status === 'success').length;
     const failed    = results.filter(r => r.status === 'failed').length;
     const skipped   = results.filter(r => r.status === 'skipped').length;

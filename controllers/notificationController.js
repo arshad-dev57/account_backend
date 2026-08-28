@@ -2,7 +2,6 @@
 
 const prisma = require('../prisma/client');
 
-// ─── Create Notification ─────────────────────────────────────
 
 const createNotification = async (req, res) => {
   try {
@@ -144,7 +143,6 @@ const markAllAsRead = async (req, res) => {
   }
 };
 
-// ─── Delete Notification ───────────────────────────────────────
 
 const deleteNotification = async (req, res) => {
   try {
@@ -196,8 +194,6 @@ const getUnreadCount = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// ─── Export ─────────────────────────────────────────────────────
 
 module.exports = {
   createNotification,

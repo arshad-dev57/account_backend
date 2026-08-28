@@ -108,11 +108,11 @@ const addStock = async (req, res) => {
     let stockDetails = {};
 
     if (stockType === 'bulk' || !stockType) {
-      totalPieces = parseInt(quantity, 10);
+      totalPieces = parseFloat(quantity);
       stockDetails = { type: 'bulk', quantityAdded: totalPieces };
     } else if (stockType === 'box') {
-      const boxes = parseInt(boxCount, 10) || 0;
-      const pieces = parseInt(piecesPerBox, 10) || 0;
+      const boxes = parseFloat(boxCount) || 0;
+      const pieces = parseFloat(piecesPerBox) || 0;
       totalPieces = boxes * pieces;
       stockDetails = { type: 'box', boxCount: boxes, piecesPerBox: pieces, totalPieces };
     }
@@ -292,7 +292,7 @@ const removeStock = async (req, res) => {
       unitCostInput != null && unitCostInput !== ''
         ? Number(unitCostInput)
         : Number(product.costPrice) || 0;
-    const qty = parseInt(quantity, 10);
+    const qty = parseFloat(quantity);
 
     const result = await prisma.$transaction(async (tx) => {
       const locationId = await resolveLocationId(

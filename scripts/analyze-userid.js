@@ -1,5 +1,4 @@
-// Analyze how `userId` / `targetUserId` are used so we can safely codemod
-// to company-based scoping. Prints each matching line with a classification.
+
 const fs = require('fs');
 const path = require('path');
 

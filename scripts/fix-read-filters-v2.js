@@ -1,41 +1,4 @@
-/**
- * fix-read-filters-v2.js
- *
- * Comprehensive company-scoping fix for LIST/READ endpoints across ALL
- * controllers.
- *
- * Problem
- * -------
- * Many controllers still build their read filters from the individual creator
- * (`createdBy: userId`, `userId: userId`, `where: { userId }`) instead of the
- * company (`companyId`). Because of this a newly-created company user (e.g. a
- * manager) only sees rows they personally created, NOT the data created by the
- * admin — even though they share the same companyId.
- *
- * What this codemod does
- * ----------------------
- * It walks each target file character-by-character, tracking a small brace
- * stack that remembers whether the CURRENT object literal is a READ context
- * (`where:` / `const filter =` / `const where =` / `const query =` /
- * `let query =` / `accountsQuery =`) or a WRITE context (`data:`).
- *
- * Inside a READ context it rewrites the FIRST scoping key it sees:
- *   - `createdBy: userId`   ->  `companyId: companyId`
- *   - `userId: userId`      ->  `companyId: companyId`
- *   - `userId,`  / `userId ` (shorthand)  ->  `companyId: companyId`
- *
- * Inside a WRITE context (`data: { ... createdBy: userId ... }`) it leaves
- * everything untouched so the audit trail (who created the row) is preserved.
- *
- * To keep the transform SAFE and predictable we do NOT try to be a full JS
- * parser. Instead we use a line-based pass with a context stack that is good
- * enough for the hand-written, consistently-formatted controllers in this repo.
- *
- * Usage
- * -----
- *   node scripts/fix-read-filters-v2.js --dry     (preview, no writes)
- *   node scripts/fix-read-filters-v2.js            (apply, writes .bak backups)
- */
+
 
 const fs = require('fs');
 const path = require('path');
@@ -43,9 +6,6 @@ const path = require('path');
 const DRY = process.argv.includes('--dry');
 const ROOT = path.resolve(__dirname, '..');
 
-// Every controller that reads business data. (Skip subscription/stripe/
-// notification which are legitimately per-user, and userManagement which is
-// already fixed by hand.)
 const TARGETS = [
   'controllers/chartOfAccountController.js',
   'controllers/journalEntryController.js',

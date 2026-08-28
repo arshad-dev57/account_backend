@@ -671,7 +671,7 @@ class ProductModel {
       throw new Error('Product not found');
     }
 
-    const qty = parseInt(quantity);
+    const qty = parseFloat(quantity);
     let newStock = product.currentStock;
 
     if (type === 'add') {

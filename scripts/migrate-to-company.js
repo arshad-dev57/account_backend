@@ -5,7 +5,6 @@ async function migrateToCompany() {
   console.log('Starting data migration to multi-tenant architecture...');
 
   try {
-    // Step 1: Create companies for existing users that don't have one
     console.log('Step 1: Creating companies for existing users...');
     const usersWithoutCompany = await prisma.user.findMany({
       where: { companyId: null },

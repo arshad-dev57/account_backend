@@ -4,7 +4,6 @@
 const prisma = require('../prisma/client');
 
 const DEFAULT_ACCOUNTS = [
-  // ASSETS
   { code: '1001', name: 'Cash in Hand', type: 'Asset', parentAccount: 'Current Assets', balanceType: 'Debit' },
   { code: '1002', name: 'Bank Account', type: 'Asset', parentAccount: 'Current Assets', balanceType: 'Debit' },
   { code: '1100', name: 'Accounts Receivable', type: 'Asset', parentAccount: 'Current Assets', balanceType: 'Debit' },

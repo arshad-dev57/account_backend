@@ -701,12 +701,12 @@ model Product {
   retailPrice       Float     @default(0) @map("retail_price")
   wholesalePrice    Float     @default(0) @map("wholesale_price")
 
-  currentStock     Int    @default(0) @map("current_stock")
-  minimumStock     Int    @default(5) @map("minimum_stock")
-  maximumStock     Int    @default(100) @map("maximum_stock")
-  openingStock     Int    @default(0) @map("opening_stock")
-  reservedStock    Int    @default(0) @map("reserved_stock")
-  availableStock   Int    @default(0) @map("available_stock")
+  currentStock     Float    @default(0) @map("current_stock")
+  minimumStock     Float    @default(5) @map("minimum_stock")
+  maximumStock     Float    @default(100) @map("maximum_stock")
+  openingStock     Float    @default(0) @map("opening_stock")
+  reservedStock    Float    @default(0) @map("reserved_stock")
+  availableStock   Float    @default(0) @map("available_stock")
   reorderLevel     Int    @default(0) @map("reorder_level")
   safetyStock      Int    @default(0) @map("safety_stock")
   stockUnitName    String @default("Pcs") @map("stock_unit_name")
@@ -803,11 +803,16 @@ model Product {
 
   companyId String? @map("company_id")
 
+  // Bidirectional sync (local -> cloud -> local) support
+  syncId        String?   @unique @map("sync_id")
+  syncStatus    String    @default("SYNCED") @map("sync_status") // PENDING | SYNCED | FAILED
+  lastSyncedAt  DateTime? @map("last_synced_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  category             Category?               @relation(fields: [categoryId], references: [id])
+  category        Category?               @relation(fields: [categoryId], references: [id])
   supplier             Supplier?               @relation(fields: [supplierId], references: [id])
   creator              User?                   @relation("ProductCreator", fields: [createdBy], references: [id])
   updater              User?                   @relation("ProductUpdater", fields: [updatedBy], references: [id])
@@ -867,6 +872,11 @@ model Category {
   updatedBy String? @map("updated_by")
 
   companyId String? @map("company_id")
+
+  // Bidirectional sync (local -> cloud -> local) support
+  syncId       String?  @unique @map("sync_id")
+  syncStatus   String   @default("SYNCED") @map("sync_status") // PENDING | SYNCED | FAILED
+  lastSyncedAt DateTime? @map("last_synced_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1019,9 +1029,9 @@ model StockMovement {
   productId     String @map("product_id")
   productName   String @map("product_name")
   type          String
-  quantity      Int
-  previousStock Int    @map("previous_stock")
-  newStock      Int    @map("new_stock")
+  quantity      Float
+  previousStock Float    @map("previous_stock")
+  newStock      Float    @map("new_stock")
 
   stockType    String @default("bulk") @map("stock_type")
   stockDetails Json?  @map("stock_details")
@@ -1074,7 +1084,7 @@ model OrderItem {
   productId    String  @map("product_id")
   productName  String  @map("product_name")
   sku          String
-  quantity     Int
+  quantity     Float
   unitPrice    Float   @map("unit_price")
   totalPrice   Float   @map("total_price")
   weight       Float   @default(0)
@@ -2698,9 +2708,9 @@ model DeliveryItem {
   productName       String  @map("product_name")
   sku               String
   unit              String  @default("Pcs")
-  orderedQuantity   Int     @map("ordered_quantity")
-  deliveredQuantity Int     @default(0) @map("delivered_quantity")
-  remainingQuantity Int     @map("remaining_quantity")
+  orderedQuantity   Float     @map("ordered_quantity")
+  deliveredQuantity Float     @default(0) @map("delivered_quantity")
+  remainingQuantity Float     @map("remaining_quantity")
   notes             String?
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -2957,10 +2967,10 @@ model GoodsReceivingItem {
   productId             String  @map("product_id")
   productName           String  @map("product_name")
   sku                   String
-  orderedQuantity       Int     @map("ordered_quantity")
-  previouslyReceivedQty Int     @default(0) @map("previously_received_qty")
-  remainingQuantity     Int     @map("remaining_quantity")
-  receivingQuantity     Int     @map("receiving_quantity")
+  orderedQuantity       Float     @map("ordered_quantity")
+  previouslyReceivedQty Float     @default(0) @map("previously_received_qty")
+  remainingQuantity     Float     @map("remaining_quantity")
+  receivingQuantity     Float     @map("receiving_quantity")
   unit                  String  @default("Pcs")
   notes                 String?
 
@@ -3037,7 +3047,7 @@ model PurchaseInvoiceItem {
   productId   String  @map("product_id")
   productName String  @map("product_name")
   sku         String
-  quantity    Int
+  quantity    Float
   unitPrice   Float   @map("unit_price")
   discount    Float   @default(0)
   taxRate     Float   @default(0) @map("tax_rate")
@@ -3154,7 +3164,7 @@ model SalesInvoiceItem {
   productId   String  @map("product_id")
   productName String  @map("product_name")
   sku         String
-  quantity    Int
+  quantity    Float
   unitPrice   Float   @map("unit_price")
   discount    Float   @default(0)
   taxRate     Float   @default(0) @map("tax_rate")

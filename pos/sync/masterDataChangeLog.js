@@ -22,6 +22,9 @@ function categoryPayload(category, isDeleted = false) {
     updatedAt: (category.updatedAt || new Date()).toISOString(),
     isDeleted: deleted,
     isActive: category.isActive !== false && !deleted,
+    syncId: category.syncId || null,
+    syncStatus: category.syncStatus || 'SYNCED',
+    lastSyncedAt: (category.lastSyncedAt && new Date(category.lastSyncedAt).toISOString()) || null,
   };
   if (category.parentId) {
     return { ...base, categoryId: category.parentId };
@@ -52,6 +55,9 @@ function productPayload(product, categoryRow, isDeleted = false) {
     isActive: !deleted,
     isDeleted: deleted,
     updatedAt: (product.updatedAt || new Date()).toISOString(),
+    syncId: product.syncId || null,
+    syncStatus: product.syncStatus || 'SYNCED',
+    lastSyncedAt: (product.lastSyncedAt && new Date(product.lastSyncedAt).toISOString()) || null,
   };
 }
 

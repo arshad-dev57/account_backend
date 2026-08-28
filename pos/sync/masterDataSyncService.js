@@ -335,10 +335,33 @@ async function pullMasterData({ companyId, cursor: rawCursor, limit: rawLimit })
   };
 }
 
+/**
+ * Fetch the complete (merged) cloud master dataset for a company by walking the
+ * snapshot cursor from the beginning. Used by the combined bidirectional sync
+ * endpoint so the client receives the full latest cloud state to merge locally.
+ */
+async function pullAllMaster(companyId, { limit = DEFAULT_LIMIT } = {}) {
+  let cursor;
+  let guards = 0;
+  const buckets = { categories: [], subcategories: [], products: [] };
+
+  do {
+    const page = await pullMasterData({ companyId, cursor, limit });
+    buckets.categories.push(...page.categories);
+    buckets.subcategories.push(...page.subcategories);
+    buckets.products.push(...page.products);
+    cursor = page.hasMore ? page.nextCursor : undefined;
+    guards += 1;
+  } while (cursor && guards < 10000);
+
+  return buckets;
+}
+
 module.exports = {
   DEFAULT_LIMIT,
   MAX_LIMIT,
   encodeCursor,
   decodeCursor,
   pullMasterData,
+  pullAllMaster,
 };

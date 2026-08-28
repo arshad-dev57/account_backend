@@ -186,8 +186,8 @@ async function adjustLocationStock(
     where: { productId_locationId: { productId, locationId } },
   });
 
-  const qtyDelta = Math.round(Number(delta) || 0);
-  const qtyReserved = Math.round(Number(reservedDelta) || 0);
+  const qtyDelta = Number(delta) || 0;
+  const qtyReserved = Number(reservedDelta) || 0;
   const previousLocationStock = stock.currentStock;
   const label = productName ? ` for ${productName}` : '';
 

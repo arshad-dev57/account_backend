@@ -1,23 +1,4 @@
-/**
- * codemod-company-scope.js
- *
- * Fixes multi-tenant data visibility: every Prisma *read/aggregate/updateMany/
- * deleteMany* query that filters by `userId` should instead filter by
- * `companyId`, so all users in the same company share data.
- *
- * Strategy (brace-aware, not blind regex):
- *   - Walk each file char-by-char, maintaining a stack of the property name
- *     that opened each `{ ... }` object.
- *   - A `userId` key is a FILTER if any ancestor object was opened by `where`.
- *   - A `userId` key inside a `data` object (and NOT inside a nested where) is
- *     an audit field on create/update -> left untouched.
- *   - When we rewrite a filter `userId: X` to `companyId: companyId`:
- *       * if a sibling `companyId` already exists in the same object, we drop
- *         the userId entry entirely (avoids duplicate keys).
- *
- * Backups: writes <file>.bak before changing. Re-run with `--restore` to undo.
- * Dry run:  node codemod-company-scope.js --dry
- */
+
 const fs = require('fs');
 const path = require('path');
 
@@ -205,13 +186,7 @@ for (const file of listFiles()) {
     src = src.slice(0, e.start) + e.text + src.slice(e.end);
   }
 
-  // Guarantee `const companyId = req.user.companyId;` exists wherever we now
-  // reference companyId but the function only declared userId.
-  // Heuristic: for every `const userId = req.user.id;` line, ensure a
-  // companyId declaration follows in the same function. Cheap global approach:
-  // if file references companyId but never declares it, we still rely on each
-  // handler having it. Most handlers already declare it. We add it right after
-  // any `const userId = req.user.id;` that isn't already followed by companyId.
+  
   src = src.replace(
     /(const\s+userId\s*=\s*req\.user\.id;)(\s*\n)(?![^\n]*companyId\s*=\s*req\.user\.companyId)/g,
     (mm, decl, nl) => `${decl}${nl}    const companyId = req.user.companyId;\n`

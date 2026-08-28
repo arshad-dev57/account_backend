@@ -22,10 +22,11 @@ const getCategories = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { tree = 'false', includeInactive = 'false', parentId } = req.query;
+    const { tree = 'false', includeInactive = 'false', parentId, locationId } = req.query;
 
     const filter = {
-      companyId: companyId
+      companyId: companyId,
+      isDeleted: false,
     };
     
     if (includeInactive !== 'true') {
@@ -35,6 +36,47 @@ const getCategories = async (req, res) => {
     // If parentId is provided, get only sub-categories of that parent
     if (parentId) {
       filter.parentId = parentId;
+    }
+
+    // POS / warehouse: only categories that have products at this location
+    if (locationId) {
+      const loc = await prisma.location.findFirst({
+        where: { id: String(locationId), companyId, isDeleted: false },
+        select: { id: true },
+      });
+      if (!loc) {
+        return res.status(400).json({ success: false, message: 'Location not found' });
+      }
+      const stocks = await prisma.productStock.findMany({
+        where: { companyId, locationId: loc.id },
+        select: { productId: true },
+      });
+      const productIds = [...new Set(stocks.map((s) => s.productId))];
+      if (!productIds.length) {
+        return res.status(200).json({ success: true, data: [] });
+      }
+      const products = await prisma.product.findMany({
+        where: { companyId, isActive: true, id: { in: productIds } },
+        select: { categoryId: true },
+      });
+      const leafIds = new Set(products.map((p) => p.categoryId).filter(Boolean));
+      if (!leafIds.size) {
+        return res.status(200).json({ success: true, data: [] });
+      }
+      const allCats = await prisma.category.findMany({
+        where: { companyId, isDeleted: false },
+        select: { id: true, parentId: true },
+      });
+      const byId = new Map(allCats.map((c) => [c.id, c]));
+      const keep = new Set(leafIds);
+      for (const id of [...keep]) {
+        let cur = byId.get(id);
+        while (cur?.parentId) {
+          keep.add(cur.parentId);
+          cur = byId.get(cur.parentId);
+        }
+      }
+      filter.id = { in: [...keep] };
     }
 
     const categories = await prisma.category.findMany({

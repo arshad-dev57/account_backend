@@ -1,23 +1,4 @@
-/**
- * fix-read-filters.js
- *
- * Company-scoping fix for LIST/READ endpoints.
- *
- * Problem: several controllers still build their read filter from the
- * individual creator (`const filter = { createdBy: userId }`) instead of the
- * company (`companyId`). Because of this, a newly-created company user only
- * sees rows they personally created and NOT the data created by the admin
- * (and vice-versa), even though they share the same companyId.
- *
- * This codemod rewrites the READ filter object so it is scoped by companyId.
- * It intentionally leaves `createdBy: userId` in place inside CREATE payloads
- * (audit trail) — it only rewrites the `const filter = { createdBy: userId }`
- * form which is used for list/read queries.
- *
- * Usage:
- *   node scripts/fix-read-filters.js --dry     (preview)
- *   node scripts/fix-read-filters.js           (apply, writes .bak backups)
- */
+
 
 const fs = require('fs');
 const path = require('path');

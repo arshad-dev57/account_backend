@@ -11,7 +11,11 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
+// Large JSON bodies are allowed because offline-sync clients (POS desktop)
+// may push sizable catalogs, and several modules accept inline images in JSON.
+// The desktop push strips base64 images before sending, so in practice
+// payloads stay small — this limit is a safety net, not an invitation.
+app.use(express.json({ limit: '25mb' }));
 
 app.get('/', (req, res) => {
   res.send('API is running 🚀');

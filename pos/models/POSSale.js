@@ -1,5 +1,3 @@
-// pos/models/POSSale.js — Complete POS Sale Model
-// Reuses: Product stock, JournalEntry, StockMovement (NO Fiscal Year dependency)
 
 const prisma = require('../../prisma/client');
 const { randomUUID } = require('crypto');
@@ -418,7 +416,6 @@ class POSSaleModel {
 
         const product = await tx.product.findFirst({ where: { id: ri.productId, companyId } });
 
-        // Restore inventory at terminal/default location
         if (product) {
           let returnLocationId = null;
           if (originalSale.terminalId) {
@@ -671,6 +668,54 @@ class POSSaleModel {
     const results = [];
     for (const tx of transactions) {
       try {
+        // ── OFFLINE RETURN ─────────────────────────────────────────────
+        // Desktop queues returns as { saleId, items, shiftId } plus a local
+        // client id. Route them through the same bookkeeping as processReturn
+        // (restore stock, create POSReturn, reverse journal entry) and dedupe
+        // so a partial/interrupted sync never double-applies a refund.
+        if (String(tx.type || '').toUpperCase() === 'RETURN') {
+          const originalSaleId = tx.originalSaleId || tx.saleId;
+          if (!originalSaleId) throw new Error('Return is missing originalSaleId/saleId');
+          const returnItems = (tx.returnItems || tx.items || []).map((ri) => ({
+            productId: ri.productId,
+            quantity: ri.quantity,
+          }));
+          if (returnItems.length === 0) throw new Error('Return has no items to refund');
+
+          const existingReturn = await POSSaleModel.findExistingReturnForItems(
+            originalSaleId,
+            companyId,
+            returnItems
+          );
+          if (existingReturn) {
+            results.push({
+              id: tx.id,
+              returnNumber: existingReturn.returnNumber,
+              status: 'skipped',
+              reason: 'Return already synced',
+            });
+            continue;
+          }
+
+          const result = await POSSaleModel.processReturn({
+            originalSaleId,
+            returnItems,
+            refundMethod: tx.refundMethod || 'Cash',
+            reason: tx.reason || 'Returned at POS (offline sync)',
+            approvedBy: createdBy,
+            companyId,
+            createdBy,
+            shiftId: tx.shiftId,
+          });
+          results.push({
+            id: tx.id,
+            returnNumber: result.posReturn.returnNumber,
+            status: 'success',
+          });
+          continue;
+        }
+
+        // ── NORMAL SALE ────────────────────────────────────────────────
         // Idempotency check
         const existing = await prisma.pOSSale.findFirst({ where: { id: tx.id, companyId } });
         if (existing) {
@@ -680,10 +725,32 @@ class POSSaleModel {
         const result = await POSSaleModel.completeSale({ ...tx, companyId, createdBy });
         results.push({ id: tx.id, invoiceNumber: result.sale.invoiceNumber, status: 'success' });
       } catch (err) {
-        results.push({ id: tx.id, status: 'failed', reason: err.message });
+        results.push({ id: tx.id || tx.saleId, status: 'failed', reason: err.message });
       }
     }
     return results;
+  }
+
+  // Returns an existing POSReturn for the original sale that refunds the exact
+  // same set of products/quantities — used to make offline return sync idempotent.
+  static async findExistingReturnForItems(originalSaleId, companyId, returnItems) {
+    const returns = await prisma.pOSReturn.findMany({
+      where: { originalSaleId, companyId },
+      include: { items: true },
+    });
+    if (!returns.length) return null;
+    const signature = (items) =>
+      items
+        .filter((i) => i.quantity > 0)
+        .map((i) => `${i.productId}:${i.quantity}`)
+        .sort()
+        .join('|');
+    const targetSig = signature(returnItems);
+    return (
+      returns.find(
+        (r) => signature(r.items.map((i) => ({ productId: i.productId, quantity: i.quantity }))) === targetSig
+      ) || null
+    );
   }
 
   // ============================================================
