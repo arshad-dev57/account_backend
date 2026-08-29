@@ -116,6 +116,9 @@ class POSSaleModel {
       items, payments, discountTotal = 0, taxTotal = 0, notes,
       companyId, createdBy, isOffline = false, offlineCreatedAt = null,
       locationId: locationIdInput,
+      // When true (offline batch-sync): skip availability check and clamp
+      // stock to 0 instead of throwing if server stock is already depleted.
+      skipStockChecks = false,
     } = data;
 
     if (id) {
@@ -212,7 +215,8 @@ class POSSaleModel {
           productId: product.id,
           locationId,
           delta: -qty,
-          checkAvailable: true,
+          checkAvailable: !skipStockChecks,
+          allowNegative: skipStockChecks,
           productName: product.name,
         });
 
@@ -269,6 +273,16 @@ class POSSaleModel {
         }
       });
 
+      // Get current fiscal year for the company
+      const currentFiscalYear = await tx.fiscalYear.findFirst({
+        where: { 
+          companyId, 
+          status: 'Open',
+          startDate: { lte: new Date() },
+          endDate: { gte: new Date() }
+        }
+      });
+
       const sale = await tx.pOSSale.create({
         data: {
           id: id || randomUUID(),
@@ -288,6 +302,7 @@ class POSSaleModel {
           notes: notes || null,
           status: 'Completed',
           journalEntryId: journalEntry.id,
+          fiscalYearId: currentFiscalYear?.id || null,
           syncStatus: isOffline ? 'Completed' : 'Completed',
           isOffline,
           offlineCreatedAt: offlineCreatedAt ? new Date(offlineCreatedAt) : null,
@@ -722,7 +737,69 @@ class POSSaleModel {
           results.push({ id: tx.id, status: 'skipped', reason: 'Already synced' });
           continue;
         }
-        const result = await POSSaleModel.completeSale({ ...tx, companyId, createdBy });
+        
+        // For desktop sync, handle shift and terminal assignment
+        let shiftId = tx.shiftId;
+        let terminalId = tx.terminalId;
+        
+        // Get or create valid terminal
+        if (!terminalId || terminalId === 'default-terminal') {
+          const existingTerminal = await prisma.pOSTerminal.findFirst({
+            where: { companyId }
+          });
+          if (existingTerminal) {
+            terminalId = existingTerminal.id;
+          } else {
+            // Create a default terminal if none exists
+            const newTerminal = await prisma.pOSTerminal.create({
+              data: {
+                companyId,
+                name: 'Default Terminal',
+                locationId: null,
+                isActive: true
+              }
+            });
+            terminalId = newTerminal.id;
+          }
+        }
+        
+        // Handle shift assignment
+        if (!shiftId || String(shiftId).startsWith('local-shift-')) {
+          // If no valid shift ID or local shift ID, get/create active shift
+          const activeShift = await prisma.pOSShift.findFirst({
+            where: { cashierId: createdBy, companyId, status: 'Open' }
+          });
+          if (activeShift) {
+            shiftId = activeShift.id;
+            // Use the shift's terminal if available
+            if (activeShift.terminalId) {
+              terminalId = activeShift.terminalId;
+            }
+          } else {
+            // Create a new shift if none exists
+            const newShift = await prisma.pOSShift.create({
+              data: {
+                cashierId: createdBy,
+                companyId,
+                terminalId: terminalId,
+                status: 'Open',
+                openingCash: 0,
+                openingAt: new Date()
+              }
+            });
+            shiftId = newShift.id;
+          }
+        }
+        
+        const result = await POSSaleModel.completeSale({
+          ...tx,
+          shiftId,
+          terminalId,
+          companyId,
+          createdBy,
+          isOffline: true,
+          skipStockChecks: true,
+        });
         results.push({ id: tx.id, invoiceNumber: result.sale.invoiceNumber, status: 'success' });
       } catch (err) {
         results.push({ id: tx.id || tx.saleId, status: 'failed', reason: err.message });

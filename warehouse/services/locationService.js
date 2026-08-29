@@ -174,6 +174,7 @@ async function adjustLocationStock(
     reservedDelta = 0,
     checkAvailable = false,
     productName,
+    allowNegative = false,
   }
 ) {
   await getOrCreateProductStock(tx, {
@@ -202,20 +203,27 @@ async function adjustLocationStock(
     }
   }
 
-  const newLocationStock = previousLocationStock + qtyDelta;
+  // For offline-synced sales (allowNegative), clamp to 0 instead of throwing.
+  // This preserves the journal-entry / accounting trail even when server stock
+  // was already depleted by another channel between the offline sale and sync.
+  let newLocationStock = previousLocationStock + qtyDelta;
   if (newLocationStock < 0) {
-    const others = await tx.productStock.findMany({
-      where: { productId, currentStock: { gt: 0 }, locationId: { not: locationId } },
-      include: { location: { select: { name: true } } },
-    });
-    const hint = others.length
-      ? ` Stock is at: ${others.map((o) => `${o.location?.name || 'location'} (${o.currentStock})`).join(', ')}.`
-      : '';
-    const err = new Error(
-      `Insufficient stock${label} at this location. On hand: ${previousLocationStock}, Required: ${Math.abs(qtyDelta)}.${hint}`
-    );
-    err.statusCode = 400;
-    throw err;
+    if (allowNegative) {
+      newLocationStock = 0;
+    } else {
+      const others = await tx.productStock.findMany({
+        where: { productId, currentStock: { gt: 0 }, locationId: { not: locationId } },
+        include: { location: { select: { name: true } } },
+      });
+      const hint = others.length
+        ? ` Stock is at: ${others.map((o) => `${o.location?.name || 'location'} (${o.currentStock})`).join(', ')}.`
+        : '';
+      const err = new Error(
+        `Insufficient stock${label} at this location. On hand: ${previousLocationStock}, Required: ${Math.abs(qtyDelta)}.${hint}`
+      );
+      err.statusCode = 400;
+      throw err;
+    }
   }
 
   const newReserved = Math.max(0, (stock.reservedStock || 0) + qtyReserved);
