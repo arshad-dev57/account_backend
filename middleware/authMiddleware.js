@@ -8,6 +8,12 @@ const cleanToken = (token) => {
   return token.trim().replace(/^"|"$/g, '').replace(/\s/g, '');
 };
 
+function isPlatformOwner(email) {
+  const emails = (process.env.PLATFORM_OWNER_EMAILS || 'mfaisalakhan@gmail.com,kashif@gmail.com')
+    .split(',').map((e) => e.trim().toLowerCase());
+  return emails.includes((email || '').toLowerCase());
+}
+
 const checkAndExpireIfNeeded = async (userId) => {
   const userData = await prisma.user.findUnique({
     where: { id: userId },
@@ -123,6 +129,14 @@ exports.protectOnly = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Your account has been deactivated' });
     }
 
+    if (userData.company && !userData.company.isActive && !isPlatformOwner(userData.email)) {
+      return res.status(403).json({
+        success: false,
+        code: 'COMPANY_INACTIVE',
+        message: 'Your company account has been deactivated. Please contact support.'
+      });
+    }
+
     const user = new User(userData);
     user.companyId = userData.companyId;
     req.user = user;
@@ -174,6 +188,15 @@ exports.protect = async (req, res, next) => {
 
     if (!user.isActive) {
       return res.status(401).json({ success: false, message: 'Your account has been deactivated' });
+    }
+
+    const companyRow = await prisma.company.findUnique({ where: { id: user.companyId }, select: { isActive: true } }).catch(() => null);
+    if (companyRow && !companyRow.isActive && !isPlatformOwner(user.email)) {
+      return res.status(403).json({
+        success: false,
+        code: 'COMPANY_INACTIVE',
+        message: 'Your company account has been deactivated. Please contact support.'
+      });
     }
 
     if (!user.hasActiveSubscription()) {

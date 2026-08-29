@@ -108,6 +108,7 @@ const lowStockReportRoutes = require('./warehouse/routes/low_stock_report_routes
 const emailRoutes = require('./routes/emailRoutes');
 const posRoutes   = require('./pos/routes/posRoutes');
 const taxRoutes   = require('./tax/routes/taxRoutes');
+const platformAdminRoutes = require('./routes/platformAdminRoutes');
 
 app.use('/api/purchase/dashboard', purchaseDashboardRoutes);
 app.use('/api/purchase/reports', purchaseReportRoutes);
@@ -176,6 +177,7 @@ app.use('/api/pos',   posRoutes);
 app.use('/api/pos/sync', require('./pos/sync/masterDataSyncRoutes'));
 app.use('/api/sync', require('./pos/sync/masterDataSyncRoutes'));
 app.use('/api/tax',   taxRoutes);
+app.use('/api/platform', platformAdminRoutes);
 
 app.use('/api/orders', OrderRoutes);
 

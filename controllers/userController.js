@@ -942,32 +942,91 @@ exports.getMe = async (req, res) => {
 
     console.log('✅ [getMe] User fetched successfully');
 
+    const userPayload = {
+      id: updatedUser._id,
+      firstName: updatedUser.firstName,
+      lastName: updatedUser.lastName,
+      email: updatedUser.email,
+      country: updatedUser.country,
+      phone: updatedUser.phone,
+      address: updatedUser.address,
+      organizationName: updatedUser.organizationName,
+      websiteLink: updatedUser.websiteLink,
+      contactNo: updatedUser.contactNo,
+      businessDetails: updatedUser.businessDetails || {},
+      role: updatedUser.role,
+      companyId: updatedUser.companyId || req.user.companyId || null,
+      locations: [],
+      locationIds: [],
+      isLocationAdmin: false,
+      subscription: {
+        plan: updatedUser.subscription.plan,
+        status: updatedUser.subscription.status,
+        trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
+        subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
+        startDate: updatedUser.subscription.startDate,
+        endDate: updatedUser.subscription.endDate,
+        trialStartDate: updatedUser.subscription.trialStartDate,
+        trialEndDate: updatedUser.subscription.trialEndDate
+      }
+    };
+
+    try {
+      const {
+        isLocationAdminRole,
+        formatUserLocations,
+      } = require('../utils/locationAccessHelper');
+      const prismaUser = await prisma.user.findUnique({
+        where: { id: String(updatedUser._id || updatedUser.id) },
+        select: {
+          companyId: true,
+          role: true,
+          userLocations: {
+            include: {
+              location: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  type: true,
+                  isDefault: true,
+                  isActive: true,
+                  isDeleted: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      userPayload.isLocationAdmin = isLocationAdminRole(updatedUser.role);
+      if (userPayload.isLocationAdmin && prismaUser?.companyId) {
+        const allLocs = await prisma.location.findMany({
+          where: { companyId: prismaUser.companyId, isDeleted: false },
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            type: true,
+            isDefault: true,
+            isActive: true,
+          },
+          orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+        });
+        userPayload.locations = allLocs;
+        userPayload.locationIds = allLocs.map((l) => l.id);
+      } else {
+        const assigned = formatUserLocations(prismaUser);
+        userPayload.locations = assigned.locations;
+        userPayload.locationIds = assigned.locationIds;
+      }
+      if (prismaUser?.companyId) userPayload.companyId = prismaUser.companyId;
+    } catch (locErr) {
+      console.warn('[getMe] location attach failed:', locErr.message);
+    }
+
     res.status(200).json({
       success: true,
-      user: {
-        id: updatedUser._id,
-        firstName: updatedUser.firstName,
-        lastName: updatedUser.lastName,
-        email: updatedUser.email,
-        country: updatedUser.country,
-        phone: updatedUser.phone,
-        address: updatedUser.address,
-        organizationName: updatedUser.organizationName,
-        websiteLink: updatedUser.websiteLink,
-        contactNo: updatedUser.contactNo,
-        businessDetails: updatedUser.businessDetails || {},
-        role: updatedUser.role,
-        subscription: {
-          plan: updatedUser.subscription.plan,
-          status: updatedUser.subscription.status,
-          trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
-          subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
-          startDate: updatedUser.subscription.startDate,
-          endDate: updatedUser.subscription.endDate,
-          trialStartDate: updatedUser.subscription.trialStartDate,
-          trialEndDate: updatedUser.subscription.trialEndDate
-        }
-      }
+      user: userPayload
     });
   } catch (error) {
     console.error('❌ [getMe] Error:', error);

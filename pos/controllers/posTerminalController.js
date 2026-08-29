@@ -1,6 +1,65 @@
 // pos/controllers/posTerminalController.js
 const prisma = require('../../prisma/client');
 
+/**
+ * Ensure each location has at least one active POS terminal.
+ * Used so cashiers assigned to a warehouse can open a shift without
+ * waiting for an admin to manually create a terminal.
+ */
+async function ensureTerminalsForLocations(companyId, createdBy, locationIds) {
+  const ids = [...new Set((locationIds || []).map(String).filter(Boolean))];
+  if (!ids.length) return [];
+
+  const locations = await prisma.location.findMany({
+    where: { companyId, isDeleted: false, id: { in: ids } },
+    select: { id: true, name: true, code: true, type: true },
+  });
+
+  const created = [];
+  for (const loc of locations) {
+    const existing = await prisma.pOSTerminal.findFirst({
+      where: { companyId, locationId: loc.id, isDeleted: false },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    const baseCode = String(loc.code || loc.name || 'POS')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 8) || 'POS';
+    let code = `${baseCode}-T1`;
+    let n = 1;
+    while (await prisma.pOSTerminal.findFirst({ where: { companyId, code } })) {
+      n += 1;
+      code = `${baseCode}-T${n}`;
+      if (n > 50) {
+        code = `T-${loc.id.slice(0, 8).toUpperCase()}`;
+        break;
+      }
+    }
+
+    const terminal = await prisma.pOSTerminal.create({
+      data: {
+        name: `${loc.name} Counter`,
+        code,
+        companyId,
+        createdBy,
+        locationId: loc.id,
+        isActive: true,
+        status: 'Active',
+      },
+      include: {
+        location: { select: { id: true, name: true, code: true, type: true } },
+        creator: { select: { id: true, firstName: true, lastName: true } },
+        _count: { select: { shifts: true } },
+      },
+    });
+    created.push(terminal);
+    console.log(`[terminals] auto-created ${code} for location ${loc.name} (${loc.id})`);
+  }
+  return created;
+}
+
 // @desc  Create terminal
 // @route POST /api/pos/terminals
 const createTerminal = async (req, res) => {
@@ -62,7 +121,26 @@ const listTerminals = async (req, res) => {
     if (status) filter.status = status;
     if (locId) filter.locationId = locId;
 
-    const terminals = await prisma.pOSTerminal.findMany({
+    // Non-admin users only see terminals at their assigned locations
+    const scope = req.locationScope;
+    let allowedLocationIds = null;
+    if (scope && !scope.isAdmin) {
+      const allowed = Array.isArray(scope.ids) ? scope.ids : [];
+      if (allowed.length === 0) {
+        return res.json({ success: true, data: [] });
+      }
+      if (locId && !allowed.includes(locId)) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+      }
+      if (!locId) {
+        filter.locationId = { in: allowed };
+      }
+      allowedLocationIds = locId ? [locId] : allowed;
+    } else if (locId) {
+      allowedLocationIds = [locId];
+    }
+
+    let terminals = await prisma.pOSTerminal.findMany({
       where: filter,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -71,7 +149,26 @@ const listTerminals = async (req, res) => {
         _count: { select: { shifts: true } }
       }
     });
-    res.json({ success: true, data: terminals });
+
+    // Extra safety: drop any terminal whose location is outside user scope
+    let visible = scope && !scope.isAdmin
+      ? terminals.filter((t) => t.locationId && (scope.ids || []).includes(t.locationId))
+      : terminals;
+
+    // Auto-create a default terminal when a location has none yet
+    // (common after assigning a warehouse to a new cashier)
+    if (allowedLocationIds && allowedLocationIds.length) {
+      const covered = new Set(visible.map((t) => t.locationId).filter(Boolean));
+      const missing = allowedLocationIds.filter((id) => !covered.has(id));
+      if (missing.length) {
+        const created = await ensureTerminalsForLocations(companyId, req.user.id, missing);
+        if (created.length) {
+          visible = [...created, ...visible];
+        }
+      }
+    }
+
+    res.json({ success: true, data: visible });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

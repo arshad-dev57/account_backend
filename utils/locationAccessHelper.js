@@ -3,7 +3,7 @@ const prisma = require('../prisma/client');
 
 const locationAls = new AsyncLocalStorage();
 
-const LOCATION_ADMIN_ROLES = new Set(['admin', 'owner', 'superadmin']);
+const LOCATION_ADMIN_ROLES = new Set(['admin', 'owner', 'superadmin', 'company_admin']);
 
 const LOCATION_INCLUDE = {
   userLocations: {
