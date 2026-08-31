@@ -6,6 +6,28 @@ const { patchPrismaTransactions } = require('../utils/withTransaction');
 
 const globalForPrisma = globalThis;
 
+function userModelHasAssignedTerminal(client) {
+  try {
+    const fields = client?.user?.fields;
+    return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, 'assignedTerminalId'));
+  } catch {
+    return false;
+  }
+}
+
+function companyModelHasPosMode(client) {
+  try {
+    const fields = client?.company?.fields;
+    return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, 'posMode'));
+  } catch {
+    return false;
+  }
+}
+
+function clientSchemaIsCurrent(client) {
+  return userModelHasAssignedTerminal(client) && companyModelHasPosMode(client);
+}
+
 function createClient() {
   const url = resolveDatabaseUrl();
 
@@ -26,8 +48,22 @@ function createClient() {
   return client;
 }
 
-const prisma = globalForPrisma.__accountPrisma || createClient();
-globalForPrisma.__accountPrisma = prisma;
+let prisma = globalForPrisma.__accountPrisma;
+if (prisma && !clientSchemaIsCurrent(prisma)) {
+  console.warn('[Prisma] Cached client out of date — recreating after prisma generate');
+  try {
+    prisma.$disconnect().catch(() => {});
+  } catch {
+    /* ignore */
+  }
+  delete globalForPrisma.__accountPrisma;
+  prisma = null;
+}
+
+if (!prisma) {
+  prisma = createClient();
+  globalForPrisma.__accountPrisma = prisma;
+}
 
 try {
   const health = getPrismaHealth(prisma);

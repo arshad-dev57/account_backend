@@ -27,10 +27,15 @@ model Company {
   isActive              Boolean   @default(true) @map("is_active")
   subscriptionPlan      String    @default("trial") @map("subscription_plan")
   subscriptionStatus    String    @default("active") @map("subscription_status")
+  productTier           String    @default("erp_pos") @map("product_tier") // pos | erp_pos
+  licensedUsers         Int       @default(1) @map("licensed_users")
+  licensedBranches      Int       @default(1) @map("licensed_branches")
+  billingCycle          String?   @map("billing_cycle") // monthly | yearly
   trialStartDate        DateTime? @map("trial_start_date")
   trialEndDate          DateTime? @map("trial_end_date")
   subscriptionStartDate DateTime? @map("subscription_start_date")
   subscriptionEndDate   DateTime? @map("subscription_end_date")
+  posMode               String    @default("retail") @map("pos_mode") // retail | restaurant
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
@@ -83,6 +88,7 @@ model Company {
   posShifts          POSShift[]
   posSales           POSSale[]
   posReturns         POSReturn[]
+  restaurantOrders   RestaurantOrder[]
   posAuditLogs       POSAuditLog[]
   pdfReportSettings  PdfReportSetting[]
   supportTickets     SupportTicket[]
@@ -194,6 +200,7 @@ model User {
   createdBy String? @map("created_by")
   companyId String? @map("company_id")
   isActive  Boolean @default(true) @map("is_active")
+  assignedTerminalId String? @map("assigned_terminal_id")
 
   resetOtp       String?   @map("reset_otp")
   resetOtpExpiry DateTime? @map("reset_otp_expiry")
@@ -302,9 +309,11 @@ model User {
   permissions         UserPermission[]
   userLocations        UserLocation[]
   company             Company?             @relation(fields: [companyId], references: [id])
+  assignedTerminal    POSTerminal?         @relation("UserAssignedTerminal", fields: [assignedTerminalId], references: [id], onDelete: SetNull)
   createdTerminals    POSTerminal[]        @relation("TerminalCreator")
   shifts              POSShift[]           @relation("CashierShift")
   createdSales        POSSale[]            @relation("SaleCreator")
+  restaurantOrders    RestaurantOrder[]    @relation("RestaurantOrderWaiter")
   createdReturns      POSReturn[]          @relation("ReturnCreator")
   createdAuditLogs    POSAuditLog[]        @relation("AuditCreator")
   approvedExemptions  TaxExemption[]       @relation("ExemptionApprover")
@@ -315,6 +324,7 @@ model User {
   @@index([managerId])
   @@index([createdBy])
   @@index([companyId])
+  @@index([assignedTerminalId])
   @@map("users")
 }
 
@@ -3357,6 +3367,7 @@ model POSTerminal {
   creator  User       @relation("TerminalCreator", fields: [createdBy], references: [id])
   shifts   POSShift[]
   sales    POSSale[]
+  assignedUsers User[] @relation("UserAssignedTerminal")
 
   @@unique([code, companyId])
   @@index([companyId])
@@ -3504,6 +3515,58 @@ model POSSalePayment {
 
   @@index([posSaleId])
   @@map("pos_sale_payments")
+}
+
+// ============================================================
+// RESTAURANT POS ORDERS (Flow #2 — no draft; pick app → kitchen → counter)
+// ============================================================
+
+model RestaurantOrder {
+  id             String    @id @default(uuid())
+  companyId      String    @map("company_id")
+  locationId     String?   @map("location_id")
+  shiftId        String?   @map("shift_id")
+  terminalId     String?   @map("terminal_id")
+  tableLabel     String?   @map("table_label")
+  orderType      String    @default("dine_in") @map("order_type") // dine_in | takeaway
+  status         String    @default("SENT") // SENT | PREPARING | READY | PAID | CANCELLED
+  waiterUserId   String?   @map("waiter_user_id")
+  notes          String?
+  subtotal       Float     @default(0)
+  taxTotal       Float     @default(0) @map("tax_total")
+  grandTotal     Float     @default(0) @map("grand_total")
+  posSaleId      String?   @map("pos_sale_id")
+  ticketNumber   Int?      @map("ticket_number")
+  sentAt         DateTime  @default(now()) @map("sent_at")
+  readyAt        DateTime? @map("ready_at")
+  paidAt         DateTime? @map("paid_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  company  Company               @relation(fields: [companyId], references: [id])
+  waiter   User?                 @relation("RestaurantOrderWaiter", fields: [waiterUserId], references: [id])
+  lines    RestaurantOrderLine[]
+
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+  @@map("restaurant_orders")
+}
+
+model RestaurantOrderLine {
+  id          String  @id @default(uuid())
+  orderId     String  @map("order_id")
+  productId   String? @map("product_id")
+  productName String  @map("product_name")
+  sku         String  @default("")
+  quantity    Float
+  unitPrice   Float   @map("unit_price")
+  lineTotal   Float   @map("line_total")
+  notes       String?
+
+  order RestaurantOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("restaurant_order_lines")
 }
 
 model POSReturn {

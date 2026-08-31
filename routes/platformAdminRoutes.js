@@ -1,11 +1,13 @@
 const router = require('express').Router();
-const { protect } = require('../middleware/authMiddleware');
-const platformOwner = require('../middleware/platformOwnerMiddleware');
+const { protectOnly } = require('../middleware/authMiddleware');
 const ctrl = require('../controllers/platformAdminController');
+const { getSubscriptionStats } = require('../controllers/subscriptionController');
 
-router.get('/stats', protect, platformOwner, ctrl.getStats);
-router.get('/companies', protect, platformOwner, ctrl.listCompanies);
-router.get('/companies/:id', protect, platformOwner, ctrl.getCompany);
-router.put('/companies/:id/status', protect, platformOwner, ctrl.updateCompanyStatus);
+router.get('/stats', protectOnly, ctrl.getStats);
+router.get('/subscription-stats', protectOnly, getSubscriptionStats);
+router.get('/companies', protectOnly, ctrl.listCompanies);
+router.get('/companies/:id', protectOnly, ctrl.getCompany);
+router.put('/companies/:id/status', protectOnly, ctrl.updateCompanyStatus);
+router.put('/companies/:id/subscription', protectOnly, ctrl.updateCompanySubscription);
 
 module.exports = router;

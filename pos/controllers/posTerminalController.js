@@ -109,6 +109,26 @@ const createTerminal = async (req, res) => {
   }
 };
 
+async function getUserAssignedTerminalId(userId) {
+  try {
+    const me = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { assignedTerminalId: true },
+    });
+    return me?.assignedTerminalId || null;
+  } catch (err) {
+    const msg = String(err.message || '');
+    if (!msg.includes('assignedTerminalId')) throw err;
+    const rows = await prisma.$queryRaw`
+      SELECT assigned_terminal_id AS "assignedTerminalId"
+      FROM users
+      WHERE id = ${userId}
+      LIMIT 1
+    `;
+    return rows[0]?.assignedTerminalId || null;
+  }
+}
+
 // @desc  List terminals
 // @route GET /api/pos/terminals
 const listTerminals = async (req, res) => {
@@ -124,7 +144,11 @@ const listTerminals = async (req, res) => {
     // Non-admin users only see terminals at their assigned locations
     const scope = req.locationScope;
     let allowedLocationIds = null;
-    if (scope && !scope.isAdmin) {
+
+    const meAssignedTerminalId = await getUserAssignedTerminalId(req.user.id);
+    if (meAssignedTerminalId && scope && !scope.isAdmin) {
+      filter.id = meAssignedTerminalId;
+    } else if (scope && !scope.isAdmin) {
       const allowed = Array.isArray(scope.ids) ? scope.ids : [];
       if (allowed.length === 0) {
         return res.json({ success: true, data: [] });
@@ -151,13 +175,13 @@ const listTerminals = async (req, res) => {
     });
 
     // Extra safety: drop any terminal whose location is outside user scope
-    let visible = scope && !scope.isAdmin
+    let visible = scope && !scope.isAdmin && !meAssignedTerminalId
       ? terminals.filter((t) => t.locationId && (scope.ids || []).includes(t.locationId))
       : terminals;
 
     // Auto-create a default terminal when a location has none yet
-    // (common after assigning a warehouse to a new cashier)
-    if (allowedLocationIds && allowedLocationIds.length) {
+    // (skip when user has a fixed terminal assignment)
+    if (allowedLocationIds && allowedLocationIds.length && !meAssignedTerminalId) {
       const covered = new Set(visible.map((t) => t.locationId).filter(Boolean));
       const missing = allowedLocationIds.filter((id) => !covered.has(id));
       if (missing.length) {

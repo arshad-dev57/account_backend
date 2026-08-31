@@ -9,6 +9,7 @@ const terminalCtrl = require('../controllers/posTerminalController');
 const shiftCtrl    = require('../controllers/posShiftController');
 const saleCtrl     = require('../controllers/posSaleController');
 const receiptCtrl  = require('../controllers/posReceiptSettingsController');
+const restaurantCtrl = require('../controllers/restaurantOrderController');
 
 // ─── Terminal Routes ─────────────────────────────────────────────────────────
 router.get   ('/terminals',     protect, terminalCtrl.listTerminals);
@@ -40,6 +41,17 @@ router.post ('/sales/:id/void',   protect, saleCtrl.voidSale);
 
 // ─── Returns ──────────────────────────────────────────────────────────────────
 router.post('/returns', protect, saleCtrl.processReturn);
+
+// ─── Restaurant orders (Flow #2 — pick app / kitchen / counter via API) ────────
+router.post  ('/restaurant/orders',              protect, restaurantCtrl.createOrder);
+router.get   ('/restaurant/orders',              protect, restaurantCtrl.listOrders);
+router.get   ('/restaurant/orders/kitchen',      protect, restaurantCtrl.getKitchenQueue);
+router.get   ('/restaurant/orders/ready',       protect, restaurantCtrl.getReadyQueue);
+router.get   ('/restaurant/orders/:id',         protect, restaurantCtrl.getOrder);
+router.post  ('/restaurant/orders/:id/preparing', protect, restaurantCtrl.markPreparing);
+router.post  ('/restaurant/orders/:id/ready',   protect, restaurantCtrl.markReady);
+router.post  ('/restaurant/orders/:id/paid',     protect, restaurantCtrl.markPaid);
+router.post  ('/restaurant/orders/:id/cancel',  protect, restaurantCtrl.cancelOrder);
 
 // ─── Products (POS-optimized search with barcode) ─────────────────────────────
 router.get('/products/search', protect, saleCtrl.searchProducts);

@@ -1,5 +1,5 @@
 function isPlatformOwner(email) {
-  const emails = (process.env.PLATFORM_OWNER_EMAILS || 'mfaisalakhan@gmail.com,kashif@gmail.com')
+  const emails = (process.env.PLATFORM_OWNER_EMAILS || 'mfaisalakhan@gmail.com,kashif@gmail.com,admin@bisonstechs.dev')
     .split(',').map((e) => e.trim().toLowerCase());
   return emails.includes((email || '').toLowerCase());
 }

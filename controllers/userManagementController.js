@@ -6,6 +6,8 @@ const {
   formatUserLocations,
   replaceUserLocations,
 } = require('../utils/locationAccessHelper');
+const { getCompanyCapacity, buildUpgradeQuote } = require('../utils/companySubscription');
+const { TRIAL_DAYS } = require('../utils/subscriptionPricing');
 
 const USER_LOCATION_SELECT = {
   userLocations: {
@@ -40,6 +42,27 @@ function parseLocationIds(body) {
   const raw = body?.locationIds ?? body?.locationIds ?? [];
   if (!Array.isArray(raw)) return [];
   return [...new Set(raw.map((id) => String(id || '').trim()).filter(Boolean))];
+}
+
+async function validateAssignedTerminal(companyId, terminalId, locationIds) {
+  const id = String(terminalId || '').trim();
+  if (!id) return null;
+  const terminal = await prisma.pOSTerminal.findFirst({
+    where: { id, companyId, isDeleted: false, isActive: true },
+    select: { id: true, locationId: true, name: true, code: true },
+  });
+  if (!terminal) {
+    const err = new Error('Terminal not found or inactive');
+    err.statusCode = 400;
+    throw err;
+  }
+  const locIds = Array.isArray(locationIds) ? locationIds.map(String) : [];
+  if (locIds.length && terminal.locationId && !locIds.includes(String(terminal.locationId))) {
+    const err = new Error('Terminal must be at one of the user\'s assigned locations');
+    err.statusCode = 400;
+    throw err;
+  }
+  return terminal.id;
 }
 
 function formatRoleLabel(role, customName) {
@@ -188,6 +211,10 @@ const getAllUsers = async (req, res) => {
         isActive: true,
         createdAt: true,
         managerId: true,
+        assignedTerminalId: true,
+        assignedTerminal: {
+          select: { id: true, name: true, code: true, locationId: true },
+        },
         manager: {
           select: {
             id: true,
@@ -263,6 +290,10 @@ const getUserById = async (req, res) => {
         isActive: true,
         managerId: true,
         createdAt: true,
+        assignedTerminalId: true,
+        assignedTerminal: {
+          select: { id: true, name: true, code: true, locationId: true },
+        },
         manager: {
           select: {
             id: true,
@@ -420,6 +451,20 @@ const createUser = async (req, res) => {
 
     console.log('✅ [createUser] Authorization passed');
 
+    if (currentUser.companyId) {
+      const capacity = await getCompanyCapacity(prisma, currentUser.companyId);
+      if (!capacity.canAddUser) {
+        const upgrade = buildUpgradeQuote(capacity, { addUsers: 1 });
+        return res.status(402).json({
+          success: false,
+          code: 'SUBSCRIPTION_UPGRADE_REQUIRED',
+          reason: 'user_seat',
+          message: `User seat limit reached (${capacity.usedUsers}/${capacity.licensedUsers}). Upgrade your subscription to add another user.`,
+          data: { capacity, upgrade },
+        });
+      }
+    }
+
     if (!isLocationAdminRole(role || 'user') && locationIds.length === 0) {
       return res.status(400).json({
         success: false,
@@ -500,6 +545,25 @@ const createUser = async (req, res) => {
     console.log('   - Role ID:', roleId || 'Not provided');
     console.log('   - Manager ID:', finalManagerId || 'Not provided');
 
+    let companySub = null;
+    if (currentUser.companyId) {
+      companySub = await prisma.company.findUnique({
+        where: { id: currentUser.companyId },
+        select: {
+          subscriptionPlan: true,
+          subscriptionStatus: true,
+          trialStartDate: true,
+          trialEndDate: true,
+          subscriptionStartDate: true,
+          subscriptionEndDate: true,
+        },
+      });
+    }
+
+    const subPlan = companySub?.subscriptionPlan || 'trial';
+    const subStatus = companySub?.subscriptionStatus || 'active';
+    const trialEnd = companySub?.trialEndDate || new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+
     const newUser = await prisma.user.create({
       data: {
         firstName,
@@ -513,12 +577,12 @@ const createUser = async (req, res) => {
         managerId: finalManagerId,
         createdBy: currentUserId,
         companyId: currentUser.companyId,
-        // Set default subscription for new user
-        subscriptionPlan: 'trial',
-        subscriptionStatus: 'active',
-        subscriptionStartDate: new Date(),
-        trialStartDate: new Date(),
-        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days trial
+        subscriptionPlan: subPlan,
+        subscriptionStatus: subStatus,
+        subscriptionStartDate: companySub?.subscriptionStartDate || new Date(),
+        subscriptionEndDate: companySub?.subscriptionEndDate || null,
+        trialStartDate: subPlan === 'trial' ? (companySub?.trialStartDate || new Date()) : null,
+        trialEndDate: subPlan === 'trial' ? trialEnd : null,
         isActive: true
       },
       select: {
@@ -591,6 +655,25 @@ const createUser = async (req, res) => {
       });
     }
 
+    if (Object.prototype.hasOwnProperty.call(req.body, 'assignedTerminalId')) {
+      try {
+        const terminalId = await validateAssignedTerminal(
+          currentUser.companyId,
+          req.body.assignedTerminalId,
+          locationIds
+        );
+        await prisma.user.update({
+          where: { id: newUser.id },
+          data: { assignedTerminalId: terminalId },
+        });
+      } catch (termError) {
+        return res.status(termError.statusCode || 400).json({
+          success: false,
+          message: termError.message || 'Invalid terminal assignment',
+        });
+      }
+    }
+
     let emailSent = false;
     try {
       let companyName = 'BisonsTechs';
@@ -659,6 +742,10 @@ const createUser = async (req, res) => {
             createdAt: true,
             subscriptionPlan: true,
             subscriptionStatus: true,
+            assignedTerminalId: true,
+            assignedTerminal: {
+              select: { id: true, name: true, code: true, locationId: true },
+            },
             ...USER_LOCATION_SELECT,
           },
         })
@@ -814,6 +901,33 @@ const updateUser = async (req, res) => {
       await replaceUserLocations(id, currentUser.companyId, nextLocationIds);
     }
 
+    if (Object.prototype.hasOwnProperty.call(req.body, 'assignedTerminalId')) {
+      try {
+        let nextLocationIds = parseLocationIds(req.body);
+        if (!Object.prototype.hasOwnProperty.call(req.body, 'locationIds')) {
+          const rows = await prisma.userLocation.findMany({
+            where: { userId: id },
+            select: { locationId: true },
+          });
+          nextLocationIds = rows.map((r) => r.locationId);
+        }
+        const terminalId = await validateAssignedTerminal(
+          currentUser.companyId,
+          req.body.assignedTerminalId,
+          nextLocationIds
+        );
+        await prisma.user.update({
+          where: { id },
+          data: { assignedTerminalId: terminalId },
+        });
+      } catch (termError) {
+        return res.status(termError.statusCode || 400).json({
+          success: false,
+          message: termError.message || 'Invalid terminal assignment',
+        });
+      }
+    }
+
     // Update permissions if provided
     if (permissions && Array.isArray(permissions)) {
       // Delete existing permissions
@@ -838,7 +952,27 @@ const updateUser = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'User updated successfully',
-      data: updatedUser
+      data: withAssignedLocations(
+        await prisma.user.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            role: true,
+            roleId: true,
+            isActive: true,
+            createdAt: true,
+            assignedTerminalId: true,
+            assignedTerminal: {
+              select: { id: true, name: true, code: true, locationId: true },
+            },
+            ...USER_LOCATION_SELECT,
+          },
+        })
+      ),
     });
   } catch (error) {
     console.error('Update user error:', error);

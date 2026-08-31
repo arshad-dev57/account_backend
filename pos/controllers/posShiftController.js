@@ -4,11 +4,22 @@ const POSShiftModel = require('../models/POSShift');
 const openShift = async (req, res) => {
   try {
     const { terminalId, openingCash, notes } = req.body;
-    if (!terminalId || openingCash === undefined) {
+    if (!terminalId || openingCash === undefined || openingCash === null || openingCash === '') {
       return res.status(400).json({ success: false, message: 'terminalId and openingCash are required' });
     }
+    const parsedOpeningCash = parseFloat(openingCash);
+    if (!Number.isFinite(parsedOpeningCash) || parsedOpeningCash <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Opening cash is required. Enter the cash in the drawer before starting.',
+      });
+    }
     const shift = await POSShiftModel.openShift({
-      terminalId, cashierId: req.user.id, companyId: req.user.companyId, openingCash: parseFloat(openingCash), notes
+      terminalId,
+      cashierId: req.user.id,
+      companyId: req.user.companyId,
+      openingCash: parsedOpeningCash,
+      notes,
     });
     res.status(201).json({ success: true, data: shift });
   } catch (err) {

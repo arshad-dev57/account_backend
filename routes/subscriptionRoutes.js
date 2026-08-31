@@ -2,6 +2,9 @@
 const express = require('express');
 const {
   getPlans,
+  getCapacity,
+  getQuote,
+  upgradeSubscription,
   createSubscription,
   checkSubscription,
   cancelSubscription,
@@ -10,6 +13,7 @@ const {
   startTrial,
   validateAccess,
   getSubscriptionDetails,
+  getCompanyBilling,
   getSubscriptionStats,
   searchSubscriptions
 } = require('../controllers/subscriptionController');
@@ -24,6 +28,8 @@ const router = express.Router();
 
 // ─── Plans (publicly accessible once logged in) ────────────
 router.get('/plans', protectOnly, getPlans);
+router.get('/capacity', protectOnly, getCapacity);
+router.get('/quote', protectOnly, getQuote);
 
 // ─── Status & Validation ───────────────────────────────────
 router.get('/status', protectOnly, checkSubscription);
@@ -31,13 +37,13 @@ router.get('/validate', protectOnly, validateAccess);
 router.get('/details', protectOnly, getSubscriptionDetails);
 
 // ─── Trial ────────────────────────────────────────────────
-// Start a 30-day free trial (new users only)
+// Start a 14-day free trial (new users only)
 router.post('/trial/start', protectOnly, startTrial);
 
 // ─── Subscribe (Direct — No Stripe) ──────────────────────
-// Press button → subscription is immediately activated
-router.post('/subscribe', protectOnly, subscribeDirect);   // ✅ Primary
-router.post('/create', protectOnly, createSubscription);   // Alias/fallback
+router.post('/subscribe', protectOnly, subscribeDirect);
+router.post('/create', protectOnly, createSubscription);
+router.post('/upgrade', protectOnly, upgradeSubscription);
 
 // ─── Cancel ───────────────────────────────────────────────
 // Immediately revokes access
@@ -45,6 +51,7 @@ router.post('/cancel', protectOnly, cancelSubscription);
 
 // ─── History ──────────────────────────────────────────────
 router.get('/history', protectOnly, getSubscriptionHistory);
+router.get('/billing', protectOnly, getCompanyBilling);
 
 // ═══════════════════════════════════════════════════════════
 // ADMIN ROUTES (subscription required + auth)

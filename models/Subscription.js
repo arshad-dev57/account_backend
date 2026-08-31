@@ -6,7 +6,7 @@ function calculateEndDate(startDate, plan) {
   const endDate = new Date(startDate);
 
   if (plan === 'trial') {
-    endDate.setDate(endDate.getDate() + 30);
+    endDate.setDate(endDate.getDate() + 14);
   } else if (plan === 'monthly') {
     endDate.setMonth(endDate.getMonth() + 1);
   } else if (plan === 'yearly') {
@@ -107,6 +107,25 @@ class SubscriptionModel {
     return await prisma.subscription.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  static async findByCompanyId(companyId) {
+    return await prisma.subscription.findMany({
+      where: {
+        user: { companyId },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+      },
     });
   }
 

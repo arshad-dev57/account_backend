@@ -273,7 +273,7 @@ class User {
   async startTrial() {
     const now = new Date();
     const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 30);
+    trialEnd.setDate(trialEnd.getDate() + 14);
 
     const updated = await prisma.user.update({
       where: { id: this._id },

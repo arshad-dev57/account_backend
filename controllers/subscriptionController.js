@@ -2,43 +2,68 @@
 const User = require('../models/User');
 const Subscription = require('../models/Subscription');
 const prisma = require('../prisma/client');
+const {
+  TRIAL_DAYS,
+  PRICING,
+  calculatePrice,
+  getCompanyCapacity,
+  buildUpgradeQuote,
+  applyCompanySubscription,
+  paidEndDate,
+  normalizeToUsd,
+} = require('../utils/companySubscription');
 
-// ─── Subscription Plans ──────────────────────────────────────────
+// ─── Subscription Plans (USD) ────────────────────────────────────
 const PLANS = [
   {
-    id: 'monthly',
-    name: 'Monthly Plan',
-    price: 15,
-    currency: 'SAR',
+    id: 'pos_monthly',
+    productTier: 'pos',
+    billingCycle: 'monthly',
+    name: 'POS — Monthly',
+    pricePerUser: PRICING.pos.monthlyPerUser,
+    currency: 'USD',
     duration: 'month',
-    features: [
-      'Full access to all features',
-      'Unlimited transactions',
-      'All financial reports',
-      'Export to Excel/PDF',
-      'Email support',
-      'Data backup & security',
-    ],
-    isPopular: false
+    features: PRICING.pos.features,
+    isPopular: false,
   },
   {
-    id: 'yearly',
-    name: 'Yearly Plan',
-    price: 150,
-    currency: 'SAR',
+    id: 'pos_yearly',
+    productTier: 'pos',
+    billingCycle: 'yearly',
+    name: 'POS — Yearly',
+    pricePerUser: PRICING.pos.yearlyPerUser,
+    currency: 'USD',
     duration: 'year',
-    features: [
-      'Full access to all features',
-      'Unlimited transactions',
-      'All financial reports',
-      'Export to Excel/PDF',
-      'Priority support (24/7)',
-      'Data backup & security',
-      'Advanced analytics',
-      'Save 2 months FREE!',
-    ],
+    features: PRICING.pos.features,
+    savings: 'Save vs monthly',
+    isPopular: false,
+  },
+  {
+    id: 'erp_pos_monthly',
+    productTier: 'erp_pos',
+    billingCycle: 'monthly',
+    name: 'ERP + POS — Monthly',
+    basePrice: PRICING.erp_pos.monthlyBase,
+    currency: 'USD',
+    duration: 'month',
+    features: PRICING.erp_pos.features,
+    includesUsers: 1,
+    includesBranches: 1,
     isPopular: true,
-    savings: 'Save 16%'
+  },
+  {
+    id: 'erp_pos_yearly',
+    productTier: 'erp_pos',
+    billingCycle: 'yearly',
+    name: 'ERP + POS — Yearly',
+    basePrice: PRICING.erp_pos.yearlyBase,
+    currency: 'USD',
+    duration: 'year',
+    features: PRICING.erp_pos.features,
+    includesUsers: 1,
+    includesBranches: 1,
+    savings: 'Save vs monthly',
+    isPopular: true,
   },
 ];
 
@@ -51,7 +76,11 @@ const getPlans = async (req, res) => {
   try {
     res.status(200).json({
       success: true,
-      data: PLANS
+      data: {
+        plans: PLANS,
+        trialDays: TRIAL_DAYS,
+        pricing: PRICING,
+      },
     });
   } catch (error) {
     console.error('Error getting plans:', error);
@@ -62,6 +91,120 @@ const getPlans = async (req, res) => {
   }
 };
 
+const getCapacity = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company not found' });
+    }
+    const capacity = await getCompanyCapacity(prisma, companyId);
+    res.status(200).json({ success: true, data: capacity });
+  } catch (error) {
+    console.error('getCapacity error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+const getQuote = async (req, res) => {
+  try {
+    const {
+      productTier = 'erp_pos',
+      billingCycle = 'monthly',
+      licensedUsers = 1,
+      licensedBranches = 1,
+    } = req.query;
+    const quote = calculatePrice(
+      productTier,
+      billingCycle,
+      licensedUsers,
+      licensedBranches
+    );
+    res.status(200).json({ success: true, data: quote });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const upgradeSubscription = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company not found' });
+    }
+
+    const capacity = await getCompanyCapacity(prisma, companyId);
+    const addUsers = parseInt(req.body.addUsers, 10) || 0;
+    const addBranches = parseInt(req.body.addBranches, 10) || 0;
+    const licensedUsers = req.body.licensedUsers != null
+      ? parseInt(req.body.licensedUsers, 10)
+      : capacity.licensedUsers + addUsers;
+    const licensedBranches = req.body.licensedBranches != null
+      ? parseInt(req.body.licensedBranches, 10)
+      : capacity.licensedBranches + addBranches;
+
+    if (!capacity.isTrial && !capacity.isPaid) {
+      return res.status(402).json({
+        success: false,
+        code: 'SUBSCRIPTION_REQUIRED',
+        message: 'Active subscription required before upgrading seats or branches.',
+      });
+    }
+
+    const upgrade = buildUpgradeQuote(capacity, {
+      addUsers: licensedUsers - capacity.licensedUsers,
+      addBranches: licensedBranches - capacity.licensedBranches,
+    });
+
+    const billingCycle = capacity.billingCycle || 'monthly';
+    const now = new Date();
+    const endDate = capacity.isPaid && capacity.subscriptionEndDate
+      ? new Date(capacity.subscriptionEndDate)
+      : paidEndDate(billingCycle, now);
+
+    await applyCompanySubscription(companyId, {
+      subscriptionPlan: billingCycle,
+      subscriptionStatus: 'active',
+      productTier: capacity.productTier,
+      licensedUsers: upgrade.licensedUsers,
+      licensedBranches: upgrade.licensedBranches,
+      billingCycle,
+      subscriptionStartDate: capacity.isPaid ? undefined : now,
+      subscriptionEndDate: endDate,
+    });
+
+    await Subscription.create({
+      userId,
+      plan: billingCycle,
+      startDate: now,
+      endDate,
+      amount: upgrade.next.amount,
+      currency: 'USD',
+      paymentMethod: req.body.paymentMethod || 'direct',
+      transactionId: req.body.transactionId || `UPG-${Date.now()}`,
+      paymentDetails: {
+        type: 'upgrade',
+        productTier: capacity.productTier,
+        licensedUsers: upgrade.licensedUsers,
+        licensedBranches: upgrade.licensedBranches,
+        previousAmount: upgrade.current.amount,
+        delta: upgrade.delta,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    const updatedCapacity = await getCompanyCapacity(prisma, companyId);
+    res.status(200).json({
+      success: true,
+      message: 'Subscription upgraded successfully',
+      data: { quote: upgrade, capacity: updatedCapacity },
+    });
+  } catch (error) {
+    console.error('upgradeSubscription error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // ============================================================
 // @desc    Direct subscription (No Stripe)
 // @route   POST /api/subscription/subscribe
@@ -69,38 +212,35 @@ const getPlans = async (req, res) => {
 // ============================================================
 const subscribeDirect = async (req, res) => {
   try {
-    const { plan, amount, paymentMethod, transactionId } = req.body;
+    const {
+      plan,
+      productTier = 'erp_pos',
+      licensedUsers = 1,
+      licensedBranches = 1,
+      amount,
+      paymentMethod,
+      transactionId,
+    } = req.body;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    console.log('📡 [subscribeDirect] User:', userId);
-    console.log('📡 [subscribeDirect] Plan:', plan);
-    console.log('💰 [subscribeDirect] Amount:', amount);
 
-    // ─── Validate plan ─────────────────────────────────────────
     if (!plan || (plan !== 'monthly' && plan !== 'yearly')) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid subscription plan. Must be "monthly" or "yearly"'
+        message: 'Invalid billing cycle. Must be "monthly" or "yearly"',
       });
     }
 
-    // ─── Get user ──────────────────────────────────────────────
-    const userData = await prisma.user.findUnique({
-      where: { id: userId }
-    });
+    const tier = productTier === 'pos' ? 'pos' : 'erp_pos';
+    const pricing = calculatePrice(tier, plan, licensedUsers, licensedBranches);
+    const finalAmount = amount != null ? Number(amount) : pricing.amount;
 
+    const userData = await prisma.user.findUnique({ where: { id: userId } });
     if (!userData) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
     const user = new User(userData);
-
-    // ─── Block only if already on a paid active subscription ──
-    // Trial users CAN upgrade to a paid plan
     const isAlreadyPaid = (
       (user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
       user.subscription.status === 'active' &&
@@ -111,64 +251,70 @@ const subscribeDirect = async (req, res) => {
     if (isAlreadyPaid) {
       return res.status(400).json({
         success: false,
-        message: 'You already have an active paid subscription. Please cancel it first to change plans.'
+        message: 'You already have an active paid subscription. Use upgrade to add users or branches.',
       });
     }
 
-    // ─── Calculate amount if not provided ─────────────────────
-    let finalAmount = amount;
-    if (!finalAmount) {
-      finalAmount = plan === 'monthly' ? 15 : 150;
-    }
+    const now = new Date();
+    const endDate = paidEndDate(plan, now);
 
-    // ─── Activate subscription ─────────────────────────────────
-    await user.activateSubscription(plan, finalAmount);
-
-    // ─── Refresh user data ─────────────────────────────────────
-    const updatedUserData = await prisma.user.findUnique({
-      where: { id: userId }
+    await applyCompanySubscription(companyId, {
+      subscriptionPlan: plan,
+      subscriptionStatus: 'active',
+      productTier: tier,
+      licensedUsers: pricing.licensedUsers,
+      licensedBranches: pricing.licensedBranches,
+      billingCycle: plan,
+      trialStartDate: null,
+      trialEndDate: null,
+      subscriptionStartDate: now,
+      subscriptionEndDate: endDate,
     });
+
+    const updatedUserData = await prisma.user.findUnique({ where: { id: userId } });
     const updatedUser = new User(updatedUserData);
 
-    console.log('✅ Subscription activated for user:', userId);
-    console.log('📋 Plan:', updatedUser.subscription.plan);
-    console.log('📋 Status:', updatedUser.subscription.status);
-    console.log('📅 EndDate:', updatedUser.subscription.endDate);
-
-    // ─── Create subscription record ────────────────────────────
     const subscription = await Subscription.create({
-      userId: userId,        // ✅ Fixed: use userId directly
+      userId,
       plan,
-      startDate: updatedUser.subscription.startDate,
-      endDate: updatedUser.subscription.endDate,
+      startDate: now,
+      endDate,
       amount: finalAmount,
-      currency: 'SAR',
+      currency: 'USD',
       paymentMethod: paymentMethod || 'direct',
       transactionId: transactionId || `TXN-${Date.now()}`,
       paymentDetails: {
         method: 'direct',
+        productTier: tier,
+        licensedUsers: pricing.licensedUsers,
+        licensedBranches: pricing.licensedBranches,
         timestamp: new Date().toISOString(),
-        ...(req.body.paymentDetails || {})
-      }
+        ...(req.body.paymentDetails || {}),
+      },
     });
 
     res.status(201).json({
       success: true,
-      message: `Subscription activated for ${plan} plan`,
+      message: `Subscription activated — ${tier === 'pos' ? 'POS' : 'ERP + POS'} (${plan})`,
       data: {
         subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
         endDate: updatedUser.subscription.endDate,
         startDate: updatedUser.subscription.startDate,
         plan: updatedUser.subscription.plan,
-        status: updatedUser.subscription.status
+        status: updatedUser.subscription.status,
+        productTier: tier,
+        licensedUsers: pricing.licensedUsers,
+        licensedBranches: pricing.licensedBranches,
+        amount: finalAmount,
+        currency: 'USD',
       },
-      subscription
+      subscription,
     });
   } catch (error) {
     console.error('🔥 [subscribeDirect] Error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Failed to activate subscription'
+      message: error.message || 'Failed to activate subscription',
     });
   }
 };
@@ -183,7 +329,7 @@ const createSubscription = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Start free trial (30 days)
+// @desc    Start free trial (14 days)
 // @route   POST /api/subscription/trial/start
 // @access  Private
 // ============================================================
@@ -233,13 +379,26 @@ const startTrial = async (req, res) => {
       });
     }
 
-    // ─── Start 30-day trial ────────────────────────────────────
     await user.startTrial();
 
-    // ─── Refresh user data ─────────────────────────────────────
     const updatedUserData = await prisma.user.findUnique({
       where: { id: userId }
     });
+
+    if (companyId) {
+      await applyCompanySubscription(companyId, {
+        subscriptionPlan: 'trial',
+        subscriptionStatus: 'active',
+        productTier: 'erp_pos',
+        licensedUsers: 999,
+        licensedBranches: 999,
+        trialStartDate: updatedUserData?.trialStartDate || new Date(),
+        trialEndDate: updatedUserData?.trialEndDate || new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+        subscriptionStartDate: null,
+        subscriptionEndDate: null,
+      });
+    }
+
     const updatedUser = new User(updatedUserData);
 
     // ─── Create trial subscription record ─────────────────────
@@ -249,7 +408,7 @@ const startTrial = async (req, res) => {
       startDate: updatedUser.subscription.trialStartDate,
       endDate: updatedUser.subscription.trialEndDate,   // trial uses trialEndDate as endDate in record
       amount: 0,
-      currency: 'SAR',
+      currency: 'USD',
       paymentMethod: 'free_trial',
       transactionId: `TRIAL-${Date.now()}`,
       paymentDetails: {
@@ -260,7 +419,7 @@ const startTrial = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: '🎉 30-day free trial started successfully!',
+      message: `🎉 ${TRIAL_DAYS}-day free trial started — full ERP + POS access!`,
       data: {
         trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
         trialEndDate: updatedUser.subscription.trialEndDate,
@@ -361,6 +520,14 @@ const checkSubscription = async (req, res) => {
     }
 
     const hasAccess = user.hasActiveSubscription();
+    let capacity = null;
+    if (companyId) {
+      try {
+        capacity = await getCompanyCapacity(prisma, companyId);
+      } catch {
+        /* ignore */
+      }
+    }
 
     console.log('Final hasAccess:', hasAccess);
     console.log('Final status:', user.subscription.status);
@@ -377,8 +544,15 @@ const checkSubscription = async (req, res) => {
           startDate: user.subscription.startDate,
           endDate: user.subscription.endDate,
           trialStartDate: user.subscription.trialStartDate,
-          trialEndDate: user.subscription.trialEndDate
-        }
+          trialEndDate: user.subscription.trialEndDate,
+          productTier: capacity?.productTier || 'erp_pos',
+          licensedUsers: capacity?.licensedUsers,
+          licensedBranches: capacity?.licensedBranches,
+          usedUsers: capacity?.usedUsers,
+          usedBranches: capacity?.usedBranches,
+          isTrial: capacity?.isTrial,
+        },
+        capacity,
       }
     });
   } catch (error) {
@@ -554,6 +728,185 @@ const cancelSubscription = async (req, res) => {
 };
 
 // ============================================================
+// @desc    Company billing overview (admin)
+// @route   GET /api/subscription/billing
+// @access  Private — company admin
+// ============================================================
+const ADMIN_ROLES = new Set(['admin', 'owner', 'superadmin', 'company_admin']);
+
+const getCompanyBilling = async (req, res) => {
+  try {
+    const role = (req.user.role || '').toLowerCase();
+    if (!ADMIN_ROLES.has(role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only company administrators can view billing',
+      });
+    }
+
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company not found' });
+    }
+
+    const [company, capacity, subscriptions] = await Promise.all([
+      prisma.company.findUnique({
+        where: { id: companyId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          address: true,
+          subscriptionPlan: true,
+          subscriptionStatus: true,
+          subscriptionStartDate: true,
+          subscriptionEndDate: true,
+          trialStartDate: true,
+          trialEndDate: true,
+        },
+      }),
+      getCompanyCapacity(prisma, companyId),
+      Subscription.findByCompanyId(companyId),
+    ]);
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found' });
+    }
+
+    const adminUser = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = adminUser ? new User(adminUser) : null;
+
+    const paidRecords = subscriptions.filter(
+      (s) => Number(s.amount || 0) > 0 && s.plan !== 'trial'
+    );
+
+    const totalPaid = paidRecords.reduce(
+      (sum, s) => sum + normalizeToUsd(s.amount, s.currency),
+      0
+    );
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const paidThisMonth = paidRecords
+      .filter((s) => new Date(s.createdAt) >= monthStart)
+      .reduce((sum, s) => sum + normalizeToUsd(s.amount, s.currency), 0);
+
+    const monthlyMap = {};
+    for (const record of paidRecords) {
+      const d = new Date(record.createdAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlyMap[key]) {
+        monthlyMap[key] = {
+          month: key,
+          label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          total: 0,
+          count: 0,
+        };
+      }
+      monthlyMap[key].total += normalizeToUsd(record.amount, record.currency);
+      monthlyMap[key].count += 1;
+    }
+
+    const monthlyStats = Object.values(monthlyMap).sort((a, b) =>
+      b.month.localeCompare(a.month)
+    );
+
+    const currentQuote = calculatePrice(
+      capacity.productTier,
+      capacity.billingCycle,
+      capacity.licensedUsers,
+      capacity.licensedBranches
+    );
+
+    const invoices = subscriptions.map((record, index) => {
+      const details = record.paymentDetails || {};
+      const paidBy = record.user
+        ? {
+            name: `${record.user.firstName || ''} ${record.user.lastName || ''}`.trim(),
+            email: record.user.email,
+          }
+        : null;
+
+      return {
+        id: record.id,
+        invoiceNumber:
+          record.transactionId ||
+          `INV-${new Date(record.createdAt).getFullYear()}-${String(index + 1).padStart(4, '0')}`,
+        plan: record.plan,
+        status: record.status,
+        amount: Math.round(normalizeToUsd(record.amount, record.currency)),
+        currency: 'USD',
+        originalAmount: Number(record.amount || 0),
+        originalCurrency: record.currency || 'USD',
+        paymentMethod: record.paymentMethod || 'direct',
+        transactionId: record.transactionId || '',
+        startDate: record.startDate,
+        endDate: record.endDate,
+        createdAt: record.createdAt,
+        productTier: details.productTier || capacity.productTier,
+        licensedUsers: details.licensedUsers ?? capacity.licensedUsers,
+        licensedBranches: details.licensedBranches ?? capacity.licensedBranches,
+        type: details.type || (record.plan === 'trial' ? 'trial' : 'subscription'),
+        delta: details.delta != null ? Math.round(normalizeToUsd(details.delta, record.currency)) : undefined,
+        previousAmount: details.previousAmount != null
+          ? Math.round(normalizeToUsd(details.previousAmount, record.currency))
+          : undefined,
+        paidBy,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        company: {
+          id: company.id,
+          name: company.name,
+          email: company.email,
+          phone: company.phone,
+          address: company.address,
+        },
+        capacity,
+        subscription: user
+          ? {
+              plan: user.subscription.plan,
+              status: user.subscription.status,
+              startDate: user.subscription.startDate,
+              endDate: user.subscription.endDate,
+              trialStartDate: user.subscription.trialStartDate,
+              trialEndDate: user.subscription.trialEndDate,
+              trialDaysRemaining: user.getTrialDaysRemaining(),
+              subscriptionDaysRemaining: user.getSubscriptionDaysRemaining(),
+              hasAccess: user.hasActiveSubscription(),
+            }
+          : {
+              plan: company.subscriptionPlan,
+              status: company.subscriptionStatus,
+              startDate: company.subscriptionStartDate,
+              endDate: company.subscriptionEndDate,
+              trialStartDate: company.trialStartDate,
+              trialEndDate: company.trialEndDate,
+              trialDaysRemaining: 0,
+              subscriptionDaysRemaining: 0,
+              hasAccess: capacity.hasAccess,
+            },
+        stats: {
+          currentAmount: capacity.isPaid ? currentQuote.amount : 0,
+          totalPaid,
+          paidThisMonth,
+          invoiceCount: invoices.length,
+        },
+        monthlyStats,
+        invoices,
+      },
+    });
+  } catch (error) {
+    console.error('getCompanyBilling error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================================
 // @desc    Get user subscription history
 // @route   GET /api/subscription/history
 // @access  Private
@@ -640,6 +993,9 @@ const searchSubscriptions = async (req, res) => {
 
 module.exports = {
   getPlans,
+  getCapacity,
+  getQuote,
+  upgradeSubscription,
   createSubscription,
   checkSubscription,
   cancelSubscription,
@@ -649,5 +1005,6 @@ module.exports = {
   subscribeDirect,
   startTrial,
   validateAccess,
-  getSubscriptionDetails
+  getSubscriptionDetails,
+  getCompanyBilling,
 };

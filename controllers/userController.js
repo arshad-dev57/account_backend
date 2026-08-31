@@ -57,6 +57,49 @@ const checkAndExpireSubscription = async (userId) => {
   }
 };
 
+function isPlatformOwnerEmail(email) {
+  const emails = (process.env.PLATFORM_OWNER_EMAILS || 'mfaisalakhan@gmail.com,kashif@gmail.com')
+    .split(',')
+    .map((e) => e.trim().toLowerCase());
+  return emails.includes((email || '').toLowerCase());
+}
+
+async function assertCompanyActiveForUser(companyId, email) {
+  if (!companyId) return null;
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { isActive: true },
+  });
+  if (company && !company.isActive) {
+    return {
+      status: 403,
+      code: 'COMPANY_INACTIVE',
+      message: 'Your company account has been deactivated. Please contact support.',
+    };
+  }
+  return null;
+}
+
+function subscriptionExpiredMessage(user) {
+  if (user.subscription?.plan === 'trial') {
+    return 'Your free trial has ended. Please subscribe to continue.';
+  }
+  return 'Your subscription has expired. Please subscribe to continue.';
+}
+
+function buildSubscriptionPayload(user) {
+  return {
+    plan: user.subscription.plan,
+    status: user.subscription.status,
+    trialDaysRemaining: user.getTrialDaysRemaining(),
+    subscriptionDaysRemaining: user.getSubscriptionDaysRemaining(),
+    startDate: user.subscription.startDate,
+    endDate: user.subscription.endDate,
+    trialStartDate: user.subscription.trialStartDate,
+    trialEndDate: user.subscription.trialEndDate,
+  };
+}
+
 const checkTrialDays = async (userId) => {
   const userData = await User.findById(userId);
   if (!userData) return 0;
@@ -79,6 +122,7 @@ exports.register = async (req, res) => {
       organizationName,
       fiscalYear, taxRegistrationNumber,
       industry, businessType,
+      posMode,
       websiteLink, contactNo,
       fiscalYearStartDate, fiscalYearEndDate, fiscalYearName
     } = req.body;
@@ -126,7 +170,7 @@ exports.register = async (req, res) => {
 
     const now = new Date();
     const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 30);
+    trialEnd.setDate(trialEnd.getDate() + 14);
 
     const userRole = 'admin';
 
@@ -145,8 +189,12 @@ exports.register = async (req, res) => {
         website: websiteLink || '',
         subscriptionPlan: 'trial',
         subscriptionStatus: 'active',
+        productTier: 'erp_pos',
+        licensedUsers: 999,
+        licensedBranches: 999,
         trialStartDate: now,
-        trialEndDate: trialEnd
+        trialEndDate: trialEnd,
+        posMode: posMode === 'restaurant' ? 'restaurant' : 'retail',
       }
     });
 
@@ -309,7 +357,7 @@ exports.register = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully. Free trial started for 30 days!',
+      message: 'User registered successfully. Free trial started for 14 days!',
       token,
       refreshToken,
       user: {
@@ -385,7 +433,18 @@ exports.login = async (req, res) => {
       console.log('❌ [login] Account deactivated');
       return res.status(401).json({
         success: false,
+        code: 'USER_INACTIVE',
         message: 'Your account has been deactivated. Please contact support.'
+      });
+    }
+
+    const companyBlock = await assertCompanyActiveForUser(userData.companyId, email);
+    if (companyBlock) {
+      console.log('❌ [login] Company deactivated');
+      return res.status(companyBlock.status).json({
+        success: false,
+        code: companyBlock.code,
+        message: companyBlock.message,
       });
     }
 
@@ -530,6 +589,23 @@ exports.verifyLoginOTP = async (req, res) => {
 
     console.log('✅ [verifyLoginOTP] OTP Verified Successfully');
 
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        code: 'USER_INACTIVE',
+        message: 'Your account has been deactivated. Please contact support.',
+      });
+    }
+
+    const companyBlock = await assertCompanyActiveForUser(userData.companyId, email);
+    if (companyBlock) {
+      return res.status(companyBlock.status).json({
+        success: false,
+        code: companyBlock.code,
+        message: companyBlock.message,
+      });
+    }
+
     user.requiresLoginOtp = false;
     user.loginOtp = null;
     user.loginOtpExpiry = null;
@@ -630,6 +706,7 @@ exports.verifyLoginOTP = async (req, res) => {
       },
       locations: [],
       locationIds: [],
+      assignedTerminalId: null,
       isLocationAdmin: false,
     };
 
@@ -643,6 +720,10 @@ exports.verifyLoginOTP = async (req, res) => {
         select: {
           companyId: true,
           role: true,
+          assignedTerminalId: true,
+          assignedTerminal: {
+            select: { id: true, name: true, code: true, locationId: true },
+          },
           userLocations: {
             include: {
               location: {
@@ -661,6 +742,7 @@ exports.verifyLoginOTP = async (req, res) => {
         },
       });
       responseUser.isLocationAdmin = isLocationAdminRole(updatedUser.role);
+      responseUser.assignedTerminalId = prismaUser?.assignedTerminalId || null;
       if (responseUser.isLocationAdmin && prismaUser?.companyId) {
         const allLocs = await prisma.location.findMany({
           where: { companyId: prismaUser.companyId, isDeleted: false },
@@ -680,6 +762,20 @@ exports.verifyLoginOTP = async (req, res) => {
         const assigned = formatUserLocations(prismaUser);
         responseUser.locations = assigned.locations;
         responseUser.locationIds = assigned.locationIds;
+      }
+      if (prismaUser?.companyId) {
+        responseUser.companyId = prismaUser.companyId;
+        const companyRow = await prisma.company.findUnique({
+          where: { id: prismaUser.companyId },
+          select: { posMode: true, name: true, productTier: true },
+        });
+        responseUser.posMode = companyRow?.posMode || 'retail';
+        responseUser.company = {
+          id: prismaUser.companyId,
+          posMode: companyRow?.posMode || 'retail',
+          name: companyRow?.name || '',
+          productTier: companyRow?.productTier || 'erp_pos',
+        };
       }
     } catch (locErr) {
       console.error('⚠️ [verifyLoginOTP] Location load failed:', locErr.message);
@@ -924,6 +1020,77 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
+// ==================== SESSION STATUS (startup / periodic access check) ====================
+exports.getSessionStatus = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    await checkAndExpireSubscription(userId);
+
+    const userData = await prisma.user.findUnique({
+      where: { id: String(userId) },
+      include: { company: true },
+    });
+
+    if (!userData) {
+      return res.status(404).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    }
+
+    const user = new User(userData);
+
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        code: 'USER_INACTIVE',
+        message: 'Your account has been deactivated. Please contact support.',
+      });
+    }
+
+    if (userData.company && !userData.company.isActive) {
+      return res.status(403).json({
+        success: false,
+        code: 'COMPANY_INACTIVE',
+        message: 'Your company account has been deactivated. Please contact support.',
+      });
+    }
+
+    const hasAccess = user.hasActiveSubscription();
+    const subscription = buildSubscriptionPayload(user);
+
+    if (!hasAccess) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          ok: false,
+          code: 'SUBSCRIPTION_EXPIRED',
+          message: subscriptionExpiredMessage(user),
+          hasAccess: false,
+          subscription,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ok: true,
+        code: 'OK',
+        hasAccess: true,
+        subscription,
+      },
+    });
+  } catch (error) {
+    console.error('[getSessionStatus] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error',
+    });
+  }
+};
+
 // ==================== GET CURRENT USER ====================
 exports.getMe = async (req, res) => {
   try {
@@ -958,6 +1125,7 @@ exports.getMe = async (req, res) => {
       companyId: updatedUser.companyId || req.user.companyId || null,
       locations: [],
       locationIds: [],
+      assignedTerminalId: null,
       isLocationAdmin: false,
       subscription: {
         plan: updatedUser.subscription.plan,
@@ -981,6 +1149,10 @@ exports.getMe = async (req, res) => {
         select: {
           companyId: true,
           role: true,
+          assignedTerminalId: true,
+          assignedTerminal: {
+            select: { id: true, name: true, code: true, locationId: true },
+          },
           userLocations: {
             include: {
               location: {
@@ -999,6 +1171,7 @@ exports.getMe = async (req, res) => {
         },
       });
       userPayload.isLocationAdmin = isLocationAdminRole(updatedUser.role);
+      userPayload.assignedTerminalId = prismaUser?.assignedTerminalId || null;
       if (userPayload.isLocationAdmin && prismaUser?.companyId) {
         const allLocs = await prisma.location.findMany({
           where: { companyId: prismaUser.companyId, isDeleted: false },
@@ -1020,6 +1193,19 @@ exports.getMe = async (req, res) => {
         userPayload.locationIds = assigned.locationIds;
       }
       if (prismaUser?.companyId) userPayload.companyId = prismaUser.companyId;
+      if (prismaUser?.companyId) {
+        const companyRow = await prisma.company.findUnique({
+          where: { id: prismaUser.companyId },
+          select: { posMode: true, name: true, productTier: true },
+        });
+        userPayload.posMode = companyRow?.posMode || 'retail';
+        userPayload.company = {
+          id: prismaUser.companyId,
+          posMode: companyRow?.posMode || 'retail',
+          name: companyRow?.name || '',
+          productTier: companyRow?.productTier || 'erp_pos',
+        };
+      }
     } catch (locErr) {
       console.warn('[getMe] location attach failed:', locErr.message);
     }

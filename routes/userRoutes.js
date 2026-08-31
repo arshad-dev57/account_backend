@@ -10,7 +10,8 @@
     refreshToken,
     verifyLoginOTP,
     resetPassword,
-    updateCurrency
+    updateCurrency,
+    getSessionStatus
   } = require('../controllers/userController');
   const { upload } = require('../config/cloudinary');
 
@@ -27,6 +28,7 @@
   router.post('/reset-password', resetPassword);
 
   // ========== PROTECTED ROUTES (Only authentication, NO subscription check) ==========
+  router.get('/session-status', protectOnly, getSessionStatus);
   // ✅ Change password - sirf authentication chahiye, subscription nahi
   router.post('/change-password', protectOnly, changePassword);
 

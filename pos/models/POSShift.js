@@ -7,17 +7,62 @@ class POSShiftModel {
   // OPEN SHIFT
   // ============================================================
   static async openShift({ terminalId, cashierId, companyId, openingCash, notes }) {
+    const parsedOpeningCash = parseFloat(openingCash);
+    if (!Number.isFinite(parsedOpeningCash) || parsedOpeningCash <= 0) {
+      throw new Error('Opening cash is required. Enter the cash in the drawer before starting.');
+    }
+
     // Check if cashier already has an open shift
     const existing = await prisma.pOSShift.findFirst({
-      where: { cashierId, companyId, status: { in: ['Open', 'Suspended'] } }
+      where: { cashierId, companyId, status: { in: ['Open', 'Suspended'] } },
+      include: {
+        terminal: {
+          include: {
+            location: { select: { id: true, name: true, code: true, type: true } },
+          },
+        },
+        cashier: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
     });
-    if (existing) throw new Error('You already have an open or suspended shift. Please close it first.');
+    if (existing) {
+      // Same user re-login on the same terminal — resume instead of blocking
+      if (String(existing.terminalId) === String(terminalId)) {
+        if (existing.status === 'Suspended') {
+          return prisma.pOSShift.update({
+            where: { id: existing.id },
+            data: { status: 'Open', resumedAt: new Date() },
+            include: {
+              terminal: {
+                include: {
+                  location: { select: { id: true, name: true, code: true, type: true } },
+                },
+              },
+              cashier: { select: { id: true, firstName: true, lastName: true, email: true } },
+            },
+          });
+        }
+        return existing;
+      }
+      throw new Error('You already have an open or suspended shift. Please close it first.');
+    }
 
     // Verify terminal exists & is active
     const terminal = await prisma.pOSTerminal.findFirst({
       where: { id: terminalId, companyId, isActive: true, isDeleted: false }
     });
     if (!terminal) throw new Error('Terminal not found or inactive');
+
+    const cashier = await prisma.user.findUnique({
+      where: { id: cashierId },
+      select: { assignedTerminalId: true, role: true },
+    });
+    if (
+      cashier?.assignedTerminalId &&
+      cashier.role !== 'admin' &&
+      String(cashier.assignedTerminalId) !== String(terminalId)
+    ) {
+      throw new Error('You can only open a shift on your assigned terminal');
+    }
 
     // Prevent two cashiers opening the same terminal
     const terminalBusy = await prisma.pOSShift.findFirst({
@@ -31,6 +76,19 @@ class POSShiftModel {
       }
     });
     if (terminalBusy) {
+      if (String(terminalBusy.cashierId) === String(cashierId)) {
+        return prisma.pOSShift.findFirst({
+          where: { id: terminalBusy.id },
+          include: {
+            terminal: {
+              include: {
+                location: { select: { id: true, name: true, code: true, type: true } },
+              },
+            },
+            cashier: { select: { id: true, firstName: true, lastName: true, email: true } },
+          },
+        });
+      }
       const name = `${terminalBusy.cashier?.firstName || ''} ${terminalBusy.cashier?.lastName || ''}`.trim();
       throw new Error(
         `Terminal is already in use${name ? ` by ${name}` : ''}. Close or suspend that shift first.`
@@ -38,7 +96,7 @@ class POSShiftModel {
     }
 
     const shift = await prisma.pOSShift.create({
-      data: { terminalId, cashierId, companyId, openingCash, notes: notes || null, status: 'Open' },
+      data: { terminalId, cashierId, companyId, openingCash: parsedOpeningCash, notes: notes || null, status: 'Open' },
       include: {
         terminal: {
           include: {
@@ -50,7 +108,7 @@ class POSShiftModel {
     });
 
     await prisma.pOSAuditLog.create({
-      data: { action: 'Shift Open', details: `Shift opened on terminal ${terminal.name} with opening cash ${openingCash}`, companyId, createdBy: cashierId }
+      data: { action: 'Shift Open', details: `Shift opened on terminal ${terminal.name} with opening cash ${parsedOpeningCash}`, companyId, createdBy: cashierId }
     });
 
     return shift;

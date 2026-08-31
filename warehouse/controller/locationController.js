@@ -76,6 +76,19 @@ const createLocation = async (req, res) => {
       });
     }
 
+    const { getCompanyCapacity, buildUpgradeQuote } = require('../../utils/companySubscription');
+    const capacity = await getCompanyCapacity(prisma, companyId);
+    if (!capacity.canAddBranch) {
+      const upgrade = buildUpgradeQuote(capacity, { addBranches: 1 });
+      return res.status(402).json({
+        success: false,
+        code: 'SUBSCRIPTION_UPGRADE_REQUIRED',
+        reason: 'branch',
+        message: `Branch limit reached (${capacity.usedBranches}/${capacity.licensedBranches}). Upgrade your ERP + POS subscription to add another branch.`,
+        data: { capacity, upgrade },
+      });
+    }
+
     const normalizedCode = code.trim().toUpperCase();
     const exists = await prisma.location.findFirst({
       where: { companyId, code: normalizedCode, isDeleted: false },

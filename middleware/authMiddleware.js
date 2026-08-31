@@ -126,10 +126,14 @@ exports.protectOnly = async (req, res, next) => {
     }
 
     if (!userData.isActive) {
-      return res.status(401).json({ success: false, message: 'Your account has been deactivated' });
+      return res.status(401).json({
+        success: false,
+        code: 'USER_INACTIVE',
+        message: 'Your account has been deactivated. Please contact support.'
+      });
     }
 
-    if (userData.company && !userData.company.isActive && !isPlatformOwner(userData.email)) {
+    if (userData.company && !userData.company.isActive) {
       return res.status(403).json({
         success: false,
         code: 'COMPANY_INACTIVE',
@@ -187,11 +191,15 @@ exports.protect = async (req, res, next) => {
     }
 
     if (!user.isActive) {
-      return res.status(401).json({ success: false, message: 'Your account has been deactivated' });
+      return res.status(401).json({
+        success: false,
+        code: 'USER_INACTIVE',
+        message: 'Your account has been deactivated. Please contact support.'
+      });
     }
 
     const companyRow = await prisma.company.findUnique({ where: { id: user.companyId }, select: { isActive: true } }).catch(() => null);
-    if (companyRow && !companyRow.isActive && !isPlatformOwner(user.email)) {
+    if (companyRow && !companyRow.isActive) {
       return res.status(403).json({
         success: false,
         code: 'COMPANY_INACTIVE',
