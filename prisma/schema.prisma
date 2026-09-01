@@ -36,6 +36,7 @@ model Company {
   subscriptionStartDate DateTime? @map("subscription_start_date")
   subscriptionEndDate   DateTime? @map("subscription_end_date")
   posMode               String    @default("retail") @map("pos_mode") // retail | restaurant
+  posModeConfigured     Boolean   @default(false) @map("pos_mode_configured")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 

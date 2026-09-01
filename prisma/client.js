@@ -24,8 +24,21 @@ function companyModelHasPosMode(client) {
   }
 }
 
+function companyModelHasPosModeConfigured(client) {
+  try {
+    const fields = client?.company?.fields;
+    return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, 'posModeConfigured'));
+  } catch {
+    return false;
+  }
+}
+
 function clientSchemaIsCurrent(client) {
-  return userModelHasAssignedTerminal(client) && companyModelHasPosMode(client);
+  return (
+    userModelHasAssignedTerminal(client) &&
+    companyModelHasPosMode(client) &&
+    companyModelHasPosModeConfigured(client)
+  );
 }
 
 function createClient() {

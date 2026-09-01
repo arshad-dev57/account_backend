@@ -122,7 +122,6 @@ exports.register = async (req, res) => {
       organizationName,
       fiscalYear, taxRegistrationNumber,
       industry, businessType,
-      posMode,
       websiteLink, contactNo,
       fiscalYearStartDate, fiscalYearEndDate, fiscalYearName
     } = req.body;
@@ -194,7 +193,8 @@ exports.register = async (req, res) => {
         licensedBranches: 999,
         trialStartDate: now,
         trialEndDate: trialEnd,
-        posMode: posMode === 'restaurant' ? 'restaurant' : 'retail',
+        posMode: 'retail',
+        posModeConfigured: false,
       }
     });
 
@@ -767,12 +767,14 @@ exports.verifyLoginOTP = async (req, res) => {
         responseUser.companyId = prismaUser.companyId;
         const companyRow = await prisma.company.findUnique({
           where: { id: prismaUser.companyId },
-          select: { posMode: true, name: true, productTier: true },
+          select: { posMode: true, posModeConfigured: true, name: true, productTier: true },
         });
         responseUser.posMode = companyRow?.posMode || 'retail';
+        responseUser.posModeConfigured = Boolean(companyRow?.posModeConfigured);
         responseUser.company = {
           id: prismaUser.companyId,
           posMode: companyRow?.posMode || 'retail',
+          posModeConfigured: Boolean(companyRow?.posModeConfigured),
           name: companyRow?.name || '',
           productTier: companyRow?.productTier || 'erp_pos',
         };
@@ -1196,12 +1198,14 @@ exports.getMe = async (req, res) => {
       if (prismaUser?.companyId) {
         const companyRow = await prisma.company.findUnique({
           where: { id: prismaUser.companyId },
-          select: { posMode: true, name: true, productTier: true },
+          select: { posMode: true, posModeConfigured: true, name: true, productTier: true },
         });
         userPayload.posMode = companyRow?.posMode || 'retail';
+        userPayload.posModeConfigured = Boolean(companyRow?.posModeConfigured);
         userPayload.company = {
           id: prismaUser.companyId,
           posMode: companyRow?.posMode || 'retail',
+          posModeConfigured: Boolean(companyRow?.posModeConfigured),
           name: companyRow?.name || '',
           productTier: companyRow?.productTier || 'erp_pos',
         };

@@ -10,6 +10,11 @@ const shiftCtrl    = require('../controllers/posShiftController');
 const saleCtrl     = require('../controllers/posSaleController');
 const receiptCtrl  = require('../controllers/posReceiptSettingsController');
 const restaurantCtrl = require('../controllers/restaurantOrderController');
+const settingsCtrl = require('../controllers/posSettingsController');
+
+// ─── Company POS settings (type chosen from web POS hub) ─────────────────────
+router.get  ('/settings', protect, settingsCtrl.getSettings);
+router.patch('/settings', protect, settingsCtrl.updateSettings);
 
 // ─── Terminal Routes ─────────────────────────────────────────────────────────
 router.get   ('/terminals',     protect, terminalCtrl.listTerminals);
