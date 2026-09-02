@@ -187,15 +187,14 @@ class EmailSenderService {
    * @returns {Promise<object>}
    */
   async sendRawEmail(to, subject, html, text = null, attachments = null) {
-    const { getTransporter } = require('../utils/emailTransporter');
     const { getEmailFrom } = require('../utils/emailConfig');
+    const { sendMail, isEmailConfigured } = require('../utils/mailTransport');
 
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    if (!isEmailConfigured()) {
       console.error('Email credentials not configured');
       throw new Error('Email service not configured properly');
     }
 
-    const transporter = await getTransporter();
     const from = getEmailFrom();
 
     const mailOptions = {
@@ -211,7 +210,7 @@ class EmailSenderService {
     }
 
     try {
-      const info = await transporter.sendMail(mailOptions);
+      const info = await sendMail(mailOptions);
       console.log('✅ Email sent:', info.messageId, '→', to);
       return { success: true, messageId: info.messageId };
     } catch (error) {

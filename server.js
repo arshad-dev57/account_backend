@@ -7,10 +7,10 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 
 const app = require('./app');
 const connectDB = require('./config/db');
-const { verifyTransporter } = require('./utils/emailTransporter');
+const { verifyMailTransport } = require('./utils/mailTransport');
 
 connectDB();
-void verifyTransporter();
+void verifyMailTransport();
 
 const PORT = process.env.PORT || 5000;
 

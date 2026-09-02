@@ -229,9 +229,8 @@ router.post('/send-receipt', protect, async (req, res) => {
       html: receiptHtml
     };
 
-    const { getTransporter } = require('../../utils/emailTransporter');
-    const transporter = await getTransporter();
-    await transporter.sendMail(mailOptions);
+    const { sendMail } = require('../../utils/mailTransport');
+    await sendMail(mailOptions);
     
     res.status(200).json({ success: true, message: 'Receipt sent successfully' });
   } catch (error) {

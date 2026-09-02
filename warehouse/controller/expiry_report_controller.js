@@ -335,9 +335,8 @@ const sendExpiryEmail = async (user, expiredProducts, expiringSoonProducts) => {
 </html>`
   };
 
-  const { getTransporter } = require('../../utils/emailTransporter');
-  const transporter = await getTransporter();
-  await transporter.sendMail(mailOptions);
+  const { sendMail } = require('../../utils/mailTransport');
+  await sendMail(mailOptions);
 };
 
 const sendExpiryPushNotification = async (userId, expiredProducts, expiringSoonProducts) => {

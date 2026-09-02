@@ -1,6 +1,10 @@
 // services/emailService.js
-const { getEmailFrom, getSmtpAuth } = require('../utils/emailConfig');
-const { getTransporter } = require('../utils/emailTransporter');
+const { getEmailFrom } = require('../utils/emailConfig');
+const {
+  sendMail,
+  verifyMailTransport,
+  isEmailConfigured
+} = require('../utils/mailTransport');
 
 class EmailService {
   constructor() {
@@ -8,29 +12,24 @@ class EmailService {
   }
 
   async _bootstrap() {
-    const smtp = getSmtpAuth();
-    if (!smtp.user || !smtp.pass) {
-      console.warn('⚠️ Email credentials not configured. Email service will not work.');
-      return null;
+    if (!isEmailConfigured()) {
+      console.warn('⚠️ Email not configured. Set RESEND_API_KEY (Railway) or EMAIL_USER/PASS (local SMTP).');
+      return false;
     }
 
     try {
-      const transporter = await getTransporter();
-      await transporter.verify();
-      const from = getEmailFrom();
-      console.log('✅ SMTP connection verified');
-      console.log(`📧 OTP From: ${from.fromHeader || from.address || smtp.user}`);
-      return transporter;
+      return await verifyMailTransport();
     } catch (error) {
-      console.error('❌ SMTP connection error:', error);
-      return null;
+      console.error('❌ Email bootstrap error:', error.message || error);
+      return false;
     }
   }
 
-  async _transporter() {
+  async _ensureReady() {
     await this._ready;
-    const transporter = await getTransporter();
-    return transporter;
+    if (!isEmailConfigured()) {
+      throw new Error('Email service not configured properly');
+    }
   }
 
   _mailIdentity() {
@@ -42,11 +41,8 @@ class EmailService {
   }
 
   async _sendMail(mailOptions) {
-    const transporter = await this._transporter();
-    if (!transporter) {
-      throw new Error('Email service not configured properly');
-    }
-    return transporter.sendMail(mailOptions);
+    await this._ensureReady();
+    return sendMail(mailOptions);
   }
 
   /**
@@ -59,12 +55,7 @@ class EmailService {
    */
   async sendOTPEmail(email, otp, firstName = '', type = 'login') {
     console.log(`📧 [EmailService] Sending ${type} OTP to:`, email);
-
-    const transporter = await this._transporter();
-    if (!transporter) {
-      console.error('❌ [EmailService] Transporter not initialized');
-      throw new Error('Email service not configured properly');
-    }
+    await this._ensureReady();
 
     const otpDigits = String(otp).split('');
     const digitBoxes = otpDigits
@@ -231,12 +222,7 @@ class EmailService {
    */
   async sendWelcomeEmail(email, firstName = '') {
     console.log('📧 [EmailService] Sending welcome email to:', email);
-
-    const transporter = await this._transporter();
-    if (!transporter) {
-      console.error('❌ [EmailService] Transporter not initialized');
-      throw new Error('Email service not configured properly');
-    }
+    await this._ensureReady();
 
     const identity = this._mailIdentity();
 
@@ -355,12 +341,7 @@ class EmailService {
    */
   async sendPurchaseOrderEmail(email, orderData, pdfBuffer) {
     console.log('📧 [EmailService] Sending purchase order email to:', email);
-
-    const transporter = await this._transporter();
-    if (!transporter) {
-      console.error('❌ [EmailService] Transporter not initialized');
-      throw new Error('Email service not configured properly');
-    }
+    await this._ensureReady();
 
     const companyName = orderData.companyName || 'WarehousePro';
     const companyLogo = orderData.companyLogo || '';
@@ -488,10 +469,7 @@ class EmailService {
     companyName = 'BisonsTechs',
     invitedBy = ''
   }) {
-    const transporter = await this._transporter();
-    if (!transporter) {
-      throw new Error('Email service not configured properly');
-    }
+    await this._ensureReady();
 
     const identity = this._mailIdentity();
     const webBase = (process.env.FRONTEND_URL || 'https://app.bisonstechs.com').replace(/\/$/, '');
