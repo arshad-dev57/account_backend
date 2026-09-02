@@ -1,27 +1,25 @@
 const nodemailer = require('nodemailer');
 const { buildSmtpTransportOptions, getEmailFrom } = require('./emailConfig');
 
-let transporter = null;
+let transporterPromise = null;
 
-const getTransporter = () => {
-  if (transporter) {
-    return transporter;
+const getTransporter = async () => {
+  if (!transporterPromise) {
+    transporterPromise = (async () => {
+      const options = await buildSmtpTransportOptions({
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100
+      });
+      return nodemailer.createTransport(options);
+    })();
   }
-
-  transporter = nodemailer.createTransport(
-    buildSmtpTransportOptions({
-      pool: true,
-      maxConnections: 5,
-      maxMessages: 100
-    })
-  );
-
-  return transporter;
+  return transporterPromise;
 };
 
 const verifyTransporter = async () => {
   try {
-    const trans = getTransporter();
+    const trans = await getTransporter();
     await trans.verify();
     const from = getEmailFrom();
     console.log('✅ Email transporter verified and ready');

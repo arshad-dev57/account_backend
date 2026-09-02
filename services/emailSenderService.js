@@ -195,7 +195,7 @@ class EmailSenderService {
       throw new Error('Email service not configured properly');
     }
 
-    const transporter = getTransporter();
+    const transporter = await getTransporter();
     const from = getEmailFrom();
 
     const mailOptions = {

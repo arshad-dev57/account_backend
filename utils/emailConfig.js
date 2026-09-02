@@ -9,15 +9,15 @@
  */
 
 const dns = require('dns');
+const net = require('net');
+const { promisify } = require('util');
 
-/** Railway/cloud hosts often lack IPv6 — Gmail resolves to IPv6 first and fails with ENETUNREACH. */
-function ipv4Lookup(hostname, options, callback) {
-  if (typeof options === 'function') {
-    callback = options;
-    options = {};
-  }
-  dns.lookup(hostname, { ...options, family: 4 }, callback);
-}
+const resolve4 = promisify(dns.resolve4);
+const lookup4 = promisify((hostname, cb) =>
+  dns.lookup(hostname, { family: 4 }, cb)
+);
+
+let cachedSmtpEndpoint = null;
 
 function getEmailFrom() {
   const address = (
@@ -53,18 +53,64 @@ function getSmtpAuth() {
   };
 }
 
-/** Shared nodemailer transport options (IPv4-only for cloud deploys). */
-function buildSmtpTransportOptions(overrides = {}) {
+/**
+ * Nodemailer 8 uses dns.resolve6() and may pick IPv6 randomly.
+ * Railway has no IPv6 outbound — resolve IPv4 once and connect by IP + TLS servername.
+ */
+async function resolveSmtpEndpoint() {
+  if (cachedSmtpEndpoint) return cachedSmtpEndpoint;
+
   const smtp = getSmtpAuth();
+  const hostname = smtp.host;
+
+  if (net.isIP(hostname)) {
+    cachedSmtpEndpoint = {
+      host: hostname,
+      servername: process.env.EMAIL_TLS_SERVERNAME || 'smtp.gmail.com'
+    };
+    return cachedSmtpEndpoint;
+  }
+
+  if (process.env.EMAIL_SMTP_IPV4) {
+    cachedSmtpEndpoint = {
+      host: process.env.EMAIL_SMTP_IPV4.trim(),
+      servername: hostname
+    };
+    console.log(`📧 [SMTP] Using EMAIL_SMTP_IPV4=${cachedSmtpEndpoint.host} (TLS: ${hostname})`);
+    return cachedSmtpEndpoint;
+  }
+
+  let ipv4;
+  try {
+    const addresses = await resolve4(hostname);
+    ipv4 = addresses[0];
+  } catch {
+    const result = await lookup4(hostname);
+    ipv4 = result.address;
+  }
+
+  cachedSmtpEndpoint = { host: ipv4, servername: hostname };
+  console.log(`📧 [SMTP] Resolved ${hostname} → ${ipv4} (IPv4 only)`);
+  return cachedSmtpEndpoint;
+}
+
+/** Shared nodemailer transport options (IPv4-only for cloud deploys). */
+async function buildSmtpTransportOptions(overrides = {}) {
+  const smtp = getSmtpAuth();
+  const endpoint = await resolveSmtpEndpoint();
+
   return {
-    host: smtp.host,
+    host: endpoint.host,
     port: smtp.port,
     secure: smtp.secure,
     auth: {
       user: smtp.user,
       pass: smtp.pass
     },
-    lookup: ipv4Lookup,
+    tls: {
+      servername: endpoint.servername,
+      minVersion: 'TLSv1.2'
+    },
     connectionTimeout: 30_000,
     greetingTimeout: 30_000,
     socketTimeout: 60_000,
@@ -72,4 +118,9 @@ function buildSmtpTransportOptions(overrides = {}) {
   };
 }
 
-module.exports = { getEmailFrom, getSmtpAuth, buildSmtpTransportOptions };
+module.exports = {
+  getEmailFrom,
+  getSmtpAuth,
+  resolveSmtpEndpoint,
+  buildSmtpTransportOptions
+};

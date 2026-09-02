@@ -1,30 +1,36 @@
 // services/emailService.js
-const nodemailer = require('nodemailer');
-const { getEmailFrom, getSmtpAuth, buildSmtpTransportOptions } = require('../utils/emailConfig');
+const { getEmailFrom, getSmtpAuth } = require('../utils/emailConfig');
+const { getTransporter } = require('../utils/emailTransporter');
 
 class EmailService {
   constructor() {
-    this.transporter = null;
-    this.initializeTransporter();
+    this._ready = this._bootstrap();
   }
 
-  initializeTransporter() {
+  async _bootstrap() {
     const smtp = getSmtpAuth();
-    if (smtp.user && smtp.pass) {
-      this.transporter = nodemailer.createTransport(buildSmtpTransportOptions());
-
-      const from = getEmailFrom();
-      this.transporter.verify((error) => {
-        if (error) {
-          console.error('❌ SMTP connection error:', error);
-        } else {
-          console.log('✅ SMTP connection verified');
-          console.log(`📧 OTP From: ${from.fromHeader || from.address || smtp.user}`);
-        }
-      });
-    } else {
+    if (!smtp.user || !smtp.pass) {
       console.warn('⚠️ Email credentials not configured. Email service will not work.');
+      return null;
     }
+
+    try {
+      const transporter = await getTransporter();
+      await transporter.verify();
+      const from = getEmailFrom();
+      console.log('✅ SMTP connection verified');
+      console.log(`📧 OTP From: ${from.fromHeader || from.address || smtp.user}`);
+      return transporter;
+    } catch (error) {
+      console.error('❌ SMTP connection error:', error);
+      return null;
+    }
+  }
+
+  async _transporter() {
+    await this._ready;
+    const transporter = await getTransporter();
+    return transporter;
   }
 
   _mailIdentity() {
@@ -33,6 +39,14 @@ class EmailService {
       throw new Error('EMAIL_FROM / EMAIL_USER not configured');
     }
     return from;
+  }
+
+  async _sendMail(mailOptions) {
+    const transporter = await this._transporter();
+    if (!transporter) {
+      throw new Error('Email service not configured properly');
+    }
+    return transporter.sendMail(mailOptions);
   }
 
   /**
@@ -46,7 +60,8 @@ class EmailService {
   async sendOTPEmail(email, otp, firstName = '', type = 'login') {
     console.log(`📧 [EmailService] Sending ${type} OTP to:`, email);
 
-    if (!this.transporter) {
+    const transporter = await this._transporter();
+    if (!transporter) {
       console.error('❌ [EmailService] Transporter not initialized');
       throw new Error('Email service not configured properly');
     }
@@ -199,7 +214,7 @@ class EmailService {
     };
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = await this._sendMail(mailOptions);
       console.log('✅ Email sent:', info.messageId, '→', email);
       return { success: true, messageId: info.messageId };
     } catch (error) {
@@ -217,7 +232,8 @@ class EmailService {
   async sendWelcomeEmail(email, firstName = '') {
     console.log('📧 [EmailService] Sending welcome email to:', email);
 
-    if (!this.transporter) {
+    const transporter = await this._transporter();
+    if (!transporter) {
       console.error('❌ [EmailService] Transporter not initialized');
       throw new Error('Email service not configured properly');
     }
@@ -321,7 +337,7 @@ class EmailService {
     };
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = await this._sendMail(mailOptions);
       console.log('✅ Welcome email sent:', info.messageId, '→', email);
       return { success: true, messageId: info.messageId };
     } catch (error) {
@@ -340,7 +356,8 @@ class EmailService {
   async sendPurchaseOrderEmail(email, orderData, pdfBuffer) {
     console.log('📧 [EmailService] Sending purchase order email to:', email);
 
-    if (!this.transporter) {
+    const transporter = await this._transporter();
+    if (!transporter) {
       console.error('❌ [EmailService] Transporter not initialized');
       throw new Error('Email service not configured properly');
     }
@@ -449,7 +466,7 @@ class EmailService {
     };
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = await this._sendMail(mailOptions);
       console.log('✅ Purchase order email sent:', info.messageId, '→', email);
       return { success: true, messageId: info.messageId };
     } catch (error) {
@@ -471,7 +488,8 @@ class EmailService {
     companyName = 'BisonsTechs',
     invitedBy = ''
   }) {
-    if (!this.transporter) {
+    const transporter = await this._transporter();
+    if (!transporter) {
       throw new Error('Email service not configured properly');
     }
 
@@ -614,7 +632,7 @@ class EmailService {
 </html>`
     };
 
-    const info = await this.transporter.sendMail(mailOptions);
+    const info = await this._sendMail(mailOptions);
     console.log('✅ Team invite email sent:', info.messageId, '→', to);
     return { success: true, messageId: info.messageId };
   }
