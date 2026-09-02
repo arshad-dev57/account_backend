@@ -99,30 +99,29 @@ async function findOrCreateCustomer(tx, salesOrder, companyId, createdBy) {
   // Generate unique customer number
   const customerNumber = `CUS-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   
-  // Create new customer with unique email handling
+  // Create new customer — email/phone unique per company only
   let email = salesOrder.customerEmail;
   let phone = salesOrder.customerPhone;
-  
-  // Check if email already exists in the system (for different user)
+
   if (email) {
     const existingEmail = await tx.customer.findFirst({
       where: {
-        email: email,
+        email,
+        ...companyScope,
         isActive: true,
         isDeleted: false
       }
     });
     if (existingEmail) {
-      // If email exists, use a modified email or null
       email = null;
     }
   }
 
-  // Check if phone already exists
   if (phone) {
     const existingPhone = await tx.customer.findFirst({
       where: {
-        phone: phone,
+        phone,
+        ...companyScope,
         isActive: true,
         isDeleted: false
       }

@@ -646,6 +646,172 @@ const getCustomerStats = async (userId, companyId, dateFilter) => {
   };
 };
 
+async function buildSalesComparison(companyId, locationId = null) {
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - 7);
+  weekStart.setHours(0, 0, 0, 0);
+  const lastWeekStart = new Date(weekStart);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+  const monthStart = new Date(now);
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const lastMonthStart = new Date(monthStart);
+  lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
+
+  const yearStart = new Date(now);
+  yearStart.setMonth(0, 1);
+  yearStart.setHours(0, 0, 0, 0);
+  const lastYearStart = new Date(yearStart);
+  lastYearStart.setFullYear(lastYearStart.getFullYear() - 1);
+
+  const orderBase = {
+    companyId,
+    isActive: true,
+    isDeleted: false,
+    ...withLocation(locationId),
+  };
+  const returnBase = {
+    companyId,
+    isActive: true,
+    isDeleted: false,
+    ...viaOrderLocation(locationId),
+  };
+
+  const [
+    todaySalesAgg,
+    yesterdaySalesAgg,
+    todayPos,
+    yesterdayPos,
+    weekSalesAgg,
+    lastWeekSalesAgg,
+    weekPos,
+    lastWeekPos,
+    monthSalesAgg,
+    lastMonthSalesAgg,
+    monthPos,
+    lastMonthPos,
+    yearSalesAgg,
+    lastYearSalesAgg,
+    yearPos,
+    lastYearPos,
+    todayReturns,
+    weekReturns,
+    monthReturns,
+    yearReturns,
+  ] = await Promise.all([
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: todayStart } },
+      _sum: { grandTotal: true },
+    }),
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: yesterdayStart, lt: todayStart } },
+      _sum: { grandTotal: true },
+    }),
+    sumPosRevenue(companyId, { gte: todayStart }, locationId),
+    sumPosRevenue(companyId, { gte: yesterdayStart, lt: todayStart }, locationId),
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: weekStart } },
+      _sum: { grandTotal: true },
+    }),
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: lastWeekStart, lt: weekStart } },
+      _sum: { grandTotal: true },
+    }),
+    sumPosRevenue(companyId, { gte: weekStart }, locationId),
+    sumPosRevenue(companyId, { gte: lastWeekStart, lt: weekStart }, locationId),
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: monthStart } },
+      _sum: { grandTotal: true },
+    }),
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: lastMonthStart, lt: monthStart } },
+      _sum: { grandTotal: true },
+    }),
+    sumPosRevenue(companyId, { gte: monthStart }, locationId),
+    sumPosRevenue(companyId, { gte: lastMonthStart, lt: monthStart }, locationId),
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: yearStart } },
+      _sum: { grandTotal: true },
+    }),
+    prisma.order.aggregate({
+      where: { ...orderBase, orderDate: { gte: lastYearStart, lt: yearStart } },
+      _sum: { grandTotal: true },
+    }),
+    sumPosRevenue(companyId, { gte: yearStart }, locationId),
+    sumPosRevenue(companyId, { gte: lastYearStart, lt: yearStart }, locationId),
+    prisma.return.aggregate({
+      where: { ...returnBase, returnDate: { gte: todayStart } },
+      _sum: { refundAmount: true },
+    }),
+    prisma.return.aggregate({
+      where: { ...returnBase, returnDate: { gte: weekStart } },
+      _sum: { refundAmount: true },
+    }),
+    prisma.return.aggregate({
+      where: { ...returnBase, returnDate: { gte: monthStart } },
+      _sum: { refundAmount: true },
+    }),
+    prisma.return.aggregate({
+      where: { ...returnBase, returnDate: { gte: yearStart } },
+      _sum: { refundAmount: true },
+    }),
+  ]);
+
+  const todaySales = toNum(todaySalesAgg._sum.grandTotal) + todayPos;
+  const yesterdaySales = toNum(yesterdaySalesAgg._sum.grandTotal) + yesterdayPos;
+  const weekSales = toNum(weekSalesAgg._sum.grandTotal) + weekPos;
+  const lastWeekSales = toNum(lastWeekSalesAgg._sum.grandTotal) + lastWeekPos;
+  const monthSales = toNum(monthSalesAgg._sum.grandTotal) + monthPos;
+  const lastMonthSales = toNum(lastMonthSalesAgg._sum.grandTotal) + lastMonthPos;
+  const yearSales = toNum(yearSalesAgg._sum.grandTotal) + yearPos;
+  const lastYearSales = toNum(lastYearSalesAgg._sum.grandTotal) + lastYearPos;
+
+  const pctChange = (current, prior) =>
+    prior > 0 ? ((current - prior) / prior) * 100 : 0;
+
+  return {
+    today: {
+      currentSales: todaySales,
+      priorSales: yesterdaySales,
+      currentReturns: todayReturns._sum.refundAmount || 0,
+      priorReturns: 0,
+      salesChangePercent: pctChange(todaySales, yesterdaySales),
+      returnsChangePercent: 0,
+    },
+    week: {
+      currentSales: weekSales,
+      priorSales: lastWeekSales,
+      currentReturns: weekReturns._sum.refundAmount || 0,
+      priorReturns: 0,
+      salesChangePercent: pctChange(weekSales, lastWeekSales),
+      returnsChangePercent: 0,
+    },
+    month: {
+      currentSales: monthSales,
+      priorSales: lastMonthSales,
+      currentReturns: monthReturns._sum.refundAmount || 0,
+      priorReturns: 0,
+      salesChangePercent: pctChange(monthSales, lastMonthSales),
+      returnsChangePercent: 0,
+    },
+    year: {
+      currentSales: yearSales,
+      priorSales: lastYearSales,
+      currentReturns: yearReturns._sum.refundAmount || 0,
+      priorReturns: 0,
+      salesChangePercent: pctChange(yearSales, lastYearSales),
+      returnsChangePercent: 0,
+    },
+  };
+}
+
 // ============================================================
 // @desc    Get sales dashboard data (User-specific)
 // @route   GET /api/warehouse/sales/dashboard
@@ -660,6 +826,7 @@ const getSalesDashboard = async (req, res) => {
     const endDate = req.query.endDate;
     const fiscalYearId = req.query.fiscalYearId;
     const locationId = req.query.locationId;
+
     const dateFilter = await resolveSalesDateFilter({
       period,
       startDate,
@@ -701,26 +868,28 @@ const getSalesDashboard = async (req, res) => {
       orderRevenue: toNum(t.revenue)
     }));
 
-    // ─── INVOICES ─────────────────────────────────────────────
-    const [invoiceStats, invoiceTrend] = await Promise.all([
+    // ─── INVOICES + STATS (parallel) ───────────────────────────
+    const [
+      invoiceStats,
+      invoiceTrend,
+      returnStats,
+      refundStats,
+      creditNoteStats,
+      topProducts,
+      customerStats,
+      comparison,
+      recentActivity,
+    ] = await Promise.all([
       getInvoiceStats(userId, companyId, dateFilter, locationId),
       getInvoiceTrend(userId, companyId, 30, locationId),
+      getReturnStats(userId, companyId, dateFilter, locationId),
+      getRefundStats(userId, companyId, dateFilter, locationId),
+      getCreditNoteStats(userId, companyId, dateFilter, locationId),
+      getTopProducts(userId, companyId, dateFilter, locationId),
+      getCustomerStats(userId, companyId, dateFilter),
+      buildSalesComparison(companyId, locationId),
+      getRecentPosActivity(companyId, 10, locationId),
     ]);
-
-    // ─── RETURNS ──────────────────────────────────────────────
-    const returnStats = await getReturnStats(userId, companyId, dateFilter, locationId);
-
-    // ─── REFUNDS ──────────────────────────────────────────────
-    const refundStats = await getRefundStats(userId, companyId, dateFilter, locationId);
-
-    // ─── SALES CREDITS (CREDIT NOTES) ─────────────────────────
-    const creditNoteStats = await getCreditNoteStats(userId, companyId, dateFilter, locationId);
-
-    // ─── TOP PRODUCTS ─────────────────────────────────────────
-    const topProducts = await getTopProducts(userId, companyId, dateFilter, locationId);
-
-    // ─── CUSTOMER STATS ──────────────────────────────────────
-    const customerStats = await getCustomerStats(userId, companyId, dateFilter);
 
     // ─── SUMMARY STATS ───────────────────────────────────────
     const orderRev = toNum(orderRevenue._sum.grandTotal);
@@ -747,255 +916,6 @@ const getSalesDashboard = async (req, res) => {
     const todayRevenue = orderRevenue._sum.grandTotal || 0;
     const pendingOrders = orderStatusCounts.find(s => s.orderStatus === 'Pending')?._count._all || 0;
 
-    // ─── COMPARISON DATA (INDEPENDENT PERIODS) ───────────────
-    // Calculate independent data for each period regardless of selected filter
-    const now = new Date();
-    
-    // Today's data
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    
-    const [todaySalesAgg, yesterdaySalesAgg, todayPos, yesterdayPos] = await Promise.all([
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { gte: todayStart },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { 
-            gte: yesterdayStart,
-            lt: todayStart
-          },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      sumPosRevenue(companyId, { gte: todayStart }, locationId),
-      sumPosRevenue(companyId, { gte: yesterdayStart, lt: todayStart }, locationId),
-    ]);
-    
-    const todaySales = toNum(todaySalesAgg._sum.grandTotal) + todayPos;
-    const yesterdaySales = toNum(yesterdaySalesAgg._sum.grandTotal) + yesterdayPos;
-    const todaySalesChange = yesterdaySales > 0 
-      ? ((todaySales - yesterdaySales) / yesterdaySales) * 100 
-      : 0;
-    
-    // This Week's data
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - 7);
-    weekStart.setHours(0, 0, 0, 0);
-    const lastWeekStart = new Date(weekStart);
-    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-    
-    const [weekSalesAgg, lastWeekSalesAgg, weekPos, lastWeekPos] = await Promise.all([
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { gte: weekStart },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { 
-            gte: lastWeekStart,
-            lt: weekStart
-          },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      sumPosRevenue(companyId, { gte: weekStart }, locationId),
-      sumPosRevenue(companyId, { gte: lastWeekStart, lt: weekStart }, locationId),
-    ]);
-    
-    const weekSales = toNum(weekSalesAgg._sum.grandTotal) + weekPos;
-    const lastWeekSales = toNum(lastWeekSalesAgg._sum.grandTotal) + lastWeekPos;
-    const weekSalesChange = lastWeekSales > 0 
-      ? ((weekSales - lastWeekSales) / lastWeekSales) * 100 
-      : 0;
-    
-    // This Month's data
-    const monthStart = new Date(now);
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-    const lastMonthStart = new Date(monthStart);
-    lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
-    
-    const [monthSalesAgg, lastMonthSalesAgg, monthPos, lastMonthPos] = await Promise.all([
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { gte: monthStart },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { 
-            gte: lastMonthStart,
-            lt: monthStart
-          },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      sumPosRevenue(companyId, { gte: monthStart }, locationId),
-      sumPosRevenue(companyId, { gte: lastMonthStart, lt: monthStart }, locationId),
-    ]);
-    
-    const monthSales = toNum(monthSalesAgg._sum.grandTotal) + monthPos;
-    const lastMonthSales = toNum(lastMonthSalesAgg._sum.grandTotal) + lastMonthPos;
-    const monthSalesChange = lastMonthSales > 0 
-      ? ((monthSales - lastMonthSales) / lastMonthSales) * 100 
-      : 0;
-    
-    // This Year's data
-    const yearStart = new Date(now);
-    yearStart.setMonth(0, 1);
-    yearStart.setHours(0, 0, 0, 0);
-    const lastYearStart = new Date(yearStart);
-    lastYearStart.setFullYear(lastYearStart.getFullYear() - 1);
-    
-    const [yearSalesAgg, lastYearSalesAgg, yearPos, lastYearPos] = await Promise.all([
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { gte: yearStart },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      prisma.order.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: { 
-            gte: lastYearStart,
-            lt: yearStart
-          },
-          ...withLocation(locationId),
-        },
-        _sum: { grandTotal: true }
-      }),
-      sumPosRevenue(companyId, { gte: yearStart }, locationId),
-      sumPosRevenue(companyId, { gte: lastYearStart, lt: yearStart }, locationId),
-    ]);
-    
-    const yearSales = toNum(yearSalesAgg._sum.grandTotal) + yearPos;
-    const lastYearSales = toNum(lastYearSalesAgg._sum.grandTotal) + lastYearPos;
-    const yearSalesChange = lastYearSales > 0 
-      ? ((yearSales - lastYearSales) / lastYearSales) * 100 
-      : 0;
-    
-    // Returns data for each period
-    const [todayReturns, weekReturns, monthReturns, yearReturns] = await Promise.all([
-      prisma.return.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          returnDate: { gte: todayStart },
-          ...viaOrderLocation(locationId),
-        },
-        _sum: { refundAmount: true }
-      }),
-      prisma.return.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          returnDate: { gte: weekStart },
-          ...viaOrderLocation(locationId),
-        },
-        _sum: { refundAmount: true }
-      }),
-      prisma.return.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          returnDate: { gte: monthStart },
-          ...viaOrderLocation(locationId),
-        },
-        _sum: { refundAmount: true }
-      }),
-      prisma.return.aggregate({
-        where: {
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false,
-          returnDate: { gte: yearStart },
-          ...viaOrderLocation(locationId),
-        },
-        _sum: { refundAmount: true }
-      })
-    ]);
-    
-    const comparison = {
-      today: {
-        currentSales: todaySales,
-        priorSales: yesterdaySales,
-        currentReturns: todayReturns._sum.refundAmount || 0,
-        priorReturns: 0,
-        salesChangePercent: todaySalesChange,
-        returnsChangePercent: 0
-      },
-      week: {
-        currentSales: weekSales,
-        priorSales: lastWeekSales,
-        currentReturns: weekReturns._sum.refundAmount || 0,
-        priorReturns: 0,
-        salesChangePercent: weekSalesChange,
-        returnsChangePercent: 0
-      },
-      month: {
-        currentSales: monthSales,
-        priorSales: lastMonthSales,
-        currentReturns: monthReturns._sum.refundAmount || 0,
-        priorReturns: 0,
-        salesChangePercent: monthSalesChange,
-        returnsChangePercent: 0
-      },
-      year: {
-        currentSales: yearSales,
-        priorSales: lastYearSales,
-        currentReturns: yearReturns._sum.refundAmount || 0,
-        priorReturns: 0,
-        salesChangePercent: yearSalesChange,
-        returnsChangePercent: 0
-      }
-    };
-
-    // ─── RECENT ACTIVITY (POS sales) ──────────────────────────
-    const recentActivity = await getRecentPosActivity(companyId, 10, locationId);
-
     // ─── REVENUE BREAKDOWN (orders + POS + invoices) ──────────
     const invoiceRev = toNum(invoiceStats.grandTotal || invoiceStats.revenue);
     const channelTotal = orderRev + posRev + invoiceRev;
@@ -1014,9 +934,7 @@ const getSalesDashboard = async (req, res) => {
       ].filter((i) => i.amount > 0)
     };
 
-    res.status(200).json({
-      success: true,
-      data: {
+    const dashboardData = {
         summary,
         orders: {
           count: orderCount,
@@ -1058,7 +976,11 @@ const getSalesDashboard = async (req, res) => {
         topProducts,
         topCustomers: customerStats.topCustomers,
         revenueBreakdown
-      }
+    };
+
+    res.status(200).json({
+      success: true,
+      data: dashboardData
     });
   } catch (error) {
     console.error('Sales dashboard error:', error);

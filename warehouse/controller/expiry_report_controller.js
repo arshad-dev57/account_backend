@@ -1,7 +1,7 @@
 // controllers/warehouse/expiryReportController.js
 const prisma = require('../../prisma/client');
 const emailService = require('../../services/emailService');
-const { sendToUser } = require('../../services/onesignal');
+const { sendToUser } = require('../../services/notificationService');
 
 const getExpiryReport = async (req, res) => {
   try {

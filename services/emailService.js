@@ -1,6 +1,6 @@
 // services/emailService.js
 const nodemailer = require('nodemailer');
-const { getEmailFrom, getSmtpAuth } = require('../utils/emailConfig');
+const { getEmailFrom, getSmtpAuth, buildSmtpTransportOptions } = require('../utils/emailConfig');
 
 class EmailService {
   constructor() {
@@ -11,15 +11,7 @@ class EmailService {
   initializeTransporter() {
     const smtp = getSmtpAuth();
     if (smtp.user && smtp.pass) {
-      this.transporter = nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.secure,
-        auth: {
-          user: smtp.user,
-          pass: smtp.pass
-        }
-      });
+      this.transporter = nodemailer.createTransport(buildSmtpTransportOptions());
 
       const from = getEmailFrom();
       this.transporter.verify((error) => {

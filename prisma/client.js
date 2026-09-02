@@ -33,11 +33,21 @@ function companyModelHasPosModeConfigured(client) {
   }
 }
 
+function restaurantLineHasKitchenStation(client) {
+  try {
+    const fields = client?.restaurantOrderLine?.fields;
+    return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, 'kitchenStationId'));
+  } catch {
+    return false;
+  }
+}
+
 function clientSchemaIsCurrent(client) {
   return (
     userModelHasAssignedTerminal(client) &&
     companyModelHasPosMode(client) &&
-    companyModelHasPosModeConfigured(client)
+    companyModelHasPosModeConfigured(client) &&
+    restaurantLineHasKitchenStation(client)
   );
 }
 

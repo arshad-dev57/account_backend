@@ -8,6 +8,17 @@
  * OR EMAIL_FROM must equal EMAIL_USER.
  */
 
+const dns = require('dns');
+
+/** Railway/cloud hosts often lack IPv6 — Gmail resolves to IPv6 first and fails with ENETUNREACH. */
+function ipv4Lookup(hostname, options, callback) {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+  dns.lookup(hostname, { ...options, family: 4 }, callback);
+}
+
 function getEmailFrom() {
   const address = (
     process.env.EMAIL_FROM ||
@@ -42,4 +53,23 @@ function getSmtpAuth() {
   };
 }
 
-module.exports = { getEmailFrom, getSmtpAuth };
+/** Shared nodemailer transport options (IPv4-only for cloud deploys). */
+function buildSmtpTransportOptions(overrides = {}) {
+  const smtp = getSmtpAuth();
+  return {
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    auth: {
+      user: smtp.user,
+      pass: smtp.pass
+    },
+    lookup: ipv4Lookup,
+    connectionTimeout: 30_000,
+    greetingTimeout: 30_000,
+    socketTimeout: 60_000,
+    ...overrides
+  };
+}
+
+module.exports = { getEmailFrom, getSmtpAuth, buildSmtpTransportOptions };

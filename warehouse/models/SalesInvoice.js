@@ -73,7 +73,7 @@ async function findOrCreateCustomer(tx, order, userId, createdBy, companyId) {
   let email = order.customerEmail;
   if (email) {
     const existingEmail = await tx.customer.findFirst({
-      where: { email, isActive: true, isDeleted: false }
+      where: { email, companyId, isActive: true, isDeleted: false }
     });
     if (existingEmail) email = null;
   }
@@ -81,7 +81,7 @@ async function findOrCreateCustomer(tx, order, userId, createdBy, companyId) {
   let phone = order.customerPhone;
   if (phone) {
     const existingPhone = await tx.customer.findFirst({
-      where: { phone, isActive: true, isDeleted: false }
+      where: { phone, companyId, isActive: true, isDeleted: false }
     });
     if (existingPhone) phone = null;
   }

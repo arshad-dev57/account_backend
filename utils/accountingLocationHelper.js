@@ -80,8 +80,10 @@ function journalEntryLocationWhere(locationId) {
   const ids = constraintIds(locationId);
   if (ids == null) return {};
   if (!ids.length) return none();
+
   return {
     OR: [
+      { locationId: { in: ids } },
       {
         salesInvoice: {
           OR: [

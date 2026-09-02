@@ -52,11 +52,16 @@ router.post  ('/restaurant/orders',              protect, restaurantCtrl.createO
 router.get   ('/restaurant/orders',              protect, restaurantCtrl.listOrders);
 router.get   ('/restaurant/orders/kitchen',      protect, restaurantCtrl.getKitchenQueue);
 router.get   ('/restaurant/orders/ready',       protect, restaurantCtrl.getReadyQueue);
+router.get   ('/restaurant/orders/mine',        protect, restaurantCtrl.listMyOrders);
 router.get   ('/restaurant/orders/:id',         protect, restaurantCtrl.getOrder);
 router.post  ('/restaurant/orders/:id/preparing', protect, restaurantCtrl.markPreparing);
 router.post  ('/restaurant/orders/:id/ready',   protect, restaurantCtrl.markReady);
+router.post  ('/restaurant/orders/:id/served',  protect, restaurantCtrl.markServed);
 router.post  ('/restaurant/orders/:id/paid',     protect, restaurantCtrl.markPaid);
 router.post  ('/restaurant/orders/:id/cancel',  protect, restaurantCtrl.cancelOrder);
+router.post  ('/restaurant/orders/:id/lines/:lineId/ready', protect, restaurantCtrl.markLineReady);
+router.get   ('/restaurant/kitchen-stations',  protect, restaurantCtrl.listKitchenStations);
+router.post  ('/restaurant/kitchen-stations',  protect, restaurantCtrl.createKitchenStation);
 
 // ─── Products (POS-optimized search with barcode) ─────────────────────────────
 router.get('/products/search', protect, saleCtrl.searchProducts);

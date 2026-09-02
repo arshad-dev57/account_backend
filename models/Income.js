@@ -167,6 +167,12 @@ class IncomeModel {
       };
     }
 
+    if (data.locationId) {
+      createData.location = {
+        connect: { id: data.locationId }
+      };
+    }
+
     // ─── Add customer relation if customerId exists ────────────
     if (data.customerId) {
       createData.customer = {

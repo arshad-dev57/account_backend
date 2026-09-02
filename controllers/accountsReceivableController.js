@@ -255,6 +255,27 @@ const createCustomer = async (req, res) => {
     const companyId = req.user.companyId;
     console.log('👤 [AR] User ID:', userId);
 
+    const normalizedEmail = email && typeof email === 'string'
+      ? email.trim().toLowerCase() || null
+      : null;
+
+    if (normalizedEmail) {
+      const existing = await prisma.customer.findFirst({
+        where: {
+          email: { equals: normalizedEmail, mode: 'insensitive' },
+          companyId,
+          isActive: true,
+          isDeleted: false,
+        },
+      });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'A customer with this email already exists in your company',
+        });
+      }
+    }
+
     let finalCustomerNumber = customerNumber;
     if (!finalCustomerNumber) {
       const count = await prisma.customer.count({
@@ -268,7 +289,7 @@ const createCustomer = async (req, res) => {
       data: {
         customerNumber: finalCustomerNumber,
         name,
-        email,
+        email: normalizedEmail,
         phone,
         company,
         customerType: customerType || 'Individual',
@@ -279,7 +300,8 @@ const createCustomer = async (req, res) => {
         notes,
         status: 'Active',
         isActive: true,
-        createdBy: userId
+        createdBy: userId,
+        companyId,
       },
       include: {
         creator: {

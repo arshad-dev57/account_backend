@@ -187,25 +187,19 @@ class EmailSenderService {
    * @returns {Promise<object>}
    */
   async sendRawEmail(to, subject, html, text = null, attachments = null) {
-    const nodemailer = require('nodemailer');
-    
+    const { getTransporter } = require('../utils/emailTransporter');
+    const { getEmailFrom } = require('../utils/emailConfig');
+
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
       console.error('Email credentials not configured');
       throw new Error('Email service not configured properly');
     }
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.EMAIL_PORT) || 587,
-      secure: process.env.EMAIL_SECURE === 'true' || false,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
-    });
+    const transporter = getTransporter();
+    const from = getEmailFrom();
 
     const mailOptions = {
-      from: `"${process.env.COMPANY_NAME || 'WarehousePro'}" <${process.env.EMAIL_USER}>`,
+      from: from.fromHeader || `"${process.env.COMPANY_NAME || 'WarehousePro'}" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,

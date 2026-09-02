@@ -90,6 +90,7 @@ model Company {
   posSales           POSSale[]
   posReturns         POSReturn[]
   restaurantOrders   RestaurantOrder[]
+  kitchenStations    KitchenStation[]
   posAuditLogs       POSAuditLog[]
   pdfReportSettings  PdfReportSetting[]
   supportTickets     SupportTicket[]
@@ -135,6 +136,9 @@ model Location {
   purchaseInvoices PurchaseInvoice[]
   quotations       Quotation[]
   userLocations    UserLocation[]
+  expenses         Expense[]
+  incomes          Income[]
+  journalEntries   JournalEntry[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -597,7 +601,7 @@ model Customer {
   customerNumber String @unique @map("customer_number")
 
   name         String
-  email        String? @unique
+  email        String?
   phone        String?
   companyName  String? @map("company_name")
   customerType String  @default("Individual") @map("customer_type")
@@ -651,6 +655,7 @@ model Customer {
   salesPayments      SalesPaymentReceived[]
   transactions       Transaction[]          @relation("CustomerTransactions")
 
+  @@unique([email, companyId])
   @@index([customerNumber])
   @@index([email])
   @@index([phone])
@@ -1957,12 +1962,14 @@ model JournalEntry {
 
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
+  locationId   String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations - FIXED
   lines             JournalLine[]
+  location          Location?             @relation(fields: [locationId], references: [id])
   creator           User?                 @relation("JournalEntryCreator", fields: [createdBy], references: [id])
   poster            User?                 @relation("JournalEntryPoster", fields: [postedBy], references: [id])
   company           Company?              @relation("JournalEntryCompany", fields: [companyId], references: [id])
@@ -1985,6 +1992,7 @@ model JournalEntry {
   @@index([createdBy])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([locationId])
   @@map("journal_entries")
 }
 
@@ -2086,6 +2094,7 @@ model Income {
 
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
+  locationId   String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2098,6 +2107,7 @@ model Income {
   poster        User?           @relation("IncomePoster", fields: [postedBy], references: [id])
   company       Company?        @relation("IncomeCompany", fields: [companyId], references: [id])
   fiscalYear    FiscalYear?     @relation("IncomeFiscalYear", fields: [fiscalYearId], references: [id])
+  location      Location?       @relation(fields: [locationId], references: [id])
 
   @@index([incomeNumber])
   @@index([incomeType])
@@ -2109,6 +2119,7 @@ model Income {
   @@index([paymentMethod])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([locationId])
   @@map("incomes")
 }
 
@@ -2150,6 +2161,7 @@ model Expense {
 
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
+  locationId   String? @map("location_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2162,6 +2174,7 @@ model Expense {
   poster         User?           @relation("ExpensePoster", fields: [postedBy], references: [id])
   company        Company?        @relation("ExpenseCompany", fields: [companyId], references: [id])
   fiscalYear     FiscalYear?     @relation("ExpenseFiscalYear", fields: [fiscalYearId], references: [id])
+  location       Location?       @relation(fields: [locationId], references: [id])
 
   @@index([expenseNumber])
   @@index([expenseType])
@@ -2173,6 +2186,7 @@ model Expense {
   @@index([paymentMethod])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([locationId])
   @@map("expenses")
 }
 
@@ -3523,51 +3537,84 @@ model POSSalePayment {
 // ============================================================
 
 model RestaurantOrder {
-  id             String    @id @default(uuid())
-  companyId      String    @map("company_id")
-  locationId     String?   @map("location_id")
-  shiftId        String?   @map("shift_id")
-  terminalId     String?   @map("terminal_id")
-  tableLabel     String?   @map("table_label")
-  orderType      String    @default("dine_in") @map("order_type") // dine_in | takeaway
-  status         String    @default("SENT") // SENT | PREPARING | READY | PAID | CANCELLED
-  waiterUserId   String?   @map("waiter_user_id")
-  notes          String?
-  subtotal       Float     @default(0)
-  taxTotal       Float     @default(0) @map("tax_total")
-  grandTotal     Float     @default(0) @map("grand_total")
-  posSaleId      String?   @map("pos_sale_id")
-  ticketNumber   Int?      @map("ticket_number")
-  sentAt         DateTime  @default(now()) @map("sent_at")
-  readyAt        DateTime? @map("ready_at")
-  paidAt         DateTime? @map("paid_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  companyId       String    @map("company_id")
+  locationId      String?   @map("location_id")
+  shiftId         String?   @map("shift_id")
+  terminalId      String?   @map("terminal_id")
+  tableLabel      String?   @map("table_label")
+  orderType       String    @default("dine_in") @map("order_type") // dine_in | takeaway | delivery
+  status          String    @default("SENT") // SENT | PREPARING | READY | PAID | CANCELLED
+  priority        String    @default("normal") // normal | urgent | vip | high
+  waiterUserId    String?   @map("waiter_user_id")
+  notes           String?
+  subtotal        Float     @default(0)
+  taxTotal        Float     @default(0) @map("tax_total")
+  grandTotal      Float     @default(0) @map("grand_total")
+  posSaleId       String?   @map("pos_sale_id")
+  ticketNumber    Int?      @map("ticket_number")
+  clientRequestId String?   @map("client_request_id")
+  version         Int       @default(1)
+  sentAt          DateTime  @default(now()) @map("sent_at")
+  preparingAt     DateTime? @map("preparing_at")
+  readyAt         DateTime? @map("ready_at")
+  servedAt        DateTime? @map("served_at")
+  paidAt          DateTime? @map("paid_at")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  company  Company               @relation(fields: [companyId], references: [id])
-  waiter   User?                 @relation("RestaurantOrderWaiter", fields: [waiterUserId], references: [id])
-  lines    RestaurantOrderLine[]
+  company Company               @relation(fields: [companyId], references: [id])
+  waiter  User?                 @relation("RestaurantOrderWaiter", fields: [waiterUserId], references: [id])
+  lines   RestaurantOrderLine[]
 
+  @@unique([companyId, ticketNumber])
+  @@unique([companyId, clientRequestId])
   @@index([companyId, status])
   @@index([companyId, createdAt])
+  @@index([companyId, updatedAt])
   @@map("restaurant_orders")
 }
 
 model RestaurantOrderLine {
-  id          String  @id @default(uuid())
-  orderId     String  @map("order_id")
-  productId   String? @map("product_id")
-  productName String  @map("product_name")
-  sku         String  @default("")
-  quantity    Float
-  unitPrice   Float   @map("unit_price")
-  lineTotal   Float   @map("line_total")
-  notes       String?
+  id               String    @id @default(uuid())
+  orderId          String    @map("order_id")
+  productId        String?   @map("product_id")
+  productName      String    @map("product_name")
+  sku              String    @default("")
+  quantity         Float
+  unitPrice        Float     @map("unit_price")
+  lineTotal        Float     @map("line_total")
+  notes            String?
+  kitchenStationId String?   @map("kitchen_station_id")
+  lineStatus       String    @default("PENDING") @map("line_status") // PENDING | PREPARING | READY
+  preparingAt      DateTime? @map("preparing_at")
+  readyAt          DateTime? @map("ready_at")
 
-  order RestaurantOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order          RestaurantOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kitchenStation KitchenStation? @relation(fields: [kitchenStationId], references: [id])
 
   @@index([orderId])
+  @@index([kitchenStationId])
   @@map("restaurant_order_lines")
+}
+
+model KitchenStation {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  name      String
+  code      String
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company               @relation(fields: [companyId], references: [id])
+  lines   RestaurantOrderLine[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("kitchen_stations")
 }
 
 model POSReturn {

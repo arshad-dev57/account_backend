@@ -2,6 +2,12 @@
 
 const prisma = require('../../prisma/client');
 
+function normalizeEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const trimmed = email.trim().toLowerCase();
+  return trimmed || null;
+}
+
 /**
  * customer_number is globally unique (not per-company).
  * Compute next CUST-##### from the true max across all customers.
@@ -170,16 +176,23 @@ const createCustomer = async (req, res) => {
 
     if (!name) return res.status(400).json({ success: false, message: 'Customer name is required' });
 
-    if (email) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (normalizedEmail) {
       const existing = await prisma.customer.findFirst({
         where: { 
-          email, 
+          email: { equals: normalizedEmail, mode: 'insensitive' },
           companyId, 
           isActive: true, 
           isDeleted: false 
         }
       });
-      if (existing) return res.status(409).json({ success: false, message: 'Customer with this email already exists' });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'A customer with this email already exists in your company'
+        });
+      }
     }
 
     if (phone) {
@@ -204,7 +217,7 @@ const createCustomer = async (req, res) => {
           data: {
             customerNumber,
             name,
-            email,
+            email: normalizedEmail,
             phone,
             companyName: company || null,
             customerType: customerType || 'Individual',
@@ -244,7 +257,14 @@ const createCustomer = async (req, res) => {
     console.error('Create customer error:', error);
     if (error.code === 'P2002') {
       const target = error.meta?.target;
-      const field = Array.isArray(target) ? target.join(', ') : String(target || 'field');
+      const fields = Array.isArray(target) ? target : [String(target || '')];
+      if (fields.some((f) => String(f).includes('email'))) {
+        return res.status(409).json({
+          success: false,
+          message: 'A customer with this email already exists in your company'
+        });
+      }
+      const field = fields.join(', ');
       return res.status(409).json({
         success: false,
         message: `A customer with this ${field} already exists`
@@ -278,16 +298,22 @@ const updateCustomer = async (req, res) => {
     } = req.body;
 
     if (email && email !== customer.email) {
+      const normalizedEmail = normalizeEmail(email);
       const existing = await prisma.customer.findFirst({
         where: { 
-          email, 
+          email: { equals: normalizedEmail, mode: 'insensitive' },
           companyId, 
           id: { not: id },
           isActive: true, 
           isDeleted: false 
         }
       });
-      if (existing) return res.status(409).json({ success: false, message: 'Email already exists' });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'A customer with this email already exists in your company'
+        });
+      }
     }
 
     if (phone && phone !== customer.phone) {
@@ -310,7 +336,7 @@ const updateCustomer = async (req, res) => {
       where: { id },
       data: {
         name: name || customer.name,
-        email: email || customer.email,
+        email: email !== undefined ? normalizeEmail(email) : customer.email,
         phone: phone || customer.phone,
         companyName: company !== undefined ? company : customer.companyName,
         customerType: customerType || customer.customerType,

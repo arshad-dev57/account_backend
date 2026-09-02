@@ -8,7 +8,8 @@ const {
   purchaseInvoiceLocationWhere,
   creditNoteLocationWhere,
   journalEntryLocationWhere,
-  posSaleLocationWhere
+  posSaleLocationWhere,
+  withLocation
 } = require('../utils/accountingLocationHelper');
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
@@ -208,13 +209,23 @@ function expenseAmt(d) {
 }
 
 /** Same company scope as expenseController (incl. legacy null companyId rows). */
-function expenseWhere(companyId, userId, extra = {}) {
+function expenseWhere(companyId, userId, extra = {}, locationId = null) {
+  const locFilter = withLocation(locationId);
   return {
     OR: [
-      { companyId },
-      { companyId: null, createdBy: userId },
+      { companyId, ...locFilter },
+      { companyId: null, createdBy: userId, ...locFilter },
     ],
     status: 'Posted',
+    ...extra
+  };
+}
+
+function incomeWhere(companyId, extra = {}, locationId = null) {
+  return {
+    companyId,
+    status: 'Posted',
+    ...withLocation(locationId),
     ...extra
   };
 }
@@ -273,7 +284,8 @@ function mergeSalesInvoiceRows(warehouseRows = [], moduleRows = []) {
 /**
  * Accounting dashboard aggregates across modules:
  *
- *   Sales (KPI)    ← Sales invoices paidAmount (selected period)
+ *   Sales (KPI)    ← Sales invoices grandTotal / invoiced (accrual, selected period)
+ *   Collections    ← Sales invoices paidAmount (cash collected on invoices)
  *   Revenue        ← Sales paid + Other income − Credit notes
  *   Purchases      ← Purchases module (PurchaseInvoice)
  *   Other income   ← Accounting Income screen
@@ -302,20 +314,18 @@ function computePeriodTotals(
   const curPurch = purchaseInvoices.filter((d) => inRange(d.date, start, end));
 
   const otherIncome = sumDocs(curInc, incomeAmt);
-  // Invoiced total kept for breakdown only (includes unpaid)
   const salesInvoiced = sumDocs(curSales, invoiceAmt);
-  // Cash/collected sales — excludes unpaid portion
   const salesPaid = curSales.reduce((s, d) => s + toNum(d.paidAmount), 0);
   const creditNotesTotal = sumDocs(curCN, creditAmt);
   const operatingExpenses = sumDocs(curExp, expenseAmt);
   const purchases = sumDocs(curPurch, invoiceAmt);
 
-  const salesRevenue = salesPaid;
-  const revenue = salesPaid + otherIncome - creditNotesTotal;
+  const salesRevenue = salesInvoiced;
+  const revenue = salesInvoiced + otherIncome - creditNotesTotal;
   const totalCosts = operatingExpenses;
   const netProfit = revenue - operatingExpenses;
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
-  const grossProfit = salesPaid - purchases;
+  const grossProfit = salesInvoiced - purchases;
 
   return {
     otherIncome,
@@ -422,7 +432,13 @@ function chartBuckets(startDate, endDate) {
   return { useDaily, buckets };
 }
 
-async function buildLedgerChartSeries(companyId, startDate, endDate, locationId = null) {
+async function buildLedgerChartSeries(
+  companyId,
+  startDate,
+  endDate,
+  locationId = null,
+  prefetchedEntries = null
+) {
   const windowStart = startOfDay(startDate);
   const windowEnd = endOfDay(endDate);
   const { useDaily, buckets } = chartBuckets(startDate, endDate);
@@ -435,19 +451,21 @@ async function buildLedgerChartSeries(companyId, startDate, endDate, locationId 
       ? d.toLocaleString('default', { month: 'short', day: 'numeric' })
       : d.toLocaleString('default', { month: 'short', year: 'numeric' });
 
-  const entries = await prisma.journalEntry.findMany({
-    where: {
-      companyId,
-      status: 'Posted',
-      date: { gte: windowStart, lte: windowEnd },
-      ...journalEntryLocationWhere(locationId)
-    },
-    include: {
-      lines: {
-        include: { account: { select: { type: true } } }
-      }
-    }
-  });
+  const entries =
+    prefetchedEntries ||
+    (await prisma.journalEntry.findMany({
+      where: {
+        companyId,
+        status: 'Posted',
+        date: { gte: windowStart, lte: windowEnd },
+        ...journalEntryLocationWhere(locationId),
+      },
+      include: {
+        lines: {
+          include: { account: { select: { type: true } } },
+        },
+      },
+    }));
 
   const revMap = {};
   const expMap = {};
@@ -532,7 +550,8 @@ function buildChartSeries({
   const periodPurch = mappedPurchases.filter((d) => inRange(d.date, startDate, endDate));
 
   const incMap = groupFn(periodIncomes, incomeAmt);
-  const paidMap = groupFn(periodSales, (d) => toNum(d.paidAmount));
+  const invoicedMap = groupFn(periodSales, (d) => toNum(d.totalAmount));
+  const collectedMap = groupFn(periodSales, (d) => toNum(d.paidAmount));
   const cnMap = groupFn(periodCN, creditAmt);
   const expMap = groupFn(periodExp, expenseAmt);
   const purchMap = groupFn(periodPurch, invoiceAmt);
@@ -541,20 +560,19 @@ function buildChartSeries({
     useDaily,
     chartData: buckets.map((d) => {
       const key = bucketKey(d);
-      // Revenue trend = paid sales + income − credit notes (excludes unpaid)
-      const revenue =
-        (incMap[key] || 0) + (paidMap[key] || 0) - (cnMap[key] || 0);
+      const invoiced = invoicedMap[key] || 0;
+      const collected = collectedMap[key] || 0;
       const expensesTotal = expMap[key] || 0;
       const purchases = purchMap[key] || 0;
       return {
         month: bucketLabel(d),
         date: d.toISOString(),
-        revenue,
-        sales: paidMap[key] || 0,
+        revenue: (incMap[key] || 0) + invoiced - (cnMap[key] || 0),
+        sales: invoiced,
+        collected,
         expenses: expensesTotal,
         purchases,
-        // Purchases already included in expenses — do not subtract again
-        profit: revenue - expensesTotal
+        profit: (incMap[key] || 0) + invoiced - (cnMap[key] || 0) - expensesTotal
       };
     })
   };
@@ -935,25 +953,21 @@ async function buildDashboardOverview({
     equityAccounts,
     equityModuleAccounts,
   ] = await Promise.all([
-    scopedLocation
-      ? emptyList
-      : prisma.income.findMany({
-          where: {
-            companyId,
-            date: { gte: fetchFrom, lte: fetchTo },
-            status: 'Posted'
-          },
-          select: {
-            id: true,
-            date: true,
-            amount: true,
-            totalAmount: true,
-            description: true,
-            incomeType: true,
-            incomeNumber: true,
-            reference: true
-          }
-        }),
+    prisma.income.findMany({
+      where: incomeWhere(companyId, {
+        date: { gte: fetchFrom, lte: fetchTo }
+      }, loc),
+      select: {
+        id: true,
+        date: true,
+        amount: true,
+        totalAmount: true,
+        description: true,
+        incomeType: true,
+        incomeNumber: true,
+        reference: true
+      }
+    }),
     prisma.warehouseInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
@@ -997,23 +1011,21 @@ async function buildDashboardOverview({
       },
       select: { date: true, amount: true }
     }),
-    scopedLocation
-      ? emptyList
-      : prisma.expense.findMany({
-          where: expenseWhere(companyId, userId, {
-            date: { gte: fetchFrom, lte: fetchTo }
-          }),
-          select: {
-            id: true,
-            date: true,
-            amount: true,
-            totalAmount: true,
-            expenseType: true,
-            description: true,
-            expenseNumber: true,
-            reference: true
-          }
-        }),
+    prisma.expense.findMany({
+      where: expenseWhere(companyId, userId, {
+        date: { gte: fetchFrom, lte: fetchTo }
+      }, loc),
+      select: {
+        id: true,
+        date: true,
+        amount: true,
+        totalAmount: true,
+        expenseType: true,
+        description: true,
+        expenseNumber: true,
+        reference: true
+      }
+    }),
     prisma.purchaseInvoice.findMany({
       where: purchaseWhere(companyId, userId, {
         invoiceDate: { gte: fetchFrom, lte: fetchTo },
@@ -1101,46 +1113,40 @@ async function buildDashboardOverview({
         invoiceNumber: true
       }
     }),
-    scopedLocation
-      ? emptyList
-      : prisma.income.findMany({
-          where: {
-            companyId,
-            status: 'Posted',
-            date: { gte: startDate, lte: endDate }
-          },
-          orderBy: { date: 'desc' },
-          take: txnLimit,
-          select: {
-            id: true,
-            description: true,
-            incomeType: true,
-            incomeNumber: true,
-            amount: true,
-            totalAmount: true,
-            date: true,
-            reference: true
-          }
-        }),
-    scopedLocation
-      ? emptyList
-      : prisma.expense.findMany({
-          where: expenseWhere(companyId, userId, {
-            date: { gte: startDate, lte: endDate }
-          }),
-          orderBy: { date: 'desc' },
-          take: txnLimit,
-          select: {
-            id: true,
-            description: true,
-            expenseType: true,
-            expenseNumber: true,
-            amount: true,
-            totalAmount: true,
-            date: true,
-            reference: true
-          }
-        }),
+    prisma.income.findMany({
+      where: incomeWhere(companyId, {
+        date: { gte: startDate, lte: endDate }
+      }, loc),
+      orderBy: { date: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        description: true,
+        incomeType: true,
+        incomeNumber: true,
+        amount: true,
+        totalAmount: true,
+        date: true,
+        reference: true
+      }
+    }),
+    prisma.expense.findMany({
+      where: expenseWhere(companyId, userId, {
+        date: { gte: startDate, lte: endDate }
+      }, loc),
+      orderBy: { date: 'desc' },
+      take: txnLimit,
+      select: {
+        id: true,
+        description: true,
+        expenseType: true,
+        expenseNumber: true,
+        amount: true,
+        totalAmount: true,
+        date: true,
+        reference: true
+      }
+    }),
     prisma.warehouseInvoice.findMany({
       where: salesInvoiceWhere(companyId, userId, {
         invoiceDate: { gte: startDate, lte: endDate },
@@ -1231,12 +1237,65 @@ async function buildDashboardOverview({
   );
   const { buildProfitLossFromLedger } = require('../utils/profitLossHelper');
   const equityIds = (equityAccounts || []).map((a) => a.id).filter(Boolean);
-  const [currentPl, ledgerChart, equityLineSums] = await Promise.all([
-    buildProfitLossFromLedger(companyId, startDate, endDate, loc),
-    buildLedgerChartSeries(companyId, startDate, endDate, loc),
-    equityIds.length
-      ? sumEquityJournalLines(companyId, equityIds, endDate, loc)
-      : Promise.resolve([])
+  const windowStart = startOfDay(startDate);
+  const windowEnd = endOfDay(endDate);
+
+  const [plAccounts, journalEntries, cashAccount, posAgg, equityLineSums] =
+    await Promise.all([
+      prisma.chartOfAccount.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          type: { in: ['Revenue', 'Income', 'Expense'] },
+        },
+        orderBy: { code: 'asc' },
+      }),
+      prisma.journalEntry.findMany({
+        where: {
+          companyId,
+          status: 'Posted',
+          date: { gte: windowStart, lte: windowEnd },
+          ...journalEntryLocationWhere(loc),
+        },
+        include: {
+          lines: {
+            include: {
+              account: {
+                select: { type: true, name: true, code: true, parentAccount: true },
+              },
+            },
+          },
+        },
+        orderBy: { date: 'asc' },
+      }),
+      findCashAccount(companyId),
+      prisma.pOSSale.aggregate({
+        where: {
+          companyId,
+          status: 'Completed',
+          createdAt: { gte: startDate, lte: endDate },
+          ...posSaleLocationWhere(loc),
+        },
+        _sum: { grandTotal: true, paidAmount: true },
+        _count: { id: true },
+      }),
+      equityIds.length
+        ? sumEquityJournalLines(companyId, equityIds, endDate, loc)
+        : Promise.resolve([]),
+    ]);
+
+  const [currentPl, ledgerChart] = await Promise.all([
+    buildProfitLossFromLedger(companyId, startDate, endDate, loc, {
+      prefetchedEntries: journalEntries,
+      prefetchedAccounts: plAccounts,
+    }),
+    buildLedgerChartSeries(
+      companyId,
+      startDate,
+      endDate,
+      loc,
+      journalEntries
+    ),
   ]);
   const capitalPosition = buildLiteCapitalPosition(
     equityAccounts,
@@ -1247,21 +1306,15 @@ async function buildDashboardOverview({
   const ledger = plKpis(currentPl);
 
   const salesInPeriod = mappedSales.filter((d) => inRange(d.date, startDate, endDate));
-  const totalSalesPaid = salesInPeriod.reduce((s, d) => s + toNum(d.paidAmount), 0);
+  const totalSalesInvoiced = salesInPeriod.reduce(
+    (s, d) => s + toNum(d.totalAmount),
+    0
+  );
+  const totalSalesCollected = salesInPeriod.reduce(
+    (s, d) => s + toNum(d.paidAmount),
+    0
+  );
   const totalSalesCount = salesInPeriod.length;
-
-  const posAgg = await prisma.pOSSale.aggregate({
-    where: {
-      companyId,
-      status: 'Completed',
-      createdAt: { gte: startDate, lte: endDate },
-      ...posSaleLocationWhere(loc)
-    },
-    _sum: { grandTotal: true, paidAmount: true },
-    _count: { id: true }
-  });
-  const posSalesAmount = toNum(posAgg._sum?.grandTotal);
-  const posSalesCount = posAgg._count?.id || 0;
 
   const expenseScreenTotal = current.operatingExpenses;
   const expenseScreenCount = allExpenses.filter((d) =>
@@ -1291,8 +1344,9 @@ async function buildDashboardOverview({
     (s, acc) => s + toNum(acc.currentBalance),
     0
   );
-  const cashAccount = await findCashAccount(companyId);
   const cashOnlyBalance = toNum(cashAccount?.currentBalance);
+  const posSalesAmount = toNum(posAgg._sum?.grandTotal);
+  const posSalesCount = posAgg._count?.id || 0;
 
   const revenueChange = 0;
   const expenseChange = 0;
@@ -1309,11 +1363,16 @@ async function buildDashboardOverview({
     startDate,
     endDate
   });
-  const chartData = ledgerChart.chartData.map((row, i) => ({
-    ...row,
-    sales: moduleChart[i]?.sales || 0,
-    purchases: moduleChart[i]?.purchases || 0
-  }));
+  const chartData = ledgerChart.chartData.map((row, i) => {
+    const moduleRow = moduleChart[i];
+    return {
+      ...row,
+      profit: toNum(row.revenue) - toNum(row.expenses),
+      salesInvoiced: moduleRow?.sales || 0,
+      salesCollected: moduleRow?.collected || 0,
+      purchases: moduleRow?.purchases || 0,
+    };
+  });
 
   const expenseCategories = buildLedgerExpenseCategories(currentPl);
 
@@ -1350,23 +1409,32 @@ async function buildDashboardOverview({
         isPositive: revenueChange >= 0,
         period: timePeriod,
         sources: {
-          salesModule: current.salesPaid,
           salesInvoiced: current.salesInvoiced,
+          salesCollected: current.salesPaid,
           incomeModule: current.otherIncome,
           creditNotes: current.creditNotesTotal,
           ledgerOperating: toNum(currentPl.revenue?.operating),
           ledgerOther: toNum(currentPl.revenue?.other),
-          formula: 'Posted ledger Revenue/Income (same as P&L)'
+          formula: 'Posted ledger Revenue/Income (accrual — same as P&L)'
         }
       },
       totalSales: {
-        amount: totalSalesPaid,
-        formatted: formatAmount(totalSalesPaid),
+        amount: totalSalesInvoiced,
+        formatted: formatAmount(totalSalesInvoiced),
         change: Math.round(salesChange * 10) / 10,
         isPositive: salesChange >= 0,
         period: timePeriod,
         count: totalSalesCount,
-        source: 'Sales invoices paid amount (selected period)'
+        source: 'Sales invoices invoiced amount (accrual, selected period)'
+      },
+      salesCollections: {
+        amount: totalSalesCollected,
+        formatted: formatAmount(totalSalesCollected),
+        change: 0,
+        isPositive: true,
+        period: timePeriod,
+        count: totalSalesCount,
+        source: 'Cash collected on sales invoices (selected period)'
       },
       posSales: {
         amount: posSalesAmount,
@@ -1397,7 +1465,7 @@ async function buildDashboardOverview({
           operating: toNum(currentPl.operatingExpenses?.total),
           other: toNum(currentPl.otherExpenses?.total),
           cogs: toNum(currentPl.costOfGoodsSold),
-          formula: 'Posted ledger expenses + COGS (includes depreciation)'
+          formula: 'Posted ledger expenses incl. COGS (accrual — same as P&L)'
         }
       },
       netProfit: {
@@ -1479,12 +1547,14 @@ async function buildDashboardOverview({
     capital: capitalPosition,
     breakdown: {
       salesRevenue: current.salesRevenue,
-      salesPaid: totalSalesPaid,
+      salesInvoiced: totalSalesInvoiced,
+      salesCollected: totalSalesCollected,
       otherIncome: current.otherIncome,
       creditNotes: current.creditNotesTotal,
       purchases: current.purchases,
       operatingExpenses: current.operatingExpenses,
       expenseScreenTotal,
+      ledgerExpenses: ledgerExpenseTotal,
       receivables: totalReceivables,
       payables: totalPayables,
       billsPayable,
@@ -1663,6 +1733,7 @@ const getRecentTransactions = async (req, res) => {
     const limitNum = parseInt(limit, 10) || 10;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+    const loc = normalizeLocationId(req.query.locationId);
 
     const [paymentsReceived, incomes, expenses, invoices, bills] = await Promise.all([
       prisma.paymentReceived.findMany({
@@ -1679,7 +1750,7 @@ const getRecentTransactions = async (req, res) => {
         }
       }),
       prisma.income.findMany({
-        where: { companyId, status: 'Posted' },
+        where: incomeWhere(companyId, {}, loc),
         orderBy: { date: 'desc' },
         take: limitNum,
         select: {
@@ -1694,7 +1765,7 @@ const getRecentTransactions = async (req, res) => {
         }
       }),
       prisma.expense.findMany({
-        where: expenseWhere(companyId, userId),
+        where: expenseWhere(companyId, userId, {}, loc),
         orderBy: { date: 'desc' },
         take: limitNum,
         select: {

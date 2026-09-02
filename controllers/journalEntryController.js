@@ -185,6 +185,14 @@ const createJournalEntry = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const postingDate = date ? new Date(date) : new Date();
+    const { pickRequestedLocationId } = require('../utils/locationAccessHelper');
+    const { resolveLocationId } = require('../warehouse/services/locationService');
+    const resolvedLocationId = await resolveLocationId(
+      prisma,
+      companyId,
+      pickRequestedLocationId(req),
+      userId
+    );
 
     console.log('📝 Creating and posting journal entry:', { date, description, reference, lines });
 
@@ -272,6 +280,7 @@ const createJournalEntry = async (req, res) => {
           createdBy: userId,
           companyId: companyId,
           fiscalYearId,
+          locationId: resolvedLocationId,
           lines: {
             create: validatedLines.map(line => ({
               accountId: line.accountId,
@@ -393,7 +402,6 @@ const getJournalEntries = async (req, res) => {
     const companyId = req.user.companyId;
     const {
       journalEntryLocationWhere,
-      normalizeLocationId,
     } = require('../utils/accountingLocationHelper');
 
     const andClauses = [{ companyId }];
@@ -425,8 +433,9 @@ const getJournalEntries = async (req, res) => {
       andClauses.push({ date: { gte: start, lte: end } });
     }
 
-    if (normalizeLocationId(locationId)) {
-      andClauses.push(journalEntryLocationWhere(locationId));
+    const locWhere = journalEntryLocationWhere(locationId);
+    if (Object.keys(locWhere).length > 0) {
+      andClauses.push(locWhere);
     }
 
     const filter = { AND: andClauses };
@@ -669,20 +678,26 @@ const deleteJournalEntry = async (req, res) => {
 
 const getJournalEntryStats = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    
+    const { locationId } = req.query;
+    const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
+
+    const andClauses = [{ companyId }];
+    const locWhere = journalEntryLocationWhere(locationId);
+    if (Object.keys(locWhere).length > 0) {
+      andClauses.push(locWhere);
+    }
+    const baseWhere = { AND: andClauses };
+    const postedWhere = { AND: [...andClauses, { status: 'Posted' }] };
+
     const [total, posted] = await Promise.all([
-      prisma.journalEntry.count({ where: { companyId: companyId } }),
-      prisma.journalEntry.count({ where: { companyId: companyId, status: 'Posted' } })
+      prisma.journalEntry.count({ where: baseWhere }),
+      prisma.journalEntry.count({ where: postedWhere })
     ]);
 
     const financial = await prisma.journalLine.aggregate({
       where: {
-        journal: {
-          companyId: companyId,
-          status: 'Posted'
-        }
+        journal: postedWhere
       },
       _sum: {
         debit: true,
@@ -712,19 +727,28 @@ const getJournalEntryStats = async (req, res) => {
 const getJournalEntriesByAccount = async (req, res) => {
   try {
     const { accountId } = req.params;
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    
-    const entries = await prisma.journalEntry.findMany({
-      where: {
-        companyId: companyId,
-        status: 'Posted',
+    const { locationId } = req.query;
+    const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
+
+    const andClauses = [
+      { companyId },
+      { status: 'Posted' },
+      {
         lines: {
           some: {
             accountId: accountId
           }
         }
-      },
+      }
+    ];
+    const locWhere = journalEntryLocationWhere(locationId);
+    if (Object.keys(locWhere).length > 0) {
+      andClauses.push(locWhere);
+    }
+
+    const entries = await prisma.journalEntry.findMany({
+      where: { AND: andClauses },
       include: {
         lines: {
           include: {
@@ -771,13 +795,26 @@ const postJournalEntry = async (req, res) => {
       });
     }
 
+    const updateData = {
+      status: 'Posted',
+      postedBy: userId,
+      postedAt: new Date()
+    };
+
+    if (!existing.locationId) {
+      const { pickRequestedLocationId } = require('../utils/locationAccessHelper');
+      const { resolveLocationId } = require('../warehouse/services/locationService');
+      updateData.locationId = await resolveLocationId(
+        prisma,
+        companyId,
+        pickRequestedLocationId(req),
+        userId
+      );
+    }
+
     const updated = await prisma.journalEntry.update({
       where: { id },
-      data: {
-        status: 'Posted',
-        postedBy: userId,
-        postedAt: new Date()
-      },
+      data: updateData,
       include: {
         creator: {
           select: { id: true, firstName: true, lastName: true, email: true }

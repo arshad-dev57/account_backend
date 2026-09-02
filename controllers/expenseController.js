@@ -4,6 +4,9 @@ const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const { pickRequestedLocationId } = require('../utils/locationAccessHelper');
+const { withLocation } = require('../utils/accountingLocationHelper');
+const { resolveLocationId } = require('../warehouse/services/locationService');
 const EXPENSE_ACCOUNT_MAPPING = {
   'Rent': { code: '5100', name: 'Rent Expense' },
   'Utilities': { code: '5200', name: 'Utilities Expense' },
@@ -90,6 +93,22 @@ const createExpenseFromPurchasePayment = async ({
     fiscalYearId ||
     (await resolveFiscalYearId(userId, paymentDate).catch(() => null));
 
+  let paymentLocationId = null;
+  const firstInvoicePayment = (payment.invoicePayments || [])[0];
+  if (firstInvoicePayment?.invoice?.locationId) {
+    paymentLocationId = firstInvoicePayment.invoice.locationId;
+  } else if (firstInvoicePayment?.invoice?.purchaseOrder?.locationId) {
+    paymentLocationId = firstInvoicePayment.invoice.purchaseOrder.locationId;
+  } else if (firstInvoicePayment?.invoice?.goodsReceiving?.locationId) {
+    paymentLocationId = firstInvoicePayment.invoice.goodsReceiving.locationId;
+  }
+  const resolvedLocationId = await resolveLocationId(
+    prisma,
+    companyId,
+    paymentLocationId,
+    userId
+  );
+
   const expense = await ExpenseModel.create({
     date: paymentDate,
     expenseType: 'Other',
@@ -107,7 +126,8 @@ const createExpenseFromPurchasePayment = async ({
     postedBy: userId,
     postedAt: new Date(),
     createdBy: userId,
-    companyId
+    companyId,
+    locationId: resolvedLocationId
   });
 
 console.log(
@@ -303,6 +323,7 @@ async function createExpenseJournalEntry(userId, companyId, expense, expenseAcco
       postedBy: userId,
       postedAt: new Date(),
       companyId: companyId,
+      locationId: expense.locationId || null,
       lines: {
         create: [
           {
@@ -382,6 +403,13 @@ const createExpense = async (req, res) => {
     }
 
     console.log("📦 Received expense data:", JSON.stringify(req.body, null, 2));
+
+    const resolvedLocationId = await resolveLocationId(
+      prisma,
+      companyId,
+      pickRequestedLocationId(req),
+      userId
+    );
 
     if (!expenseAccountId) {
       return res.status(400).json({
@@ -518,7 +546,8 @@ const createExpense = async (req, res) => {
       postedBy: userId,
       postedAt: new Date(),
       createdBy: userId,
-      companyId: companyId      // ← was missing: expenses saved with null companyId
+      companyId: companyId,
+      locationId: resolvedLocationId
     });
 
     console.log("✅ Expense created successfully!");
@@ -628,7 +657,8 @@ const getExpenses = async (req, res) => {
       endDate, 
       search,
       page = 1,
-      limit = 20 
+      limit = 20,
+      locationId
     } = req.query;
 
     const userId = req.user.id;
@@ -643,6 +673,11 @@ const getExpenses = async (req, res) => {
     };
 
     const filter = { AND: [companyFilter] };
+
+    const locFilter = withLocation(locationId);
+    if (Object.keys(locFilter).length) {
+      filter.AND.push(locFilter);
+    }
 
     if (expenseType && expenseType !== 'All') {
       filter.AND.push({ expenseType });
@@ -1040,7 +1075,7 @@ const deleteExpense = async (req, res) => {
 
 const getSummary = async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
@@ -1049,7 +1084,8 @@ const getSummary = async (req, res) => {
         { companyId: companyId },
         { companyId: null, createdBy: userId }
       ],
-      status: 'Posted'
+      status: 'Posted',
+      ...withLocation(locationId)
     };
 
     if (startDate && endDate) {
@@ -1107,6 +1143,20 @@ const postExpense = async (req, res) => {
       });
     }
 
+    let expenseForJournal = expense;
+    if (!expense.locationId) {
+      const resolvedLocationId = await resolveLocationId(
+        prisma,
+        companyId,
+        pickRequestedLocationId(req),
+        userId
+      );
+      expenseForJournal = await prisma.expense.update({
+        where: { id },
+        data: { locationId: resolvedLocationId }
+      });
+    }
+
     const expenseAccount = await prisma.chartOfAccount.findFirst({
       where: {
         id: expense.expenseAccountId,
@@ -1146,7 +1196,7 @@ const postExpense = async (req, res) => {
       cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
     }
 
-    await createExpenseJournalEntry(userId, companyId, expense, expenseAccount, cashOrBankAccount);
+    await createExpenseJournalEntry(userId, companyId, expenseForJournal, expenseAccount, cashOrBankAccount);
 
     if (expense.bankAccountId) {
       const bankAccount = await prisma.bankAccount.findFirst({

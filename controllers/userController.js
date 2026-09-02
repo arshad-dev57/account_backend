@@ -4,7 +4,6 @@ const prisma = require('../prisma/client');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
-const { sendToUser } = require('../services/onesignal');
 const { initializeDefaultChartOfAccounts } = require('../services/defaultChartOfAccountsService');
 const { ensureDefaultLocation } = require('../warehouse/services/locationService');
 
@@ -790,23 +789,6 @@ exports.verifyLoginOTP = async (req, res) => {
     console.log('   - Currency Code:', responseUser.businessDetails?.currencyCode || 'Not Set');
     console.log('   - Currency Symbol:', responseUser.businessDetails?.currencySymbol || 'Not Set');
     console.log('═══════════════════════════════════════════════════');
-
-    // 🔔 Send login success notification
-    try {
-      console.log('🔔 [verifyLoginOTP] Sending login success notification...');
-      await sendToUser({
-        mongoUserId: updatedUser._id.toString(),
-        title: 'Login Successful',
-        message: 'Welcome back to BisonsTechs ✅',
-        data: {
-          type: 'auth',
-          screen: 'home'
-        }
-      });
-      console.log('✅ [verifyLoginOTP] Notification sent successfully');
-    } catch (notificationError) {
-      console.error('⚠️ [verifyLoginOTP] Failed to send notification:', notificationError.message);
-    }
 
     res.status(200).json({
       success: true,

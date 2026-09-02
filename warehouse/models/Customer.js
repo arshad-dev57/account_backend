@@ -77,9 +77,15 @@ class CustomerModel {
   // ============================================================
   // FIND CUSTOMER BY EMAIL
   // ============================================================
-  static async findByEmail(email) {
-    return await prisma.customer.findUnique({
-      where: { email }
+  static async findByEmail(email, companyId) {
+    if (!email) return null;
+    return await prisma.customer.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        ...(companyId ? { companyId } : {}),
+        isActive: true,
+        isDeleted: false,
+      }
     });
   }
 

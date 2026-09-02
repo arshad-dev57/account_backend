@@ -1,6 +1,8 @@
 // controllers/notificationController.js
 
 const prisma = require('../prisma/client');
+const notificationHub = require('../services/notificationHub');
+const { sendToUser } = require('../services/notificationService');
 
 
 const createNotification = async (req, res) => {
@@ -14,20 +16,18 @@ const createNotification = async (req, res) => {
       });
     }
 
-    const notification = await prisma.notification.create({
-      data: {
-        userId,
-        title,
-        message,
-        type: type || 'info',
-        category: category || 'System',
-        data: data || {}
-      }
+    const result = await sendToUser({
+      mongoUserId: userId,
+      title,
+      message,
+      type: type || 'info',
+      category: category || 'System',
+      data: data || {},
     });
 
     res.status(201).json({
       success: true,
-      data: notification,
+      data: { id: result.id },
       message: 'Notification created successfully'
     });
   } catch (error) {
@@ -195,11 +195,69 @@ const getUnreadCount = async (req, res) => {
   }
 };
 
+/** GET /api/notifications/stream — Server-Sent Events for live inbox updates */
+const streamNotifications = (req, res) => {
+  const userId = req.user.id;
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  res.write(`data: ${JSON.stringify({ event: 'connected', userId })}\n\n`);
+
+  notificationHub.subscribe(userId, res);
+
+  const ping = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch {
+      clearInterval(ping);
+    }
+  }, 30000);
+
+  req.on('close', () => {
+    clearInterval(ping);
+    notificationHub.unsubscribe(userId, res);
+  });
+};
+
+const sendNotification = async (req, res) => {
+  try {
+    const { userId, title, message, data, type, category } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId is required' });
+    }
+
+    const result = await sendToUser({
+      mongoUserId: userId,
+      title: title || 'Notification',
+      message: message || '',
+      data: data || {},
+      type: type || 'info',
+      category: category || 'System',
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Notification sent successfully',
+    });
+  } catch (error) {
+    console.error('Error sending notification:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createNotification,
   getUserNotifications,
   markAsRead,
   markAllAsRead,
   deleteNotification,
-  getUnreadCount
+  getUnreadCount,
+  streamNotifications,
+  sendNotification,
 };

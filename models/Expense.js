@@ -185,6 +185,12 @@ class ExpenseModel {
       };
     }
 
+    if (data.locationId) {
+      createData.location = {
+        connect: { id: data.locationId }
+      };
+    }
+
     const posterId = data.postedBy || data.createdBy;
     createData.poster = {
       connect: { id: posterId }

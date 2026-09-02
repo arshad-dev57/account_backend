@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-const { getSmtpAuth, getEmailFrom } = require('./emailConfig');
+const { buildSmtpTransportOptions, getEmailFrom } = require('./emailConfig');
 
 let transporter = null;
 
@@ -8,19 +8,13 @@ const getTransporter = () => {
     return transporter;
   }
 
-  const smtp = getSmtpAuth();
-  transporter = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.secure,
-    auth: {
-      user: smtp.user,
-      pass: smtp.pass
-    },
-    pool: true,
-    maxConnections: 5,
-    maxMessages: 100
-  });
+  transporter = nodemailer.createTransport(
+    buildSmtpTransportOptions({
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100
+    })
+  );
 
   return transporter;
 };

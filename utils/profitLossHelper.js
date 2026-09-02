@@ -60,30 +60,42 @@ function isOtherExpenseAccount(account) {
 /**
  * Build P&L from posted JEs on Revenue / Expense accounts.
  * locationId omit/all = company-wide; set = JE location filter.
+ * Pass prefetchedEntries / prefetchedAccounts to avoid duplicate DB reads (dashboard).
  */
-async function buildProfitLossFromLedger(companyId, start, end, locationId = null) {
+async function buildProfitLossFromLedger(
+  companyId,
+  start,
+  end,
+  locationId = null,
+  options = {}
+) {
   const windowStart = startOfDay(start);
   const windowEnd = endOfDay(end);
+  const { prefetchedEntries = null, prefetchedAccounts = null } = options;
 
-  const accounts = await prisma.chartOfAccount.findMany({
-    where: {
-      companyId,
-      isActive: true,
-      type: { in: ['Revenue', 'Income', 'Expense'] },
-    },
-    orderBy: { code: 'asc' },
-  });
+  const accounts =
+    prefetchedAccounts ||
+    (await prisma.chartOfAccount.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        type: { in: ['Revenue', 'Income', 'Expense'] },
+      },
+      orderBy: { code: 'asc' },
+    }));
 
-  const entries = await prisma.journalEntry.findMany({
-    where: {
-      companyId,
-      status: 'Posted',
-      date: { gte: windowStart, lte: windowEnd },
-      ...journalEntryLocationWhere(locationId),
-    },
-    include: { lines: true },
-    orderBy: { date: 'asc' },
-  });
+  const entries =
+    prefetchedEntries ||
+    (await prisma.journalEntry.findMany({
+      where: {
+        companyId,
+        status: 'Posted',
+        date: { gte: windowStart, lte: windowEnd },
+        ...journalEntryLocationWhere(locationId),
+      },
+      include: { lines: true },
+      orderBy: { date: 'asc' },
+    }));
 
   const revenueItems = [];
   const expenseItems = [];

@@ -5,6 +5,9 @@ const prisma = require('../prisma/client');
 const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const { pickRequestedLocationId } = require('../utils/locationAccessHelper');
+const { withLocation } = require('../utils/accountingLocationHelper');
+const { resolveLocationId } = require('../warehouse/services/locationService');
 
 async function getIncomeAccountsForDropdown(userId, companyId) {
   let accounts = await prisma.chartOfAccount.findMany({
@@ -203,6 +206,7 @@ async function createIncomeJournalEntry(userId, companyId, income, cashOrBankAcc
       postedBy: userId,
       postedAt: new Date(),
       companyId: companyId,
+      locationId: income.locationId || null,
       lines: {
         create: [
           {
@@ -276,6 +280,13 @@ exports.createIncome = async (req, res) => {
     }
 
     console.log("📦 Received income data:", JSON.stringify(req.body, null, 2));
+
+    const resolvedLocationId = await resolveLocationId(
+      prisma,
+      companyId,
+      pickRequestedLocationId(req),
+      userId
+    );
 
     if (!incomeAccountId) {
       return res.status(400).json({
@@ -431,7 +442,8 @@ exports.createIncome = async (req, res) => {
       postedBy: userId,
       postedAt: new Date(),
       createdBy: userId,
-      companyId: companyId
+      companyId: companyId,
+      locationId: resolvedLocationId
     });
 
     console.log("✅ Income created successfully!");
@@ -537,11 +549,11 @@ exports.createIncome = async (req, res) => {
 
 exports.getIncomes = async (req, res) => {
   try {
-    const { incomeType, status, startDate, endDate, search, page = 1, limit = 10 } = req.query;
+    const { incomeType, status, startDate, endDate, search, page = 1, limit = 10, locationId } = req.query;
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-    const filter = { companyId: companyId };
+    const filter = { companyId: companyId, ...withLocation(locationId) };
 
     if (incomeType && incomeType !== 'All') {
       filter.incomeType = incomeType;
@@ -926,10 +938,10 @@ exports.deleteIncome = async (req, res) => {
 
 exports.getSummary = async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, locationId } = req.query;
     const companyId = req.user.companyId;
 
-    const baseFilter = { companyId, status: 'Posted' };
+    const baseFilter = { companyId, status: 'Posted', ...withLocation(locationId) };
     if (startDate && endDate) {
       baseFilter.date = { gte: new Date(startDate), lte: new Date(endDate) };
     }
@@ -1004,6 +1016,20 @@ exports.postIncome = async (req, res) => {
       });
     }
 
+    let incomeForJournal = income;
+    if (!income.locationId) {
+      const resolvedLocationId = await resolveLocationId(
+        prisma,
+        companyId,
+        pickRequestedLocationId(req),
+        userId
+      );
+      incomeForJournal = await prisma.income.update({
+        where: { id },
+        data: { locationId: resolvedLocationId }
+      });
+    }
+
     // ─── ✅ Get income account from record ──────────────────────
     const incomeAccount = await prisma.chartOfAccount.findFirst({
       where: {
@@ -1044,7 +1070,7 @@ exports.postIncome = async (req, res) => {
       cashOrBankAccount = await getOrCreateCashAccount(userId, companyId);
     }
 
-    await createIncomeJournalEntry(userId, companyId, income, cashOrBankAccount, incomeAccount);
+    await createIncomeJournalEntry(userId, companyId, incomeForJournal, cashOrBankAccount, incomeAccount);
 
     // ─── Update bank/cash balance (INCREASE) ──────────────────
     if (income.bankAccountId) {
