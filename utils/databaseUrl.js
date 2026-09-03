@@ -107,10 +107,20 @@ function resolveDatabaseUrl() {
   } else if (envDb) {
     try {
       if (looksLikePooler(new URL(envDb))) {
-        const derived = deriveNeonDirectUrl(envDb);
-        if (derived) {
-          chosen = derived;
-          reason = 'derived Neon direct (from pooler host)';
+        // Local/dev: keep the pooler URL — Neon direct (-pooler stripped) is
+        // often unreachable from laptops (P1001). Serverless / explicit flag
+        // can still force direct for interactive transactions.
+        if (forceDirect || isServerlessRuntime()) {
+          const derived = deriveNeonDirectUrl(envDb);
+          if (derived) {
+            chosen = derived;
+            reason = forceDirect
+              ? 'derived Neon direct (PRISMA_USE_DIRECT)'
+              : 'derived Neon direct (serverless)';
+          }
+        } else {
+          chosen = envDb;
+          reason = 'DATABASE_URL pooler (local/dev)';
         }
       }
     } catch {

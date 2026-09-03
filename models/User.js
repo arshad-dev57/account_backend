@@ -241,8 +241,7 @@ class User {
 
     if ((this.subscription.plan === 'monthly' || this.subscription.plan === 'yearly') &&
       this.subscription.status === 'active' &&
-      this.subscription.endDate &&
-      new Date() <= new Date(this.subscription.endDate)) {
+      (!this.subscription.endDate || new Date() <= new Date(this.subscription.endDate))) {
       return true;
     }
 

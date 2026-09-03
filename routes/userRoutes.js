@@ -9,6 +9,8 @@
     passwordverifyOTP,
     refreshToken,
     verifyLoginOTP,
+    resendLoginOTP,
+    deleteMyAccount,
     resetPassword,
     updateCurrency,
     getSessionStatus
@@ -17,6 +19,7 @@
 
   // Public routes mein add karo:
   router.post('/verify-login-otp', verifyLoginOTP);
+  router.post('/resend-login-otp', resendLoginOTP);
   router.post('/refresh-token', refreshToken);
   const { protect, protectOnly } = require('../middleware/authMiddleware');  // ✅ protectOnly import karo
 
@@ -31,6 +34,7 @@
   router.get('/session-status', protectOnly, getSessionStatus);
   // ✅ Change password - sirf authentication chahiye, subscription nahi
   router.post('/change-password', protectOnly, changePassword);
+  router.delete('/me', protectOnly, deleteMyAccount);
 
   // ========== PROTECTED ROUTES (Authentication + Subscription check) ==========
   router.get('/me', protect, getMe);

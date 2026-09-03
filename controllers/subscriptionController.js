@@ -11,7 +11,10 @@ const {
   applyCompanySubscription,
   paidEndDate,
   normalizeToUsd,
+  resolveAndSyncSubscriptionAccess,
+  companyHasActiveSubscription,
 } = require('../utils/companySubscription');
+const { getTrialEligibility, trialIneligibleMessage } = require('../utils/trialEligibility');
 
 // ─── Subscription Plans (USD) ────────────────────────────────────
 const PLANS = [
@@ -336,8 +339,16 @@ const createSubscription = async (req, res) => {
 const startTrial = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
+    const eligibility = await getTrialEligibility(userId, companyId);
+    if (!eligibility.eligible) {
+      return res.status(400).json({
+        success: false,
+        message: trialIneligibleMessage(eligibility.reason),
+      });
+    }
+
     const userData = await prisma.user.findUnique({
       where: { id: userId }
     });
@@ -350,34 +361,6 @@ const startTrial = async (req, res) => {
     }
 
     const user = new User(userData);
-
-    // ─── Check if user already has an active trial ────────────
-    if (user.subscription.plan === 'trial' && user.subscription.status === 'active') {
-      const daysLeft = user.getTrialDaysRemaining();
-      return res.status(400).json({
-        success: false,
-        message: `You already have an active trial with ${daysLeft} day(s) remaining.`
-      });
-    }
-
-    // ─── Block if trial already expired ───────────────────────
-    if (user.subscription.plan === 'trial' && user.subscription.status === 'expired') {
-      return res.status(400).json({
-        success: false,
-        message: 'Your trial has already expired. Please subscribe to a paid plan to continue.'
-      });
-    }
-
-    // ─── Block if on an active paid plan ──────────────────────
-    if (
-      (user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
-      user.subscription.status === 'active'
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'You already have an active subscription. Trial is only for new users.'
-      });
-    }
 
     await user.startTrial();
 
@@ -467,44 +450,54 @@ const checkSubscription = async (req, res) => {
     console.log('EndDate:', user.subscription.endDate);
     console.log('TrialEndDate:', user.subscription.trialEndDate);
 
-    // ─── Auto-expire if dates have passed ─────────────────────
+    const resolved = await resolveAndSyncSubscriptionAccess(userId, companyId);
+    const liveUserData = resolved.user || userData;
+    const liveUser = new User(liveUserData);
+    const company = resolved.company;
+
+    // Auto-expire only when the COMPANY plan has actually ended
     let shouldExpire = false;
-
-    // Check trial expiry
-    if (
-      user.subscription.plan === 'trial' &&
-      user.subscription.trialEndDate &&
-      new Date() > new Date(user.subscription.trialEndDate) &&
-      user.subscription.status === 'active'
-    ) {
-      console.log('Trial expired — marking as expired');
+    if (company && !companyHasActiveSubscription(company) && company.subscriptionStatus === 'active') {
       shouldExpire = true;
+    } else if (!company) {
+      if (
+        liveUser.subscription.plan === 'trial' &&
+        liveUser.subscription.trialEndDate &&
+        new Date() > new Date(liveUser.subscription.trialEndDate) &&
+        liveUser.subscription.status === 'active'
+      ) {
+        shouldExpire = true;
+      }
+      if (
+        (liveUser.subscription.plan === 'monthly' || liveUser.subscription.plan === 'yearly') &&
+        liveUser.subscription.endDate &&
+        new Date() > new Date(liveUser.subscription.endDate) &&
+        liveUser.subscription.status === 'active'
+      ) {
+        shouldExpire = true;
+      }
     }
 
-    // Check paid subscription expiry
-    if (
-      (user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
-      user.subscription.endDate &&
-      new Date() > new Date(user.subscription.endDate) &&
-      user.subscription.status === 'active'
-    ) {
-      console.log('Paid subscription expired — marking as expired');
-      shouldExpire = true;
-    }
-
-    // ─── Apply expiry ──────────────────────────────────────────
     if (shouldExpire) {
-      await user.expireSubscription();
+      await liveUser.expireSubscription();
+      if (companyId) {
+        await applyCompanySubscription(companyId, {
+          subscriptionPlan: company?.subscriptionPlan || liveUser.subscription.plan,
+          subscriptionStatus: 'expired',
+        });
+      }
 
       const updatedUserData = await prisma.user.findUnique({
         where: { id: userId }
       });
       const updatedUser = new User(updatedUserData);
+      const trialEligibility = await getTrialEligibility(userId, companyId);
 
       return res.status(200).json({
         success: true,
         data: {
           hasAccess: false,
+          trialEligible: trialEligibility.eligible,
           subscription: {
             plan: updatedUser.subscription.plan,
             status: updatedUser.subscription.status,
@@ -519,7 +512,7 @@ const checkSubscription = async (req, res) => {
       });
     }
 
-    const hasAccess = user.hasActiveSubscription();
+    const hasAccess = resolved.hasAccess;
     let capacity = null;
     if (companyId) {
       try {
@@ -530,21 +523,25 @@ const checkSubscription = async (req, res) => {
     }
 
     console.log('Final hasAccess:', hasAccess);
-    console.log('Final status:', user.subscription.status);
+    console.log('Final status:', liveUser.subscription.status);
+
+    const trialEligibility = await getTrialEligibility(userId, companyId);
 
     res.status(200).json({
       success: true,
       data: {
         hasAccess,
+        trialEligible: trialEligibility.eligible,
+        productTier: capacity?.productTier || liveUserData.productTier || 'erp_pos',
         subscription: {
-          plan: user.subscription.plan,
-          status: user.subscription.status,
-          trialDaysRemaining: user.getTrialDaysRemaining(),
-          subscriptionDaysRemaining: user.getSubscriptionDaysRemaining(),
-          startDate: user.subscription.startDate,
-          endDate: user.subscription.endDate,
-          trialStartDate: user.subscription.trialStartDate,
-          trialEndDate: user.subscription.trialEndDate,
+          plan: capacity?.subscriptionPlan || liveUser.subscription.plan,
+          status: capacity?.subscriptionStatus || liveUser.subscription.status,
+          trialDaysRemaining: liveUser.getTrialDaysRemaining(),
+          subscriptionDaysRemaining: liveUser.getSubscriptionDaysRemaining(),
+          startDate: liveUser.subscription.startDate,
+          endDate: liveUser.subscription.endDate || capacity?.subscriptionEndDate,
+          trialStartDate: liveUser.subscription.trialStartDate,
+          trialEndDate: liveUser.subscription.trialEndDate || capacity?.trialEndDate,
           productTier: capacity?.productTier || 'erp_pos',
           licensedUsers: capacity?.licensedUsers,
           licensedBranches: capacity?.licensedBranches,
@@ -586,18 +583,19 @@ const validateAccess = async (req, res) => {
       });
     }
 
-    const user = new User(userData);
-    const hasAccess = user.hasActiveSubscription();
+    const resolved = await resolveAndSyncSubscriptionAccess(userId, companyId);
+    const liveUser = new User(resolved.user || userData);
+    const hasAccess = resolved.hasAccess;
 
     res.status(200).json({
       success: true,
       hasAccess,
       data: {
-        plan: user.subscription.plan,
-        status: user.subscription.status,
-        daysRemaining: user.subscription.plan === 'trial'
-          ? user.getTrialDaysRemaining()
-          : user.getSubscriptionDaysRemaining()
+        plan: liveUser.subscription.plan,
+        status: liveUser.subscription.status,
+        daysRemaining: liveUser.subscription.plan === 'trial'
+          ? liveUser.getTrialDaysRemaining()
+          : liveUser.getSubscriptionDaysRemaining()
       }
     });
   } catch (error) {

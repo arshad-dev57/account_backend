@@ -1,4 +1,8 @@
 const prisma = require('../prisma/client');
+const { sendToUsers } = require('../services/notificationService');
+const emailSenderService = require('../services/emailSenderService');
+const emailTemplateService = require('../services/emailTemplateService');
+const { isEmailConfigured } = require('../utils/mailTransport');
 const {
   applyCompanySubscription,
   paidEndDate,
@@ -257,6 +261,230 @@ exports.updateCompanySubscription = async (req, res) => {
     });
   } catch (err) {
     console.error('updateCompanySubscription error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── List platform users (for admin notifications) ────────────────────────────
+exports.listUsers = async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const take = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 200));
+    const where = {};
+    if (q) {
+      where.OR = [
+        { email: { contains: q, mode: 'insensitive' } },
+        { firstName: { contains: q, mode: 'insensitive' } },
+        { lastName: { contains: q, mode: 'insensitive' } },
+        { company: { name: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [users, total, activeTotal] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        take,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          isActive: true,
+          company: { select: { id: true, name: true } },
+        },
+      }),
+      prisma.user.count({ where }),
+      prisma.user.count({ where: { isActive: true } }),
+    ]);
+
+    res.json({
+      success: true,
+      data: users.map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        role: u.role,
+        isActive: u.isActive,
+        companyId: u.company?.id || null,
+        companyName: u.company?.name || '—',
+      })),
+      meta: { total, activeTotal, returned: users.length },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Broadcast notification to selected or all users ──────────────────────────
+exports.sendNotification = async (req, res) => {
+  try {
+    const { title, message, audience, userIds, type } = req.body || {};
+    const heading = String(title || '').trim();
+    const body = String(message || '').trim();
+    if (!heading || !body) {
+      return res.status(400).json({ success: false, message: 'Title and message are required' });
+    }
+
+    const mode = String(audience || 'selected').toLowerCase();
+    let ids = [];
+    if (mode === 'all') {
+      const users = await prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      ids = users.map((u) => u.id);
+    } else {
+      ids = [...new Set((Array.isArray(userIds) ? userIds : []).map((id) => String(id || '').trim()).filter(Boolean))];
+      if (!ids.length) {
+        return res.status(400).json({ success: false, message: 'Select at least one user' });
+      }
+    }
+
+    if (!ids.length) {
+      return res.status(400).json({ success: false, message: 'No users to notify' });
+    }
+
+    const results = await sendToUsers(ids, {
+      title: heading,
+      message: body,
+      type: ['info', 'success', 'warning', 'error'].includes(String(type)) ? type : 'info',
+      category: 'Announcement',
+      data: { source: 'platform_admin' },
+    });
+
+    const failed = results.filter((r) => r && r.error).length;
+    const sent = results.length - failed;
+    const liveDelivered = results.reduce(
+      (sum, r) => sum + (Number(r?.liveClients) || 0),
+      0
+    );
+
+    res.json({
+      success: true,
+      data: {
+        sent,
+        failed,
+        total: results.length,
+        audience: mode,
+        liveDelivered,
+      },
+      message:
+        liveDelivered > 0
+          ? `Saved for ${sent} user${sent === 1 ? '' : 's'} · ${liveDelivered} live device${liveDelivered === 1 ? '' : 's'} notified`
+          : `Saved for ${sent} user${sent === 1 ? '' : 's'} · no app online for live alert (they will see it in Notifications inbox)`,
+    });
+  } catch (err) {
+    console.error('sendPlatformNotification error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+async function resolveAudienceUsers(audience, userIds) {
+  const mode = String(audience || 'selected').toLowerCase();
+  if (mode === 'all') {
+    return prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+  }
+  const ids = [...new Set((Array.isArray(userIds) ? userIds : []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return [];
+  return prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, firstName: true, lastName: true, email: true },
+  });
+}
+
+// ─── Broadcast email to selected or all users ─────────────────────────────────
+exports.sendEmail = async (req, res) => {
+  try {
+    if (!isEmailConfigured()) {
+      return res.status(503).json({
+        success: false,
+        message: 'Email service is not configured on the server',
+      });
+    }
+
+    const { subject, title, message, audience, userIds, actionUrl, actionText } = req.body || {};
+    const heading = String(subject || title || '').trim();
+    const body = String(message || '').trim();
+    if (!heading || !body) {
+      return res.status(400).json({ success: false, message: 'Subject and message are required' });
+    }
+
+    const users = await resolveAudienceUsers(audience, userIds);
+    const recipients = users.filter((u) => isValidEmail(u.email));
+    if (!recipients.length) {
+      return res.status(400).json({
+        success: false,
+        message: String(audience).toLowerCase() === 'all'
+          ? 'No active users with a valid email address'
+          : 'Select at least one user with a valid email',
+      });
+    }
+
+    const safeTitle = escapeHtml(heading);
+    const safeBody = escapeHtml(body).replace(/\n/g, '<br/>');
+    const rawLink = String(actionUrl || '').trim();
+    const link = /^https?:\/\//i.test(rawLink) ? rawLink : '';
+    const button = escapeHtml(String(actionText || 'Open Bisonstechs').trim());
+    const BATCH = 8;
+    let sent = 0;
+    let failed = 0;
+
+    for (let i = 0; i < recipients.length; i += BATCH) {
+      const chunk = recipients.slice(i, i + BATCH);
+      const chunkResults = await Promise.all(
+        chunk.map(async (u) => {
+          const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || 'there';
+          try {
+            const html = emailTemplateService.getNotificationEmailTemplate({
+              title: safeTitle,
+              message: safeBody,
+              recipientName: escapeHtml(name),
+              actionUrl: link || null,
+              actionText: button,
+            });
+            await emailSenderService.sendRawEmail(u.email, heading, html);
+            return { ok: true };
+          } catch (err) {
+            console.error('Platform email failed:', u.email, err.message);
+            return { ok: false };
+          }
+        })
+      );
+      sent += chunkResults.filter((r) => r.ok).length;
+      failed += chunkResults.filter((r) => !r.ok).length;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        sent,
+        failed,
+        skipped: users.length - recipients.length,
+        total: recipients.length,
+        audience: String(audience || 'selected').toLowerCase(),
+      },
+      message: `Email sent to ${sent} user${sent === 1 ? '' : 's'}`,
+    });
+  } catch (err) {
+    console.error('sendPlatformEmail error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };

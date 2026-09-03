@@ -101,7 +101,7 @@ class EmailService {
         : 'Your BisonsTechs password reset code is:',
       String(otp),
       '',
-      'This code expires in 10 minutes.',
+      'This code expires in 1 minute.',
       '',
       securityNotice,
       '',
@@ -161,14 +161,14 @@ class EmailService {
             <p style="font-size:15px;color:#374151;line-height:1.8;margin:0 0 28px 0;">
               Hello <strong style="color:#111827;">${firstName || 'there'}</strong>,<br/>
               Use the code below to complete your <strong style="color:#111827;">BisonsTechs</strong> ${isLoginOTP ? 'login' : 'password reset'}.
-              This code expires in <strong style="color:#ef4444;">10 minutes</strong>.
+              This code expires in <strong style="color:#ef4444;">1 minute</strong>.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#f8faff,#eef2ff);border:1.5px solid #e0e7ff;border-radius:16px;margin-bottom:28px;overflow:hidden;">
               <tr><td style="height:3px;background:linear-gradient(90deg,#1AB4F5,#6366f1,#a855f7,#1AB4F5);"></td></tr>
               <tr><td style="padding:30px 24px 28px;text-align:center;">
                 <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#6366f1;font-weight:700;margin-bottom:20px;">YOUR ONE-TIME PASSWORD</div>
                 <table cellpadding="0" cellspacing="0" style="margin:0 auto 20px;"><tr>${digitBoxes}</tr></table>
-                <div style="display:inline-block;background:#f3f4f6;border-radius:20px;padding:7px 18px;font-size:12px;color:#6b7280;">⏱&nbsp; Expires in 10 minutes</div>
+                <div style="display:inline-block;background:#f3f4f6;border-radius:20px;padding:7px 18px;font-size:12px;color:#6b7280;">⏱&nbsp; Expires in 1 minute</div>
               </td></tr>
             </table>
             <table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:10px;margin-bottom:28px;">

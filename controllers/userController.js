@@ -6,6 +6,13 @@ const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
 const { initializeDefaultChartOfAccounts } = require('../services/defaultChartOfAccountsService');
 const { ensureDefaultLocation } = require('../warehouse/services/locationService');
+const {
+  resolveAndSyncSubscriptionAccess,
+  companyHasActiveSubscription,
+} = require('../utils/companySubscription');
+const { deleteMyAccount: deleteUserAccount } = require('../utils/deleteAccount');
+
+const OTP_TTL_MS = 60 * 1000;
 
 // Lazy require — avoid circular load with pdfReportSettingsController
 function getPdfReportSettingsForUserId(userId) {
@@ -35,6 +42,13 @@ const checkAndExpireSubscription = async (userId) => {
   const userData = await User.findById(userId);
   if (!userData) return;
 
+  const companyId = userData.companyId;
+  if (companyId) {
+    const resolved = await resolveAndSyncSubscriptionAccess(userId, companyId);
+    if (resolved.hasAccess) return;
+    if (resolved.company && companyHasActiveSubscription(resolved.company)) return;
+  }
+
   const user = new User(userData);
   if (user.subscription.status !== 'active') return;
 
@@ -52,7 +66,6 @@ const checkAndExpireSubscription = async (userId) => {
     user.subscription.endDate &&
     now > new Date(user.subscription.endDate)) {
     await user.expireSubscription();
-    return;
   }
 };
 
@@ -490,7 +503,7 @@ exports.login = async (req, res) => {
     console.log('🔑 [login] Generating OTP...');
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.loginOtp = otp;
-    user.loginOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    user.loginOtpExpiry = new Date(Date.now() + OTP_TTL_MS);
     user.requiresLoginOtp = true;
     await user.save();
 
@@ -582,7 +595,7 @@ exports.verifyLoginOTP = async (req, res) => {
       console.log('❌ [verifyLoginOTP] OTP Expired');
       return res.status(400).json({
         success: false,
-        message: 'OTP has expired. Please login again.'
+        message: 'OTP has expired. Please request a new code.'
       });
     }
 
@@ -804,6 +817,127 @@ exports.verifyLoginOTP = async (req, res) => {
       success: false,
       message: 'Server error',
       error: error.message
+    });
+  }
+};
+
+// ==================== RESEND LOGIN OTP ====================
+exports.resendLoginOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email',
+      });
+    }
+
+    const userData = await prisma.user.findUnique({ where: { email } });
+    if (!userData) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email',
+      });
+    }
+
+    const user = new User(userData);
+
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        code: 'USER_INACTIVE',
+        message: 'Your account has been deactivated. Please contact support.',
+      });
+    }
+
+    const companyBlock = await assertCompanyActiveForUser(userData.companyId, email);
+    if (companyBlock) {
+      return res.status(companyBlock.status).json({
+        success: false,
+        code: companyBlock.code,
+        message: companyBlock.message,
+      });
+    }
+
+    if (user.isLocked()) {
+      const remainingMinutes = Math.ceil((new Date(user.lockUntil) - Date.now()) / (1000 * 60));
+      return res.status(403).json({
+        success: false,
+        message: `Account temporarily locked. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`,
+      });
+    }
+
+    if (!user.requiresLoginOtp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please login first to receive an OTP.',
+      });
+    }
+
+    if (user.loginOtpExpiry && new Date(user.loginOtpExpiry) > new Date()) {
+      const remaining = Math.ceil((new Date(user.loginOtpExpiry) - Date.now()) / 1000);
+      return res.status(429).json({
+        success: false,
+        retryAfterSeconds: remaining,
+        message: `Please wait ${remaining} second${remaining === 1 ? '' : 's'} before requesting a new code.`,
+      });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.loginOtp = otp;
+    user.loginOtpExpiry = new Date(Date.now() + OTP_TTL_MS);
+    user.requiresLoginOtp = true;
+    await user.save();
+
+    try {
+      await emailService.sendOTPEmail(email, otp, user.firstName, 'login');
+    } catch (emailError) {
+      console.error('❌ [resendLoginOTP] Failed to send OTP email:', emailError.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP. Please try again.',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      email,
+      message: 'A new OTP has been sent to your email.',
+    });
+  } catch (error) {
+    console.error('❌ [resendLoginOTP] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    });
+  }
+};
+
+// ==================== DELETE MY ACCOUNT ====================
+exports.deleteMyAccount = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    await deleteUserAccount(userId);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Your account has been deleted.',
+    });
+  } catch (error) {
+    const status = error.status || 500;
+    console.error('❌ [deleteMyAccount] Error:', error);
+    return res.status(status).json({
+      success: false,
+      message: status === 404 ? 'User not found' : 'Failed to delete account. Please try again.',
     });
   }
 };
@@ -1041,8 +1175,13 @@ exports.getSessionStatus = async (req, res) => {
       });
     }
 
-    const hasAccess = user.hasActiveSubscription();
-    const subscription = buildSubscriptionPayload(user);
+    const resolved = await resolveAndSyncSubscriptionAccess(
+      String(userId),
+      userData.companyId
+    );
+    const liveUser = resolved.user ? new User(resolved.user) : user;
+    const hasAccess = resolved.hasAccess;
+    const subscription = buildSubscriptionPayload(liveUser);
 
     if (!hasAccess) {
       return res.status(200).json({
@@ -1305,7 +1444,7 @@ exports.forgotPassword = async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     user.resetOtp = otp;
-    user.resetOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    user.resetOtpExpiry = new Date(Date.now() + OTP_TTL_MS);
     await user.save();
 
     console.log('🔑 [forgotPassword] OTP Generated:', otp);

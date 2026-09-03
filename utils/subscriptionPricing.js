@@ -100,7 +100,7 @@ function isCompanyPaidActive(company) {
   const plan = company.subscriptionPlan;
   if (plan !== 'monthly' && plan !== 'yearly') return false;
   if (company.subscriptionStatus !== 'active') return false;
-  if (!company.subscriptionEndDate) return false;
+  if (!company.subscriptionEndDate) return true;
   return new Date() <= new Date(company.subscriptionEndDate);
 }
 

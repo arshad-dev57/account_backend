@@ -2,6 +2,10 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const prisma = require('../prisma/client');
 const { attachLocationScope } = require('../utils/locationAccessHelper');
+const {
+  resolveAndSyncSubscriptionAccess,
+  companyHasActiveSubscription,
+} = require('../utils/companySubscription');
 
 const cleanToken = (token) => {
   if (!token) return null;
@@ -57,8 +61,16 @@ const checkAndExpireIfNeeded = async (userId) => {
 
   if (!userData) return null;
 
-  const user = new User(userData);
-  user.companyId = userData.companyId;
+  const resolved = await resolveAndSyncSubscriptionAccess(userId, userData.companyId);
+  const liveData = resolved.user || userData;
+  const user = new User(liveData);
+  user.companyId = liveData.companyId;
+
+  if (resolved.hasAccess) return user;
+
+  if (resolved.company && companyHasActiveSubscription(resolved.company)) {
+    return user;
+  }
 
   if (user.subscription.status !== 'active') return user;
 
@@ -74,15 +86,6 @@ const checkAndExpireIfNeeded = async (userId) => {
 
   if (isTrialExpired || isPaidExpired) {
     await user.expireSubscription();
-    const updatedUserData = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        companyId: true,
-        company: true
-      }
-    });
-    user.companyId = updatedUserData?.companyId;
-    return user;
   }
 
   return user;
@@ -207,7 +210,8 @@ exports.protect = async (req, res, next) => {
       });
     }
 
-    if (!user.hasActiveSubscription()) {
+    const resolved = await resolveAndSyncSubscriptionAccess(decoded.id, user.companyId);
+    if (!resolved.hasAccess) {
       return res.status(403).json({
         success: false,
         message: 'Subscription required. Please subscribe to access this feature.',

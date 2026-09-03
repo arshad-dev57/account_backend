@@ -60,7 +60,68 @@ async function applyCompanySubscription(companyId, {
     userUpdate.trialEndDate = null;
   }
 
-  await syncCompanySubscriptionToUsers(companyId, userUpdate);
+  if (Object.keys(userUpdate).length > 0) {
+    await syncCompanySubscriptionToUsers(companyId, userUpdate);
+  }
+}
+
+function userRecordHasAccess(user) {
+  if (!user) return false;
+  const now = new Date();
+  const plan = user.subscriptionPlan;
+  const status = user.subscriptionStatus;
+
+  if (plan === 'trial' && status !== 'expired') {
+    if (!user.trialEndDate) return true;
+    return now <= new Date(user.trialEndDate);
+  }
+
+  if (
+    (plan === 'monthly' || plan === 'yearly') &&
+    status === 'active' &&
+    (!user.subscriptionEndDate || now <= new Date(user.subscriptionEndDate))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Company subscription is the source of truth (platform admin assigns here).
+ * If company is active but the user row is stale, re-sync all company users.
+ */
+async function resolveAndSyncSubscriptionAccess(userId, companyId) {
+  const [user, company] = await Promise.all([
+    userId ? prisma.user.findUnique({ where: { id: userId } }) : null,
+    companyId ? prisma.company.findUnique({ where: { id: companyId } }) : null,
+  ]);
+
+  const companyAccess = companyHasActiveSubscription(company);
+  const userAccess = userRecordHasAccess(user);
+
+  if (company && companyAccess && !userAccess) {
+    await applyCompanySubscription(companyId, {
+      subscriptionPlan: company.subscriptionPlan,
+      subscriptionStatus: company.subscriptionStatus || 'active',
+      productTier: company.productTier,
+      licensedUsers: company.licensedUsers,
+      licensedBranches: company.licensedBranches,
+      billingCycle: company.billingCycle,
+      trialStartDate: company.trialStartDate,
+      trialEndDate: company.trialEndDate,
+      subscriptionStartDate: company.subscriptionStartDate,
+      subscriptionEndDate: company.subscriptionEndDate,
+    });
+    const refreshed = await prisma.user.findUnique({ where: { id: userId } });
+    return { hasAccess: true, user: refreshed, company, healed: true };
+  }
+
+  if (company) {
+    return { hasAccess: companyAccess, user, company, healed: false };
+  }
+
+  return { hasAccess: userAccess, user, company: null, healed: false };
 }
 
 function paidEndDate(plan, from = new Date()) {
@@ -82,4 +143,6 @@ module.exports = {
   applyCompanySubscription,
   paidEndDate,
   normalizeToUsd,
+  userRecordHasAccess,
+  resolveAndSyncSubscriptionAccess,
 };

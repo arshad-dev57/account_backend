@@ -181,13 +181,24 @@ const listTerminals = async (req, res) => {
 
     // Auto-create a default terminal when a location has none yet
     // (skip when user has a fixed terminal assignment)
-    if (allowedLocationIds && allowedLocationIds.length && !meAssignedTerminalId) {
-      const covered = new Set(visible.map((t) => t.locationId).filter(Boolean));
-      const missing = allowedLocationIds.filter((id) => !covered.has(id));
-      if (missing.length) {
-        const created = await ensureTerminalsForLocations(companyId, req.user.id, missing);
-        if (created.length) {
-          visible = [...created, ...visible];
+    if (!meAssignedTerminalId) {
+      let ensureIds = allowedLocationIds;
+      // Admins list all terminals — still ensure every active location has one
+      if ((!ensureIds || !ensureIds.length) && (scope?.isAdmin || req.user.role === 'admin')) {
+        const locs = await prisma.location.findMany({
+          where: { companyId, isDeleted: false, isActive: true },
+          select: { id: true },
+        });
+        ensureIds = locs.map((l) => l.id);
+      }
+      if (ensureIds?.length) {
+        const covered = new Set(visible.map((t) => t.locationId).filter(Boolean));
+        const missing = ensureIds.filter((id) => !covered.has(id));
+        if (missing.length) {
+          const created = await ensureTerminalsForLocations(companyId, req.user.id, missing);
+          if (created.length) {
+            visible = [...created, ...visible];
+          }
         }
       }
     }

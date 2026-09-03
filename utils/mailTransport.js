@@ -20,11 +20,23 @@ function isEmailConfigured() {
 }
 
 function formatResendFrom(fromValue) {
-  if (!fromValue) {
-    const identity = getEmailFrom();
-    return identity.fromHeader || identity.address;
+  const identity = getEmailFrom();
+  const raw = fromValue || identity.fromHeader || identity.address;
+  if (!raw) return 'BisonsTechs <onboarding@resend.dev>';
+
+  // Resend expects: Name <email@domain.com> (no extra quotes around name)
+  const named = raw.match(/^"([^"]+)"\s*<([^>]+)>$/);
+  if (named) return `${named[1]} <${named[2]}>`;
+
+  const plainNamed = raw.match(/^([^<]+)<([^>]+)>$/);
+  if (plainNamed) return `${plainNamed[1].trim()} <${plainNamed[2].trim()}>`;
+
+  if (raw.includes('@') && !raw.includes('<')) {
+    const name = identity.name || 'BisonsTechs';
+    return `${name} <${raw.trim()}>`;
   }
-  return fromValue;
+
+  return raw;
 }
 
 async function sendViaResend(mailOptions) {
@@ -52,19 +64,32 @@ async function sendViaResend(mailOptions) {
     }));
   }
 
-  const { data } = await axios.post('https://api.resend.com/emails', payload, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    timeout: 30_000
-  });
+  try {
+    const { data } = await axios.post('https://api.resend.com/emails', payload, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30_000
+    });
 
-  return {
-    messageId: data.id,
-    accepted: payload.to,
-    rejected: []
-  };
+    return {
+      messageId: data.id,
+      accepted: payload.to,
+      rejected: []
+    };
+  } catch (error) {
+    const apiMessage = error.response?.data?.message;
+    if (error.response?.status === 403 && apiMessage?.includes('not verified')) {
+      throw new Error(
+        `${apiMessage} — Set EMAIL_FROM=onboarding@resend.dev on Railway for testing, or verify your domain at resend.com/domains`
+      );
+    }
+    if (apiMessage) {
+      throw new Error(apiMessage);
+    }
+    throw error;
+  }
 }
 
 async function sendMail(mailOptions) {
