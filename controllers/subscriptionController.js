@@ -16,6 +16,7 @@ const {
 } = require('../utils/companySubscription');
 const { getTrialEligibility, trialIneligibleMessage } = require('../utils/trialEligibility');
 const { invalidateAuthUser } = require('../middleware/authMiddleware');
+const { verifyGooglePlaySubscription } = require('../utils/googlePlayBilling');
 
 // ─── Subscription Plans (USD) ────────────────────────────────────
 const PLANS = [
@@ -362,6 +363,100 @@ const subscribeDirect = async (req, res) => {
 // ============================================================
 const createSubscription = async (req, res) => {
   return subscribeDirect(req, res);
+};
+
+const verifyGooglePlayPurchase = async (req, res) => {
+  try {
+    const { purchaseToken, productId, packageName } = req.body;
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company not found' });
+    }
+    if (!purchaseToken) {
+      return res.status(400).json({ success: false, message: 'purchaseToken is required' });
+    }
+
+    const verified = await verifyGooglePlaySubscription({
+      purchaseToken,
+      productId,
+      packageName,
+    });
+
+    const pricing = calculatePrice(
+      verified.productTier,
+      verified.billingCycle,
+      verified.licensedUsers,
+      verified.licensedBranches
+    );
+    const endDate = verified.expiry || paidEndDate(verified.billingCycle, new Date());
+    const startDate = verified.startTime || new Date();
+
+    await applyCompanySubscription(companyId, {
+      subscriptionPlan: verified.billingCycle,
+      subscriptionStatus: 'active',
+      productTier: verified.productTier,
+      licensedUsers: pricing.licensedUsers,
+      licensedBranches: pricing.licensedBranches,
+      billingCycle: verified.billingCycle,
+      trialStartDate: null,
+      trialEndDate: null,
+      subscriptionStartDate: startDate,
+      subscriptionEndDate: endDate,
+    });
+    invalidateAuthUser(userId);
+
+    const already = await prisma.subscription.findFirst({
+      where: { transactionId: purchaseToken },
+    });
+    if (!already) {
+      await Subscription.create({
+        userId,
+        plan: verified.billingCycle,
+        startDate,
+        endDate,
+        amount: pricing.amount,
+        currency: 'USD',
+        paymentMethod: 'google_play',
+        transactionId: purchaseToken,
+        paymentDetails: {
+          method: 'google_play',
+          productId: verified.productId,
+          productTier: verified.productTier,
+          licensedUsers: pricing.licensedUsers,
+          licensedBranches: pricing.licensedBranches,
+        },
+      });
+    }
+
+    const updatedUserData = await prisma.user.findUnique({ where: { id: userId } });
+    const updatedUser = new User(updatedUserData);
+    const capacity = await getCompanyCapacity(prisma, companyId);
+
+    res.status(already ? 200 : 201).json({
+      success: true,
+      message: 'Google Play subscription activated',
+      data: {
+        subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
+        endDate: updatedUser.subscription.endDate,
+        startDate: updatedUser.subscription.startDate,
+        plan: updatedUser.subscription.plan,
+        status: updatedUser.subscription.status,
+        productTier: verified.productTier,
+        licensedUsers: pricing.licensedUsers,
+        licensedBranches: pricing.licensedBranches,
+        amount: pricing.amount,
+        currency: 'USD',
+        capacity,
+      },
+    });
+  } catch (error) {
+    console.error('verifyGooglePlayPurchase error:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to verify Google Play purchase',
+    });
+  }
 };
 
 // ============================================================
@@ -1041,6 +1136,7 @@ module.exports = {
   getSubscriptionStats,
   searchSubscriptions,
   subscribeDirect,
+  verifyGooglePlayPurchase,
   startTrial,
   validateAccess,
   getSubscriptionDetails,

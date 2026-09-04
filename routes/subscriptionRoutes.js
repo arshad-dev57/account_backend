@@ -10,6 +10,7 @@ const {
   cancelSubscription,
   getSubscriptionHistory,
   subscribeDirect,
+  verifyGooglePlayPurchase,
   startTrial,
   validateAccess,
   getSubscriptionDetails,
@@ -43,6 +44,7 @@ router.post('/trial/start', protectOnly, startTrial);
 // ─── Subscribe (Direct — No Stripe) ──────────────────────
 router.post('/subscribe', protectOnly, subscribeDirect);
 router.post('/create', protectOnly, createSubscription);
+router.post('/google-play/verify', protectOnly, verifyGooglePlayPurchase);
 router.post('/upgrade', protectOnly, upgradeSubscription);
 
 // ─── Cancel ───────────────────────────────────────────────
