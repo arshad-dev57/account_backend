@@ -3,9 +3,14 @@ const User = require('../models/User');
 const prisma = require('../prisma/client');
 const { attachLocationScope } = require('../utils/locationAccessHelper');
 const {
-  resolveAndSyncSubscriptionAccess,
+  accessFromRecords,
+  scheduleSubscriptionHeal,
   companyHasActiveSubscription,
 } = require('../utils/companySubscription');
+
+const AUTH_TTL_MS = 8000;
+const authCache = new Map();
+const authInflight = new Map();
 
 const cleanToken = (token) => {
   if (!token) return null;
@@ -18,95 +23,73 @@ function isPlatformOwner(email) {
   return emails.includes((email || '').toLowerCase());
 }
 
-const checkAndExpireIfNeeded = async (userId) => {
-  const userData = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      password: true,
-      phone: true,
-      country: true,
-      role: true,
-      roleId: true,
-      managerId: true,
-      createdBy: true,
-      companyId: true,
-      isActive: true,
-      resetOtp: true,
-      resetOtpExpiry: true,
-      failedLoginAttempts: true,
-      lockUntil: true,
-      requiresLoginOtp: true,
-      loginOtp: true,
-      loginOtpExpiry: true,
-      organizationName: true,
-      address: true,
-      contactNo: true,
-      websiteLink: true,
-      businessDetails: true,
-      subscriptionPlan: true,
-      subscriptionStatus: true,
-      subscriptionStartDate: true,
-      subscriptionEndDate: true,
-      trialStartDate: true,
-      trialEndDate: true,
-      createdAt: true,
-      updatedAt: true,
-      company: true
-    }
-  });
+function invalidateAuthUser(userId) {
+  if (userId) authCache.delete(userId);
+}
 
-  if (!userData) return null;
+async function loadUserWithCompany(userId) {
+  const now = Date.now();
+  const cached = authCache.get(userId);
+  if (cached && cached.exp > now) return cached.row;
 
-  const resolved = await resolveAndSyncSubscriptionAccess(userId, userData.companyId);
-  const liveData = resolved.user || userData;
-  const user = new User(liveData);
-  user.companyId = liveData.companyId;
+  if (authInflight.has(userId)) return authInflight.get(userId);
 
-  if (resolved.hasAccess) return user;
+  const promise = prisma.user
+    .findUnique({
+      where: { id: userId },
+      include: { company: true },
+    })
+    .then((row) => {
+      if (row) authCache.set(userId, { row, exp: Date.now() + AUTH_TTL_MS });
+      authInflight.delete(userId);
+      return row;
+    })
+    .catch((err) => {
+      authInflight.delete(userId);
+      throw err;
+    });
 
-  if (resolved.company && companyHasActiveSubscription(resolved.company)) {
-    return user;
-  }
+  authInflight.set(userId, promise);
+  return promise;
+}
 
-  if (user.subscription.status !== 'active') return user;
-
-  const now = new Date();
-
-  const isTrialExpired = user.subscription.plan === 'trial' &&
-    user.subscription.trialEndDate &&
-    now > new Date(user.subscription.trialEndDate);
-
-  const isPaidExpired = (user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
-    user.subscription.endDate &&
-    now > new Date(user.subscription.endDate);
-
-  if (isTrialExpired || isPaidExpired) {
-    await user.expireSubscription();
-  }
-
+function toReqUser(row) {
+  const user = new User(row);
+  user.companyId = row.companyId;
+  user.company = row.company || null;
   return user;
-};
+}
 
-exports.protectOnly = async (req, res, next) => {
-  let token;
-
+function readBearerToken(req) {
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1];
+    return req.headers.authorization.split(' ')[1];
   }
+  return null;
+}
+
+function jwtErrorResponse(res, error) {
+  if (error.name === 'JsonWebTokenError') {
+    return res.status(401).json({ success: false, message: 'Invalid token. Please login again.' });
+  }
+  if (error.name === 'TokenExpiredError') {
+    return res.status(401).json({ success: false, message: 'Token expired. Please login again.' });
+  }
+  return res.status(401).json({ success: false, message: 'Not authorized to access this route' });
+}
+
+async function runProtect(req, res, next, { requireSubscription }) {
+  let token = readBearerToken(req);
 
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: 'Not authorized to access this route'
+      message: requireSubscription
+        ? 'Not authorized to access this route. No token provided.'
+        : 'Not authorized to access this route'
     });
   }
 
   try {
-    // ✅ Clean token before verification
     token = cleanToken(token);
     if (!token) {
       return res.status(401).json({
@@ -116,102 +99,50 @@ exports.protectOnly = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const row = await loadUserWithCompany(decoded.id);
 
-    const userData = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      include: {
-        company: true
+    if (!row) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!row.isActive) {
+      return res.status(401).json({
+        success: false,
+        code: 'USER_INACTIVE',
+        message: 'Your account has been deactivated. Please contact support.'
+      });
+    }
+
+    if (row.company && !row.company.isActive && !isPlatformOwner(row.email)) {
+      return res.status(403).json({
+        success: false,
+        code: 'COMPANY_INACTIVE',
+        message: 'Your company account has been deactivated. Please contact support.'
+      });
+    }
+
+    const evaluated = accessFromRecords(row, row.company);
+    scheduleSubscriptionHeal(row, row.company);
+
+    if (requireSubscription && !evaluated.hasAccess) {
+      const now = new Date();
+      const plan = row.subscriptionPlan;
+      const status = row.subscriptionStatus;
+      const trialGone = plan === 'trial' && row.trialEndDate && now > new Date(row.trialEndDate);
+      const paidGone =
+        (plan === 'monthly' || plan === 'yearly') &&
+        status === 'active' &&
+        row.subscriptionEndDate &&
+        now > new Date(row.subscriptionEndDate);
+      if (status === 'active' && (trialGone || paidGone) && !companyHasActiveSubscription(row.company)) {
+        prisma.user
+          .update({
+            where: { id: row.id },
+            data: { subscriptionStatus: 'expired' },
+          })
+          .then(() => invalidateAuthUser(row.id))
+          .catch(() => {});
       }
-    });
-
-    if (!userData) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    if (!userData.isActive) {
-      return res.status(401).json({
-        success: false,
-        code: 'USER_INACTIVE',
-        message: 'Your account has been deactivated. Please contact support.'
-      });
-    }
-
-    if (userData.company && !userData.company.isActive) {
-      return res.status(403).json({
-        success: false,
-        code: 'COMPANY_INACTIVE',
-        message: 'Your company account has been deactivated. Please contact support.'
-      });
-    }
-
-    const user = new User(userData);
-    user.companyId = userData.companyId;
-    req.user = user;
-    return attachLocationScope(req, res, next);
-
-  } catch (error) {
-    console.error('Auth middleware error:', error);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ success: false, message: 'Invalid token. Please login again.' });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ success: false, message: 'Token expired. Please login again.' });
-    }
-    return res.status(401).json({ success: false, message: 'Not authorized to access this route' });
-  }
-};
-
-exports.protect = async (req, res, next) => {
-  let token;
-
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1];
-  }
-
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: 'Not authorized to access this route. No token provided.'
-    });
-  }
-
-  try {
-    token = cleanToken(token);
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token format'
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const user = await checkAndExpireIfNeeded(decoded.id);
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    if (!user.isActive) {
-      return res.status(401).json({
-        success: false,
-        code: 'USER_INACTIVE',
-        message: 'Your account has been deactivated. Please contact support.'
-      });
-    }
-
-    const companyRow = await prisma.company.findUnique({ where: { id: user.companyId }, select: { isActive: true } }).catch(() => null);
-    if (companyRow && !companyRow.isActive) {
-      return res.status(403).json({
-        success: false,
-        code: 'COMPANY_INACTIVE',
-        message: 'Your company account has been deactivated. Please contact support.'
-      });
-    }
-
-    const resolved = await resolveAndSyncSubscriptionAccess(decoded.id, user.companyId);
-    if (!resolved.hasAccess) {
       return res.status(403).json({
         success: false,
         message: 'Subscription required. Please subscribe to access this feature.',
@@ -219,18 +150,21 @@ exports.protect = async (req, res, next) => {
       });
     }
 
-    req.user = user;
+    req.user = toReqUser(row);
+    req.authUserRow = row;
     return attachLocationScope(req, res, next);
-
   } catch (error) {
     console.error('Auth middleware error:', error);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ success: false, message: 'Invalid token. Please login again.' });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ success: false, message: 'Token expired. Please login again.' });
-    }
-    return res.status(401).json({ success: false, message: 'Not authorized to access this route' });
+    return jwtErrorResponse(res, error);
   }
+}
+
+exports.protectOnly = async (req, res, next) => {
+  return runProtect(req, res, next, { requireSubscription: false });
 };
+
+exports.protect = async (req, res, next) => {
+  return runProtect(req, res, next, { requireSubscription: true });
+};
+
+exports.invalidateAuthUser = invalidateAuthUser;

@@ -1,23 +1,19 @@
 /**
- * Own notification pipeline: PostgreSQL inbox + live SSE to connected clients.
- * Replaces OneSignal — no external push vendor required.
+ * Notification inbox (Postgres) + OneSignal device push.
+ * No live SSE stream.
  */
 const prisma = require('../prisma/client');
-const notificationHub = require('./notificationHub');
-
-function buildExternalId(mongoUserId) {
-  const env = (process.env.NOTIFICATION_ENV || process.env.ONESIGNAL_ENV || 'dev').trim();
-  return `${env}:${String(mongoUserId).trim()}`;
-}
+const { sendPushToUser, buildExternalId } = require('./onesignal');
 
 async function sendToUser({
   mongoUserId,
+  subscriptionId,
   title,
   message,
   data = {},
   type = 'info',
   category = 'System',
-  collapseId, // kept for API compatibility; ignored for now
+  collapseId,
 }) {
   const userId = String(mongoUserId || '').trim();
   if (!userId) throw new Error('userId is required');
@@ -33,26 +29,25 @@ async function sendToUser({
     },
   });
 
-  const liveClients = notificationHub.publish(userId, {
-    event: 'notification',
-    notification: {
-      id: notification.id,
-      userId: notification.userId,
-      title: notification.title,
-      message: notification.message,
-      type: notification.type,
-      category: notification.category,
-      data: notification.data,
-      isRead: notification.isRead,
-      createdAt: notification.createdAt,
-    },
-  });
+  let push = null;
+  try {
+    push = await sendPushToUser({
+      mongoUserId: userId,
+      subscriptionId,
+      title: title || 'Notification',
+      message: message || '',
+      data: data || {},
+      collapseId,
+    });
+  } catch (err) {
+    console.error('[OneSignal] push failed:', err.response?.data || err.message);
+  }
 
   return {
     id: notification.id,
     stored: true,
-    liveClients,
-    deliveredLive: liveClients > 0,
+    push,
+    deliveredLive: Boolean(push?.id),
   };
 }
 

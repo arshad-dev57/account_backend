@@ -1,15 +1,12 @@
-// config/db.js
-const { PrismaClient } = require('@prisma/client');
-
-let prisma = null;
+// Reuse the singleton Prisma client. A second PrismaClient here used to open
+// another Neon pool and fight the real client for connections.
+const prisma = require('../prisma/client');
 
 const connectDB = () => {
-  if (!prisma) {
-    prisma = new PrismaClient({
-      log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error']
-    });
-    console.log('PostgreSQL Connected ✅');
-  }
+  prisma
+    .$connect()
+    .then(() => console.log('PostgreSQL Connected ✅'))
+    .catch((err) => console.error('PostgreSQL connection error:', err.message));
   return prisma;
 };
 

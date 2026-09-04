@@ -19,9 +19,7 @@ class User {
   }
 
   static async findById(id) {
-    console.log('🔍 [User.findById] Looking for user:', id);
-
-    const user = await prisma.user.findUnique({
+    return await prisma.user.findUnique({
       where: { id },
       select: {
         id: true,
@@ -35,9 +33,10 @@ class User {
         organizationName: true,
         websiteLink: true,
         contactNo: true,
-        businessDetails: true, // ✅ ADDED
+        businessDetails: true,
         role: true,
         isActive: true,
+        companyId: true,
         failedLoginAttempts: true,
         lockUntil: true,
         requiresLoginOtp: true,
@@ -55,11 +54,6 @@ class User {
         updatedAt: true
       }
     });
-
-    console.log('🔍 [User.findById] User found:', user ? 'Yes' : 'No');
-    console.log('📦 [User.findById] Business Details:', user?.businessDetails);
-
-    return user;
   }
 
   static async findByIdWithSelect(id, selectFields) {

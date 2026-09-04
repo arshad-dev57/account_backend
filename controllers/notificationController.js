@@ -1,7 +1,6 @@
 // controllers/notificationController.js
 
 const prisma = require('../prisma/client');
-const notificationHub = require('../services/notificationHub');
 const { sendToUser } = require('../services/notificationService');
 
 
@@ -195,34 +194,6 @@ const getUnreadCount = async (req, res) => {
   }
 };
 
-/** GET /api/notifications/stream — Server-Sent Events for live inbox updates */
-const streamNotifications = (req, res) => {
-  const userId = req.user.id;
-
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  if (typeof res.flushHeaders === 'function') res.flushHeaders();
-
-  res.write(`data: ${JSON.stringify({ event: 'connected', userId })}\n\n`);
-
-  notificationHub.subscribe(userId, res);
-
-  const ping = setInterval(() => {
-    try {
-      res.write(': ping\n\n');
-    } catch {
-      clearInterval(ping);
-    }
-  }, 30000);
-
-  req.on('close', () => {
-    clearInterval(ping);
-    notificationHub.unsubscribe(userId, res);
-  });
-};
-
 const sendNotification = async (req, res) => {
   try {
     const { userId, title, message, data, type, category } = req.body;
@@ -258,6 +229,5 @@ module.exports = {
   markAllAsRead,
   deleteNotification,
   getUnreadCount,
-  streamNotifications,
   sendNotification,
 };

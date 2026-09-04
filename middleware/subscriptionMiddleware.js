@@ -1,18 +1,18 @@
-const { resolveAndSyncSubscriptionAccess } = require('../utils/companySubscription');
+const { accessFromRecords, scheduleSubscriptionHeal } = require('../utils/companySubscription');
 
 exports.checkActiveSubscription = async (req, res, next) => {
   try {
-    const resolved = await resolveAndSyncSubscriptionAccess(
-      req.user.id,
-      req.user.companyId
-    );
+    const row = req.authUserRow;
+    const resolved = accessFromRecords(row || req.user, row?.company || req.user?.company);
 
-    if (!resolved.user) {
+    if (!resolved.user && !req.user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
+
+    scheduleSubscriptionHeal(row || req.user, row?.company || req.user?.company);
 
     if (!resolved.hasAccess) {
       return res.status(403).json({

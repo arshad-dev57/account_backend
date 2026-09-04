@@ -51,10 +51,13 @@ function applyServerlessParams(raw, { forcePoolerFlags = false } = {}) {
 
   const pooler = looksLikePooler(url);
 
+  // Serverless: 1 connection per isolate (Vercel/Lambda).
+  // Long-running Node (local / Railway): allow parallel queries — pooler +
+  // connection_limit=1 serializes every Prisma call and makes localhost feel hung.
   if (!url.searchParams.has('connection_limit')) {
     url.searchParams.set(
       'connection_limit',
-      isServerlessRuntime() || pooler ? '1' : '5'
+      isServerlessRuntime() ? '1' : '10'
     );
   }
 

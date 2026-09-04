@@ -7,15 +7,11 @@ const {
   markAllAsRead,
   deleteNotification,
   getUnreadCount,
-  streamNotifications,
   sendNotification,
 } = require('../controllers/notificationController');
 const { protect } = require('../middleware/authMiddleware');
 
 router.use(protect);
-
-// Live SSE stream (must be registered before param routes)
-router.get('/stream', streamNotifications);
 
 router.get('/', getUserNotifications);
 router.get('/unread-count', getUnreadCount);

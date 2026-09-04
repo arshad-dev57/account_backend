@@ -2,7 +2,6 @@
 
 const prisma = require('../prisma/client');
 const BalanceCalculator = require('../utils/balanceCalculator');
-const { hideUnusedDuplicateApAccounts } = require('../utils/apAccountHelper');
 
 const VALID_ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
 const DEBIT_BALANCE_TYPES = ['Asset', 'Expense'];
@@ -650,12 +649,6 @@ const getAccounts = async (req, res) => {
     const userId = req.user.id;
 
     const companyId = req.user.companyId;
-
-    try {
-      await hideUnusedDuplicateApAccounts(companyId);
-    } catch (cleanupErr) {
-      console.log('⚠️ [COA] AP duplicate cleanup skipped:', cleanupErr.message);
-    }
 
     const filter = { 
       companyId: companyId,

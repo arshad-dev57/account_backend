@@ -670,6 +670,7 @@ const getSubscriptionDetails = async (req, res) => {
 const cancelSubscription = async (req, res) => {
   try {
     const userId = req.user.id;
+    const companyId = req.user.companyId;
 
     const userData = await prisma.user.findUnique({
       where: { id: userId }
@@ -691,11 +692,16 @@ const cancelSubscription = async (req, res) => {
       });
     }
 
-    // ─── Expire the user subscription ──────────────────────────
+    // ─── Expire user + company (company is source of truth for access) ───
     await user.expireSubscription();
 
+    if (companyId) {
+      await applyCompanySubscription(companyId, {
+        subscriptionStatus: 'expired',
+      });
+    }
+
     // ─── Mark subscription record as cancelled ────────────────
-    // Subscription model is keyed by userId (no companyId column)
     const activeSubscription = await prisma.subscription.findFirst({
       where: {
         userId,
@@ -713,7 +719,8 @@ const cancelSubscription = async (req, res) => {
       message: 'Subscription cancelled successfully. Your access has been revoked.',
       data: {
         plan: user.subscription.plan,
-        status: 'expired'
+        status: 'expired',
+        hasAccess: false,
       }
     });
   } catch (error) {

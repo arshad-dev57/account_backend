@@ -9,6 +9,8 @@ const { ensureDefaultLocation } = require('../warehouse/services/locationService
 const {
   resolveAndSyncSubscriptionAccess,
   companyHasActiveSubscription,
+  accessFromRecords,
+  scheduleSubscriptionHeal,
 } = require('../utils/companySubscription');
 const { deleteMyAccount: deleteUserAccount } = require('../utils/deleteAccount');
 
@@ -1142,9 +1144,7 @@ exports.refreshToken = async (req, res) => {
 exports.getSessionStatus = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    await checkAndExpireSubscription(userId);
-
-    const userData = await prisma.user.findUnique({
+    const userData = req.authUserRow || await prisma.user.findUnique({
       where: { id: String(userId) },
       include: { company: true },
     });
@@ -1157,7 +1157,7 @@ exports.getSessionStatus = async (req, res) => {
       });
     }
 
-    const user = new User(userData);
+    const user = req.user instanceof User ? req.user : new User(userData);
 
     if (!user.isActive) {
       return res.status(401).json({
@@ -1175,11 +1175,9 @@ exports.getSessionStatus = async (req, res) => {
       });
     }
 
-    const resolved = await resolveAndSyncSubscriptionAccess(
-      String(userId),
-      userData.companyId
-    );
-    const liveUser = resolved.user ? new User(resolved.user) : user;
+    const resolved = accessFromRecords(userData, userData.company);
+    scheduleSubscriptionHeal(userData, userData.company);
+    const liveUser = user;
     const hasAccess = resolved.hasAccess;
     const subscription = buildSubscriptionPayload(liveUser);
 
@@ -1217,20 +1215,16 @@ exports.getSessionStatus = async (req, res) => {
 // ==================== GET CURRENT USER ====================
 exports.getMe = async (req, res) => {
   try {
-    console.log('🔄 [getMe] Called for user:', req.user.id);
+    const updatedUser = req.user instanceof User
+      ? req.user
+      : new User(req.authUserRow || req.user);
 
-    await checkAndExpireSubscription(req.user.id);
-    const updatedUserData = await User.findById(req.user.id);
-    const updatedUser = new User(updatedUserData);
-
-    if (!updatedUser) {
+    if (!updatedUser?.id && !updatedUser?._id) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-
-    console.log('✅ [getMe] User fetched successfully');
 
     const userPayload = {
       id: updatedUser._id,
@@ -1316,11 +1310,8 @@ exports.getMe = async (req, res) => {
         userPayload.locationIds = assigned.locationIds;
       }
       if (prismaUser?.companyId) userPayload.companyId = prismaUser.companyId;
+      const companyRow = req.user?.company || req.authUserRow?.company || null;
       if (prismaUser?.companyId) {
-        const companyRow = await prisma.company.findUnique({
-          where: { id: prismaUser.companyId },
-          select: { posMode: true, posModeConfigured: true, name: true, productTier: true },
-        });
         userPayload.posMode = companyRow?.posMode || 'retail';
         userPayload.posModeConfigured = Boolean(companyRow?.posModeConfigured);
         userPayload.company = {
