@@ -932,14 +932,19 @@ exports.deleteMyAccount = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Your account has been deleted.',
+      message: 'Your company, users, and all data have been deleted.',
     });
   } catch (error) {
     const status = error.status || 500;
     console.error('❌ [deleteMyAccount] Error:', error);
     return res.status(status).json({
       success: false,
-      message: status === 404 ? 'User not found' : 'Failed to delete account. Please try again.',
+      message:
+        status === 404
+          ? 'User not found'
+          : status === 403
+            ? error.message
+            : 'Failed to delete account. Please try again.',
     });
   }
 };

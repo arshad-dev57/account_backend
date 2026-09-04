@@ -22,7 +22,7 @@ const getCategories = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { tree = 'false', includeInactive = 'false', parentId, locationId } = req.query;
+    const { tree = 'false', includeInactive = 'false', parentId, locationId, stockedOnly } = req.query;
 
     const filter = {
       companyId: companyId,
@@ -38,8 +38,9 @@ const getCategories = async (req, res) => {
       filter.parentId = parentId;
     }
 
-    // POS / warehouse: only categories that have products at this location
-    if (locationId) {
+    // POS: only categories that have products at this location.
+    // Category admin / product forms must get the full company catalog.
+    if (locationId && (stockedOnly === 'true' || stockedOnly === true)) {
       const loc = await prisma.location.findFirst({
         where: { id: String(locationId), companyId, isDeleted: false },
         select: { id: true },

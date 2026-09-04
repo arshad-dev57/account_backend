@@ -15,6 +15,7 @@ const {
   companyHasActiveSubscription,
 } = require('../utils/companySubscription');
 const { getTrialEligibility, trialIneligibleMessage } = require('../utils/trialEligibility');
+const { invalidateAuthUser } = require('../middleware/authMiddleware');
 
 // ─── Subscription Plans (USD) ────────────────────────────────────
 const PLANS = [
@@ -146,6 +147,14 @@ const upgradeSubscription = async (req, res) => {
       ? parseInt(req.body.licensedBranches, 10)
       : capacity.licensedBranches + addBranches;
 
+    const nextTier = req.body.productTier === 'pos' || req.body.productTier === 'erp_pos'
+      ? req.body.productTier
+      : capacity.productTier;
+    const requestedCycle = req.body.billingCycle || req.body.plan;
+    const billingCycle = requestedCycle === 'yearly' || requestedCycle === 'monthly'
+      ? requestedCycle
+      : (capacity.billingCycle || 'monthly');
+
     if (!capacity.isTrial && !capacity.isPaid) {
       return res.status(402).json({
         success: false,
@@ -159,22 +168,23 @@ const upgradeSubscription = async (req, res) => {
       addBranches: licensedBranches - capacity.licensedBranches,
     });
 
-    const billingCycle = capacity.billingCycle || 'monthly';
     const now = new Date();
-    const endDate = capacity.isPaid && capacity.subscriptionEndDate
+    const cycleChanged = billingCycle !== (capacity.billingCycle || 'monthly');
+    const endDate = capacity.isPaid && capacity.subscriptionEndDate && !cycleChanged
       ? new Date(capacity.subscriptionEndDate)
       : paidEndDate(billingCycle, now);
 
     await applyCompanySubscription(companyId, {
       subscriptionPlan: billingCycle,
       subscriptionStatus: 'active',
-      productTier: capacity.productTier,
+      productTier: nextTier,
       licensedUsers: upgrade.licensedUsers,
       licensedBranches: upgrade.licensedBranches,
       billingCycle,
       subscriptionStartDate: capacity.isPaid ? undefined : now,
       subscriptionEndDate: endDate,
     });
+    invalidateAuthUser(userId);
 
     await Subscription.create({
       userId,
@@ -187,7 +197,7 @@ const upgradeSubscription = async (req, res) => {
       transactionId: req.body.transactionId || `UPG-${Date.now()}`,
       paymentDetails: {
         type: 'upgrade',
-        productTier: capacity.productTier,
+        productTier: nextTier,
         licensedUsers: upgrade.licensedUsers,
         licensedBranches: upgrade.licensedBranches,
         previousAmount: upgrade.current.amount,
@@ -226,6 +236,9 @@ const subscribeDirect = async (req, res) => {
     } = req.body;
     const userId = req.user.id;
     const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company not found' });
+    }
 
     if (!plan || (plan !== 'monthly' && plan !== 'yearly')) {
       return res.status(400).json({
@@ -243,23 +256,39 @@ const subscribeDirect = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    const company = companyId
+      ? await prisma.company.findUnique({ where: { id: companyId } })
+      : null;
+
     const user = new User(userData);
-    const isAlreadyPaid = (
-      (user.subscription.plan === 'monthly' || user.subscription.plan === 'yearly') &&
-      user.subscription.status === 'active' &&
-      user.subscription.endDate &&
-      new Date() <= new Date(user.subscription.endDate)
+    const isPaidRecord = (planName, status, endDate) =>
+      (planName === 'monthly' || planName === 'yearly') &&
+      status === 'active' &&
+      endDate &&
+      new Date() <= new Date(endDate);
+
+    const isAlreadyPaid = isPaidRecord(
+      company?.subscriptionPlan,
+      company?.subscriptionStatus,
+      company?.subscriptionEndDate
+    ) || isPaidRecord(
+      user.subscription.plan,
+      user.subscription.status,
+      user.subscription.endDate
     );
 
-    if (isAlreadyPaid) {
-      return res.status(400).json({
-        success: false,
-        message: 'You already have an active paid subscription. Use upgrade to add users or branches.',
-      });
-    }
-
     const now = new Date();
-    const endDate = paidEndDate(plan, now);
+    const currentCycle = company?.billingCycle || user.subscription.plan;
+    const cycleChanged = isAlreadyPaid && currentCycle !== plan;
+    const currentEnd = company?.subscriptionEndDate
+      ? new Date(company.subscriptionEndDate)
+      : (user.subscription.endDate ? new Date(user.subscription.endDate) : null);
+    const endDate = (!isAlreadyPaid || cycleChanged || !currentEnd)
+      ? paidEndDate(plan, now)
+      : currentEnd;
+    const startDate = isAlreadyPaid && !cycleChanged && (company?.subscriptionStartDate || user.subscription.startDate)
+      ? (company?.subscriptionStartDate || user.subscription.startDate)
+      : now;
 
     await applyCompanySubscription(companyId, {
       subscriptionPlan: plan,
@@ -270,9 +299,10 @@ const subscribeDirect = async (req, res) => {
       billingCycle: plan,
       trialStartDate: null,
       trialEndDate: null,
-      subscriptionStartDate: now,
+      subscriptionStartDate: startDate,
       subscriptionEndDate: endDate,
     });
+    invalidateAuthUser(userId);
 
     const updatedUserData = await prisma.user.findUnique({ where: { id: userId } });
     const updatedUser = new User(updatedUserData);
@@ -288,6 +318,7 @@ const subscribeDirect = async (req, res) => {
       transactionId: transactionId || `TXN-${Date.now()}`,
       paymentDetails: {
         method: 'direct',
+        type: isAlreadyPaid ? 'plan_change' : 'subscribe',
         productTier: tier,
         licensedUsers: pricing.licensedUsers,
         licensedBranches: pricing.licensedBranches,
@@ -296,9 +327,11 @@ const subscribeDirect = async (req, res) => {
       },
     });
 
-    res.status(201).json({
+    res.status(isAlreadyPaid ? 200 : 201).json({
       success: true,
-      message: `Subscription activated — ${tier === 'pos' ? 'POS' : 'ERP + POS'} (${plan})`,
+      message: isAlreadyPaid
+        ? `Subscription updated — ${tier === 'pos' ? 'POS' : 'ERP + POS'} (${plan})`
+        : `Subscription activated — ${tier === 'pos' ? 'POS' : 'ERP + POS'} (${plan})`,
       data: {
         subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
         endDate: updatedUser.subscription.endDate,
