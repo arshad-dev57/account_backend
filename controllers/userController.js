@@ -13,6 +13,11 @@ const {
   scheduleSubscriptionHeal,
 } = require('../utils/companySubscription');
 const { deleteMyAccount: deleteUserAccount } = require('../utils/deleteAccount');
+const {
+  isDemoLoginEmail,
+  getDemoLoginOtp,
+  getDemoOtpExpiry,
+} = require('../utils/demoAccount');
 
 const OTP_TTL_MS = 60 * 1000;
 
@@ -502,6 +507,30 @@ exports.login = async (req, res) => {
     user.failedLoginAttempts = 0;
     user.lockUntil = null;
 
+    if (isDemoLoginEmail(email)) {
+      const demoOtp = getDemoLoginOtp();
+      if (!demoOtp) {
+        console.error('❌ [login] Demo account is missing DEMO_LOGIN_OTP');
+        return res.status(500).json({
+          success: false,
+          message: 'Demo login is not configured. Please contact support.'
+        });
+      }
+
+      user.loginOtp = demoOtp;
+      user.loginOtpExpiry = getDemoOtpExpiry();
+      user.requiresLoginOtp = true;
+      await user.save();
+
+      console.log('🧪 [login] Demo account — reusable OTP, email not sent');
+      return res.status(200).json({
+        success: true,
+        requiresOtp: true,
+        email,
+        message: 'OTP sent to your email for verification.'
+      });
+    }
+
     console.log('🔑 [login] Generating OTP...');
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.loginOtp = otp;
@@ -584,16 +613,18 @@ exports.verifyLoginOTP = async (req, res) => {
     console.log('⏰ [verifyLoginOTP] OTP Expiry:', userData.loginOtpExpiry);
 
     const user = new User(userData);
+    const demoOtp = isDemoLoginEmail(email) ? getDemoLoginOtp() : '';
+    const isDemoOtp = Boolean(demoOtp && otp === demoOtp);
 
-    if (!user.loginOtp || user.loginOtp !== otp) {
+    if (isDemoOtp) {
+      console.log('🧪 [verifyLoginOTP] Demo reusable OTP accepted');
+    } else if (!user.loginOtp || user.loginOtp !== otp) {
       console.log('❌ [verifyLoginOTP] Invalid OTP - Provided:', otp, 'Stored:', user.loginOtp);
       return res.status(400).json({
         success: false,
         message: 'Invalid OTP'
       });
-    }
-
-    if (new Date() > new Date(user.loginOtpExpiry)) {
+    } else if (new Date() > new Date(user.loginOtpExpiry)) {
       console.log('❌ [verifyLoginOTP] OTP Expired');
       return res.status(400).json({
         success: false,
@@ -874,6 +905,28 @@ exports.resendLoginOTP = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Please login first to receive an OTP.',
+      });
+    }
+
+    if (isDemoLoginEmail(email)) {
+      const demoOtp = getDemoLoginOtp();
+      if (!demoOtp) {
+        return res.status(500).json({
+          success: false,
+          message: 'Demo login is not configured. Please contact support.',
+        });
+      }
+
+      user.loginOtp = demoOtp;
+      user.loginOtpExpiry = getDemoOtpExpiry();
+      user.requiresLoginOtp = true;
+      await user.save();
+
+      console.log('🧪 [resendLoginOTP] Demo account — reusable OTP, email not sent');
+      return res.status(200).json({
+        success: true,
+        email,
+        message: 'A new OTP has been sent to your email.',
       });
     }
 
