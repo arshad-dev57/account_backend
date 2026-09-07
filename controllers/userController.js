@@ -412,7 +412,8 @@ exports.register = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = String(req.body.email || '').trim();
+    const password = String(req.body.password || '').trim();
 
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [login] Called');

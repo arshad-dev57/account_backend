@@ -6,8 +6,6 @@ const {
   resolveLocationId,
   adjustLocationStock,
 } = require('../../warehouse/services/locationService');
-
-// ─── Number Generators ─────────────────────────────────────────────────────
 function generatePOSInvoiceNumber() {
   const d = new Date();
   const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -19,8 +17,6 @@ function generateReturnNumber() {
 function generateJENumber() {
   return `JE-POS-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
-
-// ─── GL Account Helpers (mirrors existing SalesInvoice/PurchaseInvoice pattern) ──
 async function findOrCreateCashAccount(tx, companyId, userId) {
   return getOrCreateCashAccount(userId, companyId, tx);
 }
@@ -60,8 +56,6 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
   }
   return acc;
 }
-
-// ─── GL Account for payment method ──────────────────────────────────────────
 async function findOrCreateCustomerCreditAccount(tx, companyId, userId) {
   let acc = await tx.chartOfAccount.findFirst({
     where: {
@@ -106,18 +100,12 @@ async function resolveDebitAccountForPayment(tx, companyId, userId, paymentMetho
 
 class POSSaleModel {
 
-
-  // ============================================================
-  // COMPLETE POS SALE — Inventory + JE + COGS in one transaction
-  // ============================================================
   static async completeSale(data) {
     const {
       id, shiftId, terminalId, customerId, customerName, customerEmail, customerPhone,
       items, payments, discountTotal = 0, taxTotal = 0, notes,
       companyId, createdBy, isOffline = false, offlineCreatedAt = null,
       locationId: locationIdInput,
-      // When true (offline batch-sync): skip availability check and clamp
-      // stock to 0 instead of throwing if server stock is already depleted.
       skipStockChecks = false,
     } = data;
 
@@ -134,7 +122,6 @@ class POSSaleModel {
     const taxProfile = await prisma.companyTaxProfile.findUnique({ where: { companyId } }).catch(() => null);
     const taxOn = Boolean(taxProfile?.taxEnabled);
 
-    // Pre-compute totals — quantity must be a whole unit (tax must never change qty)
     let subtotal = 0;
     const processedItems = [];
     for (const item of items) {
@@ -199,8 +186,6 @@ class POSSaleModel {
         resolvedLocationId,
         createdBy
       );
-
-      // ── 1. Validate products + Reduce Stock ──────────────────
       let totalCOGS = 0;
       for (const item of processedItems) {
         if (item.isCustom || !item.productId) continue;
@@ -240,19 +225,15 @@ class POSSaleModel {
 
         totalCOGS += product.costPrice * qty;
       }
-
-      // ── 2. Build Journal Entry lines ─────────────────────────
       const revenueAcc = await findOrCreateSalesRevenueAccount(tx, companyId, createdBy);
       const cogsAcc = await findOrCreateCOGSAccount(tx, companyId, createdBy);
       const inventoryAcc = await findOrCreateInventoryAccount(tx, companyId, createdBy);
 
-      // Build debit lines per payment method (split payments)
       const jeLines = [];
       for (const pmt of payments) {
         const debitAcc = await resolveDebitAccountForPayment(tx, companyId, createdBy, pmt.paymentMethod);
         jeLines.push({ accountId: debitAcc.id, accountName: debitAcc.name, accountCode: debitAcc.code, debit: pmt.amount, credit: 0 });
       }
-      // Credit: Sales Revenue
       jeLines.push({ accountId: revenueAcc.id, accountName: revenueAcc.name, accountCode: revenueAcc.code, debit: 0, credit: grandTotal });
       // COGS entry
       jeLines.push({ accountId: cogsAcc.id, accountName: cogsAcc.name, accountCode: cogsAcc.code, debit: totalCOGS, credit: 0 });
@@ -272,8 +253,6 @@ class POSSaleModel {
           lines: { create: jeLines }
         }
       });
-
-      // Get current fiscal year for the company
       const currentFiscalYear = await tx.fiscalYear.findFirst({
         where: { 
           companyId, 
@@ -332,8 +311,6 @@ class POSSaleModel {
         },
         include: { items: true, payments: true }
       });
-
-      // ── 4. Update customer stats + loyalty ───────────────────
       if (customerId) {
         const loyaltyEarn = Math.max(0, Math.floor(grandTotal)); // 1 point per currency unit
         await tx.customer.update({
@@ -346,8 +323,6 @@ class POSSaleModel {
           }
         }).catch(() => { }); // Non-fatal
       }
-
-      // ── 5. Audit log ─────────────────────────────────────────
       await tx.pOSAuditLog.create({
         data: { action: 'Sale', details: `POS Sale ${invoiceNumber} — Total: ${grandTotal}`, companyId, createdBy }
       });
@@ -356,9 +331,6 @@ class POSSaleModel {
     });
   }
 
-  // ============================================================
-  // HOLD SALE (No stock deduction, no JE)
-  // ============================================================
   static async holdSale(data) {
     const { shiftId, terminalId, customerId, customerName, customerEmail, customerPhone,
       items, discountTotal = 0, taxTotal = 0, notes,
@@ -370,10 +342,8 @@ class POSSaleModel {
       subtotal += lineTotal;
       return { ...item, lineTotal, taxAmount: 0 };
     });
-
     const grandTotal = parseFloat((subtotal - discountTotal + taxTotal).toFixed(2));
     const invoiceNumber = generatePOSInvoiceNumber();
-
     return await prisma.pOSSale.create({
       data: {
         invoiceNumber,
@@ -398,10 +368,6 @@ class POSSaleModel {
       include: { items: true }
     });
   }
-
-  // ============================================================
-  // PROCESS RETURN (partial or full, reverses JE + restores stock)
-  // ============================================================
   static async processReturn(data) {
     const { originalSaleId, returnItems, refundMethod, reason, approvedBy, companyId, createdBy, shiftId } = data;
 
@@ -470,8 +436,6 @@ class POSSaleModel {
       }
 
       const returnNumber = generateReturnNumber();
-
-      // Reverse Journal Entry: debit Revenue, credit Cash; debit Inventory, credit COGS
       const revenueAcc = await findOrCreateSalesRevenueAccount(tx, companyId, createdBy);
       const cogsAcc = await findOrCreateCOGSAccount(tx, companyId, createdBy);
       const inventoryAcc = await findOrCreateInventoryAccount(tx, companyId, createdBy);
@@ -507,8 +471,6 @@ class POSSaleModel {
         },
         include: { items: true }
       });
-
-      // Check if full return
       const allReturned = originalSale.items.every(origItem => {
         const returnedQty = returnItems.filter(ri => ri.productId === origItem.productId).reduce((s, ri) => s + ri.quantity, 0);
         return returnedQty >= origItem.quantity;
@@ -524,10 +486,6 @@ class POSSaleModel {
       return { posReturn, journalEntry };
     });
   }
-
-  // ============================================================
-  // VOID COMPLETED SALE (restore stock + reverse JE)
-  // ============================================================
   static async voidSale({ saleId, companyId, createdBy, reason }) {
     return await prisma.$transaction(async (tx) => {
       const sale = await tx.pOSSale.findFirst({
@@ -592,7 +550,6 @@ class POSSaleModel {
       const inventoryAcc = await findOrCreateInventoryAccount(tx, companyId, createdBy);
 
       const jeLines = [];
-      // Reverse payments: credit cash/bank (money leaves drawer conceptually)
       for (const pmt of sale.payments) {
         const debitAcc = await resolveDebitAccountForPayment(tx, companyId, createdBy, pmt.paymentMethod);
         jeLines.push({
@@ -729,20 +686,13 @@ class POSSaleModel {
           });
           continue;
         }
-
-        // ── NORMAL SALE ────────────────────────────────────────────────
-        // Idempotency check
         const existing = await prisma.pOSSale.findFirst({ where: { id: tx.id, companyId } });
         if (existing) {
           results.push({ id: tx.id, status: 'skipped', reason: 'Already synced' });
           continue;
         }
-        
-        // For desktop sync, handle shift and terminal assignment
         let shiftId = tx.shiftId;
         let terminalId = tx.terminalId;
-        
-        // Get or create valid terminal
         if (!terminalId || terminalId === 'default-terminal') {
           const existingTerminal = await prisma.pOSTerminal.findFirst({
             where: { companyId }
@@ -750,7 +700,6 @@ class POSSaleModel {
           if (existingTerminal) {
             terminalId = existingTerminal.id;
           } else {
-            // Create a default terminal if none exists
             const newTerminal = await prisma.pOSTerminal.create({
               data: {
                 companyId,
@@ -763,7 +712,6 @@ class POSSaleModel {
           }
         }
         
-        // Handle shift assignment
         if (!shiftId || String(shiftId).startsWith('local-shift-')) {
           // If no valid shift ID or local shift ID, get/create active shift
           const activeShift = await prisma.pOSShift.findFirst({
@@ -771,12 +719,10 @@ class POSSaleModel {
           });
           if (activeShift) {
             shiftId = activeShift.id;
-            // Use the shift's terminal if available
             if (activeShift.terminalId) {
               terminalId = activeShift.terminalId;
             }
           } else {
-            // Create a new shift if none exists
             const newShift = await prisma.pOSShift.create({
               data: {
                 cashierId: createdBy,
@@ -808,8 +754,6 @@ class POSSaleModel {
     return results;
   }
 
-  // Returns an existing POSReturn for the original sale that refunds the exact
-  // same set of products/quantities — used to make offline return sync idempotent.
   static async findExistingReturnForItems(originalSaleId, companyId, returnItems) {
     const returns = await prisma.pOSReturn.findMany({
       where: { originalSaleId, companyId },
@@ -829,10 +773,6 @@ class POSSaleModel {
       ) || null
     );
   }
-
-  // ============================================================
-  // GETTERS
-  // ============================================================
   static async findByInvoice(invoiceNumber, companyId) {
     return prisma.pOSSale.findFirst({
       where: { invoiceNumber: String(invoiceNumber).trim(), companyId },

@@ -8,10 +8,10 @@ const dirs = [
 ];
 
 const buckets = {
-  whereUserId: [],        // `userId: <x>` used inside a where/filter context (BREAKS visibility)
-  dataUserIdCreate: [],   // `userId: <x>` as an audit field on create (KEEP)
-  targetUserIdDecl: [],   // `const targetUserId = ...` (manager/createdBy logic - REMOVE)
-  reqUserId: [],          // `const userId = req.user.id` (KEEP)
+  whereUserId: [],       
+  dataUserIdCreate: [],  
+  targetUserIdDecl: [],  
+  reqUserId: [],        
   other: []
 };
 

@@ -614,6 +614,58 @@ class EmailService {
     console.log('✅ Team invite email sent:', info.messageId, '→', to);
     return { success: true, messageId: info.messageId };
   }
+
+  async sendFeedbackNotification({ to, rating, feedback, suggestion, fromName, fromEmail, anonymous }) {
+    await this._ensureReady();
+    const identity = this._mailIdentity();
+    const escapeHtml = (value) =>
+      String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    const stars = '★'.repeat(Number(rating) || 0) + '☆'.repeat(Math.max(0, 5 - (Number(rating) || 0)));
+    const who = anonymous ? 'Anonymous user' : `${fromName || 'User'}${fromEmail ? ` <${fromEmail}>` : ''}`;
+    const safeFeedback = escapeHtml(feedback);
+    const safeSuggestion = escapeHtml(suggestion);
+    const safeWho = escapeHtml(who);
+
+    const mailOptions = {
+      from: identity.fromHeader,
+      to,
+      replyTo: anonymous || !fromEmail ? identity.replyTo : fromEmail,
+      subject: `App feedback ${rating}/5 — ${anonymous ? 'Anonymous' : (fromName || fromEmail || 'User')}`,
+      text: [
+        `New in-app feedback`,
+        `From: ${who}`,
+        `Rating: ${rating}/5 ${stars}`,
+        '',
+        'What they like:',
+        feedback || '(none)',
+        '',
+        'Suggestions:',
+        suggestion || '(none)',
+      ].join('\n'),
+      html: `
+<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:24px;background:#f1f5f9;font-family:Segoe UI,Tahoma,sans-serif;color:#111827;">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;padding:24px;">
+    <h2 style="margin:0 0 8px;">New app feedback</h2>
+    <p style="margin:0 0 16px;color:#64748b;">${safeWho}</p>
+    <p style="margin:0 0 16px;font-size:18px;">${stars} (${rating}/5)</p>
+    <p style="margin:0 0 6px;font-weight:700;">What they like</p>
+    <p style="white-space:pre-wrap;margin:0 0 16px;">${safeFeedback || '(none)'}</p>
+    <p style="margin:0 0 6px;font-weight:700;">Suggestions</p>
+    <p style="white-space:pre-wrap;margin:0;">${safeSuggestion || '(none)'}</p>
+  </div>
+</body>
+</html>`,
+    };
+
+    const info = await this._sendMail(mailOptions);
+    console.log('✅ Feedback email sent:', info.messageId, '→', to);
+    return { success: true, messageId: info.messageId };
+  }
 }
 
 const emailService = new EmailService();

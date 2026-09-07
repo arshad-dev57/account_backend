@@ -47,17 +47,11 @@ const WRITE_OPENER = /\bdata\s*:\s*\{/;
 function transform(src) {
   const lines = src.split('\n');
   let replacements = 0;
-
-  // Context stack of booleans: true = READ, false = WRITE, null = neutral.
-  // We push on '{' and pop on '}'. We only need coarse tracking so we scan
-  // each line, adjust stack, and decide whether replacements are allowed.
   const stack = [];
   let currentIsRead = () => (stack.length ? stack[stack.length - 1] === 'read' : false);
   let insideWrite = () => stack.includes('write');
 
   const out = lines.map((line) => {
-    // Determine the context that a scoping key ON THIS LINE would belong to.
-    // Peek: does this line open a read/write context before the key?
     let lineOpensRead = READ_OPENERS.some((re) => re.test(line));
     let lineOpensWrite = WRITE_OPENER.test(line);
 
@@ -66,7 +60,6 @@ function transform(src) {
 
     let newLine = line;
     if (eligible) {
-      // Replace explicit `createdBy: userId` -> companyId
       newLine = newLine.replace(
         /createdBy:\s*userId(\b)/,
         () => {
@@ -74,7 +67,6 @@ function transform(src) {
           return 'companyId: companyId$1'.replace('$1', '');
         }
       );
-      // Replace explicit `userId: userId` -> companyId
       newLine = newLine.replace(
         /\buserId:\s*userId(\b)/,
         () => {
@@ -82,9 +74,6 @@ function transform(src) {
           return 'companyId: companyId';
         }
       );
-      // Replace shorthand `{ userId }` / `where: { userId ,` etc.
-      // Only the standalone shorthand `userId` property (not userId used as a
-      // value like `createdBy: userId`, already handled above).
       newLine = newLine.replace(
         /([\{,]\s*)userId(\s*[}])/,
         (m, pre, post) => {
@@ -93,9 +82,6 @@ function transform(src) {
         }
       );
     }
-
-    // Now update the brace stack based on the ORIGINAL line's braces so the
-    // context is correct for subsequent lines.
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
       if (ch === '{') {

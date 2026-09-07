@@ -147,6 +147,7 @@ app.use('/api/loans', loanRoutes);
 app.use('/api/fiscal-year', fiscalYearRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/support/tickets', require('./routes/supportTicketRoutes'));
+app.use('/api/feedback', require('./routes/feedbackRoutes'));
 app.use('/api/accounting/reports', require('./routes/accountingReportRoutes'));
 
 app.use('/api/dashboard', dashboardRoutes);

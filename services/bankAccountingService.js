@@ -184,12 +184,6 @@ async function findCoaOwned(accountId, companyId, tx = prisma) {
   return account;
 }
 
-/**
- * Post or update opening balance for a bank account.
- * Never auto-credits Opening Balance Equity.
- *   owner_capital  → Dr Bank / Cr Owner's Capital
- *   source_account → Dr Bank / Cr Cash or other source COA
- */
 async function upsertBankOpeningBalance({
   userId,
   companyId,
@@ -588,9 +582,6 @@ async function createBankTransfer({
   });
 }
 
-/**
- * Repair orphan/missing opening-balance JEs without double-counting balances.
- */
 async function repairCompanyBankOpeningBalances(userId, companyId) {
   const banks = await prisma.bankAccount.findMany({
     where: { companyId, openingBalance: { gt: 0 } },

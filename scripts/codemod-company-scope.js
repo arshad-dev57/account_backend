@@ -37,8 +37,6 @@ if (RESTORE) {
   process.exit(0);
 }
 
-// ─── Find the object literal that starts at index `open` (the '{'),
-//     return the matching close index (handles strings/comments/regex-lite).
 function matchBrace(src, open) {
   let depth = 0;
   let i = open;
@@ -66,8 +64,6 @@ function matchBrace(src, open) {
   }
   return -1;
 }
-
-// Does the object text at [open,close] contain a top-level `companyId` key?
 function hasTopLevelCompanyId(src, open, close) {
   let depth = 0;
   let inStr = null;
@@ -96,14 +92,7 @@ let touchedFiles = 0;
 for (const file of listFiles()) {
   let src = fs.readFileSync(file, 'utf8');
   const original = src;
-
-  // Build a list of edits, then apply right-to-left.
   const edits = [];
-
-  // Stack of {name, close} for each open object we are inside.
-  // We scan and, whenever we see `IDENT {`, we push the object with its
-  // matched close index and the opener name.
-  // Simpler: for each occurrence of `where` opener, mark its object range.
   const whereRanges = [];
   {
     const re = /\bwhere\s*:\s*\{/g;
@@ -115,12 +104,6 @@ for (const file of listFiles()) {
     }
   }
   const inWhere = (idx) => whereRanges.some(([o, c]) => idx > o && idx < c);
-
-  // Find each `userId` / `createdBy` key occurrence used as a FILTER.
-  //   - `userId: X`            -> always a tenant filter when inside where
-  //   - `createdBy: <curUser>` -> tenant filter ONLY when the value is the
-  //     current user (userId / req.user.id / targetUserId). `createdBy` with
-  //     any other value, or inside a `data` block, is a legit audit field.
   const CUR_USER_VALUES = /^(userId|req\.user\.id|targetUserId|creatorId|adminId)\b/;
   const keyRe = /(^|[\s{,(])(userId|createdBy)(\s*):/g;
   let km;
@@ -129,8 +112,6 @@ for (const file of listFiles()) {
     const keyStart = km.index + km[1].length; 
     const colonIdx = keyRe.lastIndex - 1;     
     if (!inWhere(keyStart)) continue;         
-
-
     let i = colonIdx + 1;
     let depth = 0;
     let inStr = null;
@@ -144,17 +125,11 @@ for (const file of listFiles()) {
       if (c === ',' && depth === 0) break;
       i++;
     }
-    const valueEnd = i; // exclusive: points at comma or closing brace
-
-    // For `createdBy`, only treat as a tenant filter when the value is the
-    // current user. Any other value (e.g. createdBy: someOtherId) is left alone.
+    const valueEnd = i; 
     if (keyName === 'createdBy') {
       const valText = src.slice(colonIdx + 1, valueEnd).trim();
       if (!CUR_USER_VALUES.test(valText)) continue;
     }
-
-    // Which where-object encloses this key? Use the tightest range.
-
     let encl = null;
     for (const [o, c] of whereRanges) {
       if (keyStart > o && keyStart < c) {
@@ -164,23 +139,18 @@ for (const file of listFiles()) {
     const siblingHasCompany = encl && hasTopLevelCompanyId(src, encl[0], encl[1]);
 
     if (siblingHasCompany) {
-      // Drop the whole `userId: X` entry (and a trailing comma if present).
       let delStart = keyStart;
       let delEnd = valueEnd;
-      if (src[delEnd] === ',') delEnd++;        // eat trailing comma
-      // also swallow leading whitespace/newline back to previous non-space
+      if (src[delEnd] === ',') delEnd++;     
       edits.push({ start: delStart, end: delEnd, text: '' });
       totalDropped++;
     } else {
-      // Replace `userId : X` with `companyId: companyId`
       edits.push({ start: keyStart, end: valueEnd, text: 'companyId: companyId' });
       totalFilters++;
     }
   }
 
   if (edits.length === 0) continue;
-
-  // Apply edits right-to-left.
   edits.sort((a, b) => b.start - a.start);
   for (const e of edits) {
     src = src.slice(0, e.start) + e.text + src.slice(e.end);

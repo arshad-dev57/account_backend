@@ -264,7 +264,6 @@ CREATE TABLE "tax_rules" (
     CONSTRAINT "tax_rules_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "tax_exemption_types" (
     "id" TEXT NOT NULL,
     "code" TEXT NOT NULL,
@@ -280,7 +279,6 @@ CREATE TABLE "tax_exemption_types" (
     CONSTRAINT "tax_exemption_types_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "tax_exemptions" (
     "id" TEXT NOT NULL,
     "exemption_type_id" TEXT NOT NULL,
@@ -300,7 +298,6 @@ CREATE TABLE "tax_exemptions" (
     CONSTRAINT "tax_exemptions_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "tax_transactions" (
     "id" TEXT NOT NULL,
     "transaction_id" TEXT NOT NULL,
@@ -322,25 +319,12 @@ CREATE TABLE "tax_transactions" (
     CONSTRAINT "tax_transactions_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
 CREATE INDEX "equity_transactions_account_id_idx" ON "equity_transactions"("account_id");
-
--- CreateIndex
 CREATE INDEX "equity_transactions_type_idx" ON "equity_transactions"("type");
-
--- CreateIndex
 CREATE INDEX "equity_transactions_company_id_idx" ON "equity_transactions"("company_id");
-
--- CreateIndex
 CREATE INDEX "pos_terminals_company_id_idx" ON "pos_terminals"("company_id");
-
--- CreateIndex
 CREATE UNIQUE INDEX "pos_terminals_code_company_id_key" ON "pos_terminals"("code", "company_id");
-
--- CreateIndex
 CREATE INDEX "pos_shifts_terminal_id_idx" ON "pos_shifts"("terminal_id");
-
--- CreateIndex
 CREATE INDEX "pos_shifts_cashier_id_idx" ON "pos_shifts"("cashier_id");
 
 -- CreateIndex
