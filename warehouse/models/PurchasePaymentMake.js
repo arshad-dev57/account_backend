@@ -514,7 +514,54 @@ class PurchasePaymentMakeModel {
           select: { id: true, firstName: true, lastName: true, email: true }
         }
       }
-    });
+    }).then((payments) =>
+      payments.map((payment) => ({
+        ...payment,
+        totalInvoices: payment.invoicePayments?.length || 0,
+        canEdit: payment.status !== 'Cancelled',
+        canCancel: payment.status === 'Completed',
+        canDelete: payment.status === 'Cancelled',
+      }))
+    );
+  }
+
+  // ============================================================
+  // UPDATE PAYMENT METADATA (no amount/allocation change)
+  // ============================================================
+  static async updateMetadata(id, data) {
+    const payment = await prisma.purchasePaymentMake.findUnique({ where: { id } });
+    if (!payment) throw new Error('Payment not found');
+    if (payment.status === 'Cancelled') {
+      throw new Error('Cannot edit cancelled payment');
+    }
+
+    return await prisma.purchasePaymentMake.update({
+      where: { id },
+      data: {
+        updatedBy: data.updatedBy,
+        ...(data.paymentDate && { paymentDate: new Date(data.paymentDate) }),
+        ...(data.paymentMethod !== undefined && { paymentMethod: data.paymentMethod }),
+        ...(data.reference !== undefined && { reference: data.reference }),
+        ...(data.notes !== undefined && { notes: data.notes }),
+      },
+      include: {
+        invoicePayments: {
+          include: {
+            invoice: {
+              select: { id: true, invoiceNumber: true, grandTotal: true, outstanding: true }
+            }
+          }
+        },
+        supplier: true,
+        bankAccount: true,
+      }
+    }).then((updated) => ({
+      ...updated,
+      totalInvoices: updated.invoicePayments?.length || 0,
+      canEdit: true,
+      canCancel: updated.status === 'Completed',
+      canDelete: false,
+    }));
   }
 
   // ============================================================

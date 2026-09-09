@@ -19,71 +19,86 @@ function generateGRNNumber() {
 
 class GoodsReceivingModel {
   // ============================================================
-  // CREATE GOODS RECEIVING FROM PURCHASE ORDER
+  // CREATE GOODS RECEIVING FROM ONE OR MORE PURCHASE ORDERS
   // ============================================================
   static async create(data) {
     const grnNumber = generateGRNNumber();
     
     return await prisma.$transaction(async (tx) => {
-      // ─── Get Purchase Order with items ──────────────────────
-      const purchaseOrder = await tx.purchaseOrder.findFirst({
-        where: {
-          id: data.purchaseOrderId,
-          companyId: data.companyId,  // ✅ FIXED: Use companyId instead of userId
-          isActive: true,
-          isDeleted: false,
-          status: {
-            not: 'Cancelled'
-          }
-        },
-        include: {
-          items: {
-            include: {
-              product: true
-            }
-          },
-          supplier: true
-        }
-      });
+      const purchaseOrderIds = [
+        ...new Set(
+          (data.purchaseOrderIds?.length
+            ? data.purchaseOrderIds
+            : data.purchaseOrderId
+              ? [data.purchaseOrderId]
+              : []
+          ).map((id) => String(id).trim()).filter(Boolean)
+        ),
+      ];
 
-      if (!purchaseOrder) {
-        throw new Error('Purchase order not found or cancelled');
+      if (!purchaseOrderIds.length) {
+        throw new Error('At least one purchase order is required');
       }
 
-      // ─── Get all previous GRNs for this PO ──────────────────
-      const previousGRNs = await tx.goodsReceiving.findMany({
+      const purchaseOrders = await tx.purchaseOrder.findMany({
         where: {
-          purchaseOrderId: data.purchaseOrderId,
-          companyId: data.companyId,  // ✅ FIXED
+          id: { in: purchaseOrderIds },
+          companyId: data.companyId,
           isActive: true,
           isDeleted: false,
-          status: {
-            in: ['Partially Received', 'Fully Received']
-          }
+          status: { not: 'Cancelled' },
         },
         include: {
-          items: true
-        }
+          items: { include: { product: true } },
+          supplier: true,
+        },
       });
 
-      // ─── Calculate previously received quantities ───────────
+      if (purchaseOrders.length !== purchaseOrderIds.length) {
+        throw new Error('One or more purchase orders were not found or cancelled');
+      }
+
+      const supplierId = purchaseOrders[0].supplierId;
+      if (purchaseOrders.some((po) => po.supplierId !== supplierId)) {
+        throw new Error('All purchase orders in a GRN must belong to the same supplier');
+      }
+
+      const poById = Object.fromEntries(purchaseOrders.map((po) => [po.id, po]));
+      const poItemById = {};
+      for (const po of purchaseOrders) {
+        for (const item of po.items) {
+          poItemById[item.id] = { ...item, purchaseOrderId: po.id, purchaseOrderNumber: po.orderNumber };
+        }
+      }
+
+      // Previous confirmed GRNs for any of these POs (via primary or link table)
+      const previousGRNs = await tx.goodsReceiving.findMany({
+        where: {
+          companyId: data.companyId,
+          isActive: true,
+          isDeleted: false,
+          status: { in: ['Partially Received', 'Fully Received'] },
+          OR: [
+            { purchaseOrderId: { in: purchaseOrderIds } },
+            { purchaseOrders: { some: { purchaseOrderId: { in: purchaseOrderIds } } } },
+          ],
+        },
+        include: { items: true },
+      });
+
       const previousReceivedQty = {};
       for (const grn of previousGRNs) {
         for (const item of grn.items) {
-          previousReceivedQty[item.purchaseOrderItemId] = 
+          previousReceivedQty[item.purchaseOrderItemId] =
             (previousReceivedQty[item.purchaseOrderItemId] || 0) + item.receivingQuantity;
         }
       }
 
-      // ─── Process receiving items ─────────────────────────────
-      let totalReceivingQty = 0;
       const receivingItems = [];
-
       for (const item of data.items) {
-        const poItem = purchaseOrder.items.find(pi => pi.id === item.purchaseOrderItemId);
-        
+        const poItem = poItemById[item.purchaseOrderItemId];
         if (!poItem) {
-          throw new Error(`Purchase order item ${item.purchaseOrderItemId} not found`);
+          throw new Error(`Purchase order item ${item.purchaseOrderItemId} not found in selected orders`);
         }
 
         const alreadyReceived = previousReceivedQty[item.purchaseOrderItemId] || 0;
@@ -93,7 +108,6 @@ class GoodsReceivingModel {
         if (item.receivingQuantity <= 0) {
           throw new Error(`Receiving quantity must be greater than 0 for product ${poItem.productName}`);
         }
-
         if (item.receivingQuantity > remainingQuantity) {
           throw new Error(
             `Receiving quantity (${item.receivingQuantity}) exceeds remaining quantity (${remainingQuantity}) for product ${poItem.productName}`
@@ -102,119 +116,117 @@ class GoodsReceivingModel {
 
         receivingItems.push({
           purchaseOrderItemId: item.purchaseOrderItemId,
+          purchaseOrderId: poItem.purchaseOrderId,
+          purchaseOrderNumber: poItem.purchaseOrderNumber,
           productId: poItem.productId,
           productName: poItem.productName,
           sku: poItem.sku,
-          orderedQuantity: orderedQuantity,
+          orderedQuantity,
           previouslyReceivedQty: alreadyReceived,
           remainingQuantity: remainingQuantity - item.receivingQuantity,
           receivingQuantity: item.receivingQuantity,
+          unitPrice: poItem.unitPrice || 0,
           unit: poItem.product?.stockUnitName || 'Pcs',
-          notes: item.notes || null
+          notes: item.notes || null,
         });
-
-        totalReceivingQty += item.receivingQuantity;
       }
 
-      // ─── Determine GRN status ────────────────────────────────
       let status = 'Draft';
       if (data.status === 'Confirmed') {
-        const allItemsFullyReceived = receivingItems.every(item => item.remainingQuantity === 0);
+        const allItemsFullyReceived = receivingItems.every((item) => item.remainingQuantity === 0);
         status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
       }
 
+      const primaryPo = purchaseOrders[0];
       const locationId = await resolveLocationId(
         tx,
         data.companyId,
-        data.locationId || purchaseOrder.locationId,
+        data.locationId || primaryPo.locationId,
         data.createdBy
       );
 
-      // ─── Create Goods Receiving ──────────────────────────────
+      const purchaseOrderNumbers = purchaseOrders.map((po) => po.orderNumber).join(', ');
+
       const goodsReceiving = await tx.goodsReceiving.create({
         data: {
           grnNumber,
-          purchaseOrderId: data.purchaseOrderId,
-          purchaseOrderNumber: purchaseOrder.orderNumber,
-          supplierId: purchaseOrder.supplierId,
-          supplierName: purchaseOrder.supplierName,
+          purchaseOrderId: primaryPo.id,
+          purchaseOrderNumber: primaryPo.orderNumber,
+          purchaseOrderNumbers,
+          supplierId: primaryPo.supplierId,
+          supplierName: primaryPo.supplierName,
           receivingDate: new Date(data.receivingDate || Date.now()),
-          status: status,
+          status,
           receivedBy: data.receivedBy || null,
           notes: data.notes || null,
           createdBy: data.createdBy,
-          companyId: data.companyId,  // ✅ FIXED: Use companyId instead of userId
+          companyId: data.companyId,
           locationId,
-          items: {
-            create: receivingItems
-          }
+          items: { create: receivingItems },
+          purchaseOrders: {
+            create: purchaseOrders.map((po) => ({
+              purchaseOrderId: po.id,
+              purchaseOrderNumber: po.orderNumber,
+            })),
+          },
         },
         include: {
           items: {
             include: {
               product: true,
-              purchaseOrderItem: true
-            }
+              purchaseOrderItem: true,
+            },
           },
-          purchaseOrder: {
-            include: {
-              supplier: true
-            }
-          },
+          purchaseOrders: true,
+          purchaseOrder: { include: { supplier: true } },
           supplier: true,
           creator: {
-            select: { id: true, firstName: true, lastName: true, email: true }
-          }
-        }
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
       });
 
-      // Add supplier details from the supplier relation
-      const supplierDetails = goodsReceiving.supplier ? {
-        supplierEmail: goodsReceiving.supplier.email,
-        supplierPhone: goodsReceiving.supplier.phone,
-        supplierAddress: goodsReceiving.supplier.address
-      } : {};
+      const supplierDetails = goodsReceiving.supplier
+        ? {
+            supplierEmail: goodsReceiving.supplier.email,
+            supplierPhone: goodsReceiving.supplier.phone,
+            supplierAddress: goodsReceiving.supplier.address,
+          }
+        : {};
 
-      // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
       const totalReceivedQty = goodsReceiving.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
       const totalOrderedQty = goodsReceiving.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
       const totalItems = goodsReceiving.items.length;
       const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
 
-      const goodsReceivingWithTotals = {
-        ...goodsReceiving,
-        ...supplierDetails,
-        totalReceivedQty,
-        totalOrderedQty,
-        totalItems,
-        receivingProgress
-      };
-
-      // Stock is applied only via confirmReceiving — not on create
       if (data.status === 'Confirmed') {
-        const allItemsFullyReceived = receivingItems.every(
-          (item) => item.remainingQuantity === 0
-        );
-        if (allItemsFullyReceived) {
-          await tx.purchaseOrder.update({
-            where: { id: data.purchaseOrderId },
-            data: {
-              status: 'Received',
-              updatedBy: data.createdBy,
-            },
+        for (const po of purchaseOrders) {
+          const poItems = receivingItems.filter((i) => i.purchaseOrderId === po.id);
+          if (!poItems.length) continue;
+          const allFully = po.items.every((poi) => {
+            const recv = (previousReceivedQty[poi.id] || 0) +
+              (poItems.find((i) => i.purchaseOrderItemId === poi.id)?.receivingQuantity || 0);
+            return recv >= poi.quantity;
           });
-        } else if (!['Received', 'Cancelled'].includes(purchaseOrder.status)) {
           await tx.purchaseOrder.update({
-            where: { id: data.purchaseOrderId },
+            where: { id: po.id },
             data: {
-              status: 'Partially Received',
+              status: allFully ? 'Received' : 'Partially Received',
               updatedBy: data.createdBy,
             },
           });
         }
       }
 
-      return goodsReceivingWithTotals;
+      return {
+        ...goodsReceiving,
+        ...supplierDetails,
+        totalReceivedQty,
+        totalOrderedQty,
+        totalItems,
+        receivingProgress,
+        canEdit: goodsReceiving.status === 'Draft',
+      };
     });
   }
 
@@ -440,6 +452,7 @@ class GoodsReceivingModel {
             }
           }
         },
+        purchaseOrders: true,
         purchaseOrder: {
           include: {
             supplier: true,
@@ -465,7 +478,12 @@ class GoodsReceivingModel {
     const supplierDetails = grn.supplier ? {
       supplierEmail: grn.supplier.email,
       supplierPhone: grn.supplier.phone,
-      supplierAddress: grn.supplier.address
+      supplierAddress: grn.supplier.address,
+      supplierCity: grn.supplier.city,
+      supplierCountry: grn.supplier.country,
+      supplierContactPerson: grn.supplier.contactPerson,
+      supplierPaymentTerms: grn.supplier.paymentTerms,
+      supplierGstNumber: grn.supplier.gstNumber || grn.supplier.taxId,
     } : {};
 
     // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
@@ -473,14 +491,23 @@ class GoodsReceivingModel {
     const totalOrderedQty = grn.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
     const totalItems = grn.items.length;
     const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+    const isDraft = grn.status === 'Draft' && !grn.confirmedAt;
 
     return {
       ...grn,
       ...supplierDetails,
+      purchaseOrderNumbers:
+        grn.purchaseOrderNumbers ||
+        (grn.purchaseOrders?.length
+          ? grn.purchaseOrders.map((l) => l.purchaseOrderNumber).join(', ')
+          : grn.purchaseOrderNumber),
       totalReceivedQty,
       totalOrderedQty,
       totalItems,
-      receivingProgress
+      receivingProgress,
+      canEdit: isDraft,
+      canConfirm: isDraft,
+      canDelete: isDraft,
     };
   }
 
@@ -620,6 +647,7 @@ class GoodsReceivingModel {
             }
           }
         },
+        purchaseOrders: true,
         purchaseOrder: {
           include: {
             supplier: true
@@ -651,10 +679,18 @@ class GoodsReceivingModel {
       return {
         ...grn,
         ...supplierDetails,
+        purchaseOrderNumbers:
+          grn.purchaseOrderNumbers ||
+          (grn.purchaseOrders?.length
+            ? grn.purchaseOrders.map((l) => l.purchaseOrderNumber).join(', ')
+            : grn.purchaseOrderNumber),
         totalReceivedQty,
         totalOrderedQty,
         totalItems,
-        receivingProgress
+        receivingProgress,
+        canConfirm: grn.status === 'Draft',
+        canEdit: grn.status === 'Draft',
+        canDelete: grn.status === 'Draft',
       };
     });
   }
@@ -686,15 +722,18 @@ class GoodsReceivingModel {
     return await prisma.$transaction(async (tx) => {
       const goodsReceiving = await tx.goodsReceiving.findUnique({
         where: { id },
-        include: { items: true }
+        include: {
+          items: true,
+          purchaseOrders: true,
+        },
       });
 
       if (!goodsReceiving) {
         throw new Error('Goods receiving not found');
       }
 
-      if (goodsReceiving.confirmedAt) {
-        throw new Error('Cannot update confirmed goods receiving');
+      if (goodsReceiving.confirmedAt || goodsReceiving.status !== 'Draft') {
+        throw new Error('Only draft goods receiving can be updated');
       }
 
       const updateData = {
@@ -702,58 +741,76 @@ class GoodsReceivingModel {
         ...(data.receivingDate && { receivingDate: new Date(data.receivingDate) }),
         ...(data.receivedBy !== undefined && { receivedBy: data.receivedBy }),
         ...(data.notes !== undefined && { notes: data.notes }),
-        ...(data.status && { status: data.status })
       };
 
       if (data.items) {
         await tx.goodsReceivingItem.deleteMany({
-          where: { goodsReceivingId: id }
+          where: { goodsReceivingId: id },
         });
 
-        const purchaseOrder = await tx.purchaseOrder.findUnique({
-          where: { id: goodsReceiving.purchaseOrderId },
+        const linkedIds = [
+          ...new Set(
+            [
+              goodsReceiving.purchaseOrderId,
+              ...(goodsReceiving.purchaseOrders || []).map((l) => l.purchaseOrderId),
+            ]
+              .filter(Boolean)
+              .map(String)
+          ),
+        ];
+
+        const purchaseOrders = await tx.purchaseOrder.findMany({
+          where: {
+            id: { in: linkedIds },
+            isActive: true,
+            isDeleted: false,
+          },
           include: {
-            items: {
-              include: {
-                product: true
-              }
-            }
-          }
+            items: { include: { product: true } },
+          },
         });
 
-        if (!purchaseOrder) {
-          throw new Error('Purchase order not found');
+        if (!purchaseOrders.length) {
+          throw new Error('Linked purchase orders not found');
+        }
+
+        const poItemById = {};
+        for (const po of purchaseOrders) {
+          for (const item of po.items) {
+            poItemById[item.id] = {
+              ...item,
+              purchaseOrderId: po.id,
+              purchaseOrderNumber: po.orderNumber,
+            };
+          }
         }
 
         const previousGRNs = await tx.goodsReceiving.findMany({
           where: {
-            purchaseOrderId: goodsReceiving.purchaseOrderId,
+            companyId: goodsReceiving.companyId,
             isActive: true,
             isDeleted: false,
-            status: {
-              in: ['Partially Received', 'Fully Received']
-            },
-            id: { not: id }
+            status: { in: ['Partially Received', 'Fully Received'] },
+            id: { not: id },
+            OR: [
+              { purchaseOrderId: { in: linkedIds } },
+              { purchaseOrders: { some: { purchaseOrderId: { in: linkedIds } } } },
+            ],
           },
-          include: {
-            items: true
-          }
+          include: { items: true },
         });
 
         const previousReceivedQty = {};
         for (const grn of previousGRNs) {
           for (const item of grn.items) {
-            previousReceivedQty[item.purchaseOrderItemId] = 
+            previousReceivedQty[item.purchaseOrderItemId] =
               (previousReceivedQty[item.purchaseOrderItemId] || 0) + item.receivingQuantity;
           }
         }
 
         const receivingItems = [];
-        let totalReceivingQty = 0;
-
         for (const item of data.items) {
-          const poItem = purchaseOrder.items.find(pi => pi.id === item.purchaseOrderItemId);
-          
+          const poItem = poItemById[item.purchaseOrderItemId];
           if (!poItem) {
             throw new Error(`Purchase order item ${item.purchaseOrderItemId} not found`);
           }
@@ -765,7 +822,6 @@ class GoodsReceivingModel {
           if (item.receivingQuantity <= 0) {
             throw new Error(`Receiving quantity must be greater than 0 for product ${poItem.productName}`);
           }
-
           if (item.receivingQuantity > remainingQuantity) {
             throw new Error(
               `Receiving quantity (${item.receivingQuantity}) exceeds remaining quantity (${remainingQuantity}) for product ${poItem.productName}`
@@ -774,30 +830,23 @@ class GoodsReceivingModel {
 
           receivingItems.push({
             purchaseOrderItemId: item.purchaseOrderItemId,
+            purchaseOrderId: poItem.purchaseOrderId,
+            purchaseOrderNumber: poItem.purchaseOrderNumber,
             productId: poItem.productId,
             productName: poItem.productName,
             sku: poItem.sku,
-            orderedQuantity: orderedQuantity,
+            orderedQuantity,
             previouslyReceivedQty: alreadyReceived,
             remainingQuantity: remainingQuantity - item.receivingQuantity,
             receivingQuantity: item.receivingQuantity,
+            unitPrice: poItem.unitPrice || 0,
             unit: poItem.product?.stockUnitName || 'Pcs',
-            notes: item.notes || null
+            notes: item.notes || null,
           });
-
-          totalReceivingQty += item.receivingQuantity;
         }
 
-        const allItemsFullyReceived = receivingItems.every(item => item.remainingQuantity === 0);
-        let status = goodsReceiving.status;
-        if (data.status !== 'Draft') {
-          status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
-        }
-
-        updateData.status = status;
-        updateData.items = {
-          create: receivingItems
-        };
+        updateData.status = 'Draft';
+        updateData.items = { create: receivingItems };
       }
 
       const updatedGRN = await tx.goodsReceiving.update({
@@ -807,19 +856,30 @@ class GoodsReceivingModel {
           items: {
             include: {
               product: true,
-              purchaseOrderItem: true
-            }
+              purchaseOrderItem: true,
+            },
           },
+          purchaseOrders: true,
           purchaseOrder: {
             include: {
-              supplier: true
-            }
+              supplier: true,
+            },
           },
-          supplier: true
-        }
+          supplier: true,
+        },
       });
 
-      return updatedGRN;
+      return {
+        ...updatedGRN,
+        purchaseOrderNumbers:
+          updatedGRN.purchaseOrderNumbers ||
+          (updatedGRN.purchaseOrders?.length
+            ? updatedGRN.purchaseOrders.map((l) => l.purchaseOrderNumber).join(', ')
+            : updatedGRN.purchaseOrderNumber),
+        canEdit: true,
+        canConfirm: true,
+        canDelete: true,
+      };
     });
   }
 

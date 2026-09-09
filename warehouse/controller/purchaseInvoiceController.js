@@ -108,7 +108,7 @@ const createInvoiceFromGRN = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Purchase invoice created and posted successfully',
+      message: 'Purchase invoice created as draft. Review and post when ready.',
       data: invoice
     });
   } catch (error) {
@@ -117,6 +117,67 @@ const createInvoiceFromGRN = async (req, res) => {
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// @desc    Create Purchase Invoice from multiple GRNs/POs
+// @route   POST /api/purchase/invoices/from-sources
+// @access  Private
+const createInvoiceFromSources = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const {
+      goodsReceivingIds,
+      purchaseOrderIds,
+      items,
+      supplierInvoiceNo,
+      invoiceDate,
+      dueDate,
+      paymentTerms,
+      notes,
+      locationId,
+    } = req.body;
+
+    const postingDate = invoiceDate ? new Date(invoiceDate) : new Date();
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
+    const invoice = await PurchaseInvoice.createFromSources({
+      goodsReceivingIds: goodsReceivingIds || [],
+      purchaseOrderIds: purchaseOrderIds || [],
+      items,
+      supplierInvoiceNo,
+      invoiceDate,
+      dueDate,
+      paymentTerms,
+      notes,
+      locationId,
+      createdBy: userId,
+      userId,
+      companyId,
+      fiscalYearId,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Purchase invoice draft created from selected documents',
+      data: invoice,
+    });
+  } catch (error) {
+    console.error('Create invoice from sources error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Server error',
     });
   }
 };
@@ -199,7 +260,7 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Purchase invoice created and posted successfully',
+      message: 'Purchase invoice created as draft. Review and post when ready.',
       data: invoice
     });
   } catch (error) {
@@ -440,9 +501,17 @@ const getPurchaseInvoiceById = async (req, res) => {
       });
     }
 
+    const isDraft = invoice.invoiceStatus === 'Draft';
     res.status(200).json({
       success: true,
-      data: invoice
+      data: {
+        ...invoice,
+        canEdit: isDraft,
+        canPost: isDraft,
+        canCancel: ['Posted', 'Partially Paid'].includes(invoice.invoiceStatus),
+        canDelete: isDraft,
+        totalItems: invoice.items?.length || 0,
+      }
     });
   } catch (error) {
     console.error('Get purchase invoice error:', error);
@@ -788,10 +857,8 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
     const companyId = req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
-    // ✅ FIXED: Use createdBy and companyId
     const where = {
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       isActive: true,
       isDeleted: false,
       status: {
@@ -823,6 +890,7 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         location: {
           select: { id: true, name: true, code: true, type: true }
         },
+        purchaseOrders: true,
         purchaseInvoices: {
           where: {
             isActive: true,
@@ -888,12 +956,23 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         purchaseOrderId: grn.purchaseOrderId,
         purchaseOrderNumber:
           grn.purchaseOrderNumber || grn.purchaseOrder?.orderNumber,
+        purchaseOrderNumbers:
+          grn.purchaseOrderNumbers ||
+          (grn.purchaseOrders?.length
+            ? grn.purchaseOrders.map((l) => l.purchaseOrderNumber).join(', ')
+            : grn.purchaseOrderNumber || grn.purchaseOrder?.orderNumber),
         supplierId: grn.supplierId,
         supplierName: grn.supplierName,
         supplierEmail: grn.supplier?.email || grn.purchaseOrder?.supplierEmail,
         supplierPhone: grn.supplier?.phone || grn.purchaseOrder?.supplierPhone,
         supplierAddress: grn.supplier?.address || grn.purchaseOrder?.supplierAddress,
+        supplierCompanyName: grn.supplier?.companyName || null,
+        supplierContactPerson: grn.supplier?.contactPerson || null,
+        supplierPaymentTerms: grn.supplier?.paymentTerms || null,
+        supplierGstNumber: grn.supplier?.gstNumber || grn.supplier?.taxId || null,
         receivingDate: grn.receivingDate,
+        receivedBy: grn.receivedBy,
+        notes: grn.notes,
         status: grn.status,
         locationId: grn.locationId,
         locationName: grn.location?.name,
@@ -1173,6 +1252,7 @@ const printPurchaseInvoice = async (req, res) => {
 
 module.exports = {
   createInvoiceFromGRN,
+  createInvoiceFromSources,
   createInvoiceFromPurchaseOrder,
   postPurchaseInvoice,
   getPurchaseInvoices,

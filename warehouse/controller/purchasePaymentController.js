@@ -349,6 +349,7 @@ const getPaymentById = async (req, res) => {
     const paymentWithProps = {
       ...payment,
       totalInvoices: payment.invoicePayments.length,
+      canEdit: payment.status !== 'Cancelled',
       canCancel: payment.status === 'Completed',
       canDelete: payment.status === 'Cancelled'
     };
@@ -602,6 +603,45 @@ const deletePayment = async (req, res) => {
   }
 };
 
+// @desc    Update payment metadata (notes/reference/date/method)
+// @route   PUT /api/purchase/payments/:id
+// @access  Private
+const updatePayment = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { id } = req.params;
+    const { paymentDate, paymentMethod, reference, notes } = req.body;
+
+    const existing = await prisma.purchasePaymentMake.findFirst({
+      where: { id, companyId, isActive: true, isDeleted: false },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    const updated = await PurchasePaymentMake.updateMetadata(id, {
+      updatedBy: userId,
+      paymentDate,
+      paymentMethod,
+      reference,
+      notes,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment updated',
+      data: updated,
+    });
+  } catch (error) {
+    console.error('Update payment error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to update payment',
+    });
+  }
+};
+
 // ─── EXPORT CONTROLLERS ──────────────────────────────────────
 
 module.exports = {
@@ -613,5 +653,6 @@ module.exports = {
   cancelPayment,
   getPaymentStats,
   getPaymentVoucher,
-  deletePayment
+  deletePayment,
+  updatePayment,
 };

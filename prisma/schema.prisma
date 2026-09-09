@@ -71,6 +71,7 @@ model Company {
   deliveries         Delivery[]             @relation("DeliveryCompany")
   quotations         Quotation[]            @relation("QuotationCompany")
   purchaseOrders     PurchaseOrder[]        @relation("PurchaseOrderCompany")
+  purchaseRequisitions PurchaseRequisition[] @relation("PurchaseRequisitionCompany")
   taxJurisdictions   TaxJurisdiction[]      @relation("TaxJurisdictionCompany")
   taxTypes           TaxType[]              @relation("TaxTypeCompany")
   taxRates           TaxRate[]              @relation("TaxRateCompany")
@@ -129,16 +130,17 @@ model Location {
   stockMovements   StockMovement[]
   orders           Order[]
   deliveries       Delivery[]
-  purchaseOrders   PurchaseOrder[]
-  goodsReceivings  GoodsReceiving[]
-  posTerminals     POSTerminal[]
-  salesInvoices    SalesInvoice[]
-  purchaseInvoices PurchaseInvoice[]
-  quotations       Quotation[]
-  userLocations    UserLocation[]
-  expenses         Expense[]
-  incomes          Income[]
-  journalEntries   JournalEntry[]
+  purchaseOrders       PurchaseOrder[]
+  purchaseRequisitions PurchaseRequisition[]
+  goodsReceivings      GoodsReceiving[]
+  posTerminals         POSTerminal[]
+  salesInvoices        SalesInvoice[]
+  purchaseInvoices     PurchaseInvoice[]
+  quotations           Quotation[]
+  userLocations        UserLocation[]
+  expenses             Expense[]
+  incomes              Income[]
+  journalEntries       JournalEntry[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -289,6 +291,9 @@ model User {
   salesPaymentUpdaters        SalesPaymentReceived[] @relation("SalesPaymentUpdater")
   purchaseOrderCreators       PurchaseOrder[]        @relation("PurchaseOrderCreator")
   purchaseOrderUpdaters       PurchaseOrder[]        @relation("PurchaseOrderUpdater")
+  purchaseRequisitionCreators PurchaseRequisition[]  @relation("PurchaseRequisitionCreator")
+  purchaseRequisitionUpdaters PurchaseRequisition[]  @relation("PurchaseRequisitionUpdater")
+  purchaseRequisitionApprovers PurchaseRequisition[] @relation("PurchaseRequisitionApprover")
   goodsReceivingCreators      GoodsReceiving[]       @relation("GoodsReceivingCreator")
   goodsReceivingUpdaters      GoodsReceiving[]       @relation("GoodsReceivingUpdater")
   goodsReceivingConfirmers    GoodsReceiving[]       @relation("GoodsReceivingConfirmer")
@@ -843,14 +848,15 @@ model Product {
   deliveryItems        DeliveryItem[]
   quotationItems       QuotationItem[]
   salesInvoiceItems    SalesInvoiceItem[]
-  purchaseOrderItems   PurchaseOrderItem[]
-  goodsReceivingItems  GoodsReceivingItem[]
-  purchaseInvoiceItems PurchaseInvoiceItem[]
-  purchaseReturnItems  PurchaseReturnItem[]
-  posSaleItems         POSSaleItem[]
-  posReturnItems       POSReturnItem[]
-  taxExemptions        TaxExemption[]          @relation("ProductTaxExemptions")
-  productStocks        ProductStock[]
+  purchaseOrderItems        PurchaseOrderItem[]
+  purchaseRequisitionItems  PurchaseRequisitionItem[]
+  goodsReceivingItems       GoodsReceivingItem[]
+  purchaseInvoiceItems      PurchaseInvoiceItem[]
+  purchaseReturnItems       PurchaseReturnItem[]
+  posSaleItems              POSSaleItem[]
+  posReturnItems            POSReturnItem[]
+  taxExemptions             TaxExemption[]          @relation("ProductTaxExemptions")
+  productStocks             ProductStock[]
 
   @@unique([sku, companyId])
   @@index([sku])
@@ -982,13 +988,14 @@ model Supplier {
   Loan             Loan[]
   refunds          Refund[]              @relation("SupplierRefunds")
   returns          Return[]              @relation("SupplierReturns")
-  purchaseOrders   PurchaseOrder[]
-  goodsReceivings  GoodsReceiving[]
-  purchaseInvoices PurchaseInvoice[]
-  accountsPayable  AccountsPayable[]
-  purchasePayments PurchasePaymentMake[]
-  purchaseReturns  PurchaseReturn[]
-  transactions     Transaction[]         @relation("SupplierTransactions")
+  purchaseOrders       PurchaseOrder[]
+  purchaseRequisitions PurchaseRequisition[]
+  goodsReceivings      GoodsReceiving[]
+  purchaseInvoices     PurchaseInvoice[]
+  accountsPayable      AccountsPayable[]
+  purchasePayments     PurchasePaymentMake[]
+  purchaseReturns      PurchaseReturn[]
+  transactions         Transaction[]         @relation("SupplierTransactions")
 
   @@unique([code, companyId])
   @@unique([email, companyId])
@@ -1035,10 +1042,6 @@ model Setting {
   @@index([companyId])
   @@map("settings")
 }
-
-// ============================================================
-// STOCK MOVEMENT MODEL
-// ============================================================
 
 model StockMovement {
   id            String @id @default(uuid())
@@ -1089,11 +1092,6 @@ model StockMovement {
   @@index([locationId])
   @@map("stock_movements")
 }
-
-// ============================================================
-// ORDER MODELS
-// ============================================================
-
 model OrderItem {
   id           String  @id @default(uuid())
   orderId      String  @map("order_id")
@@ -1116,7 +1114,6 @@ model OrderItem {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  // Relations
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id])
 
@@ -1233,10 +1230,6 @@ model Order {
   @@map("orders")
 }
 
-// ============================================================
-// RETURN MODELS (Sales & Purchase Returns)
-// ============================================================
-
 model ReturnItem {
   id             String  @id @default(uuid())
   returnId       String  @map("return_id")
@@ -1334,7 +1327,6 @@ model Return {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  // Relations
   items    ReturnItem[]
   order    Order              @relation("OrderReturns", fields: [orderId], references: [id])
   customer User?              @relation("ReturnCustomer", fields: [customerId], references: [id])
@@ -1358,10 +1350,6 @@ model Return {
   @@index([companyId])
   @@map("returns")
 }
-
-// ============================================================
-// REFUND MODELS (Sales & Purchase Refunds)
-// ============================================================
 
 model Refund {
   id           String   @id @default(uuid())
@@ -2933,6 +2921,9 @@ model PurchaseOrder {
   supplierPhone   String? @map("supplier_phone")
   supplierAddress String? @map("supplier_address")
 
+  purchaseRequisitionId     String? @map("purchase_requisition_id")
+  purchaseRequisitionNumber String? @map("purchase_requisition_number")
+
   orderDate            DateTime  @default(now()) @map("order_date")
   expectedDeliveryDate DateTime? @map("expected_delivery_date")
 
@@ -2962,14 +2953,17 @@ model PurchaseOrder {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  items            PurchaseOrderItem[]
-  supplier         Supplier?           @relation(fields: [supplierId], references: [id])
-  creator          User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
-  updater          User?               @relation("PurchaseOrderUpdater", fields: [updatedBy], references: [id])
-  company          Company?            @relation("PurchaseOrderCompany", fields: [companyId], references: [id])
-  location         Location?           @relation(fields: [locationId], references: [id])
-  goodsReceivings  GoodsReceiving[]
-  purchaseInvoices PurchaseInvoice[]
+  items                PurchaseOrderItem[]
+  supplier             Supplier?           @relation(fields: [supplierId], references: [id])
+  purchaseRequisition  PurchaseRequisition? @relation(fields: [purchaseRequisitionId], references: [id])
+  creator              User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
+  updater              User?               @relation("PurchaseOrderUpdater", fields: [updatedBy], references: [id])
+  company              Company?            @relation("PurchaseOrderCompany", fields: [companyId], references: [id])
+  location             Location?           @relation(fields: [locationId], references: [id])
+  goodsReceivings      GoodsReceiving[]
+  goodsReceivingLinks  GoodsReceivingPurchaseOrder[]
+  purchaseInvoices     PurchaseInvoice[]
+  invoiceSources       PurchaseInvoiceSource[]
 
   @@index([orderNumber])
   @@index([supplierId])
@@ -2978,7 +2972,82 @@ model PurchaseOrder {
   @@index([isActive])
   @@index([companyId])
   @@index([locationId])
+  @@index([purchaseRequisitionId])
   @@map("purchase_orders")
+}
+
+model PurchaseRequisitionItem {
+  id                    String  @id @default(uuid())
+  purchaseRequisitionId String  @map("purchase_requisition_id")
+  productId             String  @map("product_id")
+  productName           String  @map("product_name")
+  sku                   String
+  quantity              Float
+  estimatedUnitPrice    Float   @default(0) @map("estimated_unit_price")
+  notes                 String?
+  purpose               String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  purchaseRequisition PurchaseRequisition @relation(fields: [purchaseRequisitionId], references: [id], onDelete: Cascade)
+  product             Product?            @relation(fields: [productId], references: [id])
+
+  @@index([purchaseRequisitionId])
+  @@index([productId])
+  @@map("purchase_requisition_items")
+}
+
+model PurchaseRequisition {
+  id                 String    @id @default(uuid())
+  requisitionNumber  String    @unique @map("requisition_number")
+  title              String?
+  department         String?
+  priority           String    @default("Normal") // Low | Normal | High | Urgent
+  requiredDate       DateTime? @map("required_date")
+  status             String    @default("Draft") // Draft | Submitted | Approved | Rejected | Partially Converted | Converted | Cancelled
+
+  suggestedSupplierId   String? @map("suggested_supplier_id")
+  suggestedSupplierName String? @map("suggested_supplier_name")
+
+  notes            String?
+  rejectionReason  String? @map("rejection_reason")
+
+  submittedAt DateTime? @map("submitted_at")
+  approvedAt  DateTime? @map("approved_at")
+  rejectedAt  DateTime? @map("rejected_at")
+  convertedAt DateTime? @map("converted_at")
+  cancelledAt DateTime? @map("cancelled_at")
+
+  approvedBy String? @map("approved_by")
+  createdBy  String  @map("created_by")
+  updatedBy  String? @map("updated_by")
+  isActive   Boolean @default(true) @map("is_active")
+  isDeleted  Boolean @default(false) @map("is_deleted")
+
+  companyId  String? @map("company_id")
+  locationId String? @map("location_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  items              PurchaseRequisitionItem[]
+  purchaseOrders     PurchaseOrder[]
+  suggestedSupplier  Supplier?                 @relation(fields: [suggestedSupplierId], references: [id])
+  creator            User?                     @relation("PurchaseRequisitionCreator", fields: [createdBy], references: [id])
+  updater            User?                     @relation("PurchaseRequisitionUpdater", fields: [updatedBy], references: [id])
+  approver           User?                     @relation("PurchaseRequisitionApprover", fields: [approvedBy], references: [id])
+  company            Company?                  @relation("PurchaseRequisitionCompany", fields: [companyId], references: [id])
+  location           Location?                 @relation(fields: [locationId], references: [id])
+
+  @@index([requisitionNumber])
+  @@index([status])
+  @@index([requiredDate])
+  @@index([isActive])
+  @@index([companyId])
+  @@index([locationId])
+  @@index([suggestedSupplierId])
+  @@map("purchase_requisitions")
 }
 
 // ============================================================
@@ -2989,6 +3058,8 @@ model GoodsReceivingItem {
   id                    String  @id @default(uuid())
   goodsReceivingId      String  @map("goods_receiving_id")
   purchaseOrderItemId   String  @map("purchase_order_item_id")
+  purchaseOrderId       String? @map("purchase_order_id")
+  purchaseOrderNumber   String? @map("purchase_order_number")
   productId             String  @map("product_id")
   productName           String  @map("product_name")
   sku                   String
@@ -2996,6 +3067,7 @@ model GoodsReceivingItem {
   previouslyReceivedQty Float     @default(0) @map("previously_received_qty")
   remainingQuantity     Float     @map("remaining_quantity")
   receivingQuantity     Float     @map("receiving_quantity")
+  unitPrice             Float     @default(0) @map("unit_price")
   unit                  String  @default("Pcs")
   notes                 String?
 
@@ -3009,19 +3081,38 @@ model GoodsReceivingItem {
 
   @@index([goodsReceivingId])
   @@index([purchaseOrderItemId])
+  @@index([purchaseOrderId])
   @@index([productId])
   @@map("goods_receiving_items")
 }
 
+model GoodsReceivingPurchaseOrder {
+  id                  String @id @default(uuid())
+  goodsReceivingId    String @map("goods_receiving_id")
+  purchaseOrderId     String @map("purchase_order_id")
+  purchaseOrderNumber String @map("purchase_order_number")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  goodsReceiving GoodsReceiving @relation(fields: [goodsReceivingId], references: [id], onDelete: Cascade)
+  purchaseOrder  PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id])
+
+  @@unique([goodsReceivingId, purchaseOrderId])
+  @@index([goodsReceivingId])
+  @@index([purchaseOrderId])
+  @@map("goods_receiving_purchase_orders")
+}
+
 model GoodsReceiving {
-  id                  String   @id @default(uuid())
-  grnNumber           String   @unique @map("grn_number")
-  purchaseOrderId     String   @map("purchase_order_id")
-  purchaseOrderNumber String   @map("purchase_order_number")
-  supplierId          String   @map("supplier_id")
-  supplierName        String   @map("supplier_name")
-  receivingDate       DateTime @default(now()) @map("receiving_date")
-  status              String   @default("Draft")
+  id                   String   @id @default(uuid())
+  grnNumber            String   @unique @map("grn_number")
+  purchaseOrderId      String   @map("purchase_order_id")
+  purchaseOrderNumber  String   @map("purchase_order_number")
+  purchaseOrderNumbers String?  @map("purchase_order_numbers")
+  supplierId           String   @map("supplier_id")
+  supplierName         String   @map("supplier_name")
+  receivingDate        DateTime @default(now()) @map("receiving_date")
+  status               String   @default("Draft")
 
   receivedBy String? @map("received_by")
   notes      String?
@@ -3042,6 +3133,7 @@ model GoodsReceiving {
 
   // Relations
   items            GoodsReceivingItem[]
+  purchaseOrders   GoodsReceivingPurchaseOrder[]
   purchaseOrder    PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id])
   supplier         Supplier?            @relation(fields: [supplierId], references: [id])
   creator          User?                @relation("GoodsReceivingCreator", fields: [createdBy], references: [id])
@@ -3050,6 +3142,7 @@ model GoodsReceiving {
   company          Company?             @relation("GoodsReceivingCompany", fields: [companyId], references: [id])
   location         Location?            @relation(fields: [locationId], references: [id])
   purchaseInvoices PurchaseInvoice[]
+  invoiceSources   PurchaseInvoiceSource[]
 
   @@index([grnNumber])
   @@index([purchaseOrderId])
@@ -3095,6 +3188,26 @@ model PurchaseInvoiceItem {
   @@map("purchase_invoice_items")
 }
 
+model PurchaseInvoiceSource {
+  id               String  @id @default(uuid())
+  invoiceId        String  @map("invoice_id")
+  sourceType       String  @map("source_type") // GRN | PO
+  goodsReceivingId String? @map("goods_receiving_id")
+  purchaseOrderId  String? @map("purchase_order_id")
+  sourceNumber     String  @map("source_number")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  invoice        PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  goodsReceiving GoodsReceiving? @relation(fields: [goodsReceivingId], references: [id])
+  purchaseOrder  PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([invoiceId])
+  @@index([goodsReceivingId])
+  @@index([purchaseOrderId])
+  @@map("purchase_invoice_sources")
+}
+
 model PurchaseInvoice {
   id                String  @id @default(uuid())
   invoiceNumber     String  @unique @map("invoice_number")
@@ -3108,6 +3221,7 @@ model PurchaseInvoice {
   purchaseOrderNumber String? @map("purchase_order_number")
   goodsReceivingId    String? @map("goods_receiving_id")
   grnNumber           String? @map("grn_number")
+  sourceSummary       String? @map("source_summary")
 
   invoiceDate  DateTime @default(now()) @map("invoice_date")
   dueDate      DateTime @map("due_date")
@@ -3148,6 +3262,7 @@ model PurchaseInvoice {
 
   // Relations
   items              PurchaseInvoiceItem[]
+  sources            PurchaseInvoiceSource[]
   supplier           Supplier?                @relation(fields: [supplierId], references: [id])
   purchaseOrder      PurchaseOrder?           @relation(fields: [purchaseOrderId], references: [id])
   goodsReceiving     GoodsReceiving?          @relation(fields: [goodsReceivingId], references: [id])
@@ -3261,7 +3376,6 @@ model SalesInvoice {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  // Relations
   items               SalesInvoiceItem[]
   order               Order?                @relation(fields: [orderId], references: [id])
   delivery            Delivery?             @relation(fields: [deliveryId], references: [id])
@@ -3851,7 +3965,6 @@ model TaxExemption {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  // Relations
   exemptionType TaxExemptionType @relation(fields: [exemptionTypeId], references: [id])
   customer      Customer?        @relation("CustomerTaxExemptions", fields: [customerId], references: [id])
   product       Product?         @relation("ProductTaxExemptions", fields: [productId], references: [id])
