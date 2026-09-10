@@ -656,7 +656,7 @@ model HrShift {
   endTime            String   @map("end_time")
   breakMinutes       Int      @default(60) @map("break_minutes")
   graceMinutes       Int      @default(15) @map("grace_minutes")
-  workingDays        Json?
+  workingDays        Json?    @map("working_days")
   isNight            Boolean  @default(false) @map("is_night")
   isFlexible         Boolean  @default(false) @map("is_flexible")
   overtimeAfterHours Float    @default(8) @map("overtime_after_hours")

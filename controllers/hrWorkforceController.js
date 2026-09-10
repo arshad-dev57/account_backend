@@ -110,6 +110,7 @@ function serializeOvertime(row) {
     date: ymd(row.workDate),
     hours: row.hours,
     rate: row.rate,
+    amount: row.amount,
     reason: row.reason,
     status: row.status
   };
@@ -669,8 +670,15 @@ exports.generatePayroll = async (req, res) => {
       loanByEmp.set(row.employeeId, (loanByEmp.get(row.employeeId) || 0) + Number(row.monthlyDeduct || 0));
     });
     const bonusByEmp = new Map();
+    const commissionByEmp = new Map();
     bonuses.forEach((row) => {
-      bonusByEmp.set(row.employeeId, (bonusByEmp.get(row.employeeId) || 0) + Number(row.amount || 0));
+      const kind = String(row.kind || '').toLowerCase();
+      const amt = Number(row.amount || 0);
+      if (kind === 'sales' || kind === 'commission' || kind.includes('commission')) {
+        commissionByEmp.set(row.employeeId, (commissionByEmp.get(row.employeeId) || 0) + amt);
+      } else {
+        bonusByEmp.set(row.employeeId, (bonusByEmp.get(row.employeeId) || 0) + amt);
+      }
     });
 
     const items = [];
@@ -681,6 +689,7 @@ exports.generatePayroll = async (req, res) => {
         continue;
       }
       const prevBreak = prev?.breakdown && typeof prev.breakdown === 'object' ? prev.breakdown : {};
+      const keep = req.body.keepAdjustments !== false;
       const slip = payrollEngine.computePayslip({
         employee: emp,
         period,
@@ -689,8 +698,13 @@ exports.generatePayroll = async (req, res) => {
         leaveRows: leaveByEmp.get(emp.id) || [],
         overtimeAmount: otAmount.get(emp.id) || 0,
         overtimeHours: otHours.get(emp.id) || 0,
-        bonus: Number(req.body.keepAdjustments === false ? 0 : (prevBreak.earnings?.bonus || bonusByEmp.get(emp.id) || 0)),
-        loan: Number(req.body.keepAdjustments === false ? 0 : (prevBreak.deductions?.loan || loanByEmp.get(emp.id) || 0)),
+        bonus: Number(keep ? (prevBreak.earnings?.bonus ?? bonusByEmp.get(emp.id) ?? 0) : (bonusByEmp.get(emp.id) || 0)),
+        commission: Number(
+          keep ? (prevBreak.earnings?.commission ?? commissionByEmp.get(emp.id) ?? 0) : (commissionByEmp.get(emp.id) || 0)
+        ),
+        loan: Number(keep ? (prevBreak.deductions?.loan ?? loanByEmp.get(emp.id) ?? 0) : (loanByEmp.get(emp.id) || 0)),
+        attendanceCut: keep && prevBreak.attendanceCutManual ? prevBreak.deductions?.attendanceCut : null,
+        otherCut: Number(keep ? (prevBreak.deductions?.otherCut || 0) : 0),
         notes: prev?.notes || ''
       });
       const row = await prisma.hrPayrollItem.upsert({
@@ -762,7 +776,12 @@ exports.updatePayroll = async (req, res) => {
     }
     if (
       existing.status === 'Paid' &&
-      (req.body.bonus != null || req.body.loan != null || req.body.notes != null)
+      (req.body.bonus != null ||
+        req.body.commission != null ||
+        req.body.loan != null ||
+        req.body.attendanceCut != null ||
+        req.body.otherCut != null ||
+        req.body.notes != null)
     ) {
       return res.status(400).json({ success: false, message: 'Paid payslips are locked' });
     }
@@ -770,7 +789,16 @@ exports.updatePayroll = async (req, res) => {
     const breakdown = {
       ...(existing.breakdown && typeof existing.breakdown === 'object' ? existing.breakdown : {}),
     };
-    if (req.body.bonus != null || req.body.loan != null || req.body.notes != null) {
+    const needsRecalc =
+      req.body.bonus != null ||
+      req.body.commission != null ||
+      req.body.loan != null ||
+      req.body.attendanceCut != null ||
+      req.body.otherCut != null ||
+      req.body.notes != null ||
+      req.body.resetAttendanceCut === true;
+
+    if (needsRecalc) {
       const settings = await loadSettings(companyId);
       const period = existing.period;
       const { start, endExclusive } = payrollEngine.periodBounds(period);
@@ -796,6 +824,14 @@ exports.updatePayroll = async (req, res) => {
           }
         })
       ]);
+      let attendanceCutArg = null;
+      if (req.body.resetAttendanceCut === true) {
+        attendanceCutArg = null;
+      } else if (req.body.attendanceCut != null) {
+        attendanceCutArg = Number(req.body.attendanceCut);
+      } else if (breakdown.attendanceCutManual) {
+        attendanceCutArg = Number(breakdown.deductions?.attendanceCut ?? 0);
+      }
       const slip = payrollEngine.computePayslip({
         employee: existing.employee,
         period,
@@ -805,7 +841,16 @@ exports.updatePayroll = async (req, res) => {
         overtimeAmount: otRows.reduce((s, r) => s + Number(r.amount || 0), 0),
         overtimeHours: otRows.reduce((s, r) => s + Number(r.hours || 0), 0),
         bonus: req.body.bonus != null ? Number(req.body.bonus) : Number(breakdown.earnings?.bonus || 0),
+        commission:
+          req.body.commission != null
+            ? Number(req.body.commission)
+            : Number(breakdown.earnings?.commission || 0),
         loan: req.body.loan != null ? Number(req.body.loan) : Number(breakdown.deductions?.loan || 0),
+        attendanceCut: attendanceCutArg,
+        otherCut:
+          req.body.otherCut != null
+            ? Number(req.body.otherCut)
+            : Number(breakdown.deductions?.otherCut || 0),
         notes: req.body.notes != null ? String(req.body.notes) : existing.notes
       });
       Object.assign(breakdown, slip);

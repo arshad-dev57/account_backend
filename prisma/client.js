@@ -42,12 +42,22 @@ function restaurantLineHasKitchenStation(client) {
   }
 }
 
+function hasHrModels(client) {
+  return Boolean(
+    client?.hrOffice &&
+      client?.hrEmployee &&
+      client?.hrAttendance &&
+      client?.hrLeave
+  );
+}
+
 function clientSchemaIsCurrent(client) {
   return (
     userModelHasAssignedTerminal(client) &&
     companyModelHasPosMode(client) &&
     companyModelHasPosModeConfigured(client) &&
-    restaurantLineHasKitchenStation(client)
+    restaurantLineHasKitchenStation(client) &&
+    hasHrModels(client)
   );
 }
 

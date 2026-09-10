@@ -703,7 +703,16 @@ exports.listApprovals = wrap(async (req, res, companyId) => {
     orderBy: { createdAt: 'desc' },
     take: 200
   });
-  res.json({ success: true, data: rows });
+  res.json({
+    success: true,
+    data: rows.map((r) => ({
+      ...r,
+      module: r.module || 'HR',
+      title: r.title || 'Approval request',
+      employee: r.requestedBy || '',
+      createdAt: r.createdAt
+    }))
+  });
 });
 
 exports.updateApproval = wrap(async (req, res, companyId) => {

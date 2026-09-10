@@ -84,7 +84,14 @@ function statutorySummary(items = []) {
     late: pick((r) => r.breakdown?.deductions?.late),
     loan: pick((r) => r.breakdown?.deductions?.loan),
     overtime: pick((r) => r.overtime),
-    bonus: pick((r) => r.breakdown?.earnings?.bonus)
+    bonus: pick((r) => r.breakdown?.earnings?.bonus),
+    commission: pick((r) => r.breakdown?.earnings?.commission),
+    attendanceCut: pick(
+      (r) =>
+        Number(r.breakdown?.deductions?.attendanceCut ?? 0) ||
+        Number(r.breakdown?.deductions?.unpaidLeave || 0) + Number(r.breakdown?.deductions?.late || 0)
+    ),
+    otherCut: pick((r) => r.breakdown?.deductions?.otherCut)
   };
 }
 
@@ -156,7 +163,12 @@ function computePayslip({
   overtimeAmount = 0,
   overtimeHours = 0,
   bonus = 0,
+  commission = 0,
   loan = 0,
+  /** Optional HR override for attendance cut (unpaid + late). null = auto */
+  attendanceCut = null,
+  /** Extra HR cut (misc / penalty) */
+  otherCut = 0,
   notes = ''
 }) {
   const cfg = paySettings(settings);
@@ -191,19 +203,28 @@ function computePayslip({
   const medicalAllowance = money(packageAmount * pct('medicalPct'));
   const overtime = money(overtimeAmount);
   const bonusAmt = money(bonus);
-  const gross = money(
-    basic + houseAllowance + transportAllowance + medicalAllowance + overtime + bonusAmt
-  );
+  const commissionAmt = money(commission);
+  const allowances = money(houseAllowance + transportAllowance + medicalAllowance);
+  const gross = money(basic + allowances + overtime + bonusAmt + commissionAmt);
 
   const dailyRate = money(packageAmount / workingDays);
-  const unpaidLeaveDeduction = money(dailyRate * unpaidLeaveDays);
-  const lateDeduction = money(Number(cfg.lateDeductionPerDay || 0) * lateDays);
+  const unpaidLeaveAuto = money(dailyRate * unpaidLeaveDays);
+  const lateAuto = money(Number(cfg.lateDeductionPerDay || 0) * lateDays);
+  const attendanceAuto = money(unpaidLeaveAuto + lateAuto);
+  const attendanceOverride =
+    attendanceCut != null && attendanceCut !== '' ? money(attendanceCut) : null;
+  const attendanceCutAmt = attendanceOverride != null ? attendanceOverride : attendanceAuto;
+  // Keep unpaid/late split for display when using auto; when overridden, put all in unpaidLeave
+  const unpaidLeaveDeduction =
+    attendanceOverride != null ? attendanceCutAmt : unpaidLeaveAuto;
+  const lateDeduction = attendanceOverride != null ? 0 : lateAuto;
   const tax = money(basic * pct('taxPct'));
   const eobi = money(basic * pct('eobiPct'));
   const providentFund = money(basic * pct('pfPct'));
   const loanAmt = money(loan);
+  const otherCutAmt = money(otherCut);
   const totalDeductions = money(
-    unpaidLeaveDeduction + lateDeduction + tax + eobi + providentFund + loanAmt
+    attendanceCutAmt + tax + eobi + providentFund + loanAmt + otherCutAmt
   );
   const net = money(Math.max(0, gross - totalDeductions));
 
@@ -212,6 +233,9 @@ function computePayslip({
   if (unpaidLeaveDays >= 3) exceptions.push(`${unpaidLeaveDays} unpaid / absent days`);
   if (factor < 1) exceptions.push('Pro-rated for mid-month joining');
   if (lateDays >= 3) exceptions.push(`${lateDays} late arrivals`);
+  if (attendanceOverride != null && attendanceOverride !== attendanceAuto) {
+    exceptions.push('Attendance cut manually adjusted');
+  }
 
   return {
     period,
@@ -223,22 +247,30 @@ function computePayslip({
     lateDays,
     overtimeHours: money(overtimeHours),
     proRata: money(factor),
+    package: packageAmount,
+    dailyRate,
+    attendanceCutAuto: attendanceAuto,
+    attendanceCutManual: attendanceOverride != null,
     earnings: {
       basic,
       houseAllowance,
       transportAllowance,
       medicalAllowance,
+      allowances,
       overtime,
       bonus: bonusAmt,
+      commission: commissionAmt,
       gross
     },
     deductions: {
       unpaidLeave: unpaidLeaveDeduction,
       late: lateDeduction,
+      attendanceCut: attendanceCutAmt,
       tax,
       eobi,
       providentFund,
       loan: loanAmt,
+      otherCut: otherCutAmt,
       total: totalDeductions
     },
     net,
