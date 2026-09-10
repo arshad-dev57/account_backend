@@ -34,9 +34,6 @@ const formatUserResponse = (user) => {
   return baseUser;
 };
 
-/**
- * Formats user data for registration response
- */
 const formatRegisterResponse = (user, token, refreshToken) => {
   return {
     success: true,
@@ -60,9 +57,6 @@ const formatLoginResponse = (user, token, refreshToken) => {
   };
 };
 
-/**
- * Formats user data for getMe response
- */
 const formatGetMeResponse = (user) => {
   return {
     success: true,

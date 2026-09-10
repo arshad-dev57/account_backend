@@ -176,12 +176,10 @@ const getPurchaseRefunds = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // ✅ FIXED: Use createdBy and companyId instead of userId
     const filter = {
       isActive: true,
       isDeleted: false,
-      createdBy: userId,      // ✅ Use createdBy
-      companyId: companyId,   // ✅ Use companyId
+      companyId: companyId,
       refundType: 'Purchase Refund'
     };
 

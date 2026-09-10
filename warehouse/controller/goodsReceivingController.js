@@ -3,15 +3,13 @@
 const GoodsReceiving = require('../models/GoodsReceiving');
 const prisma = require('../../prisma/client');
 
-// @desc    Create Goods Receiving
-// @route   POST /api/purchase/goods-receiving
-// @access  Private
 const createGoodsReceiving = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const {
       purchaseOrderId,
+      purchaseOrderIds,
       receivingDate,
       receivedBy,
       notes,
@@ -20,11 +18,21 @@ const createGoodsReceiving = async (req, res) => {
       locationId,
     } = req.body;
 
-    // ─── Validation ──────────────────────────────────────
-    if (!purchaseOrderId) {
+    const resolvedPoIds = [
+      ...new Set(
+        (purchaseOrderIds?.length
+          ? purchaseOrderIds
+          : purchaseOrderId
+            ? [purchaseOrderId]
+            : []
+        ).map((id) => String(id).trim()).filter(Boolean)
+      ),
+    ];
+
+    if (!resolvedPoIds.length) {
       return res.status(400).json({
         success: false,
-        message: 'Purchase order is required'
+        message: 'At least one purchase order is required'
       });
     }
 
@@ -35,10 +43,9 @@ const createGoodsReceiving = async (req, res) => {
       });
     }
 
-    // ─── Check if purchase order exists ──────────────────
-    const purchaseOrder = await prisma.purchaseOrder.findFirst({
+    const purchaseOrders = await prisma.purchaseOrder.findMany({
       where: {
-        id: purchaseOrderId,
+        id: { in: resolvedPoIds },
         companyId: companyId,
         isActive: true,
         isDeleted: false,
@@ -48,27 +55,34 @@ const createGoodsReceiving = async (req, res) => {
       }
     });
 
-    if (!purchaseOrder) {
+    if (purchaseOrders.length !== resolvedPoIds.length) {
       return res.status(404).json({
         success: false,
-        message: 'Purchase order not found or cancelled'
+        message: 'One or more purchase orders not found or cancelled'
       });
     }
 
-    // ─── Process Items ──────────────────────────────────
+    const supplierIds = [...new Set(purchaseOrders.map((po) => po.supplierId))];
+    if (supplierIds.length > 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'All selected purchase orders must belong to the same supplier'
+      });
+    }
+
     const processedItems = [];
     for (const item of items) {
       const poItem = await prisma.purchaseOrderItem.findFirst({
         where: {
           id: item.purchaseOrderItemId,
-          purchaseOrderId: purchaseOrderId
+          purchaseOrderId: { in: resolvedPoIds }
         }
       });
 
       if (!poItem) {
         return res.status(404).json({
           success: false,
-          message: `Purchase order item ${item.purchaseOrderItemId} not found`
+          message: `Purchase order item ${item.purchaseOrderItemId} not found in selected orders`
         });
       }
 
@@ -82,7 +96,8 @@ const createGoodsReceiving = async (req, res) => {
     // ─── Create Goods Receiving ──────────────────────────
     // ✅ FIXED: Use createdBy and companyId
     const grnData = {
-      purchaseOrderId,
+      purchaseOrderId: resolvedPoIds[0],
+      purchaseOrderIds: resolvedPoIds,
       receivingDate: receivingDate || new Date(),
       receivedBy: receivedBy || '',
       notes: notes || '',
@@ -90,7 +105,7 @@ const createGoodsReceiving = async (req, res) => {
       status: status || 'Draft',
       createdBy: userId,
       companyId: companyId,
-      locationId: locationId || purchaseOrder.locationId || null,
+      locationId: locationId || purchaseOrders[0].locationId || null,
     };
 
     const goodsReceiving = await GoodsReceiving.create(grnData);
@@ -584,7 +599,7 @@ const getAvailablePurchaseOrders = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { search, page = 1, limit = 20, locationId } = req.query;
+    const { search, page = 1, limit = 20, locationId, supplierId } = req.query;
 
     const where = {
       companyId: companyId,
@@ -594,6 +609,7 @@ const getAvailablePurchaseOrders = async (req, res) => {
         notIn: ['Cancelled']
       },
       ...(locationId ? { locationId: String(locationId) } : {}),
+      ...(supplierId ? { supplierId: String(supplierId) } : {}),
     };
 
     if (search) {
@@ -608,8 +624,10 @@ const getAvailablePurchaseOrders = async (req, res) => {
       include: {
         items: {
           include: {
-            product: true
-          }
+            product: {
+              include: { category: true },
+            },
+          },
         },
         supplier: true,
         goodsReceivings: {
@@ -634,22 +652,69 @@ const getAvailablePurchaseOrders = async (req, res) => {
       const receivedQty = {};
       for (const grn of order.goodsReceivings) {
         for (const item of grn.items) {
-          receivedQty[item.purchaseOrderItemId] = 
+          receivedQty[item.purchaseOrderItemId] =
             (receivedQty[item.purchaseOrderItemId] || 0) + item.receivingQuantity;
         }
       }
 
-      const remainingItems = order.items.map(item => ({
-        ...item,
-        alreadyReceived: receivedQty[item.id] || 0,
-        remainingQuantity: item.quantity - (receivedQty[item.id] || 0),
-        receivingQuantity: 0
-      })).filter(item => item.remainingQuantity > 0);
+      const remainingItems = order.items
+        .map((item) => ({
+          id: item.id,
+          productId: item.productId,
+          productName: item.productName,
+          sku: item.sku,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
+          taxRate: item.taxRate,
+          taxAmount: item.taxAmount,
+          lineTotal: item.lineTotal,
+          notes: item.notes,
+          alreadyReceived: receivedQty[item.id] || 0,
+          remainingQuantity: item.quantity - (receivedQty[item.id] || 0),
+          unit: item.product?.stockUnitName || 'Pcs',
+          barcode: item.product?.barcode || item.product?.productId || null,
+          categoryName: item.product?.category?.name || null,
+        }))
+        .filter((item) => item.remainingQuantity > 0);
+
+      const totalRemainingQty = remainingItems.reduce(
+        (sum, item) => sum + item.remainingQuantity,
+        0
+      );
 
       return {
-        ...order,
+        id: order.id,
+        orderNumber: order.orderNumber,
+        supplierId: order.supplierId,
+        supplierName: order.supplierName,
+        supplierEmail: order.supplierEmail || order.supplier?.email || null,
+        supplierPhone: order.supplierPhone || order.supplier?.phone || null,
+        supplierAddress: order.supplierAddress || order.supplier?.address || null,
+        supplierCompanyName: order.supplier?.companyName || null,
+        supplierContactPerson: order.supplier?.contactPerson || null,
+        supplierPaymentTerms: order.supplier?.paymentTerms || null,
+        supplierGstNumber: order.supplier?.gstNumber || order.supplier?.taxId || null,
+        orderDate: order.orderDate,
+        expectedDeliveryDate: order.expectedDeliveryDate,
+        status: order.status,
+        subtotal: order.subtotal,
+        totalDiscount: order.totalDiscount,
+        totalTax: order.totalTax,
+        grandTotal: order.grandTotal,
+        notes: order.notes,
+        termsConditions: order.termsConditions,
+        purchaseRequisitionId: order.purchaseRequisitionId,
+        purchaseRequisitionNumber: order.purchaseRequisitionNumber,
+        locationId: order.locationId,
         remainingItems,
-        hasRemainingItems: remainingItems.length > 0
+        totalRemainingItems: remainingItems.length,
+        totalRemainingQty,
+        itemPreview: remainingItems
+          .slice(0, 3)
+          .map((item) => item.productName)
+          .join(', '),
+        hasRemainingItems: remainingItems.length > 0,
       };
     }).filter(order => order.hasRemainingItems);
 

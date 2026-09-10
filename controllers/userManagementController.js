@@ -72,7 +72,8 @@ function formatRoleLabel(role, customName) {
     admin: 'Admin',
     manager: 'Manager',
     staff: 'Staff',
-    viewer: 'Viewer'
+    viewer: 'Viewer',
+    employee: 'Employee'
   };
   const key = String(role || 'user').toLowerCase();
   return map[key] || (role ? String(role) : 'User');

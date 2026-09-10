@@ -5,6 +5,7 @@ const router = express.Router();
 const { protect } = require('../../middleware/authMiddleware');
 const {
   createInvoiceFromGRN,
+  createInvoiceFromSources,
   createInvoiceFromPurchaseOrder,
   postPurchaseInvoice,
   getPurchaseInvoices,
@@ -49,6 +50,9 @@ router.get('/available-pos', getAvailablePOsForInvoicing);
 
 // Create invoice from Goods Receiving
 router.post('/from-grn', createInvoiceFromGRN);
+
+// Create invoice from multiple GRNs / POs
+router.post('/from-sources', createInvoiceFromSources);
 
 // Create invoice from Purchase Order
 router.post('/from-po', createInvoiceFromPurchaseOrder);

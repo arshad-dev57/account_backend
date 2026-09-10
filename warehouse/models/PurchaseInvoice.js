@@ -1,4 +1,3 @@
-// warehouse/models/PurchaseInvoice.js - COMPLETE CORRECTED
 
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
@@ -8,7 +7,6 @@ const {
   adjustLocationStock,
 } = require('../services/locationService');
 
-// ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
   const date = new Date();
   const year = date.getFullYear();
@@ -17,8 +15,6 @@ function generateInvoiceNumber() {
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   return `PI-${year}${month}${day}-${random}`;
 }
-
-// ─── Helper: Find or Create Inventory Account ──────────────
 async function findOrCreateInventoryAccount(tx, companyId, userId) {
   let account = await tx.chartOfAccount.findFirst({
     where: {
@@ -59,8 +55,6 @@ async function findOrCreateInventoryAccount(tx, companyId, userId) {
 async function findOrCreateAPAccount(tx, companyId, userId) {
   return getOrCreateApAccount(userId, companyId, tx);
 }
-
-// ─── Helper: Find or Create Supplier ────────────────────────
 async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy, companyId) {
   let supplierId = purchaseOrder.supplierId;
   let supplier = null;
@@ -243,9 +237,6 @@ async function applyPurchaseInvoiceStockIn(tx, invoice, userId) {
 }
 
 class PurchaseInvoiceModel {
-  // ============================================================
-  // CREATE PURCHASE INVOICE FROM GOODS RECEIVING
-  // ============================================================
   static async createFromGRN(data) {
     const invoiceNumber = generateInvoiceNumber();
 
@@ -301,7 +292,6 @@ class PurchaseInvoiceModel {
       let totalTax = 0;
 
       const invoiceItems = grn.items.map(item => {
-        // Use PO line price (agreed cost), not product master costPrice
         const unitPrice =
           item.purchaseOrderItem?.unitPrice ??
           item.product?.costPrice ??
@@ -329,9 +319,7 @@ class PurchaseInvoiceModel {
           notes: item.notes || null
         };
       });
-
       const grandTotal = subtotal - totalDiscount + totalTax;
-
       const inventoryAccount = await findOrCreateInventoryAccount(
         tx,
         data.companyId,
@@ -342,7 +330,6 @@ class PurchaseInvoiceModel {
         data.companyId,
         data.userId
       );
-
       const invoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber,
@@ -352,9 +339,10 @@ class PurchaseInvoiceModel {
           supplierPhone: supplier?.phone || grn.supplier?.phone || null,
           supplierInvoiceNo: data.supplierInvoiceNo || null,
           purchaseOrderId: grn.purchaseOrderId,
-          purchaseOrderNumber: grn.purchaseOrder?.orderNumber || null,
+          purchaseOrderNumber: grn.purchaseOrder?.orderNumber || grn.purchaseOrderNumber || null,
           goodsReceivingId: grn.id,
           grnNumber: grn.grnNumber,
+          sourceSummary: grn.grnNumber,
           invoiceDate: new Date(data.invoiceDate || Date.now()),
           dueDate: new Date(data.dueDate || Date.now() + 30 * 24 * 60 * 60 * 1000),
           paymentTerms: data.paymentTerms || 'Net 30',
@@ -372,26 +360,284 @@ class PurchaseInvoiceModel {
           createdBy: data.createdBy,
           companyId: data.companyId,
           fiscalYearId: data.fiscalYearId,
-          items: { create: invoiceItems }
+          locationId: data.locationId || grn.locationId || null,
+          items: { create: invoiceItems },
+          sources: {
+            create: [
+              {
+                sourceType: 'GRN',
+                goodsReceivingId: grn.id,
+                purchaseOrderId: grn.purchaseOrderId,
+                sourceNumber: grn.grnNumber,
+              },
+            ],
+          },
         },
         include: {
           items: { include: { product: true } },
           supplier: true,
           purchaseOrder: true,
-          goodsReceiving: true
+          goodsReceiving: true,
+          sources: true,
         }
       });
 
-      return invoice;
+      return {
+        ...invoice,
+        canEdit: true,
+        canPost: true,
+      };
     });
-
-    // No Draft — post immediately (JE + AP, Unpaid)
-    return await this.postInvoice(invoice.id, data.createdBy || data.userId);
+    if (data.autoPost) {
+      return await this.postInvoice(invoice.id, data.createdBy || data.userId);
+    }
+    return invoice;
   }
 
-  // ============================================================
-  // CREATE PURCHASE INVOICE FROM PURCHASE ORDER
-  // ============================================================
+  static async createFromSources(data) {
+    const invoiceNumber = generateInvoiceNumber();
+    const goodsReceivingIds = [...new Set((data.goodsReceivingIds || []).filter(Boolean))];
+    const purchaseOrderIds = [...new Set((data.purchaseOrderIds || []).filter(Boolean))];
+
+    if (!goodsReceivingIds.length && !purchaseOrderIds.length) {
+      throw new Error('Select at least one GRN or purchase order');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const grns = goodsReceivingIds.length
+        ? await tx.goodsReceiving.findMany({
+            where: {
+              id: { in: goodsReceivingIds },
+              companyId: data.companyId,
+              isActive: true,
+              isDeleted: false,
+              status: { in: ['Partially Received', 'Fully Received'] },
+            },
+            include: {
+              items: { include: { product: true, purchaseOrderItem: true } },
+              purchaseOrder: { include: { supplier: true } },
+              supplier: true,
+            },
+          })
+        : [];
+
+      if (grns.length !== goodsReceivingIds.length) {
+        throw new Error('One or more GRNs were not found or not confirmed');
+      }
+
+      const pos = purchaseOrderIds.length
+        ? await tx.purchaseOrder.findMany({
+            where: {
+              id: { in: purchaseOrderIds },
+              companyId: data.companyId,
+              isActive: true,
+              isDeleted: false,
+              status: { not: 'Cancelled' },
+            },
+            include: { items: { include: { product: true } }, supplier: true },
+          })
+        : [];
+
+      if (pos.length !== purchaseOrderIds.length) {
+        throw new Error('One or more purchase orders were not found or cancelled');
+      }
+
+      const supplierIds = [
+        ...new Set([
+          ...grns.map((g) => g.supplierId),
+          ...pos.map((p) => p.supplierId),
+        ]),
+      ];
+      if (supplierIds.length !== 1) {
+        throw new Error('All selected documents must belong to the same supplier');
+      }
+
+      for (const grn of grns) {
+        const existing = await tx.purchaseInvoice.findFirst({
+          where: {
+            isActive: true,
+            isDeleted: false,
+            OR: [
+              { goodsReceivingId: grn.id },
+              { sources: { some: { goodsReceivingId: grn.id } } },
+            ],
+          },
+        });
+        if (existing) {
+          throw new Error(`Invoice already exists for GRN ${grn.grnNumber}`);
+        }
+      }
+
+      const primary = grns[0] || pos[0];
+      const { supplierId, supplier } = await findOrCreateSupplier(
+        tx,
+        primary.purchaseOrder || primary,
+        data.userId,
+        data.createdBy,
+        data.companyId
+      );
+
+      let invoiceItems = [];
+      if (data.items?.length) {
+        invoiceItems = data.items.map((item) => {
+          const lineTotal = item.quantity * item.unitPrice;
+          const discountAmount = (lineTotal * (item.discount || 0)) / 100;
+          const taxableAmount = lineTotal - discountAmount;
+          const taxAmount = (taxableAmount * (item.taxRate || 0)) / 100;
+          return {
+            productId: item.productId,
+            productName: item.productName,
+            sku: item.sku,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            discount: item.discount || 0,
+            taxRate: item.taxRate || 0,
+            taxAmount,
+            lineTotal: taxableAmount + taxAmount,
+            notes: item.notes || null,
+            purchaseOrderItemId: item.purchaseOrderItemId || null,
+          };
+        });
+      } else {
+        for (const grn of grns) {
+          for (const item of grn.items) {
+            const unitPrice =
+              item.unitPrice ||
+              item.purchaseOrderItem?.unitPrice ||
+              item.product?.costPrice ||
+              0;
+            const lineTotal = item.receivingQuantity * unitPrice;
+            const discountAmount = (lineTotal * (item.purchaseOrderItem?.discount || 0)) / 100;
+            const taxableAmount = lineTotal - discountAmount;
+            const taxAmount = (taxableAmount * (item.purchaseOrderItem?.taxRate || 0)) / 100;
+            invoiceItems.push({
+              productId: item.productId,
+              productName: item.productName,
+              sku: item.sku,
+              quantity: item.receivingQuantity,
+              unitPrice,
+              discount: item.purchaseOrderItem?.discount || 0,
+              taxRate: item.purchaseOrderItem?.taxRate || 0,
+              taxAmount,
+              lineTotal: taxableAmount + taxAmount,
+              notes: item.notes || null,
+              purchaseOrderItemId: item.purchaseOrderItemId || null,
+            });
+          }
+        }
+        for (const po of pos) {
+          for (const item of po.items) {
+            const lineTotal = item.quantity * item.unitPrice;
+            const discountAmount = (lineTotal * (item.discount || 0)) / 100;
+            const taxableAmount = lineTotal - discountAmount;
+            const taxAmount = (taxableAmount * (item.taxRate || 0)) / 100;
+            invoiceItems.push({
+              productId: item.productId,
+              productName: item.productName,
+              sku: item.sku,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discount: item.discount || 0,
+              taxRate: item.taxRate || 0,
+              taxAmount,
+              lineTotal: taxableAmount + taxAmount,
+              notes: item.notes || null,
+              purchaseOrderItemId: item.id,
+            });
+          }
+        }
+      }
+
+      if (!invoiceItems.length) {
+        throw new Error('Invoice must have at least one item');
+      }
+
+      let subtotal = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+      for (const item of invoiceItems) {
+        const line = item.quantity * item.unitPrice;
+        const disc = (line * (item.discount || 0)) / 100;
+        subtotal += line;
+        totalDiscount += disc;
+        totalTax += item.taxAmount || 0;
+      }
+      const grandTotal = subtotal - totalDiscount + totalTax;
+
+      const inventoryAccount = await findOrCreateInventoryAccount(tx, data.companyId, data.userId);
+      const apAccount = await findOrCreateAPAccount(tx, data.companyId, data.userId);
+
+      const sourceSummary = [
+        ...grns.map((g) => g.grnNumber),
+        ...pos.map((p) => p.orderNumber),
+      ].join(', ');
+
+      const invoice = await tx.purchaseInvoice.create({
+        data: {
+          invoiceNumber,
+          supplierId,
+          supplierName: supplier?.name || primary.supplierName,
+          supplierEmail: supplier?.email || null,
+          supplierPhone: supplier?.phone || null,
+          supplierInvoiceNo: data.supplierInvoiceNo || null,
+          purchaseOrderId: pos[0]?.id || grns[0]?.purchaseOrderId || null,
+          purchaseOrderNumber:
+            pos[0]?.orderNumber || grns[0]?.purchaseOrderNumber || null,
+          goodsReceivingId: grns[0]?.id || null,
+          grnNumber: grns[0]?.grnNumber || null,
+          sourceSummary,
+          invoiceDate: new Date(data.invoiceDate || Date.now()),
+          dueDate: new Date(data.dueDate || Date.now() + 30 * 24 * 60 * 60 * 1000),
+          paymentTerms: data.paymentTerms || 'Net 30',
+          subtotal,
+          discountTotal: totalDiscount,
+          taxTotal: totalTax,
+          grandTotal,
+          paidAmount: 0,
+          outstanding: grandTotal,
+          invoiceStatus: 'Draft',
+          paymentStatus: 'Unpaid',
+          notes: data.notes || null,
+          inventoryAccountId: inventoryAccount.id,
+          apAccountId: apAccount.id,
+          createdBy: data.createdBy,
+          companyId: data.companyId,
+          fiscalYearId: data.fiscalYearId,
+          locationId: data.locationId || primary.locationId || null,
+          items: { create: invoiceItems },
+          sources: {
+            create: [
+              ...grns.map((g) => ({
+                sourceType: 'GRN',
+                goodsReceivingId: g.id,
+                purchaseOrderId: g.purchaseOrderId,
+                sourceNumber: g.grnNumber,
+              })),
+              ...pos.map((p) => ({
+                sourceType: 'PO',
+                purchaseOrderId: p.id,
+                sourceNumber: p.orderNumber,
+              })),
+            ],
+          },
+        },
+        include: {
+          items: { include: { product: true } },
+          supplier: true,
+          purchaseOrder: true,
+          goodsReceiving: true,
+          sources: true,
+        },
+      });
+
+      return {
+        ...invoice,
+        canEdit: true,
+        canPost: true,
+      };
+    });
+  }
+
   static async createFromPurchaseOrder(data) {
     const invoiceNumber = generateInvoiceNumber();
 
@@ -456,7 +702,6 @@ class PurchaseInvoiceModel {
 
       const invoiceItems = purchaseOrder.items
         .map(item => {
-          // Prefer confirmed received qty; otherwise use ordered PO qty
           const receivedQuantity = receivedQty[item.id] || 0;
           const quantity =
             receivedQuantity > 0 ? receivedQuantity : item.quantity || 0;
@@ -517,6 +762,7 @@ class PurchaseInvoiceModel {
           purchaseOrderNumber: purchaseOrder.orderNumber,
           goodsReceivingId: null,
           grnNumber: null,
+          sourceSummary: purchaseOrder.orderNumber,
           invoiceDate: new Date(data.invoiceDate || Date.now()),
           dueDate: new Date(data.dueDate || Date.now() + 30 * 24 * 60 * 60 * 1000),
           paymentTerms: data.paymentTerms || 'Net 30',
@@ -534,20 +780,37 @@ class PurchaseInvoiceModel {
           createdBy: data.createdBy,
           companyId: data.companyId,
           fiscalYearId: data.fiscalYearId,
-          items: { create: invoiceItems }
+          locationId: data.locationId || purchaseOrder.locationId || null,
+          items: { create: invoiceItems },
+          sources: {
+            create: [
+              {
+                sourceType: 'PO',
+                purchaseOrderId: purchaseOrder.id,
+                sourceNumber: purchaseOrder.orderNumber,
+              },
+            ],
+          },
         },
         include: {
           items: { include: { product: true } },
           supplier: true,
-          purchaseOrder: true
+          purchaseOrder: true,
+          sources: true,
         }
       });
 
-      return invoice;
+      return {
+        ...invoice,
+        canEdit: true,
+        canPost: true,
+      };
     });
 
-    // No Draft — post immediately (JE + AP, Unpaid)
-    return await this.postInvoice(invoice.id, data.createdBy || data.userId);
+    if (data.autoPost) {
+      return await this.postInvoice(invoice.id, data.createdBy || data.userId);
+    }
+    return invoice;
   }
 
   // ============================================================
@@ -740,12 +1003,25 @@ class PurchaseInvoiceModel {
           }
         },
         supplier: true,
+        sources: true,
         purchaseOrder: { select: { id: true, orderNumber: true, status: true } },
         goodsReceiving: { select: { id: true, grnNumber: true, status: true } },
         creator: { select: { id: true, firstName: true, lastName: true, email: true } },
         accountsPayable: { include: { payments: true } }
       }
-    });
+    }).then((invoices) =>
+      invoices.map((invoice) => {
+        const isDraft = invoice.invoiceStatus === 'Draft';
+        return {
+          ...invoice,
+          canEdit: isDraft,
+          canPost: isDraft,
+          canCancel: ['Posted', 'Partially Paid'].includes(invoice.invoiceStatus),
+          canDelete: isDraft,
+          totalItems: invoice.items?.length || 0,
+        };
+      })
+    );
   }
 
   // ============================================================

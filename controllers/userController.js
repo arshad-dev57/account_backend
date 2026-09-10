@@ -18,6 +18,7 @@ const {
   getDemoLoginOtp,
   getDemoOtpExpiry,
 } = require('../utils/demoAccount');
+const { isEmployeeRole } = require('../utils/hrAccess');
 
 const OTP_TTL_MS = 60 * 1000;
 
@@ -809,6 +810,17 @@ exports.verifyLoginOTP = async (req, res) => {
         responseUser.locations = assigned.locations;
         responseUser.locationIds = assigned.locationIds;
       }
+      if (isEmployeeRole(updatedUser.role) || prismaUser?.role === 'employee') {
+        try {
+          const { attachEmployeeToLoginUser } = require('./hrController');
+          responseUser.employee = await attachEmployeeToLoginUser(updatedUser._id);
+          responseUser.isEmployee = true;
+        } catch (hrErr) {
+          console.error('⚠️ [verifyLoginOTP] Employee profile load failed:', hrErr.message);
+          responseUser.isEmployee = true;
+        }
+      }
+
       if (prismaUser?.companyId) {
         responseUser.companyId = prismaUser.companyId;
         const companyRow = await prisma.company.findUnique({
@@ -1369,6 +1381,15 @@ exports.getMe = async (req, res) => {
         userPayload.locationIds = assigned.locationIds;
       }
       if (prismaUser?.companyId) userPayload.companyId = prismaUser.companyId;
+      if (isEmployeeRole(updatedUser.role) || prismaUser?.role === 'employee') {
+        try {
+          const { attachEmployeeToLoginUser } = require('./hrController');
+          userPayload.employee = await attachEmployeeToLoginUser(updatedUser._id);
+          userPayload.isEmployee = true;
+        } catch (_) {
+          userPayload.isEmployee = true;
+        }
+      }
       const companyRow = req.user?.company || req.authUserRow?.company || null;
       if (prismaUser?.companyId) {
         userPayload.posMode = companyRow?.posMode || 'retail';

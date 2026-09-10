@@ -14,6 +14,10 @@ const REQUIRED_MODELS = [
   'creditNote',
   'notification',
   'supportTicket',
+  'hrOffice',
+  'hrEmployee',
+  'hrAttendance',
+  'hrLeave',
 ];
 
 function getPrismaHealth(prisma) {
