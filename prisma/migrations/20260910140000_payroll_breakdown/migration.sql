@@ -1,0 +1,3 @@
+ALTER TABLE "hr_payroll_items" ADD COLUMN IF NOT EXISTS "notes" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "hr_payroll_items" ADD COLUMN IF NOT EXISTS "paid_at" TIMESTAMP(3);
+ALTER TABLE "hr_payroll_items" ADD COLUMN IF NOT EXISTS "breakdown" JSONB;

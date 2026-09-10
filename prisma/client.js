@@ -68,7 +68,31 @@ function createClient() {
 
   // Every $transaction call site gets longer timeouts + transient retries
   patchPrismaTransactions(client);
+  patchTransientDbRetries(client);
   return client;
+}
+
+function patchTransientDbRetries(client) {
+  if (typeof client.$use !== 'function') return;
+  client.$use(async (params, next) => {
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await next(params);
+      } catch (error) {
+        lastError = error;
+        const code = error && error.code;
+        if (code !== 'P1001' && code !== 'P2024') throw error;
+        if (attempt >= 2) throw error;
+        const waitMs = 1500 * (attempt + 1);
+        console.warn(
+          `[Prisma] ${code} retry ${attempt + 1}/2 in ${waitMs}ms (${params.model}.${params.action})`
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+    throw lastError;
+  });
 }
 
 let prisma = globalForPrisma.__accountPrisma;
