@@ -15,7 +15,8 @@ const {
   splitName,
   requireCompany,
   requireHrManager,
-  canViewSalary
+  canViewSalary,
+  attendanceStatusKey
 } = require('../utils/hrAccess');
 
 const EMPLOYEE_INCLUDE = {
@@ -70,6 +71,17 @@ function serializeEmployee(emp, extras = {}) {
     employeeType: emp.employeeType,
     shift: emp.shiftLabel,
     salary: hideSalary ? undefined : emp.salary,
+    payBasis: (emp.profile && typeof emp.profile === 'object' && emp.profile.payBasis) || 'monthly',
+    probationEndDate: emp.profile?.probationEndDate || null,
+    confirmationDate: emp.profile?.confirmationDate || null,
+    contractEndDate: emp.profile?.contractEndDate || null,
+    terminationDate: emp.profile?.terminationDate || null,
+    bankName: emp.profile?.bankName || '',
+    bankAccount: emp.profile?.bankAccount || '',
+    bankBranch: emp.profile?.bankBranch || '',
+    emergencyContact: emp.profile?.emergencyContact || '',
+    emergencyPhone: emp.profile?.emergencyPhone || '',
+    payGrade: emp.profile?.payGrade || '',
     joiningDate: emp.joiningDate,
     status: statusLabel(emp.status),
     statusKey: emp.status,
@@ -81,6 +93,71 @@ function serializeEmployee(emp, extras = {}) {
     isActive: emp.user?.isActive !== false && emp.status === 'active',
     createdAt: emp.createdAt,
     ...rest
+  };
+}
+
+function gpsAccuracyBuffer(accuracy) {
+  const meters = Number(accuracy);
+  if (!Number.isFinite(meters) || meters <= 0) return 60;
+  return Math.min(120, Math.max(40, meters));
+}
+
+function officeDistance(office, latitude, longitude) {
+  if (!office || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const lat = Number(office.latitude);
+  const lng = Number(office.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return haversineMeters(latitude, longitude, lat, lng);
+}
+
+function isInsideOffice(office, distance, accuracy) {
+  if (!office || !Number.isFinite(distance)) return false;
+  const radius = Number(office.radiusMeters || office.radius || 150) || 150;
+  return distance <= radius + gpsAccuracyBuffer(accuracy);
+}
+
+async function resolveGeofence({ companyId, employee, latitude, longitude, accuracy }) {
+  const empty = { office: null, inside: false, distance: null };
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return empty;
+
+  const offices = await prisma.hrOffice.findMany({
+    where: { companyId, isActive: true },
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      latitude: true,
+      longitude: true,
+      radiusMeters: true,
+      isActive: true
+    }
+  });
+  if (!offices.length) {
+    const assigned = employee?.office || null;
+    const distance = officeDistance(assigned, latitude, longitude);
+    return {
+      office: assigned,
+      inside: isInsideOffice(assigned, distance, accuracy),
+      distance
+    };
+  }
+
+  const ranked = offices
+    .map((office) => ({ office, distance: officeDistance(office, latitude, longitude) }))
+    .filter((row) => Number.isFinite(row.distance))
+    .sort((a, b) => a.distance - b.distance);
+
+  if (!ranked.length) return empty;
+
+  const assignedId = employee?.officeId || employee?.office?.id;
+  const assignedHit = ranked.find((row) => row.office.id === assignedId && isInsideOffice(row.office, row.distance, accuracy));
+  const anyHit = ranked.find((row) => isInsideOffice(row.office, row.distance, accuracy));
+  const chosen = assignedHit || anyHit || ranked[0];
+
+  return {
+    office: chosen.office,
+    inside: isInsideOffice(chosen.office, chosen.distance, accuracy),
+    distance: chosen.distance
   };
 }
 
@@ -239,7 +316,7 @@ exports.listOffices = async (req, res) => {
   try {
     const companyId = requireCompany(req, res);
     if (!companyId) return;
-    if (!requireHrManager(req, res)) return;
+    // Employees need lat/lng/radius so the phone can match the office zone.
 
     const offices = await prisma.hrOffice.findMany({
       where: { companyId },
@@ -385,7 +462,8 @@ exports.createEmployee = async (req, res) => {
       salary,
       joiningDate,
       status,
-      password
+      password,
+      payBasis
     } = req.body;
 
     const { firstName, lastName } = rawFirst
@@ -494,7 +572,12 @@ exports.createEmployee = async (req, res) => {
           salary: Number(salary || 0),
           joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
           status: statusKey(status),
-          phone: String(phone || '').trim()
+          phone: String(phone || '').trim(),
+          profile: {
+            payBasis: ['monthly', 'hourly', 'daily'].includes(String(payBasis || '').toLowerCase())
+              ? String(payBasis).toLowerCase()
+              : 'monthly'
+          }
         },
         include: EMPLOYEE_INCLUDE
       });
@@ -570,16 +653,43 @@ exports.updateEmployee = async (req, res) => {
       shift,
       salary,
       joiningDate,
-      status
+      status,
+      payBasis,
+      // Enterprise profile fields
+      probationEndDate,
+      confirmationDate,
+      contractEndDate,
+      terminationDate,
+      bankName,
+      bankAccount,
+      bankBranch,
+      emergencyContact,
+      emergencyPhone,
+      payGrade,
     } = req.body;
 
     const names = rawFirst
       ? { firstName: rawFirst, lastName: rawLast || rawFirst }
-      : name
-        ? splitName(name)
-        : null;
+      : name ? splitName(name) : null;
 
     const nextStatus = status != null ? statusKey(status) : existing.status;
+
+    // Build merged profile object (always carry forward existing values)
+    const existingProfile = existing.profile && typeof existing.profile === 'object' ? existing.profile : {};
+    const profileUpdates = {};
+    if (payBasis != null) {
+      profileUpdates.payBasis = ['monthly', 'hourly', 'daily'].includes(String(payBasis).toLowerCase())
+        ? String(payBasis).toLowerCase() : 'monthly';
+    }
+    const profileDateFields = { probationEndDate, confirmationDate, contractEndDate, terminationDate };
+    const profileStrFields = { bankName, bankAccount, bankBranch, emergencyContact, emergencyPhone, payGrade };
+    Object.entries(profileDateFields).forEach(([k, v]) => {
+      if (v !== undefined) profileUpdates[k] = v ? String(v).slice(0, 10) : null;
+    });
+    Object.entries(profileStrFields).forEach(([k, v]) => {
+      if (v !== undefined) profileUpdates[k] = v ? String(v).trim() : null;
+    });
+    const hasProfileUpdate = Object.keys(profileUpdates).length > 0;
 
     const employee = await prisma.$transaction(async (tx) => {
       if (names || phone != null || status != null) {
@@ -605,7 +715,8 @@ exports.updateEmployee = async (req, res) => {
           salary: salary != null ? Number(salary) : undefined,
           joiningDate: joiningDate ? new Date(joiningDate) : undefined,
           status: nextStatus,
-          phone: phone != null ? String(phone).trim() : undefined
+          phone: phone != null ? String(phone).trim() : undefined,
+          ...(hasProfileUpdate ? { profile: { ...existingProfile, ...profileUpdates } } : {})
         },
         include: EMPLOYEE_INCLUDE
       });
@@ -614,6 +725,44 @@ exports.updateEmployee = async (req, res) => {
     res.json({ success: true, data: serializeEmployee(employee) });
   } catch (error) {
     console.error('[hr] updateEmployee', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** Soft-delete: deactivate login + mark employee inactive (keeps attendance/payroll history). */
+exports.deleteEmployee = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+    if (!requireHrManager(req, res)) return;
+
+    const existing = await prisma.hrEmployee.findFirst({
+      where: { id: req.params.id, companyId },
+      include: EMPLOYEE_INCLUDE
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+
+    const employee = await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: existing.userId },
+        data: { isActive: false }
+      });
+      return tx.hrEmployee.update({
+        where: { id: existing.id },
+        data: { status: 'inactive', trackingEnabled: false },
+        include: EMPLOYEE_INCLUDE
+      });
+    });
+
+    res.json({
+      success: true,
+      message: 'Employee deactivated. Login disabled; history kept.',
+      data: serializeEmployee(employee)
+    });
+  } catch (error) {
+    console.error('[hr] deleteEmployee', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -823,6 +972,95 @@ exports.listAttendance = async (req, res) => {
   }
 };
 
+/**
+ * HR manual attendance create/update for a given employee + date.
+ * Body: { employeeId, date, status, checkIn?, checkOut? }
+ * Times may be ISO or "HH:mm" (applied on work date Asia/Karachi).
+ */
+exports.upsertAttendance = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+    if (!requireHrManager(req, res)) return;
+
+    const employeeId = String(req.body.employeeId || '').trim();
+    if (!employeeId) {
+      return res.status(400).json({ success: false, message: 'employeeId is required' });
+    }
+
+    const employee = await prisma.hrEmployee.findFirst({
+      where: { id: employeeId, companyId },
+      include: EMPLOYEE_INCLUDE
+    });
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+
+    const workDate = req.body.date ? workDateKey(new Date(req.body.date)) : workDateKey();
+    const status = attendanceStatusKey(req.body.status || 'present');
+
+    const combineTime = (value) => {
+      if (value == null || value === '') return null;
+      const raw = String(value).trim();
+      if (/^\d{1,2}:\d{2}/.test(raw)) {
+        const ymd = workDate.toISOString().slice(0, 10);
+        return new Date(`${ymd}T${raw.length === 5 ? `${raw}:00` : raw}.000Z`);
+      }
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    let checkIn = combineTime(req.body.checkIn);
+    let checkOut = combineTime(req.body.checkOut);
+
+    if (status === 'absent' || status === 'weekly_off' || status === 'holiday') {
+      checkIn = null;
+      checkOut = null;
+    }
+
+    let workingMinutes = 0;
+    if (checkIn && checkOut) {
+      workingMinutes = Math.max(0, Math.round((checkOut.getTime() - checkIn.getTime()) / 60000));
+    }
+
+    const row = await prisma.hrAttendance.upsert({
+      where: {
+        employeeId_workDate: { employeeId, workDate }
+      },
+      create: {
+        companyId,
+        employeeId,
+        workDate,
+        checkIn,
+        checkOut,
+        status,
+        source: 'hr_manual',
+        workingMinutes
+      },
+      update: {
+        checkIn,
+        checkOut,
+        status,
+        source: 'hr_manual',
+        workingMinutes
+      },
+      include: { employee: { include: EMPLOYEE_INCLUDE } }
+    });
+
+    res.json({
+      success: true,
+      message: 'Attendance updated',
+      data: {
+        ...serializeAttendance(row),
+        employee: serializeEmployee(row.employee)
+      }
+    });
+  } catch (error) {
+    console.error('[hr] upsertAttendance', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.myAttendance = async (req, res) => {
   try {
     const companyId = requireCompany(req, res);
@@ -864,19 +1102,30 @@ async function runCheckAction(req, res, action) {
   const latitude = Number(req.body.latitude);
   const longitude = Number(req.body.longitude);
   const accuracy = req.body.accuracy != null ? Number(req.body.accuracy) : null;
-  const office = employee.office;
-  let inside = false;
-  let distance = null;
+  const geo = await resolveGeofence({
+    companyId,
+    employee,
+    latitude,
+    longitude,
+    accuracy
+  });
+  const office = geo.office;
+  const inside = geo.inside;
+  const distance = geo.distance;
 
-  if (office && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-    distance = haversineMeters(latitude, longitude, office.latitude, office.longitude);
-    inside = distance <= (office.radiusMeters || 150);
-  }
-
-  if (action === 'check_in' && office && Number.isFinite(distance) && !inside) {
+  if (action === 'check_in' && Number.isFinite(distance) && !inside) {
+    const officeName = office?.name || 'the office zone';
+    const radius = office?.radiusMeters || 150;
     return res.status(400).json({
       success: false,
-      message: `You are ${Math.round(distance)}m outside ${office.name}. Move inside the office geofence to check in.`
+      message: `You are ${Math.round(distance)}m from ${officeName} (${radius}m zone). Indoor GPS can drift — move closer to the office pin, or increase the office radius on web.`
+    });
+  }
+
+  if (action === 'check_in' && !office) {
+    return res.status(400).json({
+      success: false,
+      message: 'No office zone found. Create an office on HR → Offices and drop the map pin on the building.'
     });
   }
 
@@ -893,7 +1142,7 @@ async function runCheckAction(req, res, action) {
     await upsertLastLocation({
       companyId,
       employeeId: employee.id,
-      officeId: employee.officeId,
+      officeId: office?.id || employee.officeId,
       latitude,
       longitude,
       accuracy,
@@ -972,16 +1221,26 @@ exports.trackingEvent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Valid latitude and longitude are required' });
     }
 
-    const office = employee.office;
-    let distance = null;
-    let inside = false;
-    if (office) {
-      distance = haversineMeters(latitude, longitude, office.latitude, office.longitude);
-      inside = distance <= (office.radiusMeters || 150);
-    }
+    const geo = await resolveGeofence({
+      companyId,
+      employee,
+      latitude,
+      longitude,
+      accuracy: req.body.accuracy
+    });
+    const office = geo.office;
+    const distance = geo.distance;
+    const inside = geo.inside;
 
     let attendanceResult = { attendance: null, message: 'Location updated' };
-    if (event === 'enter' && inside) {
+    const todayRow = await prisma.hrAttendance.findUnique({
+      where: {
+        employeeId_workDate: { employeeId: employee.id, workDate: workDateKey() }
+      }
+    });
+    const alreadyIn = Boolean(todayRow?.checkIn) && !todayRow?.checkOut;
+
+    if (inside && event !== 'exit' && !alreadyIn) {
       attendanceResult = await markAttendance({
         companyId,
         employeeId: employee.id,
@@ -990,7 +1249,7 @@ exports.trackingEvent = async (req, res) => {
         action: 'check_in',
         source: 'geofence'
       });
-    } else if (event === 'exit') {
+    } else if (event === 'exit' && alreadyIn && !inside) {
       attendanceResult = await markAttendance({
         companyId,
         employeeId: employee.id,
@@ -1000,12 +1259,16 @@ exports.trackingEvent = async (req, res) => {
         source: 'geofence'
       });
     } else {
-      attendanceResult.attendance = await prisma.hrAttendance.findUnique({
-        where: {
-          employeeId_workDate: { employeeId: employee.id, workDate: workDateKey() }
-        }
-      });
-      attendanceResult.message = inside ? 'Inside office' : 'Live location updated';
+      attendanceResult.attendance = todayRow;
+      if (!office) {
+        attendanceResult.message = 'No office zone found. Create an office on web and set the map pin.';
+      } else if (inside) {
+        attendanceResult.message = alreadyIn
+          ? `Inside ${office.name}`
+          : `Inside ${office.name} — checking in`;
+      } else {
+        attendanceResult.message = `Outside ${office.name} — ${Math.round(distance || 0)}m away (${office.radiusMeters || 150}m zone)`;
+      }
     }
 
     const checkedIn = Boolean(attendanceResult.attendance?.checkIn) && !attendanceResult.attendance?.checkOut;
@@ -1020,7 +1283,7 @@ exports.trackingEvent = async (req, res) => {
       : await upsertLastLocation({
       companyId,
       employeeId: employee.id,
-      officeId: employee.officeId,
+      officeId: office?.id || employee.officeId,
       latitude,
       longitude,
       accuracy: req.body.accuracy != null ? Number(req.body.accuracy) : null,
@@ -1039,6 +1302,8 @@ exports.trackingEvent = async (req, res) => {
         tracked: {
           insideGeofence: inside,
           distanceMeters: distance != null ? Math.round(distance) : null,
+          officeName: office?.name || null,
+          officeRadius: office?.radiusMeters || null,
           status,
           lastSeenAt: tracked.lastSeenAt
         }
@@ -1060,7 +1325,7 @@ exports.liveTracking = async (req, res) => {
       where: { companyId },
       include: {
         employee: { include: EMPLOYEE_INCLUDE },
-        office: { select: { name: true } }
+        office: { select: { name: true, latitude: true, longitude: true, radiusMeters: true } }
       },
       orderBy: { lastSeenAt: 'desc' }
     });
@@ -1086,21 +1351,44 @@ exports.liveTracking = async (req, res) => {
           const att = attMap.get(row.employeeId);
           const age = Date.now() - new Date(row.lastSeenAt).getTime();
           const online = age <= onlineMs && String(row.status || '').toLowerCase() !== 'offline';
+          const office = row.office || row.employee.office;
+          const officeLat = office ? Number(office.latitude) : null;
+          const officeLng = office ? Number(office.longitude) : null;
+          const officeRadius = office ? Number(office.radiusMeters || 150) : null;
+          const pingLat = Number(row.latitude);
+          const pingLng = Number(row.longitude);
+          const distanceMeters =
+            Number.isFinite(pingLat) &&
+            Number.isFinite(pingLng) &&
+            Number.isFinite(officeLat) &&
+            Number.isFinite(officeLng)
+              ? Math.round(haversineMeters(pingLat, pingLng, officeLat, officeLng))
+              : null;
+          const gpsSuspect = Number.isFinite(distanceMeters) && distanceMeters > 200000;
           return {
             employeeId: row.employeeId,
             employeeCode: row.employee.employeeCode,
             employeeName: fullName(row.employee.user),
             department: row.employee.department,
             designation: row.employee.designation,
-            officeName: row.office?.name || row.employee.office?.name || '',
-            latitude: row.latitude,
-            longitude: row.longitude,
+            officeName: office?.name || '',
+            officeLatitude: officeLat,
+            officeLongitude: officeLng,
+            officeRadius,
+            latitude: pingLat,
+            longitude: pingLng,
+            distanceMeters,
+            gpsSuspect,
             insideGeofence: row.insideGeofence,
             status: online ? row.status : 'offline',
             lastPingAt: row.lastSeenAt,
-            locationLabel: row.insideGeofence
-              ? (row.office?.name || 'Office')
-              : 'In the field',
+            locationLabel: gpsSuspect
+              ? `GPS ${Math.round(distanceMeters / 1000)}km from ${office?.name || 'office'} (likely simulator)`
+              : row.insideGeofence
+                ? (office?.name || 'Office')
+                : distanceMeters != null
+                  ? `${distanceMeters}m from ${office?.name || 'office'}`
+                  : 'In the field',
             checkIn: att?.checkIn || null,
             attendanceStatus: att ? statusLabel(att.status) : 'Absent'
           };

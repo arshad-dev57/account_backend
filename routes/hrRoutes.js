@@ -16,8 +16,11 @@ router.get('/employees', hr.listEmployees);
 router.post('/employees', hr.createEmployee);
 router.get('/employees/:id', hr.getEmployee);
 router.put('/employees/:id', hr.updateEmployee);
+router.delete('/employees/:id', hr.deleteEmployee);
 
 router.get('/attendance', hr.listAttendance);
+router.put('/attendance', hr.upsertAttendance);
+router.post('/attendance/adjust', hr.upsertAttendance);
 router.get('/attendance/me', hr.myAttendance);
 router.post('/attendance/check-in', hr.checkIn);
 router.post('/attendance/check-out', hr.checkOut);
@@ -46,10 +49,13 @@ router.put('/performance/:id', wf.updateReview);
 
 router.get('/payroll/me', wf.myPayroll);
 router.get('/payroll/report', wf.payrollReport);
+router.get('/payroll/run', wf.getPayrollRun);
+router.put('/payroll/run', wf.savePayrollRun);
 router.get('/payroll/:id', wf.getPayroll);
 router.get('/payroll', wf.listPayroll);
 router.post('/payroll/generate', wf.generatePayroll);
 router.post('/payroll/bulk-status', wf.bulkPayrollStatus);
+router.post('/payroll/item', wf.createPayrollItem);
 router.put('/payroll/:id', wf.updatePayroll);
 
 router.get('/org-chart', wf.orgChart);

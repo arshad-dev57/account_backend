@@ -70,11 +70,25 @@ function createClient() {
           db: { url }
         }
       : undefined,
-    log:
-      process.env.NODE_ENV === 'development'
-        ? ['error', 'warn']
-        : ['error']
+    log: [
+      {
+        emit: 'event',
+        level: 'error',
+      },
+      ...(process.env.NODE_ENV === 'development' ? [{ emit: 'event', level: 'warn' }] : []),
+    ],
   });
+
+  // Suppress noisy "connection closed" events from Railway idle timeout —
+  // these are not application errors; Prisma reconnects automatically.
+  client.$on('error', (e) => {
+    const msg = e?.message ?? '';
+    if (msg.includes('Error { kind: Closed') || msg.includes('kind: Closed')) return;
+    console.error('[Prisma error]', msg);
+  });
+  if (process.env.NODE_ENV === 'development') {
+    client.$on('warn', (e) => console.warn('[Prisma warn]', e?.message ?? e));
+  }
 
   // Every $transaction call site gets longer timeouts + transient retries
   patchPrismaTransactions(client);

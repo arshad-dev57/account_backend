@@ -7,6 +7,7 @@ const {
   adjustLocationStock,
 } = require('../services/locationService');
 
+
 function generateInvoiceNumber() {
   const date = new Date();
   const year = date.getFullYear();
