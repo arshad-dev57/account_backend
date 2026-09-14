@@ -184,6 +184,7 @@ app.use('/api/sync', require('./pos/sync/masterDataSyncRoutes'));
 app.use('/api/tax',   taxRoutes);
 app.use('/api/platform', platformAdminRoutes);
 app.use('/api/hr', require('./routes/hrRoutes'));
+app.use('/api/manufacturing', require('./routes/manufacturingRoutes'));
 
 app.use('/api/orders', OrderRoutes);
 
