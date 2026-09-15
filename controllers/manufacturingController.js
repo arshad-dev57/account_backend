@@ -12,6 +12,7 @@ const {
   addDays,
   isoWeek
 } = require('../utils/manufacturingAccess');
+const workflow = require('../utils/manufacturingWorkflow');
 
 function fail(res, status, message) {
   return res.status(status).json({ success: false, message });
@@ -43,15 +44,24 @@ function searchOr(fields, search) {
 
 async function nextNumber(delegate, field, prefix, companyId) {
   const tag = String(companyId || '').replace(/-/g, '').slice(0, 6).toUpperCase() || 'CO';
+  const stem = `${prefix}-${tag}-`;
   const count = await delegate.count({ where: { companyId } });
-  return `${prefix}-${tag}-${String(count + 1).padStart(4, '0')}`;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = `${stem}${String(count + 1 + attempt).padStart(4, '0')}`;
+    const exists = await delegate.findFirst({
+      where: { [field]: candidate },
+      select: { id: true }
+    });
+    if (!exists) return candidate;
+  }
+  return `${stem}${Date.now().toString().slice(-8)}`;
 }
 
 async function findProduct(companyId, productId) {
   if (!productId) return null;
   return prisma.product.findFirst({
     where: { id: productId, companyId },
-    select: { id: true, name: true, sku: true, costPrice: true }
+    select: { id: true, name: true, sku: true, costPrice: true, stockUnitName: true, isBatchManaged: true }
   });
 }
 
@@ -72,15 +82,86 @@ async function mapBomComponents(companyId, list) {
     const item = items[i] || {};
     const product = await requireProduct(companyId, item.componentId || item.productId || item.id);
     const quantity = toNum(item.quantity, 1);
+    const workCenterId = emptyToNull(item.workCenterId);
+    if (workCenterId) {
+      const wc = await prisma.manufacturingWorkCenter.findFirst({
+        where: { id: workCenterId, companyId },
+        select: { id: true }
+      });
+      if (!wc) {
+        const err = new Error(`Work center not found for component ${product.name}`);
+        err.status = 400;
+        throw err;
+      }
+    }
     out.push({
       componentId: product.id,
       componentName: product.name,
       quantity,
-      unitOfMeasure: item.unitOfMeasure || 'pcs',
+      unitOfMeasure: item.unitOfMeasure || product.stockUnitName || 'pcs',
       scrapPercentage: toNum(item.scrapPercentage),
+      substituteMaterial: emptyToNull(item.substituteMaterial || item.substitute),
+      operationSequence: item.operationSequence != null && item.operationSequence !== '' ? toNum(item.operationSequence) : null,
+      workCenterId,
       estimatedCost: toNum(item.estimatedCost, Number(product.costPrice || 0) * quantity),
       sequence: toNum(item.sequence, i + 1),
       notes: emptyToNull(item.notes)
+    });
+  }
+  return out;
+}
+
+async function mapRoutingOperations(companyId, list) {
+  const items = Array.isArray(list) ? list : [];
+  const out = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i] || {};
+    const name = emptyToNull(item.operationName || item.name);
+    const workCenterId = emptyToNull(item.workCenterId);
+    if (!name) continue;
+    if (!workCenterId) {
+      const err = new Error(`Work center is required for operation "${name}"`);
+      err.status = 400;
+      throw err;
+    }
+    const wc = await prisma.manufacturingWorkCenter.findFirst({
+      where: { id: workCenterId, companyId },
+      select: { id: true, costPerHour: true }
+    });
+    if (!wc) {
+      const err = new Error(`Work center not found for operation "${name}"`);
+      err.status = 400;
+      throw err;
+    }
+    let machineId = emptyToNull(item.machineId);
+    if (machineId) {
+      const machine = await prisma.manufacturingMachine.findFirst({
+        where: { id: machineId, companyId },
+        select: { id: true }
+      });
+      if (!machine) machineId = null;
+    }
+    const setupTime = toNum(item.setupTime);
+    const runTime = toNum(item.runTime);
+    const laborRequirement = toNum(item.laborRequirement, 1);
+    const estimatedCost = toNum(
+      item.estimatedCost,
+      ((setupTime + runTime) / 60) * Number(wc.costPerHour || 0) * (laborRequirement || 1)
+    );
+    out.push({
+      operationName: name,
+      sequence: toNum(item.sequence, i + 1),
+      workCenterId: wc.id,
+      machineId,
+      description: emptyToNull(item.description || item.instructions),
+      setupTime,
+      runTime,
+      queueTime: toNum(item.queueTime),
+      laborRequirement,
+      machineRequirement: Boolean(item.machineRequirement || machineId),
+      inspectionRequired: Boolean(item.inspectionRequired || item.qualityCheckpoint),
+      estimatedCost,
+      notes: emptyToNull(item.notes || item.requiredTools)
     });
   }
   return out;
@@ -109,7 +190,25 @@ async function firstLocationId(companyId, preferred) {
   return loc?.id || null;
 }
 
-async function stockMap(companyId, locationId) {
+async function resolveCreateSourceWarehouseId(companyId, body, ctx) {
+  const fromBody = emptyToNull(body.sourceWarehouseId);
+  if (fromBody) return fromBody;
+  const settings = await workflow.companySettings(prisma, companyId);
+  const fromSettings = emptyToNull(settings.sourceWarehouseId);
+  if (fromSettings) return fromSettings;
+  const fromLocation = emptyToNull(ctx.locationId);
+  if (fromLocation) return fromLocation;
+  const err = new Error('Source warehouse is required');
+  err.status = 400;
+  throw err;
+}
+
+async function stockMap(companyId, locationId, options = {}) {
+  if (options.requireWarehouse && !locationId) {
+    const err = new Error(workflow.SOURCE_WAREHOUSE_REQUIRED);
+    err.status = 400;
+    throw err;
+  }
   const where = { companyId };
   if (locationId) where.locationId = locationId;
   const rows = await prisma.productStock.findMany({ where });
@@ -133,7 +232,7 @@ function wrap(handler) {
       req.mfg = { companyId, userId: userIdOf(req) };
       await handler(req, res);
     } catch (error) {
-      const status = error.status || 500;
+      const status = error.status || error.statusCode || 500;
       if (error.code === 'P2021' || /does not exist/i.test(error.message || '')) {
         return fail(
           res,
@@ -151,10 +250,11 @@ const RESOURCES = {
   boms: {
     model: 'manufacturingBOM',
     search: ['bomNumber', 'productName', 'version'],
-    include: { components: true, product: { select: { id: true, name: true, sku: true } } },
+    include: { components: { include: { workCenter: { select: { id: true, name: true } } } }, product: { select: { id: true, name: true, sku: true } } },
     numberField: 'bomNumber',
     prefix: 'BOM',
     hasLocation: true,
+    locationSoft: true,
     async toCreate(body, ctx) {
       const product = await requireProduct(ctx.companyId, body.productId);
       const components = await mapBomComponents(ctx.companyId, body.components);
@@ -178,11 +278,17 @@ const RESOURCES = {
   routings: {
     model: 'manufacturingRouting',
     search: ['routingNumber', 'productName'],
-    include: { operations: true, product: { select: { id: true, name: true, sku: true } } },
+    include: { operations: { include: { workCenter: true, machine: true } }, product: { select: { id: true, name: true, sku: true } } },
     numberField: 'routingNumber',
     prefix: 'RT',
     async toCreate(body, ctx) {
       const product = await requireProduct(ctx.companyId, body.productId);
+      const operations = await mapRoutingOperations(ctx.companyId, body.operations);
+      const totalEstimatedTime = operations.reduce(
+        (s, o) => s + Number(o.setupTime || 0) + Number(o.runTime || 0) + Number(o.queueTime || 0),
+        0
+      );
+      const totalEstimatedCost = operations.reduce((s, o) => s + Number(o.estimatedCost || 0), 0);
       return {
         routingNumber: emptyToNull(body.routingNumber) || (await nextNumber(prisma.manufacturingRouting, 'routingNumber', 'RT', ctx.companyId)),
         productId: product.id,
@@ -191,8 +297,9 @@ const RESOURCES = {
         status: body.status === 'Inactive' ? 'Obsolete' : (body.status || 'Draft'),
         description: emptyToNull(body.description) || emptyToNull(body.name),
         notes: emptyToNull(body.notes),
-        totalEstimatedTime: toNum(body.totalEstimatedTime),
-        totalEstimatedCost: toNum(body.totalEstimatedCost)
+        totalEstimatedTime: toNum(body.totalEstimatedTime, totalEstimatedTime),
+        totalEstimatedCost: toNum(body.totalEstimatedCost, totalEstimatedCost),
+        operations: { create: operations }
       };
     }
   },
@@ -298,12 +405,15 @@ const RESOURCES = {
         remainingQuantity: planned,
         startDate,
         dueDate,
-        sourceWarehouseId: emptyToNull(body.sourceWarehouseId),
+        sourceWarehouseId: await resolveCreateSourceWarehouseId(ctx.companyId, body, ctx),
         wipWarehouseId: emptyToNull(body.wipWarehouseId),
         finishedGoodsWarehouseId: emptyToNull(body.finishedGoodsWarehouseId),
         priority,
         status: 'Draft',
         progress: 0,
+        demandType: emptyToNull(body.demandType) || emptyToNull(body.description),
+        salesOrderReference: emptyToNull(body.salesOrderReference || body.salesOrderId),
+        batchNumber: emptyToNull(body.batchNumber),
         description: emptyToNull(body.description) || emptyToNull(body.demandType),
         notes: emptyToNull(body.notes),
         locationId: emptyToNull(body.locationId) || ctx.locationId
@@ -413,6 +523,7 @@ const RESOURCES = {
         toLocationId,
         issueDate: toDate(body.issueDate, new Date()),
         status: body.status || 'Issued',
+        batchNumber: emptyToNull(body.batchNumber),
         notes: emptyToNull(body.notes)
       };
     }
@@ -494,6 +605,7 @@ const RESOURCES = {
         operatorId: emptyToNull(body.operatorId),
         scrapDate: toDate(body.scrapDate, new Date()),
         cost: toNum(body.cost),
+        recoverable: Boolean(body.recoverable),
         notes: emptyToNull(body.notes)
       };
     }
@@ -517,6 +629,7 @@ const RESOURCES = {
         locationId: emptyToNull(body.locationId) || emptyToNull(body.warehouseId) || ctx.locationId,
         receivedDate: toDate(body.receivedDate, new Date()),
         costAllocation: toNum(body.costAllocation),
+        batchNumber: emptyToNull(body.batchNumber),
         notes: emptyToNull(body.notes)
       };
     }
@@ -569,6 +682,9 @@ const RESOURCES = {
         err.status = 400;
         throw err;
       }
+      const mappedParams = workflow.mapQualityParameters(
+        body.qualityParameters || (Array.isArray(body.parameters) ? body.parameters : [])
+      );
       return {
         inspectionNumber: emptyToNull(body.inspectionNumber) || (await nextNumber(prisma.manufacturingQualityInspection, 'inspectionNumber', 'QI', ctx.companyId)),
         productionOrderId: body.productionOrderId,
@@ -580,8 +696,9 @@ const RESOURCES = {
         inspectionDate: toDate(body.inspectionDate, new Date()),
         inspectionType: body.inspectionType === 'In-Process' ? 'InProcess' : (body.inspectionType || 'Final'),
         result: body.result || 'Pending',
-        parameters: body.parameters || null,
-        notes: emptyToNull(body.notes)
+        parameters: Array.isArray(body.parameters) ? null : (body.parameters || null),
+        notes: emptyToNull(body.notes),
+        ...(mappedParams.length ? { qualityParameters: { create: mappedParams } } : {})
       };
     }
   },
@@ -774,7 +891,22 @@ function serializeRow(resourceKey, row) {
   if (row.inspector) extra.inspector = row.inspector.employeeCode || row.inspector.id;
   if (row.overheadCost != null) extra.overhead = row.overheadCost;
   if (row.hourlyOperatingCost != null) extra.hourlyCost = row.hourlyOperatingCost;
-  if (row.components) extra.components = row.components;
+  if (row.components) {
+    extra.components = row.components.map((c) => ({
+      ...c,
+      productId: c.componentId,
+      productName: c.componentName,
+      sku: c.component?.sku,
+      scrapPct: c.scrapPercentage,
+      substituteName: c.substituteMaterial,
+      operationName: c.operationSequence != null ? `Op ${c.operationSequence}` : null,
+      unit: c.unitOfMeasure
+    }));
+  }
+  if (row.operations) extra.operations = row.operations;
+  if (row.qualityParameters) extra.qualityParameters = row.qualityParameters;
+  if (row.demandType) extra.demandType = row.demandType;
+  if (row.salesOrderReference) extra.salesOrderId = row.salesOrderReference;
   if (row.week || row.month) extra.period = row.month || row.week;
   return { ...row, ...extra };
 }
@@ -797,16 +929,29 @@ const listResource = wrap(async (req, res) => {
   if (!spec || !delegate) return fail(res, 404, 'Unknown manufacturing resource');
   const { companyId } = req.mfg;
   const { page, limit, skip } = paginationParams(req);
-  const where = { companyId, ...searchOr(spec.search || [], req.query.search) };
+  const where = { companyId };
+  const clauses = [];
+  const searchClause = searchOr(spec.search || [], req.query.search);
+  if (searchClause.OR) clauses.push(searchClause);
   if (req.query.status && req.query.status !== 'All') {
     if (key === 'machines') where.currentStatus = req.query.status;
     else where.status = req.query.status;
   }
   const locationId = locationScope(req, spec);
-  if (locationId && spec.hasLocation) where.locationId = locationId;
+  if (locationId && spec.hasLocation) {
+    if (spec.locationSoft) {
+      clauses.push({ OR: [{ locationId }, { locationId: null }] });
+    } else {
+      where.locationId = locationId;
+    }
+  }
   if (req.query.productId && (spec.search || []).includes('productName')) {
     where.productId = req.query.productId;
   }
+  if (req.query.productionOrderId) {
+    where.productionOrderId = req.query.productionOrderId;
+  }
+  if (clauses.length) where.AND = clauses;
   const [data, total] = await Promise.all([
     delegate.findMany({
       where,
@@ -862,9 +1007,60 @@ const createResource = wrap(async (req, res) => {
     createdBy: req.mfg.userId
   };
   if (!NO_UPDATED_BY.has(spec.model)) data.updatedBy = req.mfg.userId;
-  const created = await delegate.create({
-    data,
-    include: spec.include
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx[spec.model].create({
+      data,
+      include: spec.include
+    });
+    const settings = await workflow.companySettings(tx, req.mfg.companyId);
+    const allowNegative = Boolean(settings.allowNegativeInventory);
+    if (key === 'material-issues' && row.fromLocationId && row.componentId) {
+      await workflow.postStockOut(tx, {
+        companyId: req.mfg.companyId,
+        productId: row.componentId,
+        locationId: row.fromLocationId,
+        qty: row.issuedQuantity,
+        productName: row.componentName,
+        allowNegative
+      });
+      if (row.reservationId) {
+        const reservation = await tx.manufacturingMaterialReservation.findUnique({
+          where: { id: row.reservationId }
+        });
+        if (reservation) {
+          const issued = Number(row.issuedQuantity || 0);
+          const reserved = Math.max(0, Number(reservation.reservedQuantity || 0) - issued);
+          await tx.manufacturingMaterialReservation.update({
+            where: { id: reservation.id },
+            data: {
+              reservedQuantity: reserved,
+              status: reserved <= 0 ? 'Completed' : 'PartiallyReserved'
+            }
+          });
+        }
+      }
+      await tx.manufacturingMaterialIssue.update({
+        where: { id: row.id },
+        data: { inventoryPosted: true }
+      });
+    }
+    if (key === 'by-products' && row.locationId && row.productId) {
+      await workflow.postStockIn(tx, {
+        companyId: req.mfg.companyId,
+        productId: row.productId,
+        locationId: row.locationId,
+        qty: row.quantity,
+        productName: row.productName
+      });
+      await tx.manufacturingByProduct.update({
+        where: { id: row.id },
+        data: { inventoryPosted: true }
+      });
+    }
+    return tx[spec.model].findFirst({
+      where: { id: row.id },
+      include: spec.include
+    });
   });
   return ok(res, serializeRow(key, created));
 });
@@ -878,6 +1074,9 @@ const updateResource = wrap(async (req, res) => {
     where: { id: req.params.id, companyId: req.mfg.companyId }
   });
   if (!existing) return fail(res, 404, 'Record not found');
+  if (key === 'production-orders' && ['Closed', 'Cancelled', 'Closed Short'].includes(existing.status)) {
+    return fail(res, 400, `A ${existing.status} manufacturing order cannot be edited`);
+  }
   const body = req.body || {};
   const NO_UPDATED_BY = new Set([
     'manufacturingMaterialConsumption',
@@ -903,10 +1102,42 @@ const updateResource = wrap(async (req, res) => {
     data.components = { deleteMany: {}, create: components };
     data.totalEstimatedCost = components.reduce((s, c) => s + Number(c.estimatedCost || 0), 0);
   }
+  if (key === 'routings' && Array.isArray(body.operations)) {
+    const operations = await mapRoutingOperations(req.mfg.companyId, body.operations);
+    data.operations = { deleteMany: {}, create: operations };
+    data.totalEstimatedTime = operations.reduce(
+      (s, o) => s + Number(o.setupTime || 0) + Number(o.runTime || 0) + Number(o.queueTime || 0),
+      0
+    );
+    data.totalEstimatedCost = operations.reduce((s, o) => s + Number(o.estimatedCost || 0), 0);
+  }
+  ['department', 'factory', 'shift', 'version', 'batchNumber', 'demandType', 'salesOrderReference'].forEach((f) => {
+    if (body[f] !== undefined) data[f] = body[f];
+  });
+  if (body.capacity !== undefined) data.capacity = toNum(body.capacity);
+  if (body.efficiency !== undefined) data.efficiency = toNum(body.efficiency);
+  if (body.costPerHour !== undefined) data.costPerHour = toNum(body.costPerHour);
+  if (body.hourlyOperatingCost !== undefined || body.hourlyCost !== undefined) {
+    data.hourlyOperatingCost = toNum(body.hourlyOperatingCost || body.hourlyCost);
+  }
+  if (body.effectiveFrom !== undefined) data.effectiveFrom = toDate(body.effectiveFrom);
+  if (body.effectiveTo !== undefined) data.effectiveTo = toDate(body.effectiveTo);
+  if (key === 'inspections' && Array.isArray(body.qualityParameters)) {
+    data.qualityParameters = {
+      deleteMany: {},
+      create: workflow.mapQualityParameters(body.qualityParameters)
+    };
+    if (body.result !== undefined) data.result = body.result;
+  }
   if (body.productId && (spec.search || []).includes('productName')) {
     const product = await requireProduct(req.mfg.companyId, body.productId);
     data.productId = product.id;
     data.productName = product.name;
+  }
+  if (key === 'production-orders') {
+    ['sourceWarehouseId', 'wipWarehouseId', 'finishedGoodsWarehouseId'].forEach((f) => {
+      if (body[f] !== undefined) data[f] = emptyToNull(body[f]);
+    });
   }
   const updated = await delegate.update({
     where: { id: existing.id },
@@ -935,12 +1166,19 @@ async function loadOrder(companyId, id) {
     where: { id, companyId },
     include: {
       bom: { include: { components: true } },
-      routing: { include: { operations: { include: { workCenter: true } } } },
-      workOrders: { include: { workCenter: true } },
-      materialReservations: true,
+      routing: { include: { operations: { include: { workCenter: true, machine: true } } } },
+      workOrders: { include: { workCenter: true, machine: true } },
+      materialReservations: { include: { materialIssues: true, component: { select: { id: true, name: true, sku: true, stockUnitName: true } } } },
       materialIssues: true,
       scraps: true,
-      reworks: true
+      reworks: true,
+      byProducts: true,
+      qualityInspections: { include: { qualityParameters: true } },
+      product: { select: { id: true, name: true, sku: true, stockUnitName: true } },
+      sourceWarehouse: { select: { id: true, name: true } },
+      wipWarehouse: { select: { id: true, name: true } },
+      finishedGoodsWarehouse: { select: { id: true, name: true } },
+      creator: { select: { id: true, firstName: true, lastName: true, email: true } }
     }
   });
   if (!order) {
@@ -952,11 +1190,51 @@ async function loadOrder(companyId, id) {
 }
 
 const getProductionOrder = wrap(async (req, res) => {
-  const order = await loadOrder(req.mfg.companyId, req.params.id);
+  let order = await loadOrder(req.mfg.companyId, req.params.id);
+  let rolled = workflow.rollupOrderFromWorkOrders(order, order.workOrders || []);
+  const ready = workflow.shopFloorCompletionReady(
+    { ...order, ...rolled },
+    order.workOrders || [],
+    order.materialReservations || []
+  );
+  if (ready && workflow.canonicalStatus(order.status) !== 'Completed') {
+    try {
+      const status = workflow.assertTransition(order.status, 'Completed');
+      await prisma.$transaction(async (tx) => {
+        await tx.manufacturingProductionOrder.update({
+          where: { id: order.id },
+          data: {
+            status,
+            producedQuantity: rolled.producedQuantity,
+            scrapQuantity: rolled.scrapQuantity,
+            rejectedQuantity: rolled.rejectedQuantity,
+            remainingQuantity: rolled.remainingQuantity,
+            progress: 100,
+            actualEndDate: order.actualEndDate || new Date(),
+            updatedBy: req.mfg.userId
+          }
+        });
+        await workflow.recordHistory(tx, {
+          entityType: 'production-order',
+          entityId: order.id,
+          fromStatus: order.status,
+          toStatus: status,
+          reason: 'All operations complete and planned quantity produced',
+          createdBy: req.mfg.userId,
+          companyId: req.mfg.companyId
+        });
+      });
+      order = await loadOrder(req.mfg.companyId, req.params.id);
+      rolled = workflow.rollupOrderFromWorkOrders(order, order.workOrders || []);
+    } catch (_err) {
+      // Illegal transitions stay on the persisted status; quantities still overlay.
+    }
+  }
   return ok(res, serializeRow('production-orders', {
     ...order,
-    goodQuantity: order.producedQuantity,
-    scrappedQuantity: order.scrapQuantity
+    ...rolled,
+    goodQuantity: rolled.producedQuantity,
+    scrappedQuantity: rolled.scrapQuantity
   }));
 });
 
@@ -966,13 +1244,25 @@ const releaseOrder = wrap(async (req, res) => {
   if (!['Draft', 'Planned'].includes(order.status)) {
     return fail(res, 400, `Cannot release an order in ${order.status} status`);
   }
-  const stocks = await stockMap(companyId, order.sourceWarehouseId || order.locationId);
+  const locationId = emptyToNull(order.sourceWarehouseId);
+  if (!locationId) {
+    return fail(res, 400, workflow.SOURCE_WAREHOUSE_REQUIRED);
+  }
+  const stocks = await stockMap(companyId, locationId, { requireWarehouse: true });
   await prisma.$transaction(async (tx) => {
     if (order.bom?.components?.length && order.materialReservations.length === 0) {
       for (const comp of order.bom.components) {
-        const required = Number(comp.quantity) * Number(order.plannedQuantity) * (1 + Number(comp.scrapPercentage || 0) / 100);
+        const required = workflow.requiredComponentQty(comp, order.plannedQuantity);
         const stock = stocks.get(comp.componentId) || { available: 0 };
         const reserved = Math.min(stock.available, required);
+        if (reserved > 0) {
+          await workflow.reserveComponent(tx, {
+            companyId,
+            productId: comp.componentId,
+            locationId,
+            qty: reserved
+          });
+        }
         await tx.manufacturingMaterialReservation.create({
           data: {
             reservationNumber: await nextNumber(tx.manufacturingMaterialReservation, 'reservationNumber', 'RES', companyId),
@@ -983,7 +1273,7 @@ const releaseOrder = wrap(async (req, res) => {
             availableQuantity: stock.available,
             reservedQuantity: reserved,
             shortageQuantity: Math.max(0, required - reserved),
-            locationId: order.sourceWarehouseId || order.locationId,
+            locationId,
             status: reserved >= required ? 'Reserved' : reserved > 0 ? 'PartiallyReserved' : 'Pending',
             createdBy: userId,
             companyId
@@ -1029,6 +1319,14 @@ const releaseOrder = wrap(async (req, res) => {
       where: { id: order.id },
       data: { status: 'Released', actualStartDate: new Date(), updatedBy: userId }
     });
+    await workflow.recordHistory(tx, {
+      entityType: 'production-order',
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: 'Released',
+      createdBy: userId,
+      companyId
+    });
   });
   const updated = await loadOrder(companyId, order.id);
   return ok(res, serializeRow('production-orders', updated));
@@ -1037,14 +1335,33 @@ const releaseOrder = wrap(async (req, res) => {
 const setOrderStatus = (nextStatus, extra = {}) =>
   wrap(async (req, res) => {
     const order = await loadOrder(req.mfg.companyId, req.params.id);
-    const updated = await prisma.manufacturingProductionOrder.update({
-      where: { id: order.id },
-      data: {
-        status: nextStatus,
-        updatedBy: req.mfg.userId,
-        notes: req.body?.reason ? `${order.notes || ''}\n${req.body.reason}`.trim() : order.notes,
-        ...extra(order, req)
+    const next = workflow.assertTransition(order.status, nextStatus);
+    if (workflow.canonicalStatus(order.status) === next && next !== 'Cancelled') {
+      return ok(res, serializeRow('production-orders', order));
+    }
+    const updated = await prisma.$transaction(async (tx) => {
+      if (next === 'Cancelled') {
+        await workflow.releaseRemainingReservations(tx, order, req.mfg.companyId);
       }
+      const row = await tx.manufacturingProductionOrder.update({
+        where: { id: order.id },
+        data: {
+          status: next,
+          updatedBy: req.mfg.userId,
+          notes: req.body?.reason ? `${order.notes || ''}\n${req.body.reason}`.trim() : order.notes,
+          ...extra(order, req)
+        }
+      });
+      await workflow.recordHistory(tx, {
+        entityType: 'production-order',
+        entityId: order.id,
+        fromStatus: order.status,
+        toStatus: next,
+        reason: req.body?.reason,
+        createdBy: req.mfg.userId,
+        companyId: req.mfg.companyId
+      });
+      return row;
     });
     return ok(res, serializeRow('production-orders', updated));
   });
@@ -1054,47 +1371,212 @@ const resumeOrder = setOrderStatus('In Progress', () => ({}));
 const closeOrder = setOrderStatus('Closed', () => ({}));
 const cancelOrder = setOrderStatus('Cancelled', () => ({}));
 
+const startOrder = wrap(async (req, res) => {
+  const order = await loadOrder(req.mfg.companyId, req.params.id);
+  const next = workflow.assertTransition(order.status, 'In Progress');
+  if (workflow.canonicalStatus(order.status) === next) {
+    return ok(res, serializeRow('production-orders', order));
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.manufacturingProductionOrder.update({
+      where: { id: order.id },
+      data: {
+        status: next,
+        actualStartDate: order.actualStartDate || new Date(),
+        updatedBy: req.mfg.userId
+      }
+    });
+    await workflow.recordHistory(tx, {
+      entityType: 'production-order',
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: next,
+      createdBy: req.mfg.userId,
+      companyId: req.mfg.companyId
+    });
+    return row;
+  });
+  return ok(res, serializeRow('production-orders', updated));
+});
+
 const completeOrder = wrap(async (req, res) => {
   const order = await loadOrder(req.mfg.companyId, req.params.id);
-  const produced = toNum(req.body?.producedQuantity ?? req.body?.goodQuantity, order.producedQuantity || order.plannedQuantity);
+  const planned = Number(order.plannedQuantity || 0);
+  const already = Number(order.producedQuantity || 0);
+  const remainingToProduce = Math.max(0, planned - already);
+  const maxReceipt = order.inventoryPosted
+    ? remainingToProduce
+    : Math.max(remainingToProduce, already);
+  const canReceive =
+    ['Released', 'In Progress', 'Paused', 'Partially Completed'].includes(order.status) ||
+    (order.status === 'Completed' && maxReceipt > 0);
+  if (!canReceive) {
+    return fail(res, 400, `Cannot receive finished goods for an order in ${order.status} status`);
+  }
+  const thisReceipt = toNum(req.body?.goodQuantity ?? req.body?.producedQuantity, maxReceipt);
+  if (thisReceipt <= 0) return fail(res, 400, 'Enter a quantity to receive');
+  if (thisReceipt > maxReceipt) {
+    return fail(res, 400, `Cannot receive ${thisReceipt}. Remaining quantity is ${maxReceipt}.`);
+  }
   const scrap = toNum(req.body?.scrapQuantity, order.scrapQuantity);
-  const remaining = Math.max(0, Number(order.plannedQuantity) - produced);
-  const updated = await prisma.manufacturingProductionOrder.update({
-    where: { id: order.id },
-    data: {
-      status: 'Completed',
-      producedQuantity: produced,
-      scrapQuantity: scrap,
-      remainingQuantity: remaining,
-      progress: 100,
-      actualEndDate: new Date(),
-      updatedBy: req.mfg.userId
+  const rework = toNum(req.body?.reworkQuantity, order.reworkQuantity);
+  const rejected = toNum(req.body?.rejectedQuantity, order.rejectedQuantity);
+  const produced = order.inventoryPosted ? already + thisReceipt : Math.max(already, thisReceipt);
+  const remaining = Math.max(0, planned - produced);
+  const nextStatus = remaining <= 0 ? 'Completed' : 'Partially Completed';
+  const warehouseId = emptyToNull(req.body?.warehouseId) || order.finishedGoodsWarehouseId || order.locationId;
+  if (!warehouseId) return fail(res, 400, 'Finished goods warehouse is required');
+  const updated = await prisma.$transaction(async (tx) => {
+    await workflow.postStockIn(tx, {
+      companyId: req.mfg.companyId,
+      productId: order.productId,
+      locationId: warehouseId,
+      qty: thisReceipt,
+      productName: order.productName
+    });
+    if (nextStatus === 'Completed') {
+      await workflow.releaseRemainingReservations(tx, order, req.mfg.companyId);
+      await tx.manufacturingWIP.updateMany({
+        where: { productionOrderId: order.id, status: 'InProgress' },
+        data: { status: 'Completed', updatedBy: req.mfg.userId }
+      });
+    } else {
+      await tx.manufacturingWorkOrder.updateMany({
+        where: {
+          productionOrderId: order.id,
+          status: 'Completed',
+          completedQuantity: { lt: planned }
+        },
+        data: { status: 'In Progress', endTime: null, updatedBy: req.mfg.userId }
+      });
     }
+    const row = await tx.manufacturingProductionOrder.update({
+      where: { id: order.id },
+      data: {
+        status: nextStatus,
+        producedQuantity: produced,
+        scrapQuantity: scrap,
+        reworkQuantity: rework,
+        rejectedQuantity: rejected,
+        remainingQuantity: remaining,
+        progress: planned ? Math.min(100, (produced / planned) * 100) : 100,
+        actualEndDate: nextStatus === 'Completed' ? new Date() : null,
+        batchNumber: emptyToNull(req.body?.batchNumber) || order.batchNumber,
+        finishedGoodsWarehouseId: warehouseId || order.finishedGoodsWarehouseId,
+        inventoryPosted: true,
+        updatedBy: req.mfg.userId
+      }
+    });
+    await workflow.recordHistory(tx, {
+      entityType: 'production-order',
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: nextStatus,
+      reason: `${produced} of ${planned} units received`,
+      createdBy: req.mfg.userId,
+      companyId: req.mfg.companyId
+    });
+    return row;
   });
-  await prisma.manufacturingWIP.updateMany({
-    where: { productionOrderId: order.id, status: 'InProgress' },
-    data: { status: 'Completed', updatedBy: req.mfg.userId }
+  return ok(res, serializeRow('production-orders', updated));
+});
+
+const closeShortOrder = wrap(async (req, res) => {
+  const order = await loadOrder(req.mfg.companyId, req.params.id);
+  const reason = emptyToNull(req.body?.reason);
+  if (!reason) return fail(res, 400, 'A reason is required to close short');
+  const planned = Number(order.plannedQuantity || 0);
+  const produced = Number(order.producedQuantity || 0);
+  const remaining = Math.max(0, planned - produced);
+  if (remaining <= 0) return fail(res, 400, 'This order has no remaining quantity to close short');
+  const allowed =
+    ['Released', 'In Progress', 'Paused', 'Partially Completed'].includes(order.status) ||
+    (order.status === 'Completed' && remaining > 0);
+  if (!allowed) {
+    return fail(res, 400, `Cannot close short an order in ${order.status} status`);
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    await workflow.releaseRemainingReservations(tx, order, req.mfg.companyId);
+    const row = await tx.manufacturingProductionOrder.update({
+      where: { id: order.id },
+      data: {
+        status: 'Closed Short',
+        remainingQuantity: remaining,
+        actualEndDate: new Date(),
+        notes: `${order.notes || ''}\nClosed short: ${reason}`.trim(),
+        updatedBy: req.mfg.userId
+      }
+    });
+    await workflow.recordHistory(tx, {
+      entityType: 'production-order',
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: 'Closed Short',
+      reason: `Closed short: ${remaining} of ${planned} not produced. ${reason}`,
+      createdBy: req.mfg.userId,
+      companyId: req.mfg.companyId
+    });
+    return row;
   });
   return ok(res, serializeRow('production-orders', updated));
 });
 
 const orderMaterials = wrap(async (req, res) => {
-  const rows = await prisma.manufacturingMaterialReservation.findMany({
-    where: { productionOrderId: req.params.id, companyId: req.mfg.companyId },
-    include: { materialIssues: true }
-  });
+  const order = await loadOrder(req.mfg.companyId, req.params.id);
+  let rows = order.materialReservations || [];
+  const fallbackWarehouseId = emptyToNull(order.sourceWarehouseId) || emptyToNull(order.locationId);
+  const toRepair = rows.filter((r) => !emptyToNull(r.locationId) && fallbackWarehouseId);
+  if (toRepair.length) {
+    await prisma.manufacturingMaterialReservation.updateMany({
+      where: {
+        id: { in: toRepair.map((r) => r.id) },
+        companyId: req.mfg.companyId,
+        locationId: null
+      },
+      data: { locationId: fallbackWarehouseId }
+    });
+    rows = rows.map((r) => (emptyToNull(r.locationId) ? r : { ...r, locationId: fallbackWarehouseId }));
+  }
+  const warehouseIds = [
+    ...new Set(rows.map((r) => workflow.resolveMaterialWarehouseId(order, r)).filter(Boolean))
+  ];
+  const stockRows = rows.length && warehouseIds.length
+    ? await prisma.productStock.findMany({
+        where: {
+          companyId: req.mfg.companyId,
+          productId: { in: rows.map((r) => r.componentId) },
+          locationId: { in: warehouseIds }
+        }
+      })
+    : [];
+  const stockByKey = new Map(
+    stockRows.map((s) => [`${s.productId}:${s.locationId}`, s])
+  );
   const data = rows.map((r) => {
     const issued = r.materialIssues.reduce((s, i) => s + Number(i.issuedQuantity || 0), 0);
+    const warehouseId = workflow.resolveMaterialWarehouseId(order, r);
+    const live = warehouseId ? stockByKey.get(`${r.componentId}:${warehouseId}`) : null;
+    const stockResolved = Boolean(warehouseId);
     return {
+      id: r.id,
+      reservationId: r.id,
       productId: r.componentId,
       productName: r.componentName,
+      sku: r.component?.sku,
+      unit: r.component?.stockUnitName,
       requiredQty: r.requiredQuantity,
       reservedQty: r.reservedQuantity,
       issuedQty: issued,
       consumedQty: issued,
       remainingQty: Math.max(0, Number(r.requiredQuantity) - issued),
-      availableQty: r.availableQuantity,
-      shortageQty: r.shortageQuantity
+      availableQty: stockResolved ? Number(live?.availableStock || 0) : null,
+      onHandQty: stockResolved ? Number(live?.currentStock || 0) : null,
+      shortageQty: r.shortageQuantity,
+      warehouseId: warehouseId || null,
+      stockResolved,
+      stockError: stockResolved ? null : workflow.SOURCE_WAREHOUSE_STOCK_MISSING,
+      status: r.status,
+      batches: r.materialIssues.map((i) => i.batchNumber).filter(Boolean)
     };
   });
   return ok(res, data);
@@ -1113,29 +1595,35 @@ const orderOperations = wrap(async (req, res) => {
       sequence: r.sequence,
       name: r.operationName,
       operationName: r.operationName,
+      workCenterId: r.workCenterId,
       workCenterName: r.workCenter?.name,
+      machineId: r.machineId,
       status: r.status,
       plannedQuantity: r.plannedQuantity,
-      completedQuantity: r.completedQuantity
+      completedQuantity: r.completedQuantity,
+      rejectedQuantity: r.rejectedQuantity,
+      scrapQuantity: r.scrapQuantity,
+      startTime: r.startTime,
+      endTime: r.endTime,
+      downtime: r.downtime,
+      notes: r.notes
     }))
   );
 });
 
 const orderCosting = wrap(async (req, res) => {
   const order = await loadOrder(req.mfg.companyId, req.params.id);
-  const materialCost = (order.bom?.components || []).reduce(
-    (s, c) => s + Number(c.estimatedCost || 0) * Number(order.plannedQuantity || 1),
-    0
-  );
-  const laborCost = (order.routing?.operations || []).reduce((s, op) => s + Number(op.estimatedCost || 0), 0);
-  const data = {
-    materialCost,
-    laborCost,
-    machineCost: 0,
-    overhead: 0,
-    totalCost: materialCost + laborCost
-  };
-  return ok(res, data);
+  const data = workflow.orderCostBreakdown(order);
+  const plannedTotal = data.totalCost;
+  const actualTotal = data.totalCost;
+  return ok(res, {
+    ...data,
+    overhead: data.overhead,
+    plannedCost: plannedTotal,
+    actualCost: actualTotal,
+    variance: actualTotal - plannedTotal,
+    unitProductionCost: data.unitCost
+  });
 });
 
 const workOrderAction = (action) =>
@@ -1156,9 +1644,27 @@ const workOrderAction = (action) =>
       data.endTime = new Date();
       data.completedQuantity = toNum(req.body?.completedQuantity, wo.plannedQuantity);
     } else if (action === 'report') {
-      data.completedQuantity = toNum(req.body?.goodQuantity ?? req.body?.completedQuantity, wo.completedQuantity);
-      data.scrapQuantity = toNum(req.body?.scrapQuantity, wo.scrapQuantity);
-      if (data.completedQuantity >= Number(wo.plannedQuantity)) {
+      const siblings = await prisma.manufacturingWorkOrder.findMany({
+        where: { productionOrderId: wo.productionOrderId, companyId: req.mfg.companyId }
+      });
+      const previous = [...siblings]
+        .filter((row) => row.id !== wo.id && Number(row.sequence || 0) < Number(wo.sequence || 0))
+        .sort((a, b) => Number(b.sequence || 0) - Number(a.sequence || 0))[0];
+      const incoming = {
+        completedQuantity: toNum(req.body?.goodQuantity ?? req.body?.completedQuantity, wo.completedQuantity),
+        scrapQuantity: toNum(req.body?.scrapQuantity, wo.scrapQuantity),
+        rejectedQuantity: toNum(req.body?.rejectedQuantity, wo.rejectedQuantity),
+        downtime: toNum(req.body?.downtime, wo.downtime)
+      };
+      const report = workflow.resolveOperationReport(incoming, previous);
+      data.completedQuantity = report.completedQuantity;
+      data.scrapQuantity = report.scrapQuantity;
+      data.rejectedQuantity = report.rejectedQuantity;
+      data.downtime = report.downtime;
+      if (req.body?.employeeId) data.employeeId = emptyToNull(req.body.employeeId);
+      if (req.body?.machineId) data.machineId = emptyToNull(req.body.machineId);
+      if (req.body?.notes) data.notes = emptyToNull(req.body.notes);
+      if (workflow.isOperationReportComplete(report, wo.plannedQuantity)) {
         data.status = 'Completed';
         data.endTime = new Date();
       } else {
@@ -1179,18 +1685,331 @@ const workOrderAction = (action) =>
       });
       const done = siblings.filter((s) => s.status === 'Completed').length;
       const anyRunning = siblings.some((s) => s.status === 'In Progress');
-      await prisma.manufacturingProductionOrder.update({
+      const parent = await prisma.manufacturingProductionOrder.findUnique({
         where: { id: updated.productionOrderId },
-        data: {
-          status: done === siblings.length && siblings.length ? 'Completed' : anyRunning ? 'In Progress' : undefined,
-          producedQuantity: siblings.reduce((s, w) => s + Number(w.completedQuantity || 0), 0) / Math.max(1, siblings.length),
-          progress: siblings.length ? (done / siblings.length) * 100 : 0,
-          updatedBy: req.mfg.userId
+        include: { materialReservations: { include: { materialIssues: true } } }
+      });
+      if (!parent) return ok(res, serializeRow('work-orders', updated));
+      const rolled = workflow.rollupOrderFromWorkOrders(parent, siblings);
+      const ready = workflow.shopFloorCompletionReady(
+        { ...parent, ...rolled },
+        siblings,
+        parent.materialReservations || []
+      );
+      const preserveStatus = ['Completed', 'Closed', 'Cancelled', 'Partially Completed', 'Closed Short'].includes(parent.status);
+      let status = preserveStatus ? parent.status : (anyRunning || action === 'start' ? 'In Progress' : parent.status);
+      if (ready && !['Closed', 'Cancelled', 'Closed Short'].includes(parent.status)) {
+        status = workflow.assertTransition(parent.status, 'Completed');
+      }
+      const patch = {
+        status,
+        updatedBy: req.mfg.userId
+      };
+      if (!preserveStatus || status === 'Completed') {
+        patch.progress = siblings.length ? (done / siblings.length) * 100 : 0;
+      }
+      if (action === 'report' || action === 'complete' || status === 'Completed') {
+        Object.assign(patch, rolled);
+      }
+      if (status === 'Completed' && parent.status !== 'Completed') {
+        patch.actualEndDate = parent.actualEndDate || new Date();
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.manufacturingProductionOrder.update({
+          where: { id: updated.productionOrderId },
+          data: patch
+        });
+        if (status !== parent.status) {
+          await workflow.recordHistory(tx, {
+            entityType: 'production-order',
+            entityId: parent.id,
+            fromStatus: parent.status,
+            toStatus: status,
+            reason: status === 'Completed'
+              ? 'All operations complete and planned quantity produced'
+              : undefined,
+            createdBy: req.mfg.userId,
+            companyId: req.mfg.companyId
+          });
         }
       });
     }
     return ok(res, serializeRow('work-orders', updated));
   });
+
+const productDefaults = wrap(async (req, res) => {
+  const product = await requireProduct(req.mfg.companyId, req.query.productId);
+  const qty = toNum(req.query.quantity, 1);
+  const [bom, routing, settings] = await Promise.all([
+    prisma.manufacturingBOM.findFirst({
+      where: { companyId: req.mfg.companyId, productId: product.id, status: { in: ['Active', 'Draft'] } },
+      include: { components: true },
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }]
+    }),
+    prisma.manufacturingRouting.findFirst({
+      where: { companyId: req.mfg.companyId, productId: product.id, status: { in: ['Active', 'Draft'] } },
+      include: { operations: { include: { workCenter: true } } },
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }]
+    }),
+    prisma.manufacturingSetting.findUnique({ where: { companyId: req.mfg.companyId } })
+  ]);
+  const explosion = (bom?.components || []).map((c) => ({
+    productId: c.componentId,
+    productName: c.componentName,
+    unit: c.unitOfMeasure,
+    bomQty: c.quantity,
+    scrapPct: c.scrapPercentage,
+    requiredQty: workflow.requiredComponentQty(c, qty),
+    estimatedCost: Number(c.estimatedCost || 0) * qty
+  }));
+  return ok(res, {
+    product,
+    bom,
+    routing,
+    settings: settings?.settings || {},
+    explosion,
+    unit: product.stockUnitName || 'pcs'
+  });
+});
+
+const explodeBom = wrap(async (req, res) => {
+  const bom = await prisma.manufacturingBOM.findFirst({
+    where: { id: req.params.id, companyId: req.mfg.companyId },
+    include: { components: true }
+  });
+  if (!bom) return fail(res, 404, 'BOM not found');
+  const qty = toNum(req.query.quantity || req.body?.quantity, 1);
+  return ok(
+    res,
+    (bom.components || []).map((c) => ({
+      productId: c.componentId,
+      productName: c.componentName,
+      unit: c.unitOfMeasure,
+      bomQty: c.quantity,
+      scrapPct: c.scrapPercentage,
+      requiredQty: workflow.requiredComponentQty(c, qty),
+      estimatedCost: Number(c.estimatedCost || 0) * qty
+    }))
+  );
+});
+
+const orderHistory = wrap(async (req, res) => {
+  if (!prisma.manufacturingStatusHistory) return ok(res, []);
+  const rows = await prisma.manufacturingStatusHistory.findMany({
+    where: { companyId: req.mfg.companyId, entityType: 'production-order', entityId: req.params.id },
+    orderBy: { createdAt: 'asc' }
+  });
+  return ok(res, rows);
+});
+
+const issueMaterials = wrap(async (req, res) => {
+  const { companyId, userId } = req.mfg;
+  const order = await loadOrder(companyId, req.params.id || req.body.productionOrderId);
+  if (['Draft', 'Closed', 'Cancelled', 'Closed Short'].includes(order.status)) {
+    return fail(res, 400, `Cannot issue materials for an order in ${order.status} status`);
+  }
+  const settings = await workflow.companySettings(prisma, companyId);
+  const defaultLocation = emptyToNull(req.body?.fromLocationId)
+    || emptyToNull(order.sourceWarehouseId)
+    || emptyToNull(order.locationId);
+  let lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  if (!lines.length) {
+    lines = (order.materialReservations || []).map((r) => {
+      const issued = (r.materialIssues || []).reduce((s, i) => s + Number(i.issuedQuantity || 0), 0);
+      return {
+        reservationId: r.id,
+        componentId: r.componentId,
+        issuedQuantity: Math.max(0, Number(r.requiredQuantity || 0) - issued),
+        fromLocationId: workflow.resolveMaterialWarehouseId(order, r) || defaultLocation
+      };
+    }).filter((l) => Number(l.issuedQuantity) > 0);
+  }
+  if (!lines.length) return fail(res, 400, 'No material lines to issue');
+  const created = await prisma.$transaction(async (tx) => {
+    const rows = [];
+    for (const line of lines) {
+      const qty = toNum(line.issuedQuantity || line.quantity);
+      if (qty <= 0) continue;
+      const reservation = (order.materialReservations || []).find(
+        (r) => r.id === line.reservationId || r.componentId === (line.componentId || line.productId)
+      );
+      const product = await requireProduct(companyId, line.componentId || line.productId || reservation?.componentId);
+      const fromLocationId = emptyToNull(line.fromLocationId)
+        || workflow.resolveMaterialWarehouseId(order, reservation)
+        || defaultLocation;
+      if (!fromLocationId) {
+        const err = new Error(`Source warehouse is required to issue ${product.name}`);
+        err.status = 400;
+        throw err;
+      }
+      const stockRow = await tx.productStock.findUnique({
+        where: { productId_locationId: { productId: product.id, locationId: fromLocationId } }
+      });
+      const onHand = Number(stockRow?.currentStock || 0);
+      const reservedNow = Number(stockRow?.reservedStock || 0);
+      const allowNegative = Boolean(settings.allowNegativeInventory);
+      if (!allowNegative && qty > onHand) {
+        const err = new Error(
+          `Insufficient stock for ${product.name} at this location. On hand: ${onHand}, Required: ${qty}. Reduce Issue Now to ${onHand} or receive stock first.`
+        );
+        err.status = 400;
+        throw err;
+      }
+      await workflow.postStockOut(tx, {
+        companyId,
+        productId: product.id,
+        locationId: fromLocationId,
+        qty,
+        productName: product.name,
+        reservedQty: Math.min(qty, reservedNow),
+        allowNegative
+      });
+      const row = await tx.manufacturingMaterialIssue.create({
+        data: {
+          issueNumber: await nextNumber(tx.manufacturingMaterialIssue, 'issueNumber', 'ISS', companyId),
+          reservationId: reservation?.id || null,
+          productionOrderId: order.id,
+          componentId: product.id,
+          componentName: product.name,
+          issuedQuantity: qty,
+          unitOfMeasure: line.unitOfMeasure || product.stockUnitName || 'pcs',
+          fromLocationId,
+          toLocationId: order.wipWarehouseId || fromLocationId,
+          issueDate: toDate(req.body?.issueDate, new Date()),
+          status: 'Issued',
+          batchNumber: emptyToNull(line.batchNumber),
+          inventoryPosted: true,
+          notes: emptyToNull(line.notes || req.body?.notes),
+          createdBy: userId,
+          companyId
+        }
+      });
+      if (reservation) {
+        const already = (reservation.materialIssues || []).reduce((s, i) => s + Number(i.issuedQuantity || 0), 0) + qty;
+        await tx.manufacturingMaterialReservation.update({
+          where: { id: reservation.id },
+          data: {
+            status: already >= Number(reservation.requiredQuantity || 0) ? 'Completed' : 'PartiallyReserved'
+          }
+        });
+      }
+      rows.push(row);
+    }
+    if (!['In Progress', 'Completed', 'Closed'].includes(order.status)) {
+      await tx.manufacturingProductionOrder.update({
+        where: { id: order.id },
+        data: { status: order.status === 'Released' ? 'Released' : order.status, updatedBy: userId }
+      });
+    }
+    await workflow.recordHistory(tx, {
+      entityType: 'production-order',
+      entityId: order.id,
+      fromStatus: order.status,
+      toStatus: order.status,
+      reason: `Issued ${rows.length} material line(s)`,
+      createdBy: userId,
+      companyId
+    });
+    return rows;
+  });
+  return ok(res, created);
+});
+
+const recordScrap = wrap(async (req, res) => {
+  const { companyId, userId } = req.mfg;
+  const order = await loadOrder(companyId, req.params.id || req.body.productionOrderId);
+  const lines = Array.isArray(req.body?.lines) ? req.body.lines : [req.body];
+  const created = await prisma.$transaction(async (tx) => {
+    const rows = [];
+    let scrapQty = Number(order.scrapQuantity || 0);
+    for (const line of lines) {
+      const qty = toNum(line.quantity);
+      if (qty <= 0) continue;
+      const product = await requireProduct(companyId, line.productId || line.materialId || order.productId);
+      const row = await tx.manufacturingScrap.create({
+        data: {
+          scrapNumber: await nextNumber(tx.manufacturingScrap, 'scrapNumber', 'SCR', companyId),
+          productionOrderId: order.id,
+          workOrderId: emptyToNull(line.workOrderId),
+          productId: product.id,
+          productName: product.name,
+          materialId: emptyToNull(line.materialId) || product.id,
+          materialName: emptyToNull(line.materialName) || product.name,
+          quantity: qty,
+          unitOfMeasure: line.unitOfMeasure || product.stockUnitName || 'pcs',
+          reason: emptyToNull(line.reason || req.body?.reason),
+          workCenterId: emptyToNull(line.workCenterId),
+          machineId: emptyToNull(line.machineId),
+          operatorId: emptyToNull(line.operatorId),
+          scrapDate: toDate(line.scrapDate || req.body?.scrapDate, new Date()),
+          cost: toNum(line.cost, Number(product.costPrice || 0) * qty),
+          recoverable: Boolean(line.recoverable),
+          notes: emptyToNull(line.notes),
+          createdBy: userId,
+          companyId
+        }
+      });
+      scrapQty += qty;
+      rows.push(row);
+    }
+    await tx.manufacturingProductionOrder.update({
+      where: { id: order.id },
+      data: { scrapQuantity: scrapQty, updatedBy: userId }
+    });
+    return rows;
+  });
+  return ok(res, created);
+});
+
+const recordByproducts = wrap(async (req, res) => {
+  const { companyId, userId } = req.mfg;
+  const order = await loadOrder(companyId, req.params.id || req.body.productionOrderId);
+  const lines = Array.isArray(req.body?.lines) ? req.body.lines : [req.body];
+  const created = await prisma.$transaction(async (tx) => {
+    const rows = [];
+    for (const line of lines) {
+      const qty = toNum(line.quantity);
+      if (qty <= 0) continue;
+      const product = await requireProduct(companyId, line.productId);
+      const locationId = emptyToNull(line.locationId || line.warehouseId) || order.finishedGoodsWarehouseId || order.locationId;
+      if (locationId) {
+        await workflow.postStockIn(tx, {
+          companyId,
+          productId: product.id,
+          locationId,
+          qty,
+          productName: product.name
+        });
+      }
+      rows.push(
+        await tx.manufacturingByProduct.create({
+          data: {
+            productionOrderId: order.id,
+            productId: product.id,
+            productName: product.name,
+            quantity: qty,
+            unitOfMeasure: line.unitOfMeasure || product.stockUnitName || 'pcs',
+            locationId,
+            receivedDate: toDate(line.receivedDate, new Date()),
+            costAllocation: toNum(line.costAllocation),
+            batchNumber: emptyToNull(line.batchNumber),
+            inventoryPosted: Boolean(locationId),
+            notes: emptyToNull(line.notes),
+            createdBy: userId,
+            companyId
+          }
+        })
+      );
+    }
+    return rows;
+  });
+  return ok(res, created);
+});
+
+const recordOutput = wrap(async (req, res) => {
+  req.body = req.body || {};
+  return completeOrder(req, res);
+});
 
 const dashboard = wrap(async (req, res) => {
   const { companyId } = req.mfg;
@@ -1421,6 +2240,7 @@ const settingsGet = wrap(async (req, res) => {
     nextNumber: 1,
     allowNegativeInventory: false,
     autoCreatePurchaseOrders: false,
+    sourceWarehouseId: '',
     wipWarehouseId: '',
     finishedGoodsWarehouseId: ''
   });
@@ -1709,14 +2529,23 @@ module.exports = {
   removeResource,
   getProductionOrder,
   releaseOrder,
+  startOrder,
   pauseOrder,
   resumeOrder,
   completeOrder,
   closeOrder,
+  closeShortOrder,
   cancelOrder,
   orderMaterials,
   orderOperations,
   orderCosting,
+  orderHistory,
+  issueMaterials,
+  recordScrap,
+  recordByproducts,
+  recordOutput,
+  productDefaults,
+  explodeBom,
   workOrderAction,
   dashboard,
   runMrp,

@@ -4946,6 +4946,7 @@ model ManufacturingProductionOrder {
   producedQuantity  Float    @default(0) @map("produced_quantity")
   scrapQuantity     Float    @default(0) @map("scrap_quantity")
   reworkQuantity    Float    @default(0) @map("rework_quantity")
+  rejectedQuantity  Float    @default(0) @map("rejected_quantity")
   remainingQuantity Float    @map("remaining_quantity")
   startDate         DateTime @map("start_date")
   dueDate           DateTime @map("due_date")
@@ -4957,6 +4958,10 @@ model ManufacturingProductionOrder {
   priority          String   @default("Normal") // Low | Normal | High | Urgent
   status            String   @default("Draft") // Draft | Planned | Released | InProgress | Paused | Completed | Closed | Cancelled
   progress          Float    @default(0) // percentage
+  demandType        String?  @map("demand_type")
+  salesOrderReference String? @map("sales_order_reference")
+  batchNumber       String?  @map("batch_number")
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
   description       String?
   notes             String?
   
@@ -5111,6 +5116,8 @@ model ManufacturingMaterialIssue {
   toLocationId      String   @map("to_location_id")
   issueDate         DateTime @map("issue_date")
   status            String   @default("Issued") // Issued | Consumed | Returned
+  batchNumber       String?  @map("batch_number")
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
   notes             String?
   
   createdBy         String   @map("created_by")
@@ -5240,6 +5247,8 @@ model ManufacturingScrap {
   operatorId        String?  @map("operator_id")
   scrapDate         DateTime @map("scrap_date")
   cost              Float    @default(0)
+  recoverable       Boolean  @default(false)
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
   notes             String?
   
   createdBy         String   @map("created_by")
@@ -5280,6 +5289,8 @@ model ManufacturingByProduct {
   locationId        String?  @map("location_id")
   receivedDate      DateTime @map("received_date")
   costAllocation   Float    @default(0) @map("cost_allocation")
+  batchNumber       String?  @map("batch_number")
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
   notes             String?
   
   createdBy         String   @map("created_by")
@@ -5389,11 +5400,11 @@ model ManufacturingQualityParameter {
   id                String   @id @default(uuid())
   inspectionId      String   @map("inspection_id")
   parameterName     String   @map("parameter_name")
-  expectedValue     Float    @map("expected_value")
-  actualValue       Float    @map("actual_value")
-  tolerance         Float?
-  unitOfMeasure     String   @map("unit_of_measure")
-  result            String   @default("Pass") // Pass | Fail
+  expectedValue     String   @default("") @map("expected_value")
+  actualValue       String   @default("") @map("actual_value")
+  tolerance         String?
+  unitOfMeasure     String   @default("") @map("unit_of_measure")
+  result            String   @default("Pass") // Pass | Fail | Conditional
   notes             String?
   
   inspection        ManufacturingQualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
@@ -5792,4 +5803,21 @@ model ManufacturingSetting {
   company           Company                    @relation("ManufacturingSettingCompany", fields: [companyId], references: [id])
 
   @@map("manufacturing_settings")
+}
+
+model ManufacturingStatusHistory {
+  id          String   @id @default(uuid())
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  fromStatus  String?  @map("from_status")
+  toStatus    String   @map("to_status")
+  reason      String?
+  createdBy   String?  @map("created_by")
+  companyId   String   @map("company_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([companyId])
+  @@index([createdAt])
+  @@map("manufacturing_status_history")
 }

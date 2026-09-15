@@ -27,15 +27,25 @@ router.get('/reports/machine', mfg.report('machine'));
 router.get('/reports/efficiency', mfg.report('efficiency'));
 router.get('/reports/cost', mfg.report('cost'));
 
+router.get('/product-defaults', mfg.productDefaults);
+router.get('/boms/:id/explode', mfg.explodeBom);
+
 router.get('/production-orders/:id/materials', mfg.orderMaterials);
 router.get('/production-orders/:id/operations', mfg.orderOperations);
 router.get('/production-orders/:id/costing', mfg.orderCosting);
+router.get('/production-orders/:id/history', mfg.orderHistory);
 router.post('/production-orders/:id/release', mfg.releaseOrder);
+router.post('/production-orders/:id/start', mfg.startOrder);
 router.post('/production-orders/:id/pause', mfg.pauseOrder);
 router.post('/production-orders/:id/resume', mfg.resumeOrder);
 router.post('/production-orders/:id/complete', mfg.completeOrder);
 router.post('/production-orders/:id/close', mfg.closeOrder);
+router.post('/production-orders/:id/close-short', mfg.closeShortOrder);
 router.post('/production-orders/:id/cancel', mfg.cancelOrder);
+router.post('/production-orders/:id/issue-materials', mfg.issueMaterials);
+router.post('/production-orders/:id/record-scrap', mfg.recordScrap);
+router.post('/production-orders/:id/record-byproducts', mfg.recordByproducts);
+router.post('/production-orders/:id/record-output', mfg.recordOutput);
 router.get('/production-orders/:id', mfg.getProductionOrder);
 
 ['start', 'pause', 'resume', 'complete', 'report'].forEach((action) => {
