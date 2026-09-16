@@ -467,6 +467,11 @@ exports.updateLoan = wrap(async (req, res, companyId) => {
   res.json({ success: true, data: row });
 });
 
+async function loadSettings(companyId) {
+  const row = await prisma.hrSetting.findUnique({ where: { companyId } });
+  return { salesCommissionPct: 5, noSaleCutAmount: 0, ...(row?.payload || {}) };
+}
+
 exports.listBonuses = wrap(async (req, res, companyId) => {
   if (!requireHrManager(req, res)) return;
   const rows = await prisma.hrBonus.findMany({
@@ -483,14 +488,31 @@ exports.listBonuses = wrap(async (req, res, companyId) => {
 exports.saveBonus = wrap(async (req, res, companyId) => {
   if (!requireHrManager(req, res)) return;
   if (!req.body.employeeId) return res.status(400).json({ success: false, message: 'Employee is required' });
+  const kind = String(req.body.kind || 'performance');
+  const salesAmount = Number(req.body.salesAmount || 0);
+  let amount = Number(req.body.amount || 0);
+  let reason = String(req.body.reason || '');
+
+  // Sales flow: enter sales total → commission = sales × settings %
+  if ((kind === 'sales' || kind === 'commission') && salesAmount > 0) {
+    const settings = await loadSettings(companyId);
+    const pct = Number(settings.salesCommissionPct || 5);
+    if (!(amount > 0)) amount = Math.round(((salesAmount * pct) / 100) * 100) / 100;
+    reason = JSON.stringify({
+      salesAmount,
+      commissionPct: pct,
+      note: reason || ''
+    });
+  }
+
   const row = await prisma.hrBonus.create({
     data: {
       companyId,
       employeeId: req.body.employeeId,
-      kind: String(req.body.kind || 'performance'),
-      amount: Number(req.body.amount || 0),
+      kind,
+      amount,
       period: String(req.body.period || ''),
-      reason: String(req.body.reason || ''),
+      reason,
       status: 'Pending'
     }
   });
@@ -659,6 +681,9 @@ exports.employeeDossier = wrap(async (req, res, companyId) => {
       trackingEnabled: employee.trackingEnabled,
       profile: employee.profile || {},
       salary: salaryVisible ? employee.salary : null,
+      payBasis:
+        (employee.profile && typeof employee.profile === 'object' && employee.profile.payBasis) ||
+        'monthly',
       attendance: attendance.map((r) => ({ ...r, workDate: ymd(r.workDate) })),
       leaves: leaves.map((r) => ({ ...r, from: ymd(r.fromDate), to: ymd(r.toDate) })),
       payrolls: salaryVisible ? payrolls : [],

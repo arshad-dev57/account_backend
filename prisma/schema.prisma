@@ -124,6 +124,29 @@ model Company {
   hrGoals            HrGoal[]
   hrFeedbacks        HrFeedback[]
   hrShiftSwaps       HrShiftSwap[]
+  manufacturingBOMs  ManufacturingBOM[]            @relation("ManufacturingBOMCompany")
+  manufacturingRoutings ManufacturingRouting[]        @relation("ManufacturingRoutingCompany")
+  manufacturingWorkCenters ManufacturingWorkCenter[] @relation("ManufacturingWorkCenterCompany")
+  manufacturingMachines ManufacturingMachine[]       @relation("ManufacturingMachineCompany")
+  manufacturingProductionOrders ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderCompany")
+  manufacturingWorkOrders ManufacturingWorkOrder[]   @relation("ManufacturingWorkOrderCompany")
+  manufacturingMaterialReservations ManufacturingMaterialReservation[] @relation("ManufacturingMaterialReservationCompany")
+  manufacturingMaterialIssues ManufacturingMaterialIssue[] @relation("ManufacturingMaterialIssueCompany")
+  manufacturingMaterialConsumptions ManufacturingMaterialConsumption[] @relation("ManufacturingMaterialConsumptionCompany")
+  manufacturingWIPs ManufacturingWIP[]             @relation("ManufacturingWIPCompany")
+  manufacturingScraps ManufacturingScrap[]         @relation("ManufacturingScrapCompany")
+  manufacturingByProducts ManufacturingByProduct[]   @relation("ManufacturingByProductCompany")
+  manufacturingReworks ManufacturingRework[]       @relation("ManufacturingReworkCompany")
+  manufacturingQualityInspections ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionCompany")
+  manufacturingMaintenanceRequests ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestCompany")
+  manufacturingMaintenanceOrders ManufacturingMaintenanceOrder[] @relation("ManufacturingMaintenanceOrderCompany")
+  manufacturingSubcontractVendors ManufacturingSubcontractVendor[] @relation("ManufacturingSubcontractVendorCompany")
+  manufacturingSubcontractOrders ManufacturingSubcontractOrder[] @relation("ManufacturingSubcontractOrderCompany")
+  manufacturingMRPs ManufacturingMRP[]             @relation("ManufacturingMRPCompany")
+  manufacturingMPS ManufacturingMPS[]             @relation("ManufacturingMPSCompany")
+  manufacturingDemands ManufacturingDemand[]       @relation("ManufacturingDemandCompany")
+  manufacturingProductCosts ManufacturingProductCost[] @relation("ManufacturingProductCostCompany")
+  manufacturingSetting ManufacturingSetting?      @relation("ManufacturingSettingCompany")
 
   @@index([email])
   @@index([isActive])
@@ -168,6 +191,19 @@ model Location {
   expenses             Expense[]
   incomes              Income[]
   journalEntries       JournalEntry[]
+  manufacturingBOMs    ManufacturingBOM[]       @relation("ManufacturingBOMLocation")
+  manufacturingWorkCenters ManufacturingWorkCenter[] @relation("ManufacturingWorkCenterLocation")
+  manufacturingMachines ManufacturingMachine[]  @relation("ManufacturingMachineLocation")
+  manufacturingProductionOrders ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderLocation")
+  manufacturingProductionOrdersSource ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderSourceWarehouse")
+  manufacturingProductionOrdersWIP ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderWIPWarehouse")
+  manufacturingProductionOrdersFG ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderFinishedGoodsWarehouse")
+  manufacturingMaterialReservations ManufacturingMaterialReservation[] @relation("ManufacturingMaterialReservationLocation")
+  manufacturingMaterialIssues ManufacturingMaterialIssue[] @relation("ManufacturingMaterialIssueFromLocation")
+  manufacturingMaterialIssuesTo ManufacturingMaterialIssue[] @relation("ManufacturingMaterialIssueToLocation")
+  manufacturingWIPs    ManufacturingWIP[]       @relation("ManufacturingWIPLocation")
+  manufacturingByProducts ManufacturingByProduct[] @relation("ManufacturingByProductLocation")
+  manufacturingMPS     ManufacturingMPS[]       @relation("ManufacturingMPSLocation")
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -356,6 +392,46 @@ model User {
   approvedExemptions  TaxExemption[]       @relation("ExemptionApprover")
   pdfReportSettings   PdfReportSetting[]   @relation("PdfReportSettingOwner")
   hrEmployee          HrEmployee?
+  manufacturingBOMsCreated ManufacturingBOM[] @relation("ManufacturingBOMCreator")
+  manufacturingBOMsUpdated ManufacturingBOM[] @relation("ManufacturingBOMUpdater")
+  manufacturingRoutingsCreated ManufacturingRouting[] @relation("ManufacturingRoutingCreator")
+  manufacturingRoutingsUpdated ManufacturingRouting[] @relation("ManufacturingRoutingUpdater")
+  manufacturingWorkCentersCreated ManufacturingWorkCenter[] @relation("ManufacturingWorkCenterCreator")
+  manufacturingWorkCentersUpdated ManufacturingWorkCenter[] @relation("ManufacturingWorkCenterUpdater")
+  manufacturingMachinesCreated ManufacturingMachine[] @relation("ManufacturingMachineCreator")
+  manufacturingMachinesUpdated ManufacturingMachine[] @relation("ManufacturingMachineUpdater")
+  manufacturingProductionOrdersCreated ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderCreator")
+  manufacturingProductionOrdersUpdated ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderUpdater")
+  manufacturingWorkOrdersCreated ManufacturingWorkOrder[] @relation("ManufacturingWorkOrderCreator")
+  manufacturingWorkOrdersUpdated ManufacturingWorkOrder[] @relation("ManufacturingWorkOrderUpdater")
+  manufacturingMaterialReservationsCreated ManufacturingMaterialReservation[] @relation("ManufacturingMaterialReservationCreator")
+  manufacturingMaterialReservationsUpdated ManufacturingMaterialReservation[] @relation("ManufacturingMaterialReservationUpdater")
+  manufacturingMaterialIssuesCreated ManufacturingMaterialIssue[] @relation("ManufacturingMaterialIssueCreator")
+  manufacturingMaterialIssuesUpdated ManufacturingMaterialIssue[] @relation("ManufacturingMaterialIssueUpdater")
+  manufacturingMaterialConsumptionsCreated ManufacturingMaterialConsumption[] @relation("ManufacturingMaterialConsumptionCreator")
+  manufacturingWIPsCreated ManufacturingWIP[] @relation("ManufacturingWIPCreator")
+  manufacturingWIPsUpdated ManufacturingWIP[] @relation("ManufacturingWIPUpdater")
+  manufacturingScrapsCreated ManufacturingScrap[] @relation("ManufacturingScrapCreator")
+  manufacturingByProductsCreated ManufacturingByProduct[] @relation("ManufacturingByProductCreator")
+  manufacturingReworksCreated ManufacturingRework[] @relation("ManufacturingReworkCreator")
+  manufacturingReworksUpdated ManufacturingRework[] @relation("ManufacturingReworkUpdater")
+  manufacturingQualityInspectionsCreated ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionCreator")
+  manufacturingMaintenanceRequestsCreated ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestCreator")
+  manufacturingMaintenanceRequestsUpdated ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestUpdater")
+  manufacturingMaintenanceRequestsRequested ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestRequester")
+  manufacturingMaintenanceOrdersCreated ManufacturingMaintenanceOrder[] @relation("ManufacturingMaintenanceOrderCreator")
+  manufacturingMaintenanceOrdersUpdated ManufacturingMaintenanceOrder[] @relation("ManufacturingMaintenanceOrderUpdater")
+  manufacturingSubcontractVendorsCreated ManufacturingSubcontractVendor[] @relation("ManufacturingSubcontractVendorCreator")
+  manufacturingSubcontractVendorsUpdated ManufacturingSubcontractVendor[] @relation("ManufacturingSubcontractVendorUpdater")
+  manufacturingSubcontractOrdersCreated ManufacturingSubcontractOrder[] @relation("ManufacturingSubcontractOrderCreator")
+  manufacturingSubcontractOrdersUpdated ManufacturingSubcontractOrder[] @relation("ManufacturingSubcontractOrderUpdater")
+  manufacturingMRPsCreated ManufacturingMRP[] @relation("ManufacturingMRPCreator")
+  manufacturingMPSCreated ManufacturingMPS[] @relation("ManufacturingMPSCreator")
+  manufacturingMPSUpdated ManufacturingMPS[] @relation("ManufacturingMPSUpdater")
+  manufacturingDemandsCreated ManufacturingDemand[] @relation("ManufacturingDemandCreator")
+  manufacturingDemandsUpdated ManufacturingDemand[] @relation("ManufacturingDemandUpdater")
+  manufacturingProductCostsCreated ManufacturingProductCost[] @relation("ManufacturingProductCostCreator")
+  manufacturingProductCostsUpdated ManufacturingProductCost[] @relation("ManufacturingProductCostUpdater")
 
   @@index([email])
   @@index([roleId])
@@ -435,6 +511,11 @@ model HrEmployee {
   goals       HrGoal[]
   feedbacks   HrFeedback[]
   shiftSwaps  HrShiftSwap[]
+  manufacturingWorkOrders ManufacturingWorkOrder[] @relation("ManufacturingWorkOrderEmployee")
+  manufacturingScraps ManufacturingScrap[] @relation("ManufacturingScrapOperator")
+  manufacturingReworks ManufacturingRework[] @relation("ManufacturingReworkOperator")
+  manufacturingQualityInspections ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionInspector")
+  manufacturingMaintenanceOrders ManufacturingMaintenanceOrder[] @relation("ManufacturingMaintenanceOrderTechnician")
 
   @@unique([companyId, employeeCode])
   @@index([companyId])
@@ -1451,6 +1532,26 @@ model Product {
   posReturnItems            POSReturnItem[]
   taxExemptions             TaxExemption[]          @relation("ProductTaxExemptions")
   productStocks             ProductStock[]
+  manufacturingBOMs        ManufacturingBOM[]       @relation("ManufacturingBOMProduct")
+  manufacturingBOMComponents ManufacturingBOMComponent[] @relation("ManufacturingBOMComponentProduct")
+  manufacturingRoutings    ManufacturingRouting[]   @relation("ManufacturingRoutingProduct")
+  manufacturingProductionOrders ManufacturingProductionOrder[] @relation("ManufacturingProductionOrderProduct")
+  manufacturingWIPs       ManufacturingWIP[]       @relation("ManufacturingWIPProduct")
+  manufacturingScraps     ManufacturingScrap[]     @relation("ManufacturingScrapProduct")
+  manufacturingScrapsMaterial ManufacturingScrap[] @relation("ManufacturingScrapMaterial")
+  manufacturingByProducts ManufacturingByProduct[] @relation("ManufacturingByProductProduct")
+  manufacturingReworks    ManufacturingRework[]    @relation("ManufacturingReworkProduct")
+  manufacturingQualityInspections ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionProduct")
+  manufacturingSubcontractOrders ManufacturingSubcontractOrder[] @relation("ManufacturingSubcontractOrderProduct")
+  manufacturingMRPItems      ManufacturingMRPItem[]   @relation("ManufacturingMRPItemMaterial")
+  manufacturingMaterialReservations ManufacturingMaterialReservation[] @relation("ManufacturingMaterialReservationComponent")
+  manufacturingMaterialIssues ManufacturingMaterialIssue[] @relation("ManufacturingMaterialIssueComponent")
+  manufacturingMaterialConsumptions ManufacturingMaterialConsumption[] @relation("ManufacturingMaterialConsumptionComponent")
+  manufacturingSubcontractMaterialSents ManufacturingSubcontractMaterialSent[] @relation("ManufacturingSubcontractMaterialSentMaterial")
+  manufacturingSubcontractMaterialReceiveds ManufacturingSubcontractMaterialReceived[] @relation("ManufacturingSubcontractMaterialReceivedMaterial")
+  manufacturingProductCosts ManufacturingProductCost[] @relation("ManufacturingProductCostProduct")
+  manufacturingDemands     ManufacturingDemand[]   @relation("ManufacturingDemandProduct")
+  manufacturingMPSs         ManufacturingMPS[]   @relation("ManufacturingMPSProduct")
 
   @@unique([sku, companyId])
   @@index([sku])
@@ -4602,4 +4703,1121 @@ model TaxTransaction {
   @@index([taxTypeId])
   @@index([companyId])
   @@map("tax_transactions")
+}
+
+// ============================================================
+// MANUFACTURING MODULE
+// ============================================================
+
+// ============================================================
+// MANUFACTURING BOM (Bill of Materials)
+// ============================================================
+
+model ManufacturingBOM {
+  id                String   @id @default(uuid())
+  bomNumber         String   @unique @map("bom_number")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  version           String   @default("1.0")
+  status            String   @default("Draft") // Draft | Active | Obsolete
+  effectiveFrom     DateTime @map("effective_from")
+  effectiveTo       DateTime? @map("effective_to")
+  description       String?
+  notes             String?
+  totalEstimatedCost Float   @default(0) @map("total_estimated_cost")
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  locationId        String?  @map("location_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product           Product                  @relation("ManufacturingBOMProduct", fields: [productId], references: [id])
+  creator           User?                    @relation("ManufacturingBOMCreator", fields: [createdBy], references: [id])
+  updater           User?                    @relation("ManufacturingBOMUpdater", fields: [updatedBy], references: [id])
+  company           Company                  @relation("ManufacturingBOMCompany", fields: [companyId], references: [id])
+  location          Location?                @relation("ManufacturingBOMLocation", fields: [locationId], references: [id])
+  components        ManufacturingBOMComponent[]
+  productionOrders  ManufacturingProductionOrder[]
+
+  @@index([bomNumber])
+  @@index([productId])
+  @@index([status])
+  @@index([companyId])
+  @@index([locationId])
+  @@map("manufacturing_boms")
+}
+
+model ManufacturingBOMComponent {
+  id                String   @id @default(uuid())
+  bomId             String   @map("bom_id")
+  componentId       String   @map("component_id")
+  componentName     String   @map("component_name")
+  quantity          Float
+  unitOfMeasure     String   @map("unit_of_measure")
+  scrapPercentage   Float   @default(0) @map("scrap_percentage")
+  substituteMaterial String? @map("substitute_material")
+  operationSequence Int?     @map("operation_sequence")
+  workCenterId      String?  @map("work_center_id")
+  estimatedCost     Float    @default(0) @map("estimated_cost")
+  notes             String?
+  sequence          Int      @default(0)
+  
+  bom               ManufacturingBOM       @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  component         Product                @relation("ManufacturingBOMComponentProduct", fields: [componentId], references: [id])
+  workCenter        ManufacturingWorkCenter? @relation("ManufacturingBOMComponentWorkCenter", fields: [workCenterId], references: [id])
+
+  @@index([bomId])
+  @@index([componentId])
+  @@index([workCenterId])
+  @@map("manufacturing_bom_components")
+}
+
+// ============================================================
+// MANUFACTURING ROUTING
+// ============================================================
+
+model ManufacturingRouting {
+  id                String   @id @default(uuid())
+  routingNumber     String   @unique @map("routing_number")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  version           String   @default("1.0")
+  status            String   @default("Draft") // Draft | Active | Obsolete
+  description       String?
+  notes             String?
+  totalEstimatedTime Float  @default(0) @map("total_estimated_time")
+  totalEstimatedCost Float  @default(0) @map("total_estimated_cost")
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product           Product                  @relation("ManufacturingRoutingProduct", fields: [productId], references: [id])
+  creator           User?                    @relation("ManufacturingRoutingCreator", fields: [createdBy], references: [id])
+  updater           User?                    @relation("ManufacturingRoutingUpdater", fields: [updatedBy], references: [id])
+  company           Company                  @relation("ManufacturingRoutingCompany", fields: [companyId], references: [id])
+  operations        ManufacturingRoutingOperation[]
+  productionOrders  ManufacturingProductionOrder[]
+
+  @@index([routingNumber])
+  @@index([productId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_routings")
+}
+
+model ManufacturingRoutingOperation {
+  id                String   @id @default(uuid())
+  routingId         String   @map("routing_id")
+  operationName     String   @map("operation_name")
+  sequence          Int
+  workCenterId      String   @map("work_center_id")
+  machineId         String?  @map("machine_id")
+  description       String?
+  setupTime         Float    @default(0) @map("setup_time") // in minutes
+  runTime           Float    @default(0) @map("run_time") // per unit in minutes
+  queueTime         Float    @default(0) @map("queue_time") // in minutes
+  laborRequirement  Float    @default(0) @map("labor_requirement") // number of workers
+  machineRequirement Boolean @default(false) @map("machine_requirement")
+  inspectionRequired Boolean @default(false) @map("inspection_required")
+  estimatedCost     Float    @default(0) @map("estimated_cost")
+  notes             String?
+  
+  routing           ManufacturingRouting     @relation(fields: [routingId], references: [id], onDelete: Cascade)
+  workCenter        ManufacturingWorkCenter @relation("ManufacturingRoutingOperationWorkCenter", fields: [workCenterId], references: [id])
+  machine           ManufacturingMachine?    @relation("ManufacturingRoutingOperationMachine", fields: [machineId], references: [id])
+
+  @@index([routingId])
+  @@index([workCenterId])
+  @@index([machineId])
+  @@map("manufacturing_routing_operations")
+}
+
+// ============================================================
+// MANUFACTURING WORK CENTER
+// ============================================================
+
+model ManufacturingWorkCenter {
+  id                String   @id @default(uuid())
+  workCenterCode    String   @unique @map("work_center_code")
+  name              String
+  department        String?
+  locationId        String?  @map("location_id")
+  factory           String?
+  capacity          Float    @default(0) // per hour
+  workingHours      Json?    @map("working_hours") // {"start": "08:00", "end": "17:00"}
+  shift             String?
+  efficiency        Float    @default(100) @map("efficiency") // percentage
+  costPerHour       Float    @default(0) @map("cost_per_hour")
+  status            String   @default("Active") // Active | Inactive | Maintenance
+  description       String?
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  location          Location?                       @relation("ManufacturingWorkCenterLocation", fields: [locationId], references: [id])
+  creator           User?                           @relation("ManufacturingWorkCenterCreator", fields: [createdBy], references: [id])
+  updater           User?                           @relation("ManufacturingWorkCenterUpdater", fields: [updatedBy], references: [id])
+  company           Company                         @relation("ManufacturingWorkCenterCompany", fields: [companyId], references: [id])
+  machines          ManufacturingMachine[]          @relation("ManufacturingMachineWorkCenter")
+  bomComponents     ManufacturingBOMComponent[]    @relation("ManufacturingBOMComponentWorkCenter")
+  routingOperations ManufacturingRoutingOperation[] @relation("ManufacturingRoutingOperationWorkCenter")
+  workOrders        ManufacturingWorkOrder[]      @relation("ManufacturingWorkOrderWorkCenter")
+  wips              ManufacturingWIP[]            @relation("ManufacturingWIPWorkCenter")
+  scraps            ManufacturingScrap[]          @relation("ManufacturingScrapWorkCenter")
+  reworks           ManufacturingRework[]         @relation("ManufacturingReworkWorkCenter")
+
+  @@index([workCenterCode])
+  @@index([locationId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_work_centers")
+}
+
+model ManufacturingMachine {
+  id                String   @id @default(uuid())
+  machineCode       String   @unique @map("machine_code")
+  name              String
+  serialNumber      String?  @map("serial_number")
+  model             String?
+  manufacturer      String?
+  workCenterId      String?  @map("work_center_id")
+  locationId        String?  @map("location_id")
+  purchaseDate      DateTime? @map("purchase_date")
+  installationDate  DateTime? @map("installation_date")
+  currentStatus     String   @default("Idle") @map("current_status") // Running | Idle | Maintenance | Breakdown | Offline
+  hourlyOperatingCost Float @default(0) @map("hourly_operating_cost")
+  maintenanceSchedule Json? @map("maintenance_schedule")
+  capacity          Float    @default(0) // per hour
+  efficiency        Float    @default(100) // percentage
+  description       String?
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  workCenter        ManufacturingWorkCenter?  @relation("ManufacturingMachineWorkCenter", fields: [workCenterId], references: [id])
+  location          Location?                @relation("ManufacturingMachineLocation", fields: [locationId], references: [id])
+  creator           User?                    @relation("ManufacturingMachineCreator", fields: [createdBy], references: [id])
+  updater           User?                    @relation("ManufacturingMachineUpdater", fields: [updatedBy], references: [id])
+  company           Company                  @relation("ManufacturingMachineCompany", fields: [companyId], references: [id])
+  routingOperations ManufacturingRoutingOperation[] @relation("ManufacturingRoutingOperationMachine")
+  workOrders        ManufacturingWorkOrder[]      @relation("ManufacturingWorkOrderMachine")
+  maintenanceOrders ManufacturingMaintenanceOrder[] @relation("ManufacturingMaintenanceOrderMachine")
+  maintenanceRequests ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestMachine")
+  scraps            ManufacturingScrap[]          @relation("ManufacturingScrapMachine")
+
+  @@index([machineCode])
+  @@index([workCenterId])
+  @@index([locationId])
+  @@index([currentStatus])
+  @@index([companyId])
+  @@map("manufacturing_machines")
+}
+
+model ManufacturingProductionOrder {
+  id                String   @id @default(uuid())
+  orderNumber       String   @unique @map("order_number")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  bomId             String?  @map("bom_id")
+  bomVersion        String?  @map("bom_version")
+  routingId         String?  @map("routing_id")
+  plannedQuantity   Float    @map("planned_quantity")
+  producedQuantity  Float    @default(0) @map("produced_quantity")
+  scrapQuantity     Float    @default(0) @map("scrap_quantity")
+  reworkQuantity    Float    @default(0) @map("rework_quantity")
+  rejectedQuantity  Float    @default(0) @map("rejected_quantity")
+  remainingQuantity Float    @map("remaining_quantity")
+  startDate         DateTime @map("start_date")
+  dueDate           DateTime @map("due_date")
+  actualStartDate   DateTime? @map("actual_start_date")
+  actualEndDate     DateTime? @map("actual_end_date")
+  sourceWarehouseId String?  @map("source_warehouse_id")
+  wipWarehouseId    String?  @map("wip_warehouse_id")
+  finishedGoodsWarehouseId String? @map("finished_goods_warehouse_id")
+  priority          String   @default("Normal") // Low | Normal | High | Urgent
+  status            String   @default("Draft") // Draft | Planned | Released | InProgress | Paused | Completed | Closed | Cancelled
+  progress          Float    @default(0) // percentage
+  demandType        String?  @map("demand_type")
+  salesOrderReference String? @map("sales_order_reference")
+  batchNumber       String?  @map("batch_number")
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
+  description       String?
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  locationId        String?  @map("location_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product           Product                    @relation("ManufacturingProductionOrderProduct", fields: [productId], references: [id])
+  bom               ManufacturingBOM?          @relation(fields: [bomId], references: [id])
+  routing           ManufacturingRouting?      @relation(fields: [routingId], references: [id])
+  sourceWarehouse   Location?                  @relation("ManufacturingProductionOrderSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  wipWarehouse      Location?                  @relation("ManufacturingProductionOrderWIPWarehouse", fields: [wipWarehouseId], references: [id])
+  finishedGoodsWarehouse Location?              @relation("ManufacturingProductionOrderFinishedGoodsWarehouse", fields: [finishedGoodsWarehouseId], references: [id])
+  location          Location?                  @relation("ManufacturingProductionOrderLocation", fields: [locationId], references: [id])
+  creator           User?                      @relation("ManufacturingProductionOrderCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingProductionOrderUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingProductionOrderCompany", fields: [companyId], references: [id])
+  materialReservations ManufacturingMaterialReservation[]
+  materialIssues    ManufacturingMaterialIssue[]
+  materialConsumptions ManufacturingMaterialConsumption[]
+  workOrders        ManufacturingWorkOrder[]
+  wip               ManufacturingWIP[]
+  qualityInspections ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionProductionOrder")
+  reworks           ManufacturingRework[]      @relation("ManufacturingReworkProductionOrder")
+  scraps            ManufacturingScrap[]       @relation("ManufacturingScrapProductionOrder")
+  subcontractOrders ManufacturingSubcontractOrder[] @relation("ManufacturingSubcontractOrderProductionOrder")
+  byProducts        ManufacturingByProduct[]    @relation("ManufacturingByProductProductionOrder")
+  costVariances     ManufacturingCostVariance[]
+
+  @@index([orderNumber])
+  @@index([productId])
+  @@index([status])
+  @@index([startDate])
+  @@index([dueDate])
+  @@index([companyId])
+  @@index([locationId])
+  @@map("manufacturing_production_orders")
+}
+
+// ============================================================
+// MANUFACTURING WORK ORDER
+// ============================================================
+
+model ManufacturingWorkOrder {
+  id                String   @id @default(uuid())
+  workOrderNumber   String   @unique @map("work_order_number")
+  productionOrderId String   @map("production_order_id")
+  operationName     String   @map("operation_name")
+  sequence          Int
+  workCenterId      String   @map("work_center_id")
+  machineId         String?  @map("machine_id")
+  employeeId        String?  @map("employee_id")
+  plannedQuantity   Float    @map("planned_quantity")
+  completedQuantity Float    @default(0) @map("completed_quantity")
+  rejectedQuantity  Float    @default(0) @map("rejected_quantity")
+  scrapQuantity     Float    @default(0) @map("scrap_quantity")
+  startTime         DateTime? @map("start_time")
+  endTime           DateTime? @map("end_time")
+  downtime          Float    @default(0) // in minutes
+  status            String   @default("Pending") // Pending | InProgress | Completed | Paused | Cancelled
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder   ManufacturingProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  workCenter        ManufacturingWorkCenter    @relation("ManufacturingWorkOrderWorkCenter", fields: [workCenterId], references: [id])
+  machine           ManufacturingMachine?       @relation("ManufacturingWorkOrderMachine", fields: [machineId], references: [id])
+  employee          HrEmployee?                @relation("ManufacturingWorkOrderEmployee", fields: [employeeId], references: [id])
+  creator           User?                       @relation("ManufacturingWorkOrderCreator", fields: [createdBy], references: [id])
+  updater           User?                       @relation("ManufacturingWorkOrderUpdater", fields: [updatedBy], references: [id])
+  company           Company                     @relation("ManufacturingWorkOrderCompany", fields: [companyId], references: [id])
+  reworks           ManufacturingRework[]       @relation("ManufacturingReworkWorkOrder")
+  qualityInspections ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionWorkOrder")
+  materialConsumptions ManufacturingMaterialConsumption[] @relation("ManufacturingMaterialConsumptionWorkOrder")
+  scraps            ManufacturingScrap[]         @relation("ManufacturingScrapWorkOrder")
+
+  @@index([workOrderNumber])
+  @@index([productionOrderId])
+  @@index([workCenterId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_work_orders")
+}
+
+// ============================================================
+// MANUFACTURING MATERIAL RESERVATION
+// ============================================================
+
+model ManufacturingMaterialReservation {
+  id                String   @id @default(uuid())
+  reservationNumber String   @unique @map("reservation_number")
+  productionOrderId String   @map("production_order_id")
+  componentId       String   @map("component_id")
+  componentName     String   @map("component_name")
+  requiredQuantity  Float    @map("required_quantity")
+  availableQuantity Float    @map("available_quantity")
+  reservedQuantity  Float    @default(0) @map("reserved_quantity")
+  shortageQuantity  Float    @default(0) @map("shortage_quantity")
+  locationId        String?  @map("location_id")
+  status            String   @default("Pending") // Pending | Reserved | PartiallyReserved | Completed
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder   ManufacturingProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  component         Product                    @relation("ManufacturingMaterialReservationComponent", fields: [componentId], references: [id])
+  location          Location?                  @relation("ManufacturingMaterialReservationLocation", fields: [locationId], references: [id])
+  creator           User?                      @relation("ManufacturingMaterialReservationCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingMaterialReservationUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingMaterialReservationCompany", fields: [companyId], references: [id])
+  materialIssues    ManufacturingMaterialIssue[]
+
+  @@index([reservationNumber])
+  @@index([productionOrderId])
+  @@index([componentId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_material_reservations")
+}
+
+// ============================================================
+// MANUFACTURING MATERIAL ISSUE
+// ============================================================
+
+model ManufacturingMaterialIssue {
+  id                String   @id @default(uuid())
+  issueNumber       String   @unique @map("issue_number")
+  reservationId     String?  @map("reservation_id")
+  productionOrderId String   @map("production_order_id")
+  componentId       String   @map("component_id")
+  componentName     String   @map("component_name")
+  issuedQuantity    Float    @map("issued_quantity")
+  unitOfMeasure     String   @map("unit_of_measure")
+  fromLocationId    String   @map("from_location_id")
+  toLocationId      String   @map("to_location_id")
+  issueDate         DateTime @map("issue_date")
+  status            String   @default("Issued") // Issued | Consumed | Returned
+  batchNumber       String?  @map("batch_number")
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  reservation       ManufacturingMaterialReservation? @relation(fields: [reservationId], references: [id])
+  productionOrder   ManufacturingProductionOrder @relation(fields: [productionOrderId], references: [id])
+  component         Product                    @relation("ManufacturingMaterialIssueComponent", fields: [componentId], references: [id])
+  fromLocation      Location                   @relation("ManufacturingMaterialIssueFromLocation", fields: [fromLocationId], references: [id])
+  toLocation        Location                   @relation("ManufacturingMaterialIssueToLocation", fields: [toLocationId], references: [id])
+  creator           User?                      @relation("ManufacturingMaterialIssueCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingMaterialIssueUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingMaterialIssueCompany", fields: [companyId], references: [id])
+  consumption       ManufacturingMaterialConsumption? @relation("ManufacturingMaterialConsumptionMaterialIssue")
+
+  @@index([issueNumber])
+  @@index([reservationId])
+  @@index([productionOrderId])
+  @@index([componentId])
+  @@index([companyId])
+  @@map("manufacturing_material_issues")
+}
+
+// ============================================================
+// MANUFACTURING MATERIAL CONSUMPTION
+// ============================================================
+
+model ManufacturingMaterialConsumption {
+  id                String   @id @default(uuid())
+  materialIssueId   String   @unique @map("material_issue_id")
+  productionOrderId String   @map("production_order_id")
+  componentId       String   @map("component_id")
+  componentName     String   @map("component_name")
+  requiredQuantity  Float    @map("required_quantity")
+  consumedQuantity  Float    @map("consumed_quantity")
+  varianceQuantity  Float    @default(0) @map("variance_quantity")
+  unitOfMeasure     String   @map("unit_of_measure")
+  consumptionDate   DateTime @map("consumption_date")
+  workOrderId       String?  @map("work_order_id")
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  materialIssue     ManufacturingMaterialIssue @relation("ManufacturingMaterialConsumptionMaterialIssue", fields: [materialIssueId], references: [id], onDelete: Cascade)
+  productionOrder   ManufacturingProductionOrder @relation(fields: [productionOrderId], references: [id])
+  component         Product                    @relation("ManufacturingMaterialConsumptionComponent", fields: [componentId], references: [id])
+  workOrder         ManufacturingWorkOrder?    @relation("ManufacturingMaterialConsumptionWorkOrder", fields: [workOrderId], references: [id])
+  creator           User?                      @relation("ManufacturingMaterialConsumptionCreator", fields: [createdBy], references: [id])
+  company           Company                    @relation("ManufacturingMaterialConsumptionCompany", fields: [companyId], references: [id])
+
+  @@index([materialIssueId])
+  @@index([productionOrderId])
+  @@index([componentId])
+  @@index([companyId])
+  @@map("manufacturing_material_consumptions")
+}
+
+// ============================================================
+// MANUFACTURING WIP (Work In Progress)
+// ============================================================
+
+model ManufacturingWIP {
+  id                String   @id @default(uuid())
+  productionOrderId String   @map("production_order_id")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  quantity          Float
+  currentOperation  String?  @map("current_operation")
+  workCenterId      String?  @map("work_center_id")
+  locationId        String?  @map("location_id")
+  startTime         DateTime @map("start_time")
+  expectedCompletion DateTime? @map("expected_completion")
+  status            String   @default("InProgress") // InProgress | Completed | Cancelled
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder   ManufacturingProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  product           Product                    @relation("ManufacturingWIPProduct", fields: [productId], references: [id])
+  workCenter        ManufacturingWorkCenter?   @relation("ManufacturingWIPWorkCenter", fields: [workCenterId], references: [id])
+  location          Location?                  @relation("ManufacturingWIPLocation", fields: [locationId], references: [id])
+  creator           User?                      @relation("ManufacturingWIPCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingWIPUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingWIPCompany", fields: [companyId], references: [id])
+
+  @@index([productionOrderId])
+  @@index([productId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_wips")
+}
+
+// ============================================================
+// MANUFACTURING SCRAP
+// ============================================================
+
+model ManufacturingScrap {
+  id                String   @id @default(uuid())
+  scrapNumber       String   @unique @map("scrap_number")
+  productionOrderId String   @map("production_order_id")
+  workOrderId       String?  @map("work_order_id")
+  productId         String?  @map("product_id")
+  productName       String?  @map("product_name")
+  materialId        String?  @map("material_id")
+  materialName      String?  @map("material_name")
+  quantity          Float
+  unitOfMeasure     String   @map("unit_of_measure")
+  reason            String?
+  workCenterId      String?  @map("work_center_id")
+  machineId         String?  @map("machine_id")
+  operatorId        String?  @map("operator_id")
+  scrapDate         DateTime @map("scrap_date")
+  cost              Float    @default(0)
+  recoverable       Boolean  @default(false)
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder   ManufacturingProductionOrder? @relation("ManufacturingScrapProductionOrder", fields: [productionOrderId], references: [id])
+  workOrder         ManufacturingWorkOrder?     @relation("ManufacturingScrapWorkOrder", fields: [workOrderId], references: [id])
+  product           Product?                    @relation("ManufacturingScrapProduct", fields: [productId], references: [id])
+  material          Product?                    @relation("ManufacturingScrapMaterial", fields: [materialId], references: [id])
+  workCenter        ManufacturingWorkCenter?    @relation("ManufacturingScrapWorkCenter", fields: [workCenterId], references: [id])
+  machine           ManufacturingMachine?       @relation("ManufacturingScrapMachine", fields: [machineId], references: [id])
+  operator          HrEmployee?                 @relation("ManufacturingScrapOperator", fields: [operatorId], references: [id])
+  creator           User?                       @relation("ManufacturingScrapCreator", fields: [createdBy], references: [id])
+  company           Company                     @relation("ManufacturingScrapCompany", fields: [companyId], references: [id])
+
+  @@index([scrapNumber])
+  @@index([productionOrderId])
+  @@index([scrapDate])
+  @@index([companyId])
+  @@map("manufacturing_scraps")
+}
+
+// ============================================================
+// MANUFACTURING BY-PRODUCT
+// ============================================================
+
+model ManufacturingByProduct {
+  id                String   @id @default(uuid())
+  productionOrderId String   @map("production_order_id")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  quantity          Float
+  unitOfMeasure     String   @map("unit_of_measure")
+  locationId        String?  @map("location_id")
+  receivedDate      DateTime @map("received_date")
+  costAllocation   Float    @default(0) @map("cost_allocation")
+  batchNumber       String?  @map("batch_number")
+  inventoryPosted   Boolean  @default(false) @map("inventory_posted")
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder   ManufacturingProductionOrder @relation("ManufacturingByProductProductionOrder", fields: [productionOrderId], references: [id])
+  product           Product                    @relation("ManufacturingByProductProduct", fields: [productId], references: [id])
+  location          Location?                  @relation("ManufacturingByProductLocation", fields: [locationId], references: [id])
+  creator           User?                      @relation("ManufacturingByProductCreator", fields: [createdBy], references: [id])
+  company           Company                    @relation("ManufacturingByProductCompany", fields: [companyId], references: [id])
+
+  @@index([productionOrderId])
+  @@index([productId])
+  @@index([companyId])
+  @@map("manufacturing_by_products")
+}
+
+model ManufacturingRework {
+  id                String   @id @default(uuid())
+  reworkNumber      String   @unique @map("rework_number")
+  productionOrderId String   @map("production_order_id")
+  workOrderId       String?  @map("work_order_id")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  quantity          Float
+  unitOfMeasure     String   @map("unit_of_measure")
+  reason            String?
+  workCenterId      String?  @map("work_center_id")
+  operatorId        String?  @map("operator_id")
+  reworkDate        DateTime @map("rework_date")
+  estimatedCost     Float    @default(0) @map("estimated_cost")
+  actualCost        Float    @default(0) @map("actual_cost")
+  status            String   @default("Pending") // Pending | InProgress | Completed | Scrap
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder   ManufacturingProductionOrder @relation("ManufacturingReworkProductionOrder", fields: [productionOrderId], references: [id])
+  workOrder         ManufacturingWorkOrder?     @relation("ManufacturingReworkWorkOrder", fields: [workOrderId], references: [id])
+  product           Product                    @relation("ManufacturingReworkProduct", fields: [productId], references: [id])
+  workCenter        ManufacturingWorkCenter?    @relation("ManufacturingReworkWorkCenter", fields: [workCenterId], references: [id])
+  operator          HrEmployee?                 @relation("ManufacturingReworkOperator", fields: [operatorId], references: [id])
+  creator           User?                      @relation("ManufacturingReworkCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingReworkUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingReworkCompany", fields: [companyId], references: [id])
+
+  @@index([reworkNumber])
+  @@index([productionOrderId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_reworks")
+}
+
+// ============================================================
+// MANUFACTURING QUALITY INSPECTION
+// ============================================================
+
+model ManufacturingQualityInspection {
+  id                String   @id @default(uuid())
+  inspectionNumber  String   @unique @map("inspection_number")
+  productionOrderId String   @map("production_order_id")
+  workOrderId       String?  @map("work_order_id")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  operationName     String?  @map("operation_name")
+  inspectorId       String   @map("inspector_id")
+  inspectionDate    DateTime @map("inspection_date")
+  inspectionType    String   @map("inspection_type") // Incoming | InProcess | Final
+  result            String   @default("Pending") // Pending | Passed | Failed | Rework | Scrap
+  parameters        Json?    // inspection parameters and results
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder   ManufacturingProductionOrder @relation("ManufacturingQualityInspectionProductionOrder", fields: [productionOrderId], references: [id])
+  workOrder         ManufacturingWorkOrder?     @relation("ManufacturingQualityInspectionWorkOrder", fields: [workOrderId], references: [id])
+  product           Product                    @relation("ManufacturingQualityInspectionProduct", fields: [productId], references: [id])
+  inspector         HrEmployee                 @relation("ManufacturingQualityInspectionInspector", fields: [inspectorId], references: [id])
+  creator           User?                      @relation("ManufacturingQualityInspectionCreator", fields: [createdBy], references: [id])
+  company           Company                    @relation("ManufacturingQualityInspectionCompany", fields: [companyId], references: [id])
+  qualityParameters ManufacturingQualityParameter[]
+
+  @@index([inspectionNumber])
+  @@index([productionOrderId])
+  @@index([inspectionDate])
+  @@index([result])
+  @@index([companyId])
+  @@map("manufacturing_quality_inspections")
+}
+
+model ManufacturingQualityParameter {
+  id                String   @id @default(uuid())
+  inspectionId      String   @map("inspection_id")
+  parameterName     String   @map("parameter_name")
+  expectedValue     String   @default("") @map("expected_value")
+  actualValue       String   @default("") @map("actual_value")
+  tolerance         String?
+  unitOfMeasure     String   @default("") @map("unit_of_measure")
+  result            String   @default("Pass") // Pass | Fail | Conditional
+  notes             String?
+  
+  inspection        ManufacturingQualityInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@index([inspectionId])
+  @@map("manufacturing_quality_parameters")
+}
+
+// ============================================================
+// MANUFACTURING MAINTENANCE
+// ============================================================
+
+model ManufacturingMaintenanceRequest {
+  id                String   @id @default(uuid())
+  requestNumber     String   @unique @map("request_number")
+  machineId         String   @map("machine_id")
+  requestType       String   @map("request_type") // Preventive | Corrective | Breakdown
+  priority          String   @default("Normal") // Low | Normal | High | Urgent
+  description       String?
+  requestedDate     DateTime @map("requested_date")
+  requestedBy       String   @map("requested_by")
+  status            String   @default("Pending") // Pending | Approved | InProgress | Completed | Rejected
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  machine           ManufacturingMachine       @relation("ManufacturingMaintenanceRequestMachine", fields: [machineId], references: [id])
+  requester         User?                      @relation("ManufacturingMaintenanceRequestRequester", fields: [requestedBy], references: [id])
+  creator           User?                      @relation("ManufacturingMaintenanceRequestCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingMaintenanceRequestUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingMaintenanceRequestCompany", fields: [companyId], references: [id])
+  maintenanceOrders ManufacturingMaintenanceOrder[]
+
+  @@index([requestNumber])
+  @@index([machineId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_maintenance_requests")
+}
+
+model ManufacturingMaintenanceOrder {
+  id                String   @id @default(uuid())
+  orderNumber       String   @unique @map("order_number")
+  requestId         String?  @map("request_id")
+  machineId         String   @map("machine_id")
+  technicianId      String?  @map("technician_id")
+  description       String?
+  scheduledStart     DateTime? @map("scheduled_start")
+  scheduledEnd      DateTime? @map("scheduled_end")
+  actualStart       DateTime? @map("actual_start")
+  actualEnd         DateTime? @map("actual_end")
+  downtime          Float    @default(0) // in minutes
+  status            String   @default("Scheduled") // Scheduled | InProgress | Completed | Cancelled
+  cost              Float    @default(0)
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  request           ManufacturingMaintenanceRequest? @relation(fields: [requestId], references: [id])
+  machine           ManufacturingMachine       @relation("ManufacturingMaintenanceOrderMachine", fields: [machineId], references: [id])
+  technician        HrEmployee?                @relation("ManufacturingMaintenanceOrderTechnician", fields: [technicianId], references: [id])
+  creator           User?                      @relation("ManufacturingMaintenanceOrderCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingMaintenanceOrderUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingMaintenanceOrderCompany", fields: [companyId], references: [id])
+
+  @@index([orderNumber])
+  @@index([requestId])
+  @@index([machineId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_maintenance_orders")
+}
+
+// ============================================================
+// MANUFACTURING SUBCONTRACTING
+// ============================================================
+
+model ManufacturingSubcontractVendor {
+  id                String   @id @default(uuid())
+  vendorCode        String   @unique @map("vendor_code")
+  name              String
+  contactPerson     String?  @map("contact_person")
+  email             String?
+  phone             String?
+  address           String?
+  services          String[] @default([])
+  capacity          Float    @default(0)
+  leadTimeDays      Int      @default(0) @map("lead_time_days")
+  qualityRating     Float    @default(0) @map("quality_rating")
+  costRating        Float    @default(0) @map("cost_rating")
+  deliveryRating    Float    @default(0) @map("delivery_rating")
+  status            String   @default("Active") // Active | Inactive
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creator           User?                      @relation("ManufacturingSubcontractVendorCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingSubcontractVendorUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingSubcontractVendorCompany", fields: [companyId], references: [id])
+  subcontractOrders ManufacturingSubcontractOrder[]
+
+  @@index([vendorCode])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_subcontract_vendors")
+}
+
+model ManufacturingSubcontractOrder {
+  id                String   @id @default(uuid())
+  orderNumber       String   @unique @map("order_number")
+  vendorId          String   @map("vendor_id")
+  productionOrderId String?  @map("production_order_id")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  quantity          Float
+  unitOfMeasure     String   @map("unit_of_measure")
+  unitCost          Float    @map("unit_cost")
+  totalCost         Float    @map("total_cost")
+  orderDate         DateTime @map("order_date")
+  expectedDeliveryDate DateTime @map("expected_delivery_date")
+  actualDeliveryDate DateTime? @map("actual_delivery_date")
+  status            String   @default("Pending") // Pending | Sent | PartiallyReceived | Received | Cancelled
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vendor            ManufacturingSubcontractVendor @relation(fields: [vendorId], references: [id])
+  productionOrder   ManufacturingProductionOrder? @relation("ManufacturingSubcontractOrderProductionOrder", fields: [productionOrderId], references: [id])
+  product           Product                    @relation("ManufacturingSubcontractOrderProduct", fields: [productId], references: [id])
+  creator           User?                      @relation("ManufacturingSubcontractOrderCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingSubcontractOrderUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingSubcontractOrderCompany", fields: [companyId], references: [id])
+  materialsSent     ManufacturingSubcontractMaterialSent[]
+  materialsReceived ManufacturingSubcontractMaterialReceived[]
+
+  @@index([orderNumber])
+  @@index([vendorId])
+  @@index([productionOrderId])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_subcontract_orders")
+}
+
+model ManufacturingSubcontractMaterialSent {
+  id                String   @id @default(uuid())
+  subcontractOrderId String   @map("subcontract_order_id")
+  materialId        String   @map("material_id")
+  materialName      String   @map("material_name")
+  quantity          Float
+  unitOfMeasure     String   @map("unit_of_measure")
+  sentDate          DateTime @map("sent_date")
+  notes             String?
+  
+  subcontractOrder  ManufacturingSubcontractOrder @relation(fields: [subcontractOrderId], references: [id], onDelete: Cascade)
+  material          Product                    @relation("ManufacturingSubcontractMaterialSentMaterial", fields: [materialId], references: [id])
+
+  @@index([subcontractOrderId])
+  @@map("manufacturing_subcontract_materials_sent")
+}
+
+model ManufacturingSubcontractMaterialReceived {
+  id                String   @id @default(uuid())
+  subcontractOrderId String   @map("subcontract_order_id")
+  materialId        String   @map("material_id")
+  materialName      String   @map("material_name")
+  quantity          Float
+  unitOfMeasure     String   @map("unit_of_measure")
+  receivedDate      DateTime @map("received_date")
+  qualityStatus     String   @default("Accepted") @map("quality_status") // Accepted | Rejected | Rework
+  notes             String?
+  
+  subcontractOrder  ManufacturingSubcontractOrder @relation(fields: [subcontractOrderId], references: [id], onDelete: Cascade)
+  material          Product                    @relation("ManufacturingSubcontractMaterialReceivedMaterial", fields: [materialId], references: [id])
+
+  @@index([subcontractOrderId])
+  @@map("manufacturing_subcontract_materials_received")
+}
+
+// ============================================================
+// MANUFACTURING PLANNING (MRP/MPS)
+// ============================================================
+
+model ManufacturingMRP {
+  id                String   @id @default(uuid())
+  mrpNumber         String   @unique @map("mrp_number")
+  runDate           DateTime @map("run_date")
+  periodStart       DateTime @map("period_start")
+  periodEnd         DateTime @map("period_end")
+  status            String   @default("Calculated") // Calculated | Approved | Executed
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creator           User?                      @relation("ManufacturingMRPCreator", fields: [createdBy], references: [id])
+  company           Company                    @relation("ManufacturingMRPCompany", fields: [companyId], references: [id])
+  mrpItems          ManufacturingMRPItem[]
+
+  @@index([mrpNumber])
+  @@index([runDate])
+  @@index([companyId])
+  @@map("manufacturing_mrps")
+}
+
+model ManufacturingMRPItem {
+  id                String   @id @default(uuid())
+  mrpId             String   @map("mrp_id")
+  materialId        String   @map("material_id")
+  materialName      String   @map("material_name")
+  requiredQuantity  Float    @map("required_quantity")
+  availableQuantity Float    @map("available_quantity")
+  reservedQuantity  Float    @default(0) @map("reserved_quantity")
+  incomingQuantity  Float    @default(0) @map("incoming_quantity")
+  shortageQuantity  Float    @default(0) @map("shortage_quantity")
+  suggestedPurchaseQuantity Float @default(0) @map("suggested_purchase_quantity")
+  suggestedProductionQuantity Float @default(0) @map("suggested_production_quantity")
+  notes             String?
+  
+  mrp               ManufacturingMRP           @relation(fields: [mrpId], references: [id], onDelete: Cascade)
+  material          Product                    @relation("ManufacturingMRPItemMaterial", fields: [materialId], references: [id])
+
+  @@index([mrpId])
+  @@index([materialId])
+  @@map("manufacturing_mrp_items")
+}
+
+model ManufacturingMPS {
+  id                String   @id @default(uuid())
+  mpsNumber         String   @unique @map("mps_number")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  week              String
+  month             String?
+  year              Int
+  plannedQuantity   Float    @map("planned_quantity")
+  actualQuantity    Float    @default(0) @map("actual_quantity")
+  locationId        String?  @map("location_id")
+  status            String   @default("Planned") // Planned | InProgress | Completed
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product           Product                    @relation("ManufacturingMPSProduct", fields: [productId], references: [id])
+  location          Location?                  @relation("ManufacturingMPSLocation", fields: [locationId], references: [id])
+  creator           User?                      @relation("ManufacturingMPSCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingMPSUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingMPSCompany", fields: [companyId], references: [id])
+
+  @@index([mpsNumber])
+  @@index([productId])
+  @@index([week])
+  @@index([year])
+  @@index([companyId])
+  @@map("manufacturing_mps")
+}
+
+model ManufacturingDemand {
+  id                String   @id @default(uuid())
+  demandNumber      String   @unique @map("demand_number")
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  demandType        String   @map("demand_type") // SalesOrder | Forecast | Manual
+  sourceType        String   @map("source_type") // SalesOrder | Forecast | Manual
+  sourceId          String?  @map("source_id")
+  quantity          Float
+  requiredDate      DateTime @map("required_date")
+  priority          String   @default("Normal") // Low | Normal | High | Urgent
+  status            String   @default("Open") // Open | Planned | Completed | Cancelled
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product           Product                    @relation("ManufacturingDemandProduct", fields: [productId], references: [id])
+  creator           User?                      @relation("ManufacturingDemandCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingDemandUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingDemandCompany", fields: [companyId], references: [id])
+
+  @@index([demandNumber])
+  @@index([productId])
+  @@index([requiredDate])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_demands")
+}
+
+// ============================================================
+// MANUFACTURING COSTING
+// ============================================================
+
+model ManufacturingProductCost {
+  id                String   @id @default(uuid())
+  productId         String   @map("product_id")
+  productName       String   @map("product_name")
+  version           String   @default("1.0")
+  effectiveFrom     DateTime @map("effective_from")
+  effectiveTo       DateTime? @map("effective_to")
+  materialCost      Float    @default(0) @map("material_cost")
+  laborCost         Float    @default(0) @map("labor_cost")
+  machineCost       Float    @default(0) @map("machine_cost")
+  overheadCost      Float    @default(0) @map("overhead_cost")
+  subcontractCost   Float    @default(0) @map("subcontract_cost")
+  totalCost         Float    @default(0) @map("total_cost")
+  costType          String   @default("Standard") @map("cost_type") // Standard | Actual
+  status            String   @default("Active") // Active | Obsolete
+  notes             String?
+  
+  createdBy         String   @map("created_by")
+  updatedBy         String?  @map("updated_by")
+  companyId         String   @map("company_id")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product           Product                    @relation("ManufacturingProductCostProduct", fields: [productId], references: [id])
+  creator           User?                      @relation("ManufacturingProductCostCreator", fields: [createdBy], references: [id])
+  updater           User?                      @relation("ManufacturingProductCostUpdater", fields: [updatedBy], references: [id])
+  company           Company                    @relation("ManufacturingProductCostCompany", fields: [companyId], references: [id])
+  costVariances     ManufacturingCostVariance[]
+
+  @@index([productId])
+  @@index([costType])
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_product_costs")
+}
+
+model ManufacturingCostVariance {
+  id                String   @id @default(uuid())
+  productCostId     String   @map("product_cost_id")
+  productionOrderId String?  @map("production_order_id")
+  varianceType      String   @map("variance_type") // Material | Labor | Machine | Overhead | Subcontract | Production
+  standardCost      Float    @map("standard_cost")
+  actualCost        Float    @map("actual_cost")
+  varianceAmount    Float    @map("variance_amount")
+  variancePercentage Float   @map("variance_percentage")
+  reason            String?
+  varianceDate       DateTime @map("variance_date")
+  notes             String?
+  
+  productCost       ManufacturingProductCost   @relation(fields: [productCostId], references: [id])
+  productionOrder   ManufacturingProductionOrder? @relation(fields: [productionOrderId], references: [id])
+
+  @@index([productCostId])
+  @@index([productionOrderId])
+  @@index([varianceType])
+  @@map("manufacturing_cost_variances")
+}
+
+model ManufacturingSetting {
+  id                String   @id @default(uuid())
+  companyId         String   @unique @map("company_id")
+  settings          Json     @default("{}")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  company           Company                    @relation("ManufacturingSettingCompany", fields: [companyId], references: [id])
+
+  @@map("manufacturing_settings")
+}
+
+model ManufacturingStatusHistory {
+  id          String   @id @default(uuid())
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  fromStatus  String?  @map("from_status")
+  toStatus    String   @map("to_status")
+  reason      String?
+  createdBy   String?  @map("created_by")
+  companyId   String   @map("company_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([companyId])
+  @@index([createdAt])
+  @@map("manufacturing_status_history")
 }

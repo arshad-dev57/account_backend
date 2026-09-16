@@ -81,7 +81,10 @@ function statusLabel(status) {
     terminated: 'Terminated',
     present: 'Present',
     late: 'Late',
-    absent: 'Absent'
+    absent: 'Absent',
+    half_day: 'Half Day',
+    holiday: 'Holiday',
+    weekly_off: 'Weekly Off'
   };
   const key = String(status || '').toLowerCase();
   return map[key] || status || '';
@@ -92,6 +95,17 @@ function statusKey(label) {
   if (['active', 'inactive', 'on_leave', 'terminated'].includes(key)) return key;
   if (key === 'onleave') return 'on_leave';
   return 'active';
+}
+
+function attendanceStatusKey(label) {
+  const key = String(label || '').toLowerCase().trim().replace(/\s+/g, '_');
+  if (['present', 'late', 'absent', 'holiday', 'weekly_off', 'half_day', 'on_leave'].includes(key)) {
+    return key;
+  }
+  if (key === 'half-day' || key === 'halfday') return 'half_day';
+  if (key === 'weeklyoff') return 'weekly_off';
+  if (key === 'onleave') return 'on_leave';
+  return 'present';
 }
 
 function splitName(fullName) {
@@ -160,5 +174,6 @@ module.exports = {
   requireHrManager,
   canViewSalary,
   canProcessPayroll,
-  requirePayrollAccess
+  requirePayrollAccess,
+  attendanceStatusKey
 };
