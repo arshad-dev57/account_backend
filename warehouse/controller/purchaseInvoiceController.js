@@ -73,15 +73,19 @@ const createInvoiceFromGRN = async (req, res) => {
       where: {
         goodsReceivingId: goodsReceivingId,
         isActive: true,
-        isDeleted: false
+        isDeleted: false,
+        invoiceStatus: { notIn: ['Cancelled'] }
       }
     });
 
     if (existingInvoice) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invoice already exists for this goods receiving'
-      });
+      const [prepared] = await PurchaseInvoice.prepareGrnsForInvoicing([grn], companyId);
+      if (!prepared || !prepared.items || prepared.items.length === 0 || prepared.totalQuantity <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invoice already exists and GRN is fully invoiced'
+        });
+      }
     }
 
     const invoiceData = {
@@ -916,7 +920,8 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         purchaseInvoices: {
           where: {
             isActive: true,
-            isDeleted: false
+            isDeleted: false,
+            invoiceStatus: { notIn: ['Cancelled'] }
           },
           select: {
             id: true,
@@ -925,8 +930,7 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
           }
         }
       },
-      skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit),
+      take: 500,
       orderBy: {
         receivingDate: 'desc'
       }
@@ -991,16 +995,20 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
     });
 
     const total = grnsWithStatus.length;
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginatedData = grnsWithStatus.slice(startIndex, startIndex + limitNum);
 
     res.status(200).json({
       success: true,
-      count: grnsWithStatus.length,
-      data: grnsWithStatus,
+      count: paginatedData.length,
+      data: paginatedData,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pageNum,
+        limit: limitNum,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / limitNum) || 1
       }
     });
   } catch (error) {

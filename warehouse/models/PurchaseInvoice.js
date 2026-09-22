@@ -291,6 +291,33 @@ async function getReturnedQtyByGrnItemId(tx, companyId, grnId = null) {
   return map;
 }
 
+async function getInvoicedQtyByGrnId(tx, grnId, companyId, excludeInvoiceId = null) {
+  const invoices = await tx.purchaseInvoice.findMany({
+    where: {
+      companyId,
+      isActive: true,
+      isDeleted: false,
+      invoiceStatus: { notIn: ['Cancelled'] },
+      ...(excludeInvoiceId ? { id: { not: excludeInvoiceId } } : {}),
+      OR: [
+        { goodsReceivingId: grnId },
+        { sources: { some: { goodsReceivingId: grnId } } },
+      ],
+    },
+    include: { items: true },
+  });
+
+  const map = {};
+  for (const inv of invoices) {
+    for (const item of inv.items || []) {
+      const key = item.productId;
+      if (!key) continue;
+      map[key] = (map[key] || 0) + Number(item.quantity || 0);
+    }
+  }
+  return map;
+}
+
 function toBillableGrnLine(meta, qty, receivedMap, invoicedMap, returnedMap, poItemId) {
   const unitPrice =
     meta.purchaseOrderItem?.unitPrice ||
@@ -381,18 +408,18 @@ function resolvePoLineInvoiceQuantity(
 ) {
   const totalReceived = Number(
     (poItemId && receivedMap[poItemId]) ||
-      (productId && receivedMap[productId]) ||
-      0
+    (productId && receivedMap[productId]) ||
+    0
   );
   const totalReturned = Number(
     (poItemId && returnedMap[poItemId]) ||
-      (productId && returnedMap[productId]) ||
-      0
+    (productId && returnedMap[productId]) ||
+    0
   );
   const alreadyInvoiced = Number(
     (poItemId && invoicedMap[poItemId]) ||
-      (productId && invoicedMap[productId]) ||
-      0
+    (productId && invoicedMap[productId]) ||
+    0
   );
   const netReceived = Math.max(0, totalReceived - totalReturned);
   return Math.max(0, netReceived - alreadyInvoiced);
@@ -401,14 +428,18 @@ function resolvePoLineInvoiceQuantity(
 async function buildGrnInvoicingContext(tx, grn, companyId, excludeInvoiceId = null) {
   const poIds = collectPurchaseOrderIdsFromGrn(grn);
   if (!poIds.length) {
-    const returnedByGrnItem = await getReturnedQtyByGrnItemId(tx, companyId, grn.id);
+    const [returnedByGrnItem, invoicedByGrnId] = await Promise.all([
+      getReturnedQtyByGrnItemId(tx, companyId, grn.id),
+      getInvoicedQtyByGrnId(tx, grn.id, companyId, excludeInvoiceId),
+    ]);
     const qtyByGrnItemId = {};
     for (const item of grn.items || []) {
       const received = Number(item.receivingQuantity) || 0;
       const returned = Number(returnedByGrnItem[item.id] || 0);
-      qtyByGrnItemId[item.id] = Math.max(0, received - returned);
+      const invoiced = Number(invoicedByGrnId[item.productId] || 0);
+      qtyByGrnItemId[item.id] = Math.max(0, received - returned - invoiced);
     }
-    return { qtyByGrnItemId, receivedMap: {}, invoicedMap: {}, returnedMap: {} };
+    return { qtyByGrnItemId, receivedMap: {}, invoicedMap: invoicedByGrnId, returnedMap: {} };
   }
 
   const mapsByPo = {};
@@ -429,12 +460,12 @@ async function buildGrnInvoicingContext(tx, grn, companyId, excludeInvoiceId = n
     const maps = itemPoId ? mapsByPo[itemPoId] : null;
     qtyByGrnItemId[item.id] = maps
       ? resolvePoLineInvoiceQuantity(
-          item.purchaseOrderItemId,
-          item.productId,
-          maps.received,
-          maps.invoiced,
-          maps.returned
-        )
+        item.purchaseOrderItemId,
+        item.productId,
+        maps.received,
+        maps.invoiced,
+        maps.returned
+      )
       : Math.max(0, Number(item.receivingQuantity) || 0);
   }
 
@@ -527,11 +558,15 @@ async function buildInvoiceItemsFromGrns(
       continue;
     }
 
-    const returnedByGrnItem = await getReturnedQtyByGrnItemId(tx, companyId, grn.id);
+    const [returnedByGrnItem, invoicedByGrnId] = await Promise.all([
+      getReturnedQtyByGrnItemId(tx, companyId, grn.id),
+      getInvoicedQtyByGrnId(tx, grn.id, companyId, excludeInvoiceId),
+    ]);
     for (const item of grn.items || []) {
       const received = Number(item.receivingQuantity) || 0;
       const returned = Number(returnedByGrnItem[item.id] || 0);
-      const quantity = Math.max(0, received - returned);
+      const invoiced = Number(invoicedByGrnId[item.productId] || 0);
+      const quantity = Math.max(0, received - returned - invoiced);
       if (quantity <= 0) continue;
 
       const line = buildInvoiceLineFromGrnItem(item, quantity);
@@ -704,29 +739,29 @@ class PurchaseInvoiceModel {
 
       const relatedGrns = grn.purchaseOrderId
         ? await tx.goodsReceiving.findMany({
-            where: {
-              companyId: data.companyId,
-              isActive: true,
-              isDeleted: false,
-              status: { in: ['Partially Received', 'Fully Received'] },
-              OR: [
-                { purchaseOrderId: grn.purchaseOrderId },
-                {
-                  purchaseOrders: {
-                    some: { purchaseOrderId: grn.purchaseOrderId },
-                  },
-                },
-              ],
-            },
-            include: {
-              items: {
-                include: {
-                  product: true,
-                  purchaseOrderItem: true,
+          where: {
+            companyId: data.companyId,
+            isActive: true,
+            isDeleted: false,
+            status: { in: ['Partially Received', 'Fully Received'] },
+            OR: [
+              { purchaseOrderId: grn.purchaseOrderId },
+              {
+                purchaseOrders: {
+                  some: { purchaseOrderId: grn.purchaseOrderId },
                 },
               },
+            ],
+          },
+          include: {
+            items: {
+              include: {
+                product: true,
+                purchaseOrderItem: true,
+              },
             },
-          })
+          },
+        })
         : [grn];
 
       let subtotal = 0;
@@ -849,19 +884,19 @@ class PurchaseInvoiceModel {
     return prisma.$transaction(async (tx) => {
       const grns = goodsReceivingIds.length
         ? await tx.goodsReceiving.findMany({
-            where: {
-              id: { in: goodsReceivingIds },
-              companyId: data.companyId,
-              isActive: true,
-              isDeleted: false,
-              status: { in: ['Partially Received', 'Fully Received'] },
-            },
-            include: {
-              items: { include: { product: true, purchaseOrderItem: true } },
-              purchaseOrder: { include: { supplier: true } },
-              supplier: true,
-            },
-          })
+          where: {
+            id: { in: goodsReceivingIds },
+            companyId: data.companyId,
+            isActive: true,
+            isDeleted: false,
+            status: { in: ['Partially Received', 'Fully Received'] },
+          },
+          include: {
+            items: { include: { product: true, purchaseOrderItem: true } },
+            purchaseOrder: { include: { supplier: true } },
+            supplier: true,
+          },
+        })
         : [];
 
       if (grns.length !== goodsReceivingIds.length) {
@@ -870,15 +905,15 @@ class PurchaseInvoiceModel {
 
       const pos = purchaseOrderIds.length
         ? await tx.purchaseOrder.findMany({
-            where: {
-              id: { in: purchaseOrderIds },
-              companyId: data.companyId,
-              isActive: true,
-              isDeleted: false,
-              status: { not: 'Cancelled' },
-            },
-            include: { items: { include: { product: true } }, supplier: true },
-          })
+          where: {
+            id: { in: purchaseOrderIds },
+            companyId: data.companyId,
+            isActive: true,
+            isDeleted: false,
+            status: { not: 'Cancelled' },
+          },
+          include: { items: { include: { product: true } }, supplier: true },
+        })
         : [];
 
       if (pos.length !== purchaseOrderIds.length) {
@@ -949,22 +984,43 @@ class PurchaseInvoiceModel {
           }
 
           for (const item of data.items) {
-            if (!item.purchaseOrderItemId) continue;
-            const poId =
-              poItemToPoId[item.purchaseOrderItemId] || grns[0]?.purchaseOrderId;
-            const maps = poId ? mapsByPo[poId] : null;
-            if (!maps) continue;
+            let maxBillable = 0;
+            if (item.purchaseOrderItemId) {
+              const poId =
+                poItemToPoId[item.purchaseOrderItemId] || grns[0]?.purchaseOrderId;
+              const maps = poId ? mapsByPo[poId] : null;
+              if (maps) {
+                maxBillable = resolvePoLineInvoiceQuantity(
+                  item.purchaseOrderItemId,
+                  item.productId,
+                  maps.received,
+                  maps.invoiced,
+                  maps.returned
+                );
+              }
+            } else if (grns.length > 0) {
+              const grn =
+                grns.find((g) =>
+                  (g.items || []).some((gi) => gi.productId === item.productId)
+                ) || grns[0];
+              if (grn) {
+                const grnItem = (grn.items || []).find(
+                  (gi) => gi.productId === item.productId
+                );
+                const [returnedByGrnItem, invoicedByGrnId] = await Promise.all([
+                  getReturnedQtyByGrnItemId(tx, data.companyId, grn.id),
+                  getInvoicedQtyByGrnId(tx, grn.id, data.companyId),
+                ]);
+                const received = Number(grnItem?.receivingQuantity) || 0;
+                const returned = Number(returnedByGrnItem[grnItem?.id] || 0);
+                const invoiced = Number(invoicedByGrnId[item.productId] || 0);
+                maxBillable = Math.max(0, received - returned - invoiced);
+              }
+            }
 
-            const maxBillable = resolvePoLineInvoiceQuantity(
-              item.purchaseOrderItemId,
-              item.productId,
-              maps.received,
-              maps.invoiced,
-              maps.returned
-            );
-            if (item.quantity > maxBillable) {
+            if (maxBillable > 0 && item.quantity > maxBillable) {
               throw new Error(
-                `Invoice quantity (${item.quantity}) exceeds max billable quantity (${maxBillable}) for ${item.productName || 'product'}`
+                `Invoice quantity (${item.quantity}) cannot exceed received quantity (${maxBillable}) for ${item.productName || 'product'}`
               );
             }
           }
@@ -1280,9 +1336,6 @@ class PurchaseInvoiceModel {
     return invoice;
   }
 
-  // ============================================================
-  // POST PURCHASE INVOICE (Create Accounting Entries)
-  // ============================================================
   static async postInvoice(invoiceId, userId) {
     return await prisma.$transaction(async (tx) => {
       const invoice = await tx.purchaseInvoice.findUnique({
@@ -1451,13 +1504,13 @@ class PurchaseInvoiceModel {
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { invoiceDate: 'desc' } } = options;
-    
+
     const cleanFilter = { ...filter };
     if (cleanFilter.userId) {
       cleanFilter.createdBy = cleanFilter.userId;
       delete cleanFilter.userId;
     }
-    
+
     return await prisma.purchaseInvoice.findMany({
       where: { ...cleanFilter, isActive: true, isDeleted: false },
       skip,
@@ -1500,7 +1553,7 @@ class PurchaseInvoiceModel {
       cleanFilter.createdBy = cleanFilter.userId;
       delete cleanFilter.userId;
     }
-    
+
     return await prisma.purchaseInvoice.count({
       where: { ...cleanFilter, isActive: true, isDeleted: false }
     });
@@ -1599,7 +1652,7 @@ class PurchaseInvoiceModel {
       }
 
       if (invoice.invoiceStatus === 'Posted') {
-          if (invoice.journalEntry) {
+        if (invoice.journalEntry) {
           const reverseEntryNumber = `REV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
           const reverseEntry = await tx.journalEntry.create({
             data: {
@@ -1716,10 +1769,10 @@ class PurchaseInvoiceModel {
     today.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const baseFilter = { 
-      isActive: true, 
-      isDeleted: false, 
-      companyId: companyId 
+    const baseFilter = {
+      isActive: true,
+      isDeleted: false,
+      companyId: companyId
     };
 
     const todayInvoices = await prisma.purchaseInvoice.count({
@@ -1820,9 +1873,6 @@ class PurchaseInvoiceModel {
     return summary;
   }
 
-  // ============================================================
-  // UPDATE PAYMENT STATUS (Called from Payment Made)
-  // ============================================================
   static async updatePaymentStatus(invoiceId) {
     return await prisma.$transaction(async (tx) => {
       const invoice = await tx.purchaseInvoice.findUnique({ where: { id: invoiceId } });
@@ -1889,14 +1939,16 @@ class PurchaseInvoiceModel {
     );
 
     const returnedByGrnItemByGrnId = {};
+    const invoicedByGrnIdByGrnId = {};
     await Promise.all(
       grns.map(async (grn) => {
         if (!collectPurchaseOrderIdsFromGrn(grn).length) {
-          returnedByGrnItemByGrnId[grn.id] = await getReturnedQtyByGrnItemId(
-            prisma,
-            companyId,
-            grn.id
-          );
+          const [ret, inv] = await Promise.all([
+            getReturnedQtyByGrnItemId(prisma, companyId, grn.id),
+            getInvoicedQtyByGrnId(prisma, grn.id, companyId, excludeInvoiceId),
+          ]);
+          returnedByGrnItemByGrnId[grn.id] = ret;
+          invoicedByGrnIdByGrnId[grn.id] = inv;
         }
       })
     );
@@ -1911,17 +1963,18 @@ class PurchaseInvoiceModel {
         const taxRate = item.purchaseOrderItem?.taxRate || 0;
         const qty = maps
           ? resolvePoLineInvoiceQuantity(
-              item.purchaseOrderItemId,
-              item.productId,
-              maps.received,
-              maps.invoiced,
-              maps.returned
-            )
+            item.purchaseOrderItemId,
+            item.productId,
+            maps.received,
+            maps.invoiced,
+            maps.returned
+          )
           : Math.max(
-              0,
-              (Number(item.receivingQuantity) || 0) -
-                (Number(returnedByGrnItemByGrnId[grn.id]?.[item.id] || 0))
-            );
+            0,
+            (Number(item.receivingQuantity) || 0) -
+            Number(returnedByGrnItemByGrnId[grn.id]?.[item.id] || 0) -
+            Number(invoicedByGrnIdByGrnId[grn.id]?.[item.productId] || 0)
+          );
 
         return {
           ...item,
@@ -1938,8 +1991,8 @@ class PurchaseInvoiceModel {
           ),
           previouslyInvoiced: Number(
             maps?.invoiced?.[item.purchaseOrderItemId] ||
-              maps?.invoiced?.[item.productId] ||
-              0
+            maps?.invoiced?.[item.productId] ||
+            0
           ),
           productName: item.productName || item.product?.name,
           sku: item.sku || item.product?.sku,
