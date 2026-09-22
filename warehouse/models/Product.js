@@ -3,6 +3,14 @@
 const prisma = require('../../prisma/client');
 const { recordProductChange } = require('../../pos/sync/masterDataChangeLog');
 
+function calcProductVolume(length, width, height) {
+  const l = parseFloat(length) || 0;
+  const w = parseFloat(width) || 0;
+  const h = parseFloat(height) || 0;
+  if (!l || !w || !h) return 0;
+  return l * w * h;
+}
+
 class ProductModel {
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { name: 'asc' } } = options;
@@ -298,6 +306,7 @@ class ProductModel {
       width: width || 0,
       height: height || 0,
       dimensionUnit: dimensionUnit || 'cm',
+      volume: calcProductVolume(length, width, height),
       color: color || null,
       size: size || null,
       material: material || null,
@@ -543,6 +552,17 @@ class ProductModel {
         delete updateData[key];
       }
     });
+
+    const nextLength = updateData.length !== undefined ? updateData.length : existing.length;
+    const nextWidth = updateData.width !== undefined ? updateData.width : existing.width;
+    const nextHeight = updateData.height !== undefined ? updateData.height : existing.height;
+    if (
+      data.length !== undefined ||
+      data.width !== undefined ||
+      data.height !== undefined
+    ) {
+      updateData.volume = calcProductVolume(nextLength, nextWidth, nextHeight);
+    }
 
     const updated = await prisma.product.update({
       where: { id },

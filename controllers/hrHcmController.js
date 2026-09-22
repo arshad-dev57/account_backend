@@ -9,6 +9,7 @@ const {
   workDateKey
 } = require('../utils/hrAccess');
 const { writeAudit } = require('../utils/hrAudit');
+const { assertCostCenterOwned } = require('../services/costCenterHelper');
 
 const EMP = { user: { select: { firstName: true, lastName: true, email: true } } };
 
@@ -74,6 +75,9 @@ exports.listDepartments = wrap(async (req, res, companyId) => {
   if (!requireHrManager(req, res)) return;
   const rows = await prisma.hrDepartment.findMany({
     where: { companyId },
+    include: {
+      costCenterRef: { select: { id: true, code: true, name: true, status: true } }
+    },
     orderBy: { name: 'asc' }
   });
   const employees = await prisma.hrEmployee.groupBy({
@@ -90,17 +94,51 @@ exports.listDepartments = wrap(async (req, res, companyId) => {
 
 exports.saveDepartment = wrap(async (req, res, companyId) => {
   if (!requireHrManager(req, res)) return;
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ success: false, message: 'Department name is required' });
+
+  let costCenterId = req.body.costCenterId || null;
+  if (costCenterId) {
+    await assertCostCenterOwned(companyId, costCenterId, { activeOnly: !req.body.id });
+  }
+
+  let costCenterLabel = '';
+  if (costCenterId) {
+    const cc = await prisma.costCenter.findFirst({
+      where: { id: costCenterId, companyId },
+      select: { code: true, name: true }
+    });
+    costCenterLabel = cc ? `${cc.code} - ${cc.name}` : '';
+  }
+
   const data = {
     companyId,
-    name: String(req.body.name || '').trim(),
+    name,
     parentId: req.body.parentId || null,
-    costCenter: String(req.body.costCenter || ''),
+    costCenterId,
+    costCenter: costCenterLabel || String(req.body.costCenter || '').trim(),
     managerEmployeeId: req.body.managerEmployeeId || null
   };
-  if (!data.name) return res.status(400).json({ success: false, message: 'Department name is required' });
-  const row = req.body.id
-    ? await prisma.hrDepartment.update({ where: { id: req.body.id }, data })
-    : await prisma.hrDepartment.create({ data });
+
+  let row;
+  if (req.body.id) {
+    const existing = await prisma.hrDepartment.findFirst({
+      where: { id: req.body.id, companyId }
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Department not found' });
+    }
+    row = await prisma.hrDepartment.update({
+      where: { id: existing.id },
+      data,
+      include: { costCenterRef: { select: { id: true, code: true, name: true, status: true } } }
+    });
+  } else {
+    row = await prisma.hrDepartment.create({
+      data,
+      include: { costCenterRef: { select: { id: true, code: true, name: true, status: true } } }
+    });
+  }
   await writeAudit(companyId, req.user.id, req.body.id ? 'update' : 'create', 'department', row.id, row.name);
   res.json({ success: true, data: row });
 });
@@ -243,6 +281,24 @@ exports.leaveBalances = wrap(async (req, res, companyId) => {
     return;
   }
   res.json({ success: true, data: await balancesFor(companyId, employeeId) });
+});
+
+exports.attendanceReport = wrap(async (req, res, companyId) => {
+  if (!requireHrManager(req, res)) return;
+  const from = String(req.query.from || '').trim();
+  const to = String(req.query.to || '').trim();
+  if (!from || !to) {
+    return res.status(400).json({ success: false, message: 'from and to dates are required (YYYY-MM-DD)' });
+  }
+  const { buildAttendanceReport } = require('../services/hrAttendanceReport');
+  const data = await buildAttendanceReport({
+    companyId,
+    fromStr: from,
+    toStr: to,
+    employeeId: req.query.employeeId ? String(req.query.employeeId) : null,
+    department: req.query.department ? String(req.query.department) : null
+  });
+  res.json({ success: true, data });
 });
 
 exports.attendanceSummary = wrap(async (req, res, companyId) => {
@@ -706,9 +762,21 @@ exports.updateProfile = wrap(async (req, res, companyId) => {
   if (!isSelf && !requireHrManager(req, res)) return;
   const data = {};
   if (canManageHr(req.user)) {
-    ['department', 'designation', 'position', 'costCenter', 'shiftLabel', 'employmentType', 'employeeType', 'phone', 'managerId'].forEach((k) => {
+    ['department', 'designation', 'position', 'shiftLabel', 'employmentType', 'employeeType', 'phone', 'managerId'].forEach((k) => {
       if (req.body[k] !== undefined) data[k] = req.body[k];
     });
+    if (req.body.costCenterId !== undefined) {
+      if (req.body.costCenterId) {
+        const cc = await assertCostCenterOwned(companyId, req.body.costCenterId, { activeOnly: true });
+        data.costCenterId = cc.id;
+        data.costCenter = `${cc.code} - ${cc.name}`;
+      } else {
+        data.costCenterId = null;
+        data.costCenter = '';
+      }
+    } else if (req.body.costCenter !== undefined) {
+      data.costCenter = String(req.body.costCenter || '');
+    }
     if (req.body.trackingEnabled != null) data.trackingEnabled = Boolean(req.body.trackingEnabled);
     if (req.body.officeId !== undefined) data.officeId = req.body.officeId || null;
     if (req.body.salary != null && canViewSalary(req.user)) data.salary = Number(req.body.salary);

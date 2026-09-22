@@ -18,6 +18,7 @@ const {
   canViewSalary,
   attendanceStatusKey
 } = require('../utils/hrAccess');
+const { assertCostCenterOwned, resolveEmployeeCostCenter, snapshotCostCenter } = require('../services/costCenterHelper');
 
 const EMPLOYEE_INCLUDE = {
   user: {
@@ -41,6 +42,9 @@ const EMPLOYEE_INCLUDE = {
       radiusMeters: true,
       isActive: true
     }
+  },
+  costCenterRef: {
+    select: { id: true, code: true, name: true, status: true }
   },
   location: true
 };
@@ -87,7 +91,12 @@ function serializeEmployee(emp, extras = {}) {
     statusKey: emp.status,
     managerId: emp.managerId || null,
     position: emp.position || '',
-    costCenter: emp.costCenter || '',
+    costCenter: emp.costCenterRef
+      ? `${emp.costCenterRef.code} - ${emp.costCenterRef.name}`
+      : (emp.costCenter || ''),
+    costCenterId: emp.costCenterId || emp.costCenterRef?.id || null,
+    costCenterCode: emp.costCenterRef?.code || '',
+    costCenterName: emp.costCenterRef?.name || emp.costCenter || '',
     trackingEnabled: emp.trackingEnabled !== false,
     profile: emp.profile || {},
     isActive: emp.user?.isActive !== false && emp.status === 'active',
@@ -463,7 +472,18 @@ exports.createEmployee = async (req, res) => {
       joiningDate,
       status,
       password,
-      payBasis
+      payBasis,
+      costCenterId,
+      probationEndDate,
+      confirmationDate,
+      contractEndDate,
+      terminationDate,
+      bankName,
+      bankAccount,
+      bankBranch,
+      emergencyContact,
+      emergencyPhone,
+      payGrade
     } = req.body;
 
     const { firstName, lastName } = rawFirst
@@ -537,6 +557,26 @@ exports.createEmployee = async (req, res) => {
     const employeeCode = await nextEmployeeCode(companyId);
     const currentUserId = req.user.id || req.user._id;
 
+    let resolvedCostCenter = null;
+    if (costCenterId) {
+      resolvedCostCenter = await assertCostCenterOwned(companyId, costCenterId, { activeOnly: true });
+    }
+    const ccSnap = snapshotCostCenter(resolvedCostCenter);
+
+    const profile = {
+      payBasis: ['monthly', 'hourly', 'daily'].includes(String(payBasis || '').toLowerCase())
+        ? String(payBasis).toLowerCase()
+        : 'monthly'
+    };
+    const profileDateFields = { probationEndDate, confirmationDate, contractEndDate, terminationDate };
+    const profileStrFields = { bankName, bankAccount, bankBranch, emergencyContact, emergencyPhone, payGrade };
+    Object.entries(profileDateFields).forEach(([k, v]) => {
+      if (v) profile[k] = String(v).slice(0, 10);
+    });
+    Object.entries(profileStrFields).forEach(([k, v]) => {
+      if (v != null && String(v).trim() !== '') profile[k] = String(v).trim();
+    });
+
     const created = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
@@ -566,6 +606,10 @@ exports.createEmployee = async (req, res) => {
           department: String(department || '').trim(),
           designation: String(designation || '').trim(),
           officeId: officeId || null,
+          costCenterId: ccSnap.costCenterId,
+          costCenter: ccSnap.costCenterName
+            ? `${ccSnap.costCenterCode} - ${ccSnap.costCenterName}`.trim()
+            : '',
           employmentType: String(employmentType || 'Full Time'),
           employeeType: String(employeeType || 'Office Employee'),
           shiftLabel: String(shift || ''),
@@ -573,11 +617,7 @@ exports.createEmployee = async (req, res) => {
           joiningDate: joiningDate ? new Date(joiningDate) : new Date(),
           status: statusKey(status),
           phone: String(phone || '').trim(),
-          profile: {
-            payBasis: ['monthly', 'hourly', 'daily'].includes(String(payBasis || '').toLowerCase())
-              ? String(payBasis).toLowerCase()
-              : 'monthly'
-          }
+          profile
         },
         include: EMPLOYEE_INCLUDE
       });
@@ -666,6 +706,7 @@ exports.updateEmployee = async (req, res) => {
       emergencyContact,
       emergencyPhone,
       payGrade,
+      costCenterId,
     } = req.body;
 
     const names = rawFirst
@@ -690,6 +731,20 @@ exports.updateEmployee = async (req, res) => {
       if (v !== undefined) profileUpdates[k] = v ? String(v).trim() : null;
     });
     const hasProfileUpdate = Object.keys(profileUpdates).length > 0;
+
+    let ccUpdate = {};
+    if (costCenterId !== undefined) {
+      if (costCenterId) {
+        const cc = await assertCostCenterOwned(companyId, costCenterId, { activeOnly: true });
+        const snap = snapshotCostCenter(cc);
+        ccUpdate = {
+          costCenterId: snap.costCenterId,
+          costCenter: snap.costCenterName ? `${snap.costCenterCode} - ${snap.costCenterName}` : ''
+        };
+      } else {
+        ccUpdate = { costCenterId: null, costCenter: '' };
+      }
+    }
 
     const employee = await prisma.$transaction(async (tx) => {
       if (names || phone != null || status != null) {
@@ -716,6 +771,7 @@ exports.updateEmployee = async (req, res) => {
           joiningDate: joiningDate ? new Date(joiningDate) : undefined,
           status: nextStatus,
           phone: phone != null ? String(phone).trim() : undefined,
+          ...ccUpdate,
           ...(hasProfileUpdate ? { profile: { ...existingProfile, ...profileUpdates } } : {})
         },
         include: EMPLOYEE_INCLUDE

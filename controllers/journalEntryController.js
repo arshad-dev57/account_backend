@@ -225,6 +225,19 @@ const createJournalEntry = async (req, res) => {
       }
       // ✅ FIXED: Pass companyId to validateAccount
       const account = await validateAccount(line.accountId, companyId);
+      let costCenterId = line.costCenterId || null;
+      if (costCenterId) {
+        const cc = await prisma.costCenter.findFirst({
+          where: { id: String(costCenterId), companyId, status: 'active' }
+        });
+        if (!cc) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid or inactive cost center on line ${i + 1}`
+          });
+        }
+        costCenterId = cc.id;
+      }
       validatedLines.push({
         accountId: line.accountId,
         accountName: account.name,
@@ -233,7 +246,8 @@ const createJournalEntry = async (req, res) => {
         currentBalance: account.currentBalance,
         debit: parseFloat(line.debit) || 0,
         credit: parseFloat(line.credit) || 0,
-        isReconciled: line.isReconciled || false
+        isReconciled: line.isReconciled || false,
+        costCenterId
       });
     }
 
@@ -288,7 +302,8 @@ const createJournalEntry = async (req, res) => {
               accountCode: line.accountCode,
               debit: line.debit,
               credit: line.credit,
-              isReconciled: line.isReconciled || false
+              isReconciled: line.isReconciled || false,
+              costCenterId: line.costCenterId || null
             }))
           }
         },

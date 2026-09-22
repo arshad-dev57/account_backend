@@ -317,7 +317,8 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
     limit = 10,
     showDebitOnly,
     showCreditOnly,
-    locationId
+    locationId,
+    costCenterId
   } = req.query;
   const userId = req.user.id;
 
@@ -345,13 +346,22 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
     query = { ...query, ...dateFilter };
   }
 
+  const lineWhere = { accountId: accountId };
+  if (costCenterId) {
+    const cc = await prisma.costCenter.findFirst({
+      where: { id: String(costCenterId), companyId }
+    });
+    if (!cc) {
+      return ApiResponse.notFound(res, 'Cost center not found');
+    }
+    lineWhere.costCenterId = String(costCenterId);
+  }
+
   const journalEntries = await prisma.journalEntry.findMany({
     where: query,
     include: {
       lines: {
-        where: {
-          accountId: accountId
-        }
+        where: lineWhere
       }
     },
     orderBy: { date: 'asc' }

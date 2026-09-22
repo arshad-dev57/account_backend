@@ -77,6 +77,16 @@ router.get('/hcm/audit', hcm.listAudit);
 router.get('/hcm/ess', hcm.myEss);
 router.get('/hcm/team', hcm.myTeam);
 
+const cc = require('../controllers/hrCostCenterController');
+
+router.get('/cost-centers', cc.list);
+router.get('/cost-centers/reports/summary', cc.summaryReport);
+router.get('/cost-centers/reports/gl', cc.glReport);
+router.get('/cost-centers/:id', cc.getById);
+router.post('/cost-centers', cc.create);
+router.put('/cost-centers/:id', cc.update);
+router.patch('/cost-centers/:id/status', cc.setStatus);
+
 router.get('/org/departments', hcm.listDepartments);
 router.post('/org/departments', hcm.saveDepartment);
 router.get('/org/designations', hcm.listDesignations);
@@ -91,6 +101,7 @@ router.get('/leave-types', hcm.listLeaveTypes);
 router.post('/leave-types', hcm.saveLeaveType);
 router.get('/leave-balances', hcm.leaveBalances);
 
+router.get('/attendance/report', hcm.attendanceReport);
 router.get('/attendance/summary', hcm.attendanceSummary);
 router.get('/attendance/corrections', hcm.listCorrections);
 router.post('/attendance/corrections', hcm.createCorrection);

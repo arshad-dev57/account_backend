@@ -20,7 +20,12 @@ const FIELD_ALIASES = {
   zone: 'zoneName',
   storageCondition: 'storageConditionName',
   countryOfOrigin: 'countryOfOriginName',
-  stockUnit: 'stockUnitName'
+  stockUnit: 'stockUnitName',
+  weightUnit: 'weightUnitName',
+  dimensionUnitName: 'dimensionUnit',
+  taxTypeName: 'taxType',
+  brand: 'brandName',
+  rackLocation: 'rackLocationName',
 };
 
 const INT_FIELDS = [

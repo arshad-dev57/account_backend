@@ -108,6 +108,7 @@ model Company {
   hrPayrollItems     HrPayrollItem[]
   hrSetting          HrSetting?
   hrDepartments      HrDepartment[]
+  costCenters        CostCenter[]
   hrDesignations     HrDesignation[]
   hrShifts           HrShift[]
   hrHolidays         HrHoliday[]
@@ -446,6 +447,29 @@ model User {
 // HR — employees, offices, attendance, last-known location
 // ============================================================
 
+model CostCenter {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  code        String
+  name        String
+  description String   @default("")
+  officeId    String?  @map("office_id")
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  office       HrOffice?       @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  departments  HrDepartment[]
+  employees    HrEmployee[]
+  payrollItems HrPayrollItem[]
+  journalLines JournalLine[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@map("cost_centers")
+}
+
 model HrOffice {
   id           String   @id @default(uuid())
   companyId    String   @map("company_id")
@@ -458,9 +482,10 @@ model HrOffice {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  employees HrEmployee[]
-  locations HrEmployeeLocation[]
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees   HrEmployee[]
+  locations   HrEmployeeLocation[]
+  costCenters CostCenter[]
 
   @@index([companyId])
   @@map("hr_offices")
@@ -484,6 +509,7 @@ model HrEmployee {
   managerId      String?   @map("manager_id")
   position       String    @default("")
   costCenter     String    @default("") @map("cost_center")
+  costCenterId   String?   @map("cost_center_id")
   trackingEnabled Boolean  @default(true) @map("tracking_enabled")
   cnic           String    @default("") @map("cnic")
   bankName       String    @default("") @map("bank_name")
@@ -497,6 +523,7 @@ model HrEmployee {
   company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   office      HrOffice?            @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  costCenterRef CostCenter?        @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   manager     HrEmployee?          @relation("HrReporting", fields: [managerId], references: [id], onDelete: SetNull)
   reports     HrEmployee[]         @relation("HrReporting")
   attendances HrAttendance[]
@@ -527,6 +554,7 @@ model HrEmployee {
   @@index([officeId])
   @@index([status])
   @@index([managerId])
+  @@index([costCenterId])
   @@map("hr_employees")
 }
 
@@ -679,6 +707,9 @@ model HrPayrollItem {
   notes      String    @default("")
   paidAt     DateTime? @map("paid_at")
   breakdown  Json?
+  costCenterId    String?   @map("cost_center_id")
+  costCenterCode  String    @default("") @map("cost_center_code")
+  costCenterName  String    @default("") @map("cost_center_name")
   manualBonus     Float     @default(0) @map("manual_bonus")
   manualDeduction Float     @default(0) @map("manual_deduction")
   customTax       Float     @default(0) @map("custom_tax")
@@ -693,11 +724,13 @@ model HrPayrollItem {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  company  Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  employee HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee      HrEmployee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  costCenterRef CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
 
   @@unique([employeeId, period])
   @@index([companyId, period])
+  @@index([costCenterId])
   @@map("hr_payroll_items")
 }
 
@@ -718,15 +751,18 @@ model HrDepartment {
   name              String
   parentId          String?  @map("parent_id")
   costCenter        String   @default("") @map("cost_center")
+  costCenterId      String?  @map("cost_center_id")
   managerEmployeeId String?  @map("manager_employee_id")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  parent  HrDepartment? @relation("HrDeptTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children HrDepartment[] @relation("HrDeptTree")
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent        HrDepartment? @relation("HrDeptTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children      HrDepartment[] @relation("HrDeptTree")
+  costCenterRef CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
+  @@index([costCenterId])
   @@map("hr_departments")
 }
 
@@ -2636,13 +2672,16 @@ model JournalLine {
   isReconciled Boolean @default(false) @map("is_reconciled")
   debit        Float   @default(0)
   credit       Float   @default(0)
+  costCenterId String? @map("cost_center_id")
 
   // Relations
-  journal JournalEntry   @relation(fields: [journalId], references: [id], onDelete: Cascade)
-  account ChartOfAccount @relation(fields: [accountId], references: [id])
+  journal       JournalEntry   @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account       ChartOfAccount @relation(fields: [accountId], references: [id])
+  costCenterRef CostCenter?    @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
 
   @@index([journalId])
   @@index([accountId])
+  @@index([costCenterId])
   @@map("journal_lines")
 }
 

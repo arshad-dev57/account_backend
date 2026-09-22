@@ -8,6 +8,7 @@ const {
   workDateKey
 } = require('../utils/hrAccess');
 const payrollEngine = require('../services/hrPayrollEngine');
+const { resolveEmployeeCostCenter, snapshotCostCenter } = require('../services/costCenterHelper');
 const ExcelJS = require('exceljs');
 const nodemailer = require('nodemailer');
 const axios = require('axios');
@@ -808,6 +809,9 @@ exports.generatePayroll = async (req, res) => {
         noSaleCut: keep && prevBreak.hrManual ? Number(prevBreak.deductions?.noSaleCut || 0) : null,
         notes: prev?.notes || ''
       });
+      const cc = await resolveEmployeeCostCenter(emp, companyId);
+      const ccSnap = snapshotCostCenter(cc);
+      const preserveCostCenter = prev && ['Paid', 'Approved'].includes(prev.status);
       const row = await prisma.hrPayrollItem.upsert({
         where: { employeeId_period: { employeeId: emp.id, period } },
         create: {
@@ -820,7 +824,8 @@ exports.generatePayroll = async (req, res) => {
           net: slip.net,
           status: 'Draft',
           notes: slip.notes || '',
-          breakdown: slip
+          breakdown: slip,
+          ...ccSnap
         },
         update: {
           base: slip.earnings.basic,
@@ -828,7 +833,10 @@ exports.generatePayroll = async (req, res) => {
           deductions: slip.deductions.total,
           net: slip.net,
           status: prev && ['Paid', 'Approved', 'Held'].includes(prev.status) ? prev.status : 'Draft',
-          breakdown: slip
+          breakdown: slip,
+          ...(preserveCostCenter
+            ? {}
+            : ccSnap)
         },
         include: PAYROLL_INCLUDE
       });
@@ -1299,11 +1307,22 @@ exports.bulkPayrollStatus = async (req, res) => {
     if (status === 'Paid') {
       try {
         const { postPayrollJournal } = require('../services/hrPayrollAccounting');
+        const paidItems = await prisma.hrPayrollItem.findMany({
+          where: { companyId, period, status: 'Paid' },
+          select: {
+            id: true,
+            net: true,
+            costCenterId: true,
+            costCenterCode: true,
+            costCenterName: true
+          }
+        });
         journal = await postPayrollJournal({
           companyId,
           userId: req.user.id || req.user._id,
           period,
           periodLabel: payrollEngine.periodLabel(period),
+          payrollItems: paidItems,
           netTotal: summary.net
         });
       } catch (err) {
