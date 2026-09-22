@@ -98,19 +98,34 @@ function createClient() {
 
 function patchTransientDbRetries(client) {
   if (typeof client.$use !== 'function') return;
+  const MAX_ATTEMPTS = 6;
+  const RETRY_DELAYS_MS = [1000, 2000, 4000, 6000, 10000, 15000];
   client.$use(async (params, next) => {
     let lastError;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       try {
         return await next(params);
       } catch (error) {
         lastError = error;
         const code = error && error.code;
-        if (code !== 'P1001' && code !== 'P2024') throw error;
-        if (attempt >= 2) throw error;
-        const waitMs = 1500 * (attempt + 1);
+        const msg = (error && error.message ? error.message : '').toLowerCase();
+        const isTransient =
+          code === 'P1001' ||
+          code === 'P1017' ||
+          code === 'P2024' ||
+          msg.includes("can't reach database server") ||
+          msg.includes('connection closed') ||
+          msg.includes('kind: closed') ||
+          msg.includes('etimedout') ||
+          msg.includes('econnreset') ||
+          msg.includes('socket hang up') ||
+          msg.includes('connection pool') ||
+          msg.includes('error in postgresql connection');
+
+        if (!isTransient || attempt >= MAX_ATTEMPTS - 1) throw error;
+        const waitMs = RETRY_DELAYS_MS[attempt] || 15000;
         console.warn(
-          `[Prisma] ${code} retry ${attempt + 1}/2 in ${waitMs}ms (${params.model}.${params.action})`
+          `[Prisma] ${code || 'transient'} retry ${attempt + 1}/${MAX_ATTEMPTS - 1} in ${waitMs}ms (${params.model}.${params.action})`
         );
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }

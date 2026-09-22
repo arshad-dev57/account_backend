@@ -6,6 +6,7 @@ const { protectOnly } = require('../../middleware/authMiddleware');
 const {
   // Sales Orders
   createSalesOrder,
+  updateSalesOrder,
   getSalesOrders,
   
   // Purchase Orders
@@ -69,6 +70,9 @@ router.patch('/:id/payment', updateOrderPayment);
 
 // Cancel order
 router.post('/:id/cancel', cancelOrder);
+
+// Update order (sales/purchase header + items where allowed)
+router.put('/:id', updateSalesOrder);
 
 // Delete order (soft delete)
 router.delete('/:id', deleteOrder);

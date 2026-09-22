@@ -6,15 +6,275 @@ const {
   adjustLocationStock,
 } = require('../services/locationService');
 
-// ─── Generate GRN Number Function ──────────────────────────
 function generateGRNNumber() {
   const date = new Date();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  
+
   return `GRN-${year}${month}${day}-${random}`;
+}
+
+function isUnconfirmedGRN(grn) {
+  return Boolean(grn) && !grn.confirmedAt && grn.status !== 'Cancelled';
+}
+
+function grnActionFlags(grn) {
+  const unconfirmed = isUnconfirmedGRN(grn);
+  return {
+    canConfirm: unconfirmed,
+    canEdit: unconfirmed,
+    canDelete: unconfirmed,
+  };
+}
+
+function linkedPurchaseOrderIds(grn) {
+  return [
+    ...new Set(
+      [
+        grn.purchaseOrderId,
+        ...(grn.purchaseOrders || []).map((link) => link.purchaseOrderId),
+      ]
+        .filter(Boolean)
+        .map(String)
+    ),
+  ];
+}
+
+function withGRNTotals(grn, extra = {}) {
+  const supplierDetails = grn.supplier
+    ? {
+        supplierEmail: grn.supplier.email,
+        supplierPhone: grn.supplier.phone,
+        supplierAddress: grn.supplier.address,
+      }
+    : {};
+
+  const totalReceivedQty = (grn.items || []).reduce(
+    (sum, item) => sum + (item.receivingQuantity || 0),
+    0
+  );
+  const totalCumulativeReceivedQty = (grn.items || []).reduce(
+    (sum, item) =>
+      sum + (item.previouslyReceivedQty || 0) + (item.receivingQuantity || 0),
+    0
+  );
+  const totalOrderedQty = (grn.items || []).reduce(
+    (sum, item) => sum + (item.orderedQuantity || 0),
+    0
+  );
+  const totalItems = (grn.items || []).length;
+  const receivingProgress =
+    totalOrderedQty > 0
+      ? (totalCumulativeReceivedQty || totalReceivedQty) / totalOrderedQty
+      : 0;
+
+  return {
+    ...grn,
+    ...supplierDetails,
+    totalReceivedQty,
+    totalCumulativeReceivedQty,
+    totalOrderedQty,
+    totalItems,
+    receivingProgress,
+    ...grnActionFlags(grn),
+    ...extra,
+  };
+}
+
+async function applyGRNInventory(tx, { goodsReceiving, userId, companyId }) {
+  const stockAlreadyApplied = await tx.stockMovement.count({
+    where: {
+      companyId,
+      reference: goodsReceiving.grnNumber,
+      type: 'Goods Receiving',
+    },
+  });
+
+  const linkedPoIds = linkedPurchaseOrderIds(goodsReceiving);
+  const previousGRNs = linkedPoIds.length
+    ? await tx.goodsReceiving.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          status: { not: 'Cancelled' },
+          id: { not: goodsReceiving.id },
+          OR: [
+            { purchaseOrderId: { in: linkedPoIds } },
+            { purchaseOrders: { some: { purchaseOrderId: { in: linkedPoIds } } } },
+          ],
+        },
+        include: { items: true },
+      })
+    : [];
+
+  const previousReceivedQty = {};
+  for (const grn of previousGRNs) {
+    for (const item of grn.items) {
+      previousReceivedQty[item.purchaseOrderItemId] =
+        (previousReceivedQty[item.purchaseOrderItemId] || 0) + item.receivingQuantity;
+    }
+  }
+
+  let allItemsFullyReceived = true;
+
+  for (const item of goodsReceiving.items) {
+    const alreadyReceived = previousReceivedQty[item.purchaseOrderItemId] || 0;
+    const orderedQuantity =
+      item.purchaseOrderItem?.quantity ?? item.orderedQuantity ?? 0;
+    const remainingQuantity =
+      orderedQuantity - (alreadyReceived + item.receivingQuantity);
+
+    if (stockAlreadyApplied === 0) {
+      const product = await tx.product.findUnique({
+        where: { id: item.productId },
+      });
+      if (!product) {
+        throw new Error(
+          `Product not found for received item "${item.productName}"`
+        );
+      }
+
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        goodsReceiving.locationId || goodsReceiving.purchaseOrder?.locationId,
+        userId
+      );
+
+      const qty = Math.round(Number(item.receivingQuantity) || 0);
+      if (qty > 0) {
+        const adj = await adjustLocationStock(tx, {
+          companyId,
+          productId: item.productId,
+          locationId,
+          delta: qty,
+          productName: item.productName,
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId: item.productId,
+            productName: item.productName,
+            type: 'Goods Receiving',
+            quantity: qty,
+            previousStock: adj.previousLocationStock,
+            newStock: adj.newLocationStock,
+            reason: `GRN #${goodsReceiving.grnNumber} confirmed - PO #${
+              goodsReceiving.purchaseOrderNumber ||
+              goodsReceiving.purchaseOrder?.orderNumber ||
+              ''
+            }`,
+            reference: goodsReceiving.grnNumber,
+            status: 'Completed',
+            createdBy: userId,
+            companyId,
+            locationId,
+            supplierId:
+              goodsReceiving.supplierId ||
+              goodsReceiving.purchaseOrder?.supplierId ||
+              null,
+            supplierName:
+              goodsReceiving.supplierName ||
+              goodsReceiving.purchaseOrder?.supplierName ||
+              null,
+          },
+        });
+      }
+    }
+
+    await tx.goodsReceivingItem.update({
+      where: { id: item.id },
+      data: { remainingQuantity },
+    });
+
+    if (remainingQuantity > 0) {
+      allItemsFullyReceived = false;
+    }
+  }
+
+  const status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
+
+  const updatedGRN = await tx.goodsReceiving.update({
+    where: { id: goodsReceiving.id },
+    data: {
+      status,
+      confirmedBy: userId,
+      confirmedAt: new Date(),
+      updatedBy: userId,
+    },
+    include: {
+      items: {
+        include: {
+          product: true,
+          purchaseOrderItem: true,
+        },
+      },
+      purchaseOrder: {
+        include: {
+          supplier: true,
+        },
+      },
+      purchaseOrders: true,
+      supplier: true,
+      creator: {
+        select: { id: true, firstName: true, lastName: true, email: true },
+      },
+      confirmer: {
+        select: { id: true, firstName: true, lastName: true, email: true },
+      },
+    },
+  });
+
+  for (const poId of linkedPoIds) {
+    const po = await tx.purchaseOrder.findUnique({
+      where: { id: poId },
+      include: { items: true },
+    });
+    if (!po || po.status === 'Cancelled') continue;
+
+    const poGRNs = await tx.goodsReceiving.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        status: { not: 'Cancelled' },
+        confirmedAt: { not: null },
+        OR: [
+          { purchaseOrderId: po.id },
+          { purchaseOrders: { some: { purchaseOrderId: po.id } } },
+        ],
+      },
+      include: { items: true },
+    });
+
+    const poTotalRecv = {};
+    for (const g of poGRNs) {
+      for (const gi of g.items) {
+        poTotalRecv[gi.purchaseOrderItemId] =
+          (poTotalRecv[gi.purchaseOrderItemId] || 0) + gi.receivingQuantity;
+      }
+    }
+
+    const anyPoReceived = po.items.some((poi) => (poTotalRecv[poi.id] || 0) > 0);
+    const allPoFullyReceived = po.items.every(
+      (poi) => (poTotalRecv[poi.id] || 0) >= poi.quantity
+    );
+
+    if (anyPoReceived) {
+      await tx.purchaseOrder.update({
+        where: { id: po.id },
+        data: {
+          status: allPoFullyReceived ? 'Received' : 'Partially Received',
+          updatedBy: userId,
+        },
+      });
+    }
+  }
+
+  return updatedGRN;
 }
 
 class GoodsReceivingModel {
@@ -23,7 +283,7 @@ class GoodsReceivingModel {
   // ============================================================
   static async create(data) {
     const grnNumber = generateGRNNumber();
-    
+
     return await prisma.$transaction(async (tx) => {
       const purchaseOrderIds = [
         ...new Set(
@@ -77,7 +337,7 @@ class GoodsReceivingModel {
           companyId: data.companyId,
           isActive: true,
           isDeleted: false,
-          status: { in: ['Partially Received', 'Fully Received'] },
+          status: { not: 'Cancelled' },
           OR: [
             { purchaseOrderId: { in: purchaseOrderIds } },
             { purchaseOrders: { some: { purchaseOrderId: { in: purchaseOrderIds } } } },
@@ -131,12 +391,6 @@ class GoodsReceivingModel {
         });
       }
 
-      let status = 'Draft';
-      if (data.status === 'Confirmed') {
-        const allItemsFullyReceived = receivingItems.every((item) => item.remainingQuantity === 0);
-        status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
-      }
-
       const primaryPo = purchaseOrders[0];
       const locationId = await resolveLocationId(
         tx,
@@ -156,7 +410,7 @@ class GoodsReceivingModel {
           supplierId: primaryPo.supplierId,
           supplierName: primaryPo.supplierName,
           receivingDate: new Date(data.receivingDate || Date.now()),
-          status,
+          status: 'Draft',
           receivedBy: data.receivedBy || null,
           notes: data.notes || null,
           createdBy: data.createdBy,
@@ -186,47 +440,7 @@ class GoodsReceivingModel {
         },
       });
 
-      const supplierDetails = goodsReceiving.supplier
-        ? {
-            supplierEmail: goodsReceiving.supplier.email,
-            supplierPhone: goodsReceiving.supplier.phone,
-            supplierAddress: goodsReceiving.supplier.address,
-          }
-        : {};
-
-      const totalReceivedQty = goodsReceiving.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
-      const totalOrderedQty = goodsReceiving.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
-      const totalItems = goodsReceiving.items.length;
-      const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
-
-      if (data.status === 'Confirmed') {
-        for (const po of purchaseOrders) {
-          const poItems = receivingItems.filter((i) => i.purchaseOrderId === po.id);
-          if (!poItems.length) continue;
-          const allFully = po.items.every((poi) => {
-            const recv = (previousReceivedQty[poi.id] || 0) +
-              (poItems.find((i) => i.purchaseOrderItemId === poi.id)?.receivingQuantity || 0);
-            return recv >= poi.quantity;
-          });
-          await tx.purchaseOrder.update({
-            where: { id: po.id },
-            data: {
-              status: allFully ? 'Received' : 'Partially Received',
-              updatedBy: data.createdBy,
-            },
-          });
-        }
-      }
-
-      return {
-        ...goodsReceiving,
-        ...supplierDetails,
-        totalReceivedQty,
-        totalOrderedQty,
-        totalItems,
-        receivingProgress,
-        canEdit: goodsReceiving.status === 'Draft',
-      };
+      return withGRNTotals(goodsReceiving);
     });
   }
 
@@ -248,7 +462,8 @@ class GoodsReceivingModel {
             include: {
               supplier: true
             }
-          }
+          },
+          purchaseOrders: true,
         }
       });
 
@@ -256,179 +471,26 @@ class GoodsReceivingModel {
         throw new Error('Goods receiving not found');
       }
 
+      if (goodsReceiving.companyId && goodsReceiving.companyId !== companyId) {
+        throw new Error('Goods receiving not found');
+      }
+
+      if (goodsReceiving.status === 'Cancelled' || goodsReceiving.isDeleted) {
+        throw new Error('Cancelled goods receiving cannot be confirmed');
+      }
+
       if (goodsReceiving.confirmedAt) {
         throw new Error('Goods receiving already confirmed');
       }
 
-      const stockAlreadyApplied = await tx.stockMovement.count({
-        where: {
-          reference: goodsReceiving.grnNumber,
-          type: 'Goods Receiving',
-        },
+      const updatedGRN = await applyGRNInventory(tx, {
+        goodsReceiving,
+        userId,
+        companyId,
       });
 
-      const previousGRNs = await tx.goodsReceiving.findMany({
-        where: {
-          purchaseOrderId: goodsReceiving.purchaseOrderId,
-          companyId: companyId,  // ✅ FIXED
-          isActive: true,
-          isDeleted: false,
-          status: {
-            in: ['Partially Received', 'Fully Received']
-          },
-          id: { not: id }
-        },
-        include: {
-          items: true
-        }
-      });
-
-      const previousReceivedQty = {};
-      for (const grn of previousGRNs) {
-        for (const item of grn.items) {
-          previousReceivedQty[item.purchaseOrderItemId] = 
-            (previousReceivedQty[item.purchaseOrderItemId] || 0) + item.receivingQuantity;
-        }
-      }
-
-      let allItemsFullyReceived = true;
-      let totalReceivingQty = 0;
-
-      for (const item of goodsReceiving.items) {
-        const alreadyReceived = previousReceivedQty[item.purchaseOrderItemId] || 0;
-        const orderedQuantity = item.purchaseOrderItem.quantity;
-        const remainingQuantity =
-          orderedQuantity - (alreadyReceived + item.receivingQuantity);
-
-        if (stockAlreadyApplied === 0) {
-          const product = await tx.product.findUnique({
-            where: { id: item.productId },
-          });
-
-          if (product) {
-            const locationId = await resolveLocationId(
-              tx,
-              companyId,
-              goodsReceiving.locationId ||
-                goodsReceiving.purchaseOrder?.locationId,
-              userId
-            );
-
-            const adj = await adjustLocationStock(tx, {
-              companyId,
-              productId: item.productId,
-              locationId,
-              delta: item.receivingQuantity,
-            });
-
-            await tx.stockMovement.create({
-              data: {
-                productId: item.productId,
-                productName: item.productName,
-                type: 'Goods Receiving',
-                quantity: item.receivingQuantity,
-                previousStock: adj.previousLocationStock,
-                newStock: adj.newLocationStock,
-                reason: `GRN #${goodsReceiving.grnNumber} confirmed - PO #${goodsReceiving.purchaseOrder.orderNumber}`,
-                reference: goodsReceiving.grnNumber,
-                status: 'Completed',
-                createdBy: userId,
-                companyId: companyId,
-                locationId,
-                supplierId: goodsReceiving.purchaseOrder.supplierId,
-                supplierName: goodsReceiving.purchaseOrder.supplierName,
-              },
-            });
-          }
-        }
-
-        await tx.goodsReceivingItem.update({
-          where: { id: item.id },
-          data: {
-            remainingQuantity: remainingQuantity
-          }
-        });
-
-        totalReceivingQty += item.receivingQuantity;
-        if (remainingQuantity > 0) {
-          allItemsFullyReceived = false;
-        }
-      }
-
-      const status = allItemsFullyReceived ? 'Fully Received' : 'Partially Received';
-
-      const updatedGRN = await tx.goodsReceiving.update({
-        where: { id },
-        data: {
-          status: status,
-          confirmedBy: userId,
-          confirmedAt: new Date(),
-          updatedBy: userId
-        },
-        include: {
-          items: {
-            include: {
-              product: true,
-              purchaseOrderItem: true
-            }
-          },
-          purchaseOrder: {
-            include: {
-              supplier: true
-            }
-          },
-          supplier: true,
-          creator: {
-            select: { id: true, firstName: true, lastName: true, email: true }
-          },
-          confirmer: {
-            select: { id: true, firstName: true, lastName: true, email: true }
-          }
-        }
-      });
-
-      // Add supplier details from the supplier relation
-      const supplierDetails = updatedGRN.supplier ? {
-        supplierEmail: updatedGRN.supplier.email,
-        supplierPhone: updatedGRN.supplier.phone,
-        supplierAddress: updatedGRN.supplier.address
-      } : {};
-
-      // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
-      const totalReceivedQty = updatedGRN.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
-      const totalOrderedQty = updatedGRN.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
-      const totalItems = updatedGRN.items.length;
-      const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
-
-      const updatedGRNWithTotals = {
-        ...updatedGRN,
-        ...supplierDetails,
-        totalReceivedQty,
-        totalOrderedQty,
-        totalItems,
-        receivingProgress
-      };
-
-      if (allItemsFullyReceived) {
-        await tx.purchaseOrder.update({
-          where: { id: goodsReceiving.purchaseOrderId },
-          data: {
-            status: 'Received',
-            updatedBy: userId
-          }
-        });
-      } else {
-        await tx.purchaseOrder.update({
-          where: { id: goodsReceiving.purchaseOrderId },
-          data: {
-            status: 'Partially Received',
-            updatedBy: userId
-          }
-        });
-      }
-
-      return updatedGRNWithTotals;
-    });
+      return withGRNTotals(updatedGRN);
+    }, { maxWait: 30_000, timeout: 120_000 });
   }
 
   // ============================================================
@@ -474,6 +536,26 @@ class GoodsReceivingModel {
 
     if (!grn) return null;
 
+    const returnAgg = await prisma.purchaseReturnItem.groupBy({
+      by: ['goodsReceivingItemId'],
+      where: {
+        goodsReceivingId: id,
+        return: {
+          status: { in: ['Draft', 'Processed'] },
+          isActive: true,
+          isDeleted: false,
+        },
+      },
+      _sum: { returnQuantity: true },
+    });
+
+    const returnedByItemId = {};
+    for (const row of returnAgg) {
+      if (row.goodsReceivingItemId) {
+        returnedByItemId[row.goodsReceivingItemId] = Number(row._sum.returnQuantity || 0);
+      }
+    }
+
     // Add supplier details from the supplier relation
     const supplierDetails = grn.supplier ? {
       supplierEmail: grn.supplier.email,
@@ -486,15 +568,47 @@ class GoodsReceivingModel {
       supplierGstNumber: grn.supplier.gstNumber || grn.supplier.taxId,
     } : {};
 
-    // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress
-    const totalReceivedQty = grn.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
-    const totalOrderedQty = grn.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
-    const totalItems = grn.items.length;
-    const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+    const enrichedItems = grn.items.map((item) => {
+      const previously = Number(item.previouslyReceivedQty) || 0;
+      const receiving = Number(item.receivingQuantity) || 0;
+      const ordered = Number(item.orderedQuantity) || 0;
+      const returnedQuantity = returnedByItemId[item.id] || 0;
+      const remaining =
+        Number(item.remainingQuantity) ??
+        Math.max(0, ordered - previously - receiving);
+      const totalReceivedQty = previously + receiving;
+      const netReceivedQty = Math.max(0, receiving - returnedQuantity);
+      return {
+        ...item,
+        totalReceivedQty,
+        returnedQuantity,
+        netReceivedQty,
+        isFullyReceived: remaining <= 0,
+      };
+    });
+
+    const totalReturnedQty = enrichedItems.reduce(
+      (sum, item) => sum + (item.returnedQuantity || 0),
+      0
+    );
+
+    // Progress for this GRN: qty received now vs qty ordered on linked PO lines
+    const totalReceivedQty = enrichedItems.reduce(
+      (sum, item) => sum + item.receivingQuantity,
+      0
+    );
+    const totalOrderedQty = enrichedItems.reduce(
+      (sum, item) => sum + item.orderedQuantity,
+      0
+    );
+    const totalItems = enrichedItems.length;
+    const receivingProgress =
+      totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
     const isDraft = grn.status === 'Draft' && !grn.confirmedAt;
 
     return {
       ...grn,
+      items: enrichedItems,
       ...supplierDetails,
       purchaseOrderNumbers:
         grn.purchaseOrderNumbers ||
@@ -502,12 +616,13 @@ class GoodsReceivingModel {
           ? grn.purchaseOrders.map((l) => l.purchaseOrderNumber).join(', ')
           : grn.purchaseOrderNumber),
       totalReceivedQty,
+      totalReturnedQty,
       totalOrderedQty,
       totalItems,
       receivingProgress,
-      canEdit: isDraft,
-      canConfirm: isDraft,
-      canDelete: isDraft,
+      canEdit: isDraft || isUnconfirmedGRN(grn),
+      canConfirm: isUnconfirmedGRN(grn),
+      canDelete: isUnconfirmedGRN(grn),
     };
   }
 
@@ -622,14 +737,14 @@ class GoodsReceivingModel {
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { receivingDate: 'desc' } } = options;
-    
+
     // ✅ FIXED: Map userId to createdBy if present
     const cleanFilter = { ...filter };
     if (cleanFilter.userId) {
       cleanFilter.createdBy = cleanFilter.userId;
       delete cleanFilter.userId;
     }
-    
+
     const grns = await prisma.goodsReceiving.findMany({
       where: {
         ...cleanFilter,
@@ -663,8 +778,8 @@ class GoodsReceivingModel {
       }
     });
 
-    // Calculate totalReceivedQty, totalOrderedQty, totalItems, and receivingProgress for each GRN
-    return grns.map(grn => {
+    // Calculate totals and collapse multiple GRNs on the same PO into one list row.
+    const enriched = grns.map(grn => {
       const supplierDetails = grn.supplier ? {
         supplierEmail: grn.supplier.email,
         supplierPhone: grn.supplier.phone,
@@ -672,9 +787,13 @@ class GoodsReceivingModel {
       } : {};
 
       const totalReceivedQty = grn.items.reduce((sum, item) => sum + item.receivingQuantity, 0);
+      const totalCumulativeReceivedQty = grn.items.reduce(
+        (sum, item) => sum + (item.previouslyReceivedQty || 0) + item.receivingQuantity,
+        0
+      );
       const totalOrderedQty = grn.items.reduce((sum, item) => sum + item.orderedQuantity, 0);
       const totalItems = grn.items.length;
-      const receivingProgress = totalOrderedQty > 0 ? totalReceivedQty / totalOrderedQty : 0;
+      const receivingProgress = totalOrderedQty > 0 ? (totalCumulativeReceivedQty || totalReceivedQty) / totalOrderedQty : 0;
 
       return {
         ...grn,
@@ -685,14 +804,60 @@ class GoodsReceivingModel {
             ? grn.purchaseOrders.map((l) => l.purchaseOrderNumber).join(', ')
             : grn.purchaseOrderNumber),
         totalReceivedQty,
+        totalCumulativeReceivedQty,
         totalOrderedQty,
         totalItems,
         receivingProgress,
-        canConfirm: grn.status === 'Draft',
-        canEdit: grn.status === 'Draft',
-        canDelete: grn.status === 'Draft',
+        ...grnActionFlags(grn),
       };
     });
+
+    const byPo = {};
+    for (const grn of enriched) {
+      const poId = grn.purchaseOrderId;
+      if (!poId) continue;
+      if (!byPo[poId]) byPo[poId] = [];
+      byPo[poId].push(grn);
+    }
+
+    const withConsolidation = enriched.map((grn) => {
+      const poId = grn.purchaseOrderId;
+      if (!poId || !byPo[poId] || byPo[poId].length <= 1) {
+        return {
+          ...grn,
+          linkedGrnCount: 1,
+          linkedGrnNumbers: grn.grnNumber,
+          isPrimaryGrnForPo: true,
+        };
+      }
+
+      const sorted = [...byPo[poId]].sort(
+        (a, b) => new Date(b.receivingDate) - new Date(a.receivingDate)
+      );
+      const primary = sorted[0];
+      const linkedGrnNumbers = sorted.map((g) => g.grnNumber).join(', ');
+      const isPrimary = grn.id === primary.id;
+
+      return {
+        ...grn,
+        linkedGrnCount: sorted.length,
+        linkedGrnNumbers,
+        isPrimaryGrnForPo: isPrimary,
+        grnNumber: isPrimary ? linkedGrnNumbers : grn.grnNumber,
+        totalCumulativeReceivedQty: sorted.reduce(
+          (max, g) => Math.max(max, g.totalCumulativeReceivedQty || 0),
+          grn.totalCumulativeReceivedQty || 0
+        ),
+        totalReceivedQty: sorted.reduce(
+          (sum, g) => sum + (g.totalReceivedQty || 0),
+          0
+        ),
+      };
+    });
+
+    return withConsolidation.filter(
+      (grn) => grn.isPrimaryGrnForPo !== false
+    );
   }
 
   // ============================================================
@@ -705,7 +870,7 @@ class GoodsReceivingModel {
       cleanFilter.createdBy = cleanFilter.userId;
       delete cleanFilter.userId;
     }
-    
+
     return await prisma.goodsReceiving.count({
       where: {
         ...cleanFilter,
@@ -732,8 +897,8 @@ class GoodsReceivingModel {
         throw new Error('Goods receiving not found');
       }
 
-      if (goodsReceiving.confirmedAt || goodsReceiving.status !== 'Draft') {
-        throw new Error('Only draft goods receiving can be updated');
+      if (goodsReceiving.confirmedAt) {
+        throw new Error('Only unconfirmed goods receiving can be updated');
       }
 
       const updateData = {
@@ -790,7 +955,7 @@ class GoodsReceivingModel {
             companyId: goodsReceiving.companyId,
             isActive: true,
             isDeleted: false,
-            status: { in: ['Partially Received', 'Fully Received'] },
+            status: { not: 'Cancelled' },
             id: { not: id },
             OR: [
               { purchaseOrderId: { in: linkedIds } },
@@ -1010,7 +1175,7 @@ class GoodsReceivingModel {
     for (const grn of grns) {
       const itemCount = grn.items.length;
       summary.totalItems += itemCount;
-      
+
       switch (grn.status) {
         case 'Draft': summary.draftCount++; break;
         case 'Partially Received': summary.partiallyReceivedCount++; break;

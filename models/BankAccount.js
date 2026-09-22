@@ -2,44 +2,28 @@
 
 const prisma = require('../prisma/client');
 
-// ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_ACCOUNT_TYPES = ['Current', 'Savings', 'Business', 'Islamic'];
 const VALID_STATUS = ['Active', 'Inactive'];
 
 class BankAccountModel {
-  // ============================================================
-  // ✅ VALIDATE BANK ACCOUNT DATA
-  // ============================================================
   static validateBankAccountData(data) {
     const errors = [];
-
-    // ─── Check required fields ────────────────────────────────
     if (!data.accountName) errors.push('Account name is required');
     if (!data.accountNumber) errors.push('Account number is required');
     if (!data.bankName) errors.push('Bank name is required');
     if (!data.chartOfAccountId) errors.push('Chart of account ID is required');
-
-    // ─── Check valid account type ──────────────────────────────
     if (data.accountType && !VALID_ACCOUNT_TYPES.includes(data.accountType)) {
       errors.push(`Invalid account type. Must be one of: ${VALID_ACCOUNT_TYPES.join(', ')}`);
     }
-
-    // ─── Check valid status ────────────────────────────────────
     if (data.status && !VALID_STATUS.includes(data.status)) {
       errors.push(`Invalid status. Must be one of: ${VALID_STATUS.join(', ')}`);
     }
-
-    // ─── Check opening balance sign ────────────────────────────
     if (data.openingBalance && data.openingBalance < 0) {
       errors.push('Opening balance cannot be negative');
     }
 
     return errors;
   }
-
-  // ============================================================
-  // ✅ GENERATE ACCOUNT CODE FOR BANK ACCOUNT
-  // ============================================================
   static async generateAccountCode(companyId) {
     // Find all bank accounts for this company
     const bankAccounts = await prisma.bankAccount.findMany({
@@ -65,10 +49,6 @@ class BankAccountModel {
     const maxCode = Math.max(...codes);
     return (maxCode + 1).toString();
   }
-
-  // ============================================================
-  // ✅ GENERATE ACCOUNT NUMBER (Unique)
-  // ============================================================
   static async generateAccountNumber(companyId) {
     const count = await prisma.bankAccount.count({
       where: {
@@ -81,24 +61,15 @@ class BankAccountModel {
     return `BA-${year}-${padded}`;
   }
 
-  // ============================================================
-  // ✅ CREATE BANK ACCOUNT - FIXED
-  // ============================================================
   static async create(data) {
-    // ─── Validate data ──────────────────────────────────────────
     const errors = this.validateBankAccountData(data);
     if (errors.length > 0) {
       throw new Error(errors.join('; '));
     }
-
-    // ─── Generate account code if not provided ─────────────────
     let accountCode = data.accountCode;
     if (!accountCode) {
       accountCode = await this.generateAccountCode(data.companyId);
     }
-
-    // ─── Create bank account ────────────────────────────────────
-    // ✅ FIXED: Set companyId
     return await prisma.bankAccount.create({
       data: {
         accountName: data.accountName,
@@ -178,9 +149,6 @@ class BankAccountModel {
     });
   }
 
-  // ============================================================
-  // ✅ COUNT BANK ACCOUNTS - FIXED
-  // ============================================================
   static async count(filter = {}) {
     // ✅ FIXED: If filter has companyId, use it directly
     if (filter.companyId) {
@@ -191,9 +159,6 @@ class BankAccountModel {
     return await prisma.bankAccount.count({ where: filter });
   }
 
-  // ============================================================
-  // ✅ FIND BANK ACCOUNT BY ID - FIXED
-  // ============================================================
   static async findById(id) {
     return await prisma.bankAccount.findUnique({
       where: { id },

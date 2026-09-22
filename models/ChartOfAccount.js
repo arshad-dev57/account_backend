@@ -8,23 +8,14 @@
   const CREDIT_BALANCE_TYPES = ['Liability', 'Equity', 'Revenue'];
 
   class ChartOfAccountModel {
-    // ============================================================
-    // ✅ VALIDATE ACCOUNT DATA
-    // ============================================================
     static validateAccountData(data) {
       const errors = [];
-
-      // ─── Check required fields ────────────────────────────────
       if (!data.code) errors.push('Account code is required');
       if (!data.name) errors.push('Account name is required');
       if (!data.type) errors.push('Account type is required');
-
-      // ─── Check valid type ──────────────────────────────────────
       if (data.type && !VALID_ACCOUNT_TYPES.includes(data.type)) {
         errors.push(`Invalid account type. Must be one of: ${VALID_ACCOUNT_TYPES.join(', ')}`);
       }
-
-      // ─── ✅ Cash/Bank validation ──────────────────────────────
       if (data.name) {
         const nameLower = data.name.toLowerCase();
         const isCashOrBank = nameLower.includes('cash') || 

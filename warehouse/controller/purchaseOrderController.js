@@ -130,8 +130,8 @@ const createPurchaseOrder = async (req, res) => {
 // @access  Private
 const getPurchaseOrders = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const userId = req.user?.id;
+    const companyId = req.user?.companyId;
     const {
       page = 1,
       limit = 20,
@@ -147,7 +147,7 @@ const getPurchaseOrders = async (req, res) => {
 
     // Company-wide (shared warehouse) + optional location
     const filter = {
-      companyId: companyId,
+      ...(companyId ? { companyId } : {}),
       isActive: true,
       isDeleted: false,
       ...(locationId ? { locationId: String(locationId) } : {}),

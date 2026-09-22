@@ -298,6 +298,227 @@ class OrderModel {
   }
 
   // ============================================================
+  // UPDATE SALES ORDER (header + items + draft invoice sync)
+  // ============================================================
+  static async updateSalesOrder(id, data, companyId) {
+    return await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: {
+          id,
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          orderType: 'Sales Order',
+        },
+        include: { items: true },
+      });
+
+      if (!order) {
+        throw new Error('Sales order not found');
+      }
+
+      const lockedStatuses = ['Cancelled', 'Delivered', 'Shipped', 'In Transit', 'Returned'];
+      if (lockedStatuses.includes(order.orderStatus)) {
+        throw new Error(`Cannot update order with status ${order.orderStatus}`);
+      }
+
+      const confirmedDeliveries = await tx.delivery.count({
+        where: {
+          salesOrderId: id,
+          confirmedAt: { not: null },
+          isActive: true,
+          isDeleted: false,
+        },
+      });
+      if (confirmedDeliveries > 0) {
+        throw new Error('Cannot update order with confirmed deliveries');
+      }
+
+      const updateData = {
+        updatedBy: data.updatedBy,
+        ...(data.customerName && { customerName: data.customerName }),
+        ...(data.customerEmail !== undefined && { customerEmail: data.customerEmail }),
+        ...(data.customerPhone !== undefined && { customerPhone: data.customerPhone }),
+        ...(data.customerType && { customerType: data.customerType }),
+        ...(data.customerCompany !== undefined && { customerCompany: data.customerCompany }),
+        ...(data.customerTaxId !== undefined && { customerTaxId: data.customerTaxId }),
+        ...(data.shippingAddress && { shippingAddress: data.shippingAddress }),
+        ...(data.billingAddress && { billingAddress: data.billingAddress }),
+        ...(data.priority && { priority: data.priority }),
+        ...(data.source !== undefined && { source: data.source }),
+        ...(data.salesPerson !== undefined && { salesPerson: data.salesPerson }),
+        ...(data.expectedDeliveryDate !== undefined && {
+          expectedDeliveryDate: data.expectedDeliveryDate
+            ? new Date(data.expectedDeliveryDate)
+            : null,
+        }),
+        ...(data.shippingMethod !== undefined && { shippingMethod: data.shippingMethod }),
+        ...(data.shippingCarrier !== undefined && { shippingCarrier: data.shippingCarrier }),
+        ...(data.shippingCost !== undefined && { shippingCost: data.shippingCost }),
+        ...(data.paymentMethod !== undefined && { paymentMethod: data.paymentMethod }),
+        ...(data.paymentStatus !== undefined && { paymentStatus: data.paymentStatus }),
+        ...(data.couponCode !== undefined && { couponCode: data.couponCode }),
+        ...(data.customerNotes !== undefined && { customerNotes: data.customerNotes }),
+        ...(data.internalNotes !== undefined && { internalNotes: data.internalNotes }),
+        ...(data.tags !== undefined && { tags: data.tags }),
+      };
+
+      if (data.items) {
+        if (order.locationId) {
+          for (const item of order.items) {
+            await releaseLocationReservation(tx, {
+              companyId: order.companyId,
+              productId: item.productId,
+              locationId: order.locationId,
+              qty: item.quantity,
+            });
+          }
+        }
+
+        await tx.orderItem.deleteMany({ where: { orderId: id } });
+
+        let subtotal = 0;
+        let taxTotal = 0;
+        let totalWeight = 0;
+        let totalItems = 0;
+
+        for (const item of data.items) {
+          const unitPrice = Number(item.unitPrice) || 0;
+          const quantity = Number(item.quantity) || 0;
+          const totalPrice = unitPrice * quantity;
+          const taxAmount = Number(item.taxAmount) || (totalPrice * (Number(item.taxRate) || 0)) / 100;
+          const itemWeight = (Number(item.weight) || 0) * quantity;
+
+          await tx.orderItem.create({
+            data: {
+              orderId: id,
+              productId: item.productId,
+              productName: item.productName,
+              sku: item.sku,
+              quantity,
+              unitPrice,
+              totalPrice,
+              weight: item.weight || 0,
+              weightUnit: item.weightUnit || 'KG',
+              dimensions: item.dimensions || '',
+              taxRate: item.taxRate || 0,
+              taxAmount,
+              discount: item.discount || 0,
+              batchNumber: item.batchNumber || '',
+              serialNumber: item.serialNumber || '',
+              notes: item.notes || '',
+            },
+          });
+
+          if (order.locationId) {
+            await reserveLocationStock(tx, {
+              companyId: order.companyId,
+              productId: item.productId,
+              locationId: order.locationId,
+              qty: quantity,
+            });
+          }
+
+          subtotal += totalPrice;
+          taxTotal += taxAmount;
+          totalWeight += itemWeight;
+          totalItems += quantity;
+        }
+
+        const shippingCost = data.shippingCost !== undefined ? Number(data.shippingCost) : Number(order.shippingCost) || 0;
+        const discountTotal = data.discountTotal !== undefined ? Number(data.discountTotal) : Number(order.discountTotal) || 0;
+        const grandTotal = subtotal + taxTotal + shippingCost - discountTotal;
+
+        updateData.subtotal = subtotal;
+        updateData.taxTotal = taxTotal;
+        updateData.shippingCost = shippingCost;
+        updateData.discountTotal = discountTotal;
+        updateData.grandTotal = grandTotal;
+        updateData.totalWeight = totalWeight;
+        updateData.totalItems = totalItems;
+
+        const draftInvoices = await tx.salesInvoice.findMany({
+          where: {
+            orderId: id,
+            invoiceStatus: 'Draft',
+            paidAmount: 0,
+            isActive: true,
+            isDeleted: false,
+          },
+        });
+
+        for (const invoice of draftInvoices) {
+          await tx.salesInvoiceItem.deleteMany({ where: { invoiceId: invoice.id } });
+
+          let invSubtotal = 0;
+          let invDiscount = 0;
+          let invTax = 0;
+          const invoiceItems = data.items.map((item) => {
+            const lineTotal = item.quantity * item.unitPrice;
+            const discountAmount = (lineTotal * (item.discount || 0)) / 100;
+            const taxableAmount = lineTotal - discountAmount;
+            const taxAmount = (taxableAmount * (item.taxRate || 0)) / 100;
+            const total = taxableAmount + taxAmount;
+            invSubtotal += lineTotal;
+            invDiscount += discountAmount;
+            invTax += taxAmount;
+            return {
+              invoiceId: invoice.id,
+              productId: item.productId,
+              productName: item.productName,
+              sku: item.sku,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discount: item.discount || 0,
+              taxRate: item.taxRate || 0,
+              taxAmount,
+              lineTotal: total,
+              notes: item.notes || null,
+            };
+          });
+
+          const invGrandTotal = invSubtotal - invDiscount + invTax;
+          await tx.salesInvoiceItem.createMany({ data: invoiceItems });
+          await tx.salesInvoice.update({
+            where: { id: invoice.id },
+            data: {
+              subtotal: invSubtotal,
+              discountTotal: invDiscount,
+              taxTotal: invTax,
+              grandTotal: invGrandTotal,
+              outstanding: invGrandTotal,
+              updatedBy: data.updatedBy,
+              ...(data.customerName && { customerName: data.customerName }),
+              ...(data.customerEmail !== undefined && { customerEmail: data.customerEmail }),
+              ...(data.customerPhone !== undefined && { customerPhone: data.customerPhone }),
+              ...(data.shippingAddress && { shippingAddress: data.shippingAddress }),
+              ...(data.billingAddress && { billingAddress: data.billingAddress }),
+            },
+          });
+        }
+      } else if (data.subtotal !== undefined) {
+        updateData.subtotal = data.subtotal;
+        updateData.taxTotal = data.taxTotal;
+        updateData.discountTotal = data.discountTotal;
+        updateData.grandTotal = data.grandTotal;
+        updateData.totalWeight = data.totalWeight;
+        updateData.totalItems = data.totalItems;
+      }
+
+      return await tx.order.update({
+        where: { id },
+        data: updateData,
+        include: {
+          items: true,
+          creator: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      });
+    });
+  }
+
+  // ============================================================
   // UPDATE ORDER
   // ============================================================
   static async update(id, data) {

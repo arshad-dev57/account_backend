@@ -2,8 +2,8 @@ const prisma = require('../prisma/client');
 
 async function makeUserAdmin() {
   try {
-    console.log('═══════════════════════════════════════════════════');
-    console.log('🔍 Fetching all users...');
+    console.log('');
+    console.log(' Fetching all users...');
     
     const users = await prisma.user.findMany({
       select: {
@@ -22,10 +22,8 @@ async function makeUserAdmin() {
       console.log(`   ${index + 1}. ${user.firstName} ${user.lastName} (${user.email}) - Role: ${user.role}`);
     });
 
-    console.log('═══════════════════════════════════════════════════');
-    
-    // Update the first user to admin
-    if (users.length > 0) {
+    console.log('');
+        if (users.length > 0) {
       const firstUser = users[0];
       console.log(`👑 Updating ${firstUser.email} to admin role...`);
       
@@ -49,7 +47,7 @@ async function makeUserAdmin() {
       console.log('❌ No users found in database');
     }
 
-    console.log('═══════════════════════════════════════════════════');
+    console.log('');
   } catch (error) {
     console.error('❌ Error:', error);
   } finally {

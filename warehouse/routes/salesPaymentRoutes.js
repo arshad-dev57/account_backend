@@ -11,7 +11,8 @@ const {
   getPaymentByNumber,
   cancelPayment,
   getPaymentStats,
-  deletePayment
+  deletePayment,
+  updatePayment
 } = require('../controller/salesPaymentController');
 
 // ─── All routes protected ──────────────────────────────────────
@@ -53,6 +54,9 @@ router.get('/number/:paymentNumber', getPaymentByNumber);
 
 // Get payment by ID
 router.get('/:id', getPaymentById);
+
+// Update payment metadata
+router.put('/:id', updatePayment);
 
 // Delete payment (soft delete)
 router.delete('/:id', deletePayment);

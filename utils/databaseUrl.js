@@ -55,18 +55,25 @@ function applyServerlessParams(raw, { forcePoolerFlags = false } = {}) {
   // Railway long-running Node: keep pool small (3) — Railway closes idle
   // connections aggressively; fewer idle connections = fewer "Closed" log noise.
   if (!url.searchParams.has('connection_limit')) {
+    // Local dev + Neon pooler: keep the Prisma pool small; the pooler multiplexes.
     url.searchParams.set(
       'connection_limit',
-      isServerlessRuntime() ? '1' : '3'
+      isServerlessRuntime() ? '1' : '5'
     );
   }
 
   if (!url.searchParams.has('pool_timeout')) {
-    url.searchParams.set('pool_timeout', '20');
+    url.searchParams.set('pool_timeout', '30');
   }
 
   if (!url.searchParams.has('connect_timeout')) {
-    url.searchParams.set('connect_timeout', '15');
+    // Neon free tier can take 30–60s to wake from suspend.
+    url.searchParams.set('connect_timeout', isServerlessRuntime() ? '25' : '60');
+  }
+
+  // Prisma/Node on macOS often fails with channel_binding=require (P1001).
+  if (url.searchParams.has('channel_binding')) {
+    url.searchParams.delete('channel_binding');
   }
 
   if ((pooler || forcePoolerFlags) && !url.searchParams.has('pgbouncer')) {
@@ -98,15 +105,6 @@ function resolveDatabaseUrl() {
     reason = forceDirect
       ? 'DIRECT_URL (PRISMA_USE_DIRECT)'
       : 'DIRECT_URL (serverless)';
-  } else if (envDirect && envDb) {
-    try {
-      if (looksLikePooler(new URL(envDb))) {
-        chosen = envDirect;
-        reason = 'DIRECT_URL (DATABASE_URL is pooler)';
-      }
-    } catch {
-      /* keep envDb */
-    }
   } else if (envDb) {
     try {
       if (looksLikePooler(new URL(envDb))) {

@@ -5,9 +5,6 @@ const VALID_REASON_TYPES = ['Return', 'Refund', 'Discount', 'Adjustment', 'Price
 const VALID_STATUS = ['Issued', 'Applied', 'Expired', 'PartiallyApplied'];
 
 class CreditNoteModel {
-  // ============================================================
-  // ✅ VALIDATE CREDIT NOTE DATA
-  // ============================================================
   static validateCreditNoteData(data) {
     const errors = [];
 
@@ -27,10 +24,6 @@ class CreditNoteModel {
 
     return errors;
   }
-
-  // ============================================================
-  // ✅ GENERATE CREDIT NOTE NUMBER
-  // ============================================================
   static async generateCreditNoteNumber(userId) {
     const count = await prisma.creditNote.count({
       where: { createdBy: userId }
@@ -38,10 +31,6 @@ class CreditNoteModel {
     const year = new Date().getFullYear();
     return `CN-${year}-${String(count + 1).padStart(4, '0')}`;
   }
-
-  // ============================================================
-  // ✅ CREATE CREDIT NOTE
-  // ============================================================
   static async create(data) {
     const errors = this.validateCreditNoteData(data);
     if (errors.length > 0) {
@@ -52,7 +41,6 @@ class CreditNoteModel {
     const expiryDate = data.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     try {
-      // ✅ Verify invoice exists
       const invoiceExists = await prisma.warehouseInvoice.findUnique({
         where: { id: data.originalInvoiceId }
       });

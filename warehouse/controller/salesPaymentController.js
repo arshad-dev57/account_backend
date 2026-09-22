@@ -442,6 +442,45 @@ const getPaymentStats = async (req, res) => {
   }
 };
 
+// @desc    Update Payment metadata (date, method, reference, notes)
+// @route   PUT /api/sales/payments/:id
+// @access  Private
+const updatePayment = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { id } = req.params;
+    const { paymentDate, paymentMethod, reference, notes } = req.body;
+
+    const existing = await prisma.salesPaymentReceived.findFirst({
+      where: { id, companyId, isActive: true, isDeleted: false },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    const updated = await SalesPaymentReceived.updateMetadata(id, {
+      updatedBy: userId,
+      paymentDate,
+      paymentMethod,
+      reference,
+      notes,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment updated',
+      data: updated,
+    });
+  } catch (error) {
+    console.error('Update payment error:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to update payment',
+    });
+  }
+};
+
 // @desc    Delete Payment (Soft Delete)
 // @route   DELETE /api/sales/payments/:id
 // @access  Private
@@ -505,6 +544,7 @@ module.exports = {
   getPayments,
   getPaymentById,
   getPaymentByNumber,
+  updatePayment,
   cancelPayment,
   getPaymentStats,
   deletePayment

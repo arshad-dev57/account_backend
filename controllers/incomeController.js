@@ -938,10 +938,20 @@ exports.deleteIncome = async (req, res) => {
 
 exports.getSummary = async (req, res) => {
   try {
-    const { startDate, endDate, locationId } = req.query;
+    const { startDate, endDate, locationId, status, incomeType } = req.query;
     const companyId = req.user.companyId;
 
-    const baseFilter = { companyId, status: 'Posted', ...withLocation(locationId) };
+    const baseFilter = { companyId, ...withLocation(locationId) };
+    if (status && status !== 'All') {
+      baseFilter.status = status;
+    } else {
+      baseFilter.status = { not: 'Cancelled' };
+    }
+
+    if (incomeType && incomeType !== 'All') {
+      baseFilter.incomeType = incomeType;
+    }
+
     if (startDate && endDate) {
       baseFilter.date = { gte: new Date(startDate), lte: new Date(endDate) };
     }

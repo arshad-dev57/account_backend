@@ -1075,18 +1075,27 @@ const deleteExpense = async (req, res) => {
 
 const getSummary = async (req, res) => {
   try {
-    const { startDate, endDate, locationId } = req.query;
+    const { startDate, endDate, locationId, status, expenseType } = req.query;
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
+
     const filter = {
       OR: [
         { companyId: companyId },
         { companyId: null, createdBy: userId }
       ],
-      status: 'Posted',
       ...withLocation(locationId)
     };
+
+    if (status && status !== 'All') {
+      filter.status = status;
+    } else {
+      filter.status = { not: 'Cancelled' };
+    }
+
+    if (expenseType && expenseType !== 'All') {
+      filter.expenseType = expenseType;
+    }
 
     if (startDate && endDate) {
       filter.date = {
@@ -1101,9 +1110,26 @@ const getSummary = async (req, res) => {
 
     const summary = await ExpenseModel.getSummary(allExpenses);
 
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const thisMonth = allExpenses
+      .filter(e => new Date(e.date) >= startOfMonth)
+      .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
+    const thisWeek = allExpenses
+      .filter(e => new Date(e.date) >= startOfWeek)
+      .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
+
     res.status(200).json({
       success: true,
-      data: summary
+      data: {
+        ...summary,
+        thisMonth,
+        thisWeek
+      }
     });
   } catch (error) {
     console.error('❌ Get expense summary error:', error);

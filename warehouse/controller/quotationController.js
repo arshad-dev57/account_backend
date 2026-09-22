@@ -232,13 +232,13 @@ const getQuotations = async (req, res) => {
     const orderBy = { [sortBy]: sortOrder === 'asc' ? 'asc' : 'desc' };
 
     // Check and update expired quotations
-    await Quotation.updateExpiredQuotations(userId);
+    await Quotation.updateExpiredQuotations(companyId, userId);
 
     const [quotations, total, kpi, stats] = await Promise.all([
       Quotation.findAll(filter, { skip, take: limitNum, orderBy }),
       Quotation.count(filter),
-      Quotation.getStatusCounts(userId),
-      Quotation.getStats(userId)
+      Quotation.getStatusCounts(companyId),
+      Quotation.getStats(companyId)
     ]);
 
     res.status(200).json({
@@ -697,11 +697,11 @@ const getQuotationStats = async (req, res) => {
     
     const companyId = req.user.companyId;
     // Check and update expired quotations
-    await Quotation.updateExpiredQuotations(userId);
+    await Quotation.updateExpiredQuotations(companyId, userId);
 
     const [kpi, stats] = await Promise.all([
-      Quotation.getStatusCounts(userId),
-      Quotation.getStats(userId)
+      Quotation.getStatusCounts(companyId),
+      Quotation.getStats(companyId)
     ]);
 
     res.status(200).json({
@@ -730,7 +730,7 @@ const getCustomerQuotationSummary = async (req, res) => {
     const companyId = req.user.companyId;
     const { startDate, endDate } = req.query;
 
-    const summary = await Quotation.getCustomerSummary(userId, startDate, endDate);
+    const summary = await Quotation.getCustomerSummary(companyId, startDate, endDate);
 
     res.status(200).json({
       success: true,
@@ -755,7 +755,7 @@ const getProductQuotationSummary = async (req, res) => {
     const companyId = req.user.companyId;
     const { startDate, endDate } = req.query;
 
-    const summary = await Quotation.getProductSummary(userId, startDate, endDate);
+    const summary = await Quotation.getProductSummary(companyId, startDate, endDate);
 
     res.status(200).json({
       success: true,

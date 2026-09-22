@@ -502,15 +502,37 @@ const getPurchaseInvoiceById = async (req, res) => {
     }
 
     const isDraft = invoice.invoiceStatus === 'Draft';
+    const syncedItems = isDraft
+      ? await PurchaseInvoice.syncDraftInvoiceItemsFromReceiving(invoice, companyId)
+      : invoice.items;
+    const subtotal = syncedItems.reduce(
+      (sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0),
+      0
+    );
+    const discountTotal = syncedItems.reduce((sum, item) => {
+      const line = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+      return sum + line * (Number(item.discount || 0) / 100);
+    }, 0);
+    const taxTotal = syncedItems.reduce((sum, item) => sum + Number(item.taxAmount || 0), 0);
+    const grandTotal =
+      syncedItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0) ||
+      subtotal - discountTotal + taxTotal;
+
     res.status(200).json({
       success: true,
       data: {
         ...invoice,
+        items: syncedItems,
+        subtotal,
+        discountTotal,
+        taxTotal,
+        grandTotal,
+        outstanding: grandTotal - Number(invoice.paidAmount || 0),
         canEdit: isDraft,
         canPost: isDraft,
         canCancel: ['Posted', 'Partially Paid'].includes(invoice.invoiceStatus),
         canDelete: isDraft,
-        totalItems: invoice.items?.length || 0,
+        totalItems: syncedItems?.length || 0,
       }
     });
   } catch (error) {
@@ -910,40 +932,11 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
       }
     });
 
-    const grnsWithStatus = grns.map((grn) => {
-      const items = grn.items.map((item) => {
-        const unitPrice =
-          item.purchaseOrderItem?.unitPrice || item.product?.costPrice || 0;
-        const discount = item.purchaseOrderItem?.discount || 0;
-        const taxRate = item.purchaseOrderItem?.taxRate || 0;
-        const qty = item.receivingQuantity || 0;
-        return {
-          ...item,
-          quantity: qty,
-          unitPrice,
-          discount,
-          taxRate,
-          productName: item.productName || item.product?.name,
-          sku: item.sku || item.product?.sku
-        };
-      });
-      const totalQuantity = items.reduce(
-        (sum, item) => sum + (item.quantity || 0),
-        0
-      );
-      const invoiceSubtotal = items.reduce(
-        (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
-        0
-      );
-      const totalDiscount = items.reduce((sum, item) => {
-        const line = (item.quantity || 0) * (item.unitPrice || 0);
-        return sum + line * ((item.discount || 0) / 100);
-      }, 0);
-      const totalTax = items.reduce((sum, item) => {
-        const line = (item.quantity || 0) * (item.unitPrice || 0);
-        const afterDisc = line * (1 - (item.discount || 0) / 100);
-        return sum + afterDisc * ((item.taxRate || 0) / 100);
-      }, 0);
+    const grnsWithStatus = (
+      await PurchaseInvoice.consolidateGrnsForInvoicing(grns, companyId)
+    ).map((prepared) => {
+      const grn = prepared.grn;
+      const items = prepared.items;
       const itemPreview = items
         .slice(0, 3)
         .map((item) => item.productName)
@@ -952,7 +945,12 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
 
       return {
         id: grn.id,
-        grnNumber: grn.grnNumber,
+        goodsReceivingIds: prepared.linkedGrnIds,
+        grnNumber:
+          prepared.grnCount > 1 ? prepared.grnNumbers : grn.grnNumber,
+        grnNumbers: prepared.grnNumbers,
+        grnCount: prepared.grnCount,
+        isConsolidated: prepared.grnCount > 1,
         purchaseOrderId: grn.purchaseOrderId,
         purchaseOrderNumber:
           grn.purchaseOrderNumber || grn.purchaseOrder?.orderNumber,
@@ -977,15 +975,15 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
         locationId: grn.locationId,
         locationName: grn.location?.name,
         locationCode: grn.location?.code,
-        hasInvoice: grn.purchaseInvoices.length > 0,
-        invoiceCount: grn.purchaseInvoices.length,
-        invoices: grn.purchaseInvoices,
-        hasReceivedItems: true,
-        totalQuantity,
-        invoiceSubtotal,
-        totalDiscount,
-        totalTax,
-        grandTotal: invoiceSubtotal - totalDiscount + totalTax,
+        hasInvoice: (prepared.purchaseInvoices || []).length > 0,
+        invoiceCount: (prepared.purchaseInvoices || []).length,
+        invoices: prepared.purchaseInvoices || [],
+        hasReceivedItems: items.length > 0,
+        totalQuantity: prepared.totalQuantity,
+        invoiceSubtotal: prepared.invoiceSubtotal,
+        totalDiscount: prepared.totalDiscount,
+        totalTax: prepared.totalTax,
+        grandTotal: prepared.grandTotal,
         itemCount: items.length,
         itemPreview,
         items
@@ -1086,15 +1084,12 @@ const getAvailablePOsForInvoicing = async (req, res) => {
       prisma.purchaseOrder.count({ where }),
     ]);
 
-    const posWithStatus = pos.map((po) => {
-      const receivedQty = {};
-      for (const grn of po.goodsReceivings) {
-        for (const item of grn.items) {
-          receivedQty[item.purchaseOrderItemId] =
-            (receivedQty[item.purchaseOrderItemId] || 0) +
-            item.receivingQuantity;
-        }
-      }
+    const posWithStatus = await Promise.all(
+      pos.map(async (po) => {
+      const receivedQty = await PurchaseInvoice.getReceivedQuantitiesForPurchaseOrder(
+        po.id,
+        companyId
+      );
       const hasReceivedItems = Object.values(receivedQty).some((q) => q > 0);
 
       // Prefer confirmed received qty; fall back to ordered qty for listing
@@ -1170,7 +1165,8 @@ const getAvailablePOsForInvoicing = async (req, res) => {
             }
           : null
       };
-    });
+    })
+    );
 
     res.status(200).json({
       success: true,

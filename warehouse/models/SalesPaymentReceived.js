@@ -612,6 +612,42 @@ class SalesPaymentReceivedModel {
   // ============================================================
   // CANCEL PAYMENT
   // ============================================================
+  static async updateMetadata(id, data) {
+    const payment = await prisma.salesPaymentReceived.findUnique({ where: { id } });
+    if (!payment) throw new Error('Payment not found');
+    if (payment.status === 'Cancelled') {
+      throw new Error('Cannot edit cancelled payment');
+    }
+
+    return await prisma.salesPaymentReceived.update({
+      where: { id },
+      data: {
+        updatedBy: data.updatedBy,
+        ...(data.paymentDate && { paymentDate: new Date(data.paymentDate) }),
+        ...(data.paymentMethod !== undefined && { paymentMethod: data.paymentMethod }),
+        ...(data.reference !== undefined && { reference: data.reference }),
+        ...(data.notes !== undefined && { notes: data.notes }),
+      },
+      include: {
+        invoicePayments: {
+          include: {
+            invoice: {
+              select: { id: true, invoiceNumber: true, grandTotal: true, outstanding: true },
+            },
+          },
+        },
+        customer: true,
+        bankAccount: true,
+      },
+    }).then((updated) => ({
+      ...updated,
+      totalInvoices: updated.invoicePayments?.length || 0,
+      canEdit: true,
+      canCancel: updated.status === 'Completed',
+      canDelete: false,
+    }));
+  }
+
   static async cancelPayment(id, userId, reason = '') {
     return await prisma.$transaction(async (tx) => {
       const payment = await tx.salesPaymentReceived.findUnique({

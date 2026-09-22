@@ -186,7 +186,7 @@ class EmailService {
             </table>
             <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:0;">
               Sent to <span style="color:#6366f1;">${email}</span><br/>
-              Questions? <span style="color:#6366f1;">support@BisonsTechs.com</span>
+              Questions? <span style="color:#6366f1;">info@bisonstechs.com</span>
             </p>
           </td>
         </tr>
@@ -304,7 +304,7 @@ class EmailService {
               <tr><td style="height:1px;background:linear-gradient(90deg,transparent,#e5e7eb,transparent);"></td></tr>
             </table>
             <p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.8;margin:0;">
-              Questions? <span style="color:#6366f1;">support@BisonsTechs.com</span>
+              Questions? <span style="color:#6366f1;">info@bisonstechs.com</span>
             </p>
           </td>
         </tr>
@@ -476,7 +476,7 @@ class EmailService {
     const loginUrl = `${webBase}/login`;
     const androidUrl = (process.env.ANDROID_APP_URL || '').trim();
     const iosUrl = (process.env.IOS_APP_URL || '').trim();
-    const supportEmail = identity.replyTo || 'support@bisonstechs.com';
+    const supportEmail = identity.replyTo || 'info@bisonstechs.com';
 
     const esc = (value) =>
       String(value ?? '')

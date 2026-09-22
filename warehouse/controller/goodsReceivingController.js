@@ -1,6 +1,7 @@
 // warehouse/controller/goodsReceivingController.js - COMPLETE CORRECTED
 
 const GoodsReceiving = require('../models/GoodsReceiving');
+const PurchaseOrder = require('../models/PurchaseOrder');
 const prisma = require('../../prisma/client');
 
 const createGoodsReceiving = async (req, res) => {
@@ -50,15 +51,16 @@ const createGoodsReceiving = async (req, res) => {
         isActive: true,
         isDeleted: false,
         status: {
-          not: 'Cancelled'
+          notIn: ['Cancelled', 'Received']
         }
       }
     });
 
     if (purchaseOrders.length !== resolvedPoIds.length) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
-        message: 'One or more purchase orders not found or cancelled'
+        message:
+          'One or more purchase orders were not found, cancelled, or already fully received. Refresh the list and select orders with remaining quantity.',
       });
     }
 
@@ -95,6 +97,8 @@ const createGoodsReceiving = async (req, res) => {
 
     // ─── Create Goods Receiving ──────────────────────────
     // ✅ FIXED: Use createdBy and companyId
+    const confirmOnCreate = String(status || '').toLowerCase() === 'confirmed';
+
     const grnData = {
       purchaseOrderId: resolvedPoIds[0],
       purchaseOrderIds: resolvedPoIds,
@@ -102,7 +106,7 @@ const createGoodsReceiving = async (req, res) => {
       receivedBy: receivedBy || '',
       notes: notes || '',
       items: processedItems,
-      status: status || 'Draft',
+      status: 'Draft',
       createdBy: userId,
       companyId: companyId,
       locationId: locationId || purchaseOrders[0].locationId || null,
@@ -110,10 +114,16 @@ const createGoodsReceiving = async (req, res) => {
 
     const goodsReceiving = await GoodsReceiving.create(grnData);
 
+    const result = confirmOnCreate
+      ? await GoodsReceiving.confirmReceiving(goodsReceiving.id, userId, companyId)
+      : goodsReceiving;
+
     res.status(201).json({
       success: true,
-      message: 'Goods receiving created successfully',
-      data: goodsReceiving
+      message: confirmOnCreate
+        ? 'Goods receiving confirmed and inventory updated'
+        : 'Goods receiving created successfully',
+      data: result,
     });
   } catch (error) {
     console.error('Create goods receiving error:', error);
@@ -150,10 +160,10 @@ const confirmGoodsReceiving = async (req, res) => {
       });
     }
 
-    if (grn.status === 'Fully Received') {
+    if (grn.status === 'Cancelled') {
       return res.status(400).json({
         success: false,
-        message: 'Goods receiving already fully confirmed'
+        message: 'Cancelled goods receiving cannot be confirmed'
       });
     }
 
@@ -254,9 +264,9 @@ const getGoodsReceivings = async (req, res) => {
 
     const enriched = grns.map((grn) => ({
       ...grn,
-      canConfirm:
-        grn.status === 'Draft' &&
-        !grn.confirmedAt,
+      canConfirm: Boolean(grn.canConfirm) && !grn.confirmedAt,
+      canEdit: Boolean(grn.canEdit) && !grn.confirmedAt,
+      canDelete: Boolean(grn.canDelete) && !grn.confirmedAt,
     }));
 
     res.status(200).json({
@@ -305,7 +315,9 @@ const getGoodsReceivingById = async (req, res) => {
       success: true,
       data: {
         ...grn,
-        canConfirm: grn.status === 'Draft' && !grn.confirmedAt,
+        canConfirm: Boolean(grn.canConfirm) && !grn.confirmedAt,
+        canEdit: Boolean(grn.canEdit) && !grn.confirmedAt,
+        canDelete: Boolean(grn.canDelete) && !grn.confirmedAt,
       },
     });
   } catch (error) {
@@ -417,7 +429,6 @@ const updateGoodsReceiving = async (req, res) => {
       receivedBy,
       notes,
       items,
-      status
     } = req.body;
 
     const grn = await prisma.goodsReceiving.findFirst({
@@ -448,7 +459,6 @@ const updateGoodsReceiving = async (req, res) => {
       ...(receivingDate && { receivingDate: new Date(receivingDate) }),
       ...(receivedBy !== undefined && { receivedBy }),
       ...(notes !== undefined && { notes }),
-      ...(status && { status })
     };
 
     if (items) {
@@ -606,7 +616,7 @@ const getAvailablePurchaseOrders = async (req, res) => {
       isActive: true,
       isDeleted: false,
       status: {
-        notIn: ['Cancelled']
+        notIn: ['Cancelled', 'Received']
       },
       ...(locationId ? { locationId: String(locationId) } : {}),
       ...(supplierId ? { supplierId: String(supplierId) } : {}),
@@ -630,16 +640,6 @@ const getAvailablePurchaseOrders = async (req, res) => {
           },
         },
         supplier: true,
-        goodsReceivings: {
-          where: {
-            isActive: true,
-            isDeleted: false,
-            status: { in: ['Partially Received', 'Fully Received'] }
-          },
-          include: {
-            items: true
-          }
-        }
       },
       skip: (parseInt(page) - 1) * parseInt(limit),
       take: parseInt(limit),
@@ -648,16 +648,28 @@ const getAvailablePurchaseOrders = async (req, res) => {
       }
     });
 
-    const availableOrders = orders.map(order => {
-      const receivedQty = {};
-      for (const grn of order.goodsReceivings) {
-        for (const item of grn.items) {
-          receivedQty[item.purchaseOrderItemId] =
-            (receivedQty[item.purchaseOrderItemId] || 0) + item.receivingQuantity;
-        }
-      }
+    const orderIds = orders.map((order) => order.id);
+    const linkedGrns = orderIds.length
+      ? await prisma.goodsReceiving.findMany({
+          where: {
+            companyId,
+            isActive: true,
+            isDeleted: false,
+            status: { not: 'Cancelled' },
+            OR: [
+              { purchaseOrderId: { in: orderIds } },
+              { purchaseOrders: { some: { purchaseOrderId: { in: orderIds } } } },
+            ],
+          },
+          include: { items: true, purchaseOrders: true },
+        })
+      : [];
 
-      const remainingItems = order.items
+    const availableOrders = orders.map(order => {
+      const progress = PurchaseOrder.buildReceivedQuantitiesForOrder(order, linkedGrns);
+
+      const remainingItems = progress.items
+        .filter((item) => item.remainingQuantity > 0)
         .map((item) => ({
           id: item.id,
           productId: item.productId,
@@ -670,13 +682,12 @@ const getAvailablePurchaseOrders = async (req, res) => {
           taxAmount: item.taxAmount,
           lineTotal: item.lineTotal,
           notes: item.notes,
-          alreadyReceived: receivedQty[item.id] || 0,
-          remainingQuantity: item.quantity - (receivedQty[item.id] || 0),
+          alreadyReceived: item.receivedQuantity || 0,
+          remainingQuantity: item.remainingQuantity,
           unit: item.product?.stockUnitName || 'Pcs',
           barcode: item.product?.barcode || item.product?.productId || null,
           categoryName: item.product?.category?.name || null,
-        }))
-        .filter((item) => item.remainingQuantity > 0);
+        }));
 
       const totalRemainingQty = remainingItems.reduce(
         (sum, item) => sum + item.remainingQuantity,

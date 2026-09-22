@@ -7,7 +7,7 @@ const {
   deleteBankAccount,
   updateBalance,
   depositToBankAccount,
-  repairOpeningBalances
+  getBankAccountsStats
 } = require('../controllers/bankAccountController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -20,7 +20,8 @@ router.route('/')
   .post(createBankAccount);
 
 // Static paths before :id
-router.post('/repair-opening-balances', repairOpeningBalances);
+router.get('/stats', getBankAccountsStats);
+router.get('/summary', getBankAccountsStats);
 
 router.route('/:id')
   .get(getBankAccount)

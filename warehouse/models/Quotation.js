@@ -522,7 +522,7 @@ class QuotationModel {
   // ============================================================
   // GET QUOTATION STATS / KPI
   // ============================================================
-  static async getStats(userId) {
+  static async getStats(companyId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -535,7 +535,7 @@ class QuotationModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId,
     };
 
     // Today's quotations
@@ -598,11 +598,11 @@ class QuotationModel {
   // ============================================================
   // GET QUOTATION STATUS COUNTS (KPI)
   // ============================================================
-  static async getStatusCounts(userId) {
+  static async getStatusCounts(companyId) {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      userId: userId
+      companyId,
     };
 
     const [total, draft, sent, accepted, rejected, expired, converted] = await Promise.all([
@@ -653,11 +653,12 @@ class QuotationModel {
   // ============================================================
   // CHECK AND UPDATE EXPIRED QUOTATIONS
   // ============================================================
-  static async updateExpiredQuotations(userId) {
+  static async updateExpiredQuotations(companyId, userId) {
     const now = new Date();
     
     const expiredQuotations = await prisma.quotation.updateMany({
       where: {
+        companyId,
         status: {
           in: ['Draft', 'Sent']
         },
@@ -680,9 +681,9 @@ class QuotationModel {
   // ============================================================
   // GET QUOTATION SUMMARY BY CUSTOMER
   // ============================================================
-  static async getCustomerSummary(userId, startDate, endDate) {
+  static async getCustomerSummary(companyId, startDate, endDate) {
     const where = {
-      userId: userId,
+      companyId,
       isActive: true,
       isDeleted: false
     };
@@ -727,9 +728,9 @@ class QuotationModel {
   // ============================================================
   // GET QUOTATION PRODUCT SUMMARY
   // ============================================================
-  static async getProductSummary(userId, startDate, endDate) {
+  static async getProductSummary(companyId, startDate, endDate) {
     const where = {
-      userId: userId,
+      companyId,
       isActive: true,
       isDeleted: false
     };

@@ -1,24 +1,17 @@
-/**
- * Simulation of the reported bug: category synced during an EARLIER sync run,
- * product pushed in a NEW request referencing it via categorySyncId.
- * Prisma is mocked with an in-memory DB so this never touches the real cloud.
- */
+
 const path = require('path');
 const client = require(path.join(__dirname, '..', 'prisma', 'client'));
 
-// ---- in-memory cloud DB -----------------------------------------------------
-const cats = new Map(); // syncId -> row
-const prods = new Map(); // id -> row
+const cats = new Map(); 
+const prods = new Map(); 
 let prodSeq = 1;
 let catSeq = 1;
 
-// Seed: category that was synced during a PREVIOUS sync run (user's scenario)
 cats.set('CAT-1', {
   id: 'cloud-cat-1', syncId: 'CAT-1', name: 'Snacks', parentId: null, parentName: '',
   level: 1, path: '', slug: 'snacks', code: 'SNK', isDeleted: false, companyId: 'co-1',
 });
 
-// ---- mock delegates ----------------------------------------------------------
 client.$queryRaw = async () => [1];
 client.posMasterSyncChange = { create: async ({ data }) => ({ id: `log-${Date.now()}`, ...data }) };
 
@@ -83,7 +76,6 @@ client.product = {
   },
 };
 
-// ---- END OF MOCKS (scenario appended below) ----------------------------------
 
 let failures = 0;
 const OUT = [];
@@ -95,7 +87,6 @@ const assert = (cond, msg) => {
 const svc = require(path.join(__dirname, '..', 'pos', 'sync', 'masterDataIngestService'));
 
 (async () => {
-  // CASE 1: product pushed in a NEW request; its category was synced EARLIER
   const res1 = await svc.ingestMasterData({
     companyId: 'co-1',
     userId: 'u-1',
@@ -115,7 +106,6 @@ const svc = require(path.join(__dirname, '..', 'pos', 'sync', 'masterDataIngestS
   assert(res1.mapping['CAT-1'] === 'cloud-cat-1', 'CASE 1 mapping includes DB-resolved category');
   assert(res1.summary.failed === 0, `CASE 1 no failures (failed=${res1.summary.failed})`);
 
-  // CASE 2: idempotency — same product pushed again -> updated, not duplicated
   const res2 = await svc.ingestMasterData({
     companyId: 'co-1', userId: 'u-1',
     records: { products: [{ syncId: 'PROD-1', name: 'Doritos', sku: 'DOR-123', sellingPrice: 120, categorySyncId: 'CAT-1' }] },
@@ -124,7 +114,6 @@ const svc = require(path.join(__dirname, '..', 'pos', 'sync', 'masterDataIngestS
   assert(p2 && p2.action === 'updated', `CASE 2 re-push updates instead of duplicating (action=${p2 && p2.action})`);
   assert(prods.size === 1, `CASE 2 still exactly 1 product (count=${prods.size})`);
 
-  // CASE 3: barcode collision with a different product -> no hard failure
   const res3 = await svc.ingestMasterData({
     companyId: 'co-1', userId: 'u-1',
     records: { products: [{ syncId: 'PROD-2', name: 'Kurleez', barcode: 'BAR-1', sellingPrice: 50, categorySyncId: 'CAT-1' }] },
@@ -134,7 +123,6 @@ const svc = require(path.join(__dirname, '..', 'pos', 'sync', 'masterDataIngestS
   const created3 = [...prods.values()].find((r) => r.syncId === 'PROD-2');
   assert(created3 && created3.barcodeNumber === null, `CASE 3 colliding barcode dropped, not blocked (${created3 && created3.barcodeNumber})`);
 
-  // CASE 4: product whose category genuinely doesn't exist -> retryable failure
   const res4 = await svc.ingestMasterData({
     companyId: 'co-1', userId: 'u-1',
     records: { products: [{ syncId: 'PROD-3', name: 'Ghost product', categorySyncId: 'CAT-404' }] },

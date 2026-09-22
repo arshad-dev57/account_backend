@@ -51,19 +51,13 @@ async function migrateToCompany() {
 
       console.log(`Created company "${companyName}" for user ${user.email}`);
     }
-
-    // Step 2: Update all tables to use company_id from their associated users
     console.log('\nStep 2: Migrating company_id to all tables...');
-
-    // Helper function to update a table's company_id based on created_by user
     const migrateTable = async (modelName, userField = 'createdBy') => {
       try {
         const records = await prisma[modelName].findMany({
           where: { companyId: null },
           select: { id: true, [userField]: true }
         });
-
-        // Filter records where the user field is not null
         const recordsWithUser = records.filter(r => r[userField] !== null && r[userField] !== undefined);
 
         if (recordsWithUser.length > 0) {

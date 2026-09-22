@@ -936,26 +936,58 @@ exports.depositToBankAccount = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Repair missing/orphan opening-balance journal entries
-// @route   POST /api/bank-accounts/repair-opening-balances
+// @desc    Get Bank Accounts stats/summary
+// @route   GET /api/bank-accounts/stats
 // @access  Private
 // ============================================================
-exports.repairOpeningBalances = async (req, res) => {
+exports.getBankAccountsStats = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-    const results = await repairCompanyBankOpeningBalances(userId, companyId);
 
-    try {
-    } catch (_) {}
+    const accounts = await prisma.bankAccount.findMany({
+      where: { companyId },
+      include: {
+        chartOfAccount: {
+          select: {
+            currentBalance: true
+          }
+        }
+      }
+    });
+
+    let totalBalance = 0;
+    let pkrBalance = 0;
+    let usdBalance = 0;
+    let activeCount = 0;
+
+    accounts.forEach((acc) => {
+      const balance = acc.chartOfAccount?.currentBalance ?? acc.currentBalance ?? 0;
+      totalBalance += balance;
+
+      const currency = (acc.currency || 'PKR').toUpperCase();
+      if (currency === 'USD') {
+        usdBalance += balance;
+      } else {
+        pkrBalance += balance;
+      }
+
+      if (acc.status === 'Active') {
+        activeCount++;
+      }
+    });
 
     return res.status(200).json({
       success: true,
-      data: results,
-      message: 'Opening balance repair completed'
+      data: {
+        totalBalance,
+        pkrBalance,
+        usdBalance,
+        activeCount,
+        totalCount: accounts.length
+      }
     });
   } catch (error) {
-    console.error('❌ Repair opening balances error:', error);
+    console.error('❌ Get bank accounts stats error:', error);
     return res.status(500).json({
       success: false,
       message: error.message || 'Server Error'

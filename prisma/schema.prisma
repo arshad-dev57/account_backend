@@ -485,6 +485,11 @@ model HrEmployee {
   position       String    @default("")
   costCenter     String    @default("") @map("cost_center")
   trackingEnabled Boolean  @default(true) @map("tracking_enabled")
+  cnic           String    @default("") @map("cnic")
+  bankName       String    @default("") @map("bank_name")
+  accountTitle   String    @default("") @map("account_title")
+  accountNumber  String    @default("") @map("account_number")
+  bankSwiftCode  String    @default("") @map("bank_swift_code")
   profile        Json?
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -674,6 +679,16 @@ model HrPayrollItem {
   notes      String    @default("")
   paidAt     DateTime? @map("paid_at")
   breakdown  Json?
+  manualBonus     Float     @default(0) @map("manual_bonus")
+  manualDeduction Float     @default(0) @map("manual_deduction")
+  customTax       Float     @default(0) @map("custom_tax")
+  adjustedByHr    Boolean   @default(false) @map("adjusted_by_hr")
+  adjustmentNotes String    @default("") @map("adjustment_notes")
+  emailSent       Boolean   @default(false) @map("email_sent")
+  emailSentAt     DateTime? @map("email_sent_at")
+  whatsappSent    Boolean   @default(false) @map("whatsapp_sent")
+  whatsappSentAt  DateTime? @map("whatsapp_sent_at")
+  payslipPdfUrl   String?   @map("payslip_pdf_url")
   journalEntryId String? @map("journal_entry_id")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
@@ -3044,13 +3059,17 @@ model PurchaseReturnItem {
   productName String @map("product_name")
   sku         String
 
-  purchaseInvoiceId     String  @map("purchase_invoice_id")
+  goodsReceivingId     String? @map("goods_receiving_id")
+  goodsReceivingItemId String? @map("goods_receiving_item_id")
+
+  purchaseInvoiceId     String? @map("purchase_invoice_id")
   purchaseInvoiceItemId String? @map("purchase_invoice_item_id")
 
-  purchasedQuantity  Int @map("purchased_quantity")
-  previouslyReturned Int @default(0) @map("previously_returned")
-  availableQuantity  Int @map("available_quantity")
-  returnQuantity     Int @map("return_quantity")
+  receivedQuantity   Float? @default(0) @map("received_quantity")
+  purchasedQuantity  Int    @default(0) @map("purchased_quantity")
+  previouslyReturned Int    @default(0) @map("previously_returned")
+  availableQuantity  Int    @map("available_quantity")
+  returnQuantity     Int    @map("return_quantity")
 
   isBoxBased     Boolean @default(false) @map("is_box_based")
   boxes          Int?    @map("boxes")
@@ -3069,11 +3088,15 @@ model PurchaseReturnItem {
   // Relations
   return              PurchaseReturn       @relation(fields: [returnId], references: [id], onDelete: Cascade)
   product             Product?             @relation(fields: [productId], references: [id])
-  purchaseInvoice     PurchaseInvoice      @relation(fields: [purchaseInvoiceId], references: [id])
+  goodsReceiving      GoodsReceiving?      @relation(fields: [goodsReceivingId], references: [id])
+  goodsReceivingItem  GoodsReceivingItem?  @relation(fields: [goodsReceivingItemId], references: [id])
+  purchaseInvoice     PurchaseInvoice?     @relation(fields: [purchaseInvoiceId], references: [id])
   PurchaseInvoiceItem PurchaseInvoiceItem? @relation(fields: [purchaseInvoiceItemId], references: [id])
 
   @@index([returnId])
   @@index([productId])
+  @@index([goodsReceivingId])
+  @@index([goodsReceivingItemId])
   @@index([purchaseInvoiceId])
   @@map("purchase_return_items")
 }
@@ -3086,8 +3109,11 @@ model PurchaseReturn {
   supplierId   String @map("supplier_id")
   supplierName String @map("supplier_name")
 
-  purchaseInvoiceId     String @map("purchase_invoice_id")
-  purchaseInvoiceNumber String @map("purchase_invoice_number")
+  goodsReceivingId String? @map("goods_receiving_id")
+  grnNumber        String? @map("grn_number")
+
+  purchaseInvoiceId     String? @map("purchase_invoice_id")
+  purchaseInvoiceNumber String? @map("purchase_invoice_number")
 
   returnReason String  @map("return_reason")
   status       String  @default("Draft")
@@ -3118,7 +3144,8 @@ model PurchaseReturn {
   // Relations
   items           PurchaseReturnItem[]
   supplier        Supplier?            @relation(fields: [supplierId], references: [id])
-  purchaseInvoice PurchaseInvoice      @relation(fields: [purchaseInvoiceId], references: [id])
+  goodsReceiving  GoodsReceiving?      @relation(fields: [goodsReceivingId], references: [id])
+  purchaseInvoice PurchaseInvoice?     @relation(fields: [purchaseInvoiceId], references: [id])
   creator         User?                @relation("PurchaseReturnCreator", fields: [createdBy], references: [id])
   updater         User?                @relation("PurchaseReturnUpdater", fields: [updatedBy], references: [id])
   processor       User?                @relation("PurchaseReturnProcessor", fields: [processedBy], references: [id])
@@ -3130,6 +3157,7 @@ model PurchaseReturn {
 
   @@index([returnNumber])
   @@index([supplierId])
+  @@index([goodsReceivingId])
   @@index([purchaseInvoiceId])
   @@index([status])
   @@index([returnDate])
@@ -3770,9 +3798,10 @@ model GoodsReceivingItem {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  goodsReceiving    GoodsReceiving    @relation(fields: [goodsReceivingId], references: [id], onDelete: Cascade)
-  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
-  product           Product?          @relation(fields: [productId], references: [id])
+  goodsReceiving      GoodsReceiving       @relation(fields: [goodsReceivingId], references: [id], onDelete: Cascade)
+  purchaseOrderItem   PurchaseOrderItem    @relation(fields: [purchaseOrderItemId], references: [id])
+  product             Product?             @relation(fields: [productId], references: [id])
+  purchaseReturnItems PurchaseReturnItem[]
 
   @@index([goodsReceivingId])
   @@index([purchaseOrderItemId])
@@ -3838,6 +3867,8 @@ model GoodsReceiving {
   location         Location?            @relation(fields: [locationId], references: [id])
   purchaseInvoices PurchaseInvoice[]
   invoiceSources   PurchaseInvoiceSource[]
+  purchaseReturns  PurchaseReturn[]
+  purchaseReturnItems PurchaseReturnItem[]
 
   @@index([grnNumber])
   @@index([purchaseOrderId])
@@ -4164,10 +4195,6 @@ model Transaction {
   @@index([fiscalYearId])
   @@map("transactions")
 }
-
-// ============================================================
-// POS MODULE MODELS
-// ============================================================
 
 model POSTerminal {
   id         String    @id @default(uuid()) @map("id")

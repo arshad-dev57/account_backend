@@ -15,7 +15,7 @@ function feedbackInbox() {
   if (owners.length) return owners;
   const replyTo = parseEmails(process.env.EMAIL_REPLY_TO);
   if (replyTo.length) return replyTo;
-  return ['support@bisonstechs.com'];
+  return ['info@bisonstechs.com'];
 }
 
 async function nextFeedbackTicketNumber() {

@@ -145,6 +145,415 @@ async function findOrCreateSupplier(tx, purchaseOrder, userId, createdBy, compan
   return { supplierId: supplier.id, supplier };
 }
 
+async function getConfirmedGrnsForPurchaseOrder(tx, purchaseOrderId, companyId) {
+  return tx.goodsReceiving.findMany({
+    where: {
+      companyId,
+      isActive: true,
+      isDeleted: false,
+      status: { in: ['Partially Received', 'Fully Received'] },
+      OR: [
+        { purchaseOrderId },
+        { purchaseOrders: { some: { purchaseOrderId } } },
+      ],
+    },
+    include: { items: true },
+  });
+}
+
+async function getReceivedQtyByPoItemId(tx, purchaseOrderId, companyId) {
+  const grns = await getConfirmedGrnsForPurchaseOrder(tx, purchaseOrderId, companyId);
+  const map = {};
+  for (const grn of grns) {
+    for (const item of grn.items || []) {
+      if (item.purchaseOrderId && item.purchaseOrderId !== purchaseOrderId) continue;
+      const poItemId = item.purchaseOrderItemId;
+      if (!poItemId) continue;
+      map[poItemId] = (map[poItemId] || 0) + Number(item.receivingQuantity || 0);
+    }
+  }
+  return map;
+}
+
+async function getInvoicedQtyByPoItemId(
+  tx,
+  purchaseOrderId,
+  companyId,
+  excludeInvoiceId = null
+) {
+  const invoices = await tx.purchaseInvoice.findMany({
+    where: {
+      purchaseOrderId,
+      companyId,
+      isActive: true,
+      isDeleted: false,
+      invoiceStatus: { notIn: ['Cancelled'] },
+      ...(excludeInvoiceId ? { id: { not: excludeInvoiceId } } : {}),
+    },
+    include: { items: true },
+  });
+
+  const map = {};
+  for (const inv of invoices) {
+    for (const item of inv.items || []) {
+      const key = item.purchaseOrderItemId || item.productId;
+      if (!key) continue;
+      map[key] = (map[key] || 0) + Number(item.quantity || 0);
+    }
+  }
+  return map;
+}
+
+async function getReturnedQtyByPoItemId(tx, purchaseOrderId, companyId) {
+  const returnItems = await tx.purchaseReturnItem.findMany({
+    where: {
+      return: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        status: { in: ['Draft', 'Processed'] },
+      },
+    },
+    include: {
+      goodsReceivingItem: {
+        select: {
+          purchaseOrderItemId: true,
+          purchaseOrderId: true,
+        },
+      },
+      PurchaseInvoiceItem: {
+        select: {
+          purchaseOrderItemId: true,
+        },
+      },
+    },
+  });
+
+  const map = {};
+  for (const item of returnItems) {
+    const poItemId =
+      item.goodsReceivingItem?.purchaseOrderItemId ||
+      item.PurchaseInvoiceItem?.purchaseOrderItemId;
+    if (!poItemId) continue;
+
+    const itemPoId = item.goodsReceivingItem?.purchaseOrderId;
+    if (purchaseOrderId && itemPoId && itemPoId !== purchaseOrderId) continue;
+
+    map[poItemId] = (map[poItemId] || 0) + Number(item.returnQuantity || 0);
+  }
+  return map;
+}
+
+function collectPurchaseOrderIdsFromGrn(grn) {
+  const ids = new Set();
+  if (grn?.purchaseOrderId) ids.add(grn.purchaseOrderId);
+  for (const link of grn?.purchaseOrders || []) {
+    if (link.purchaseOrderId) ids.add(link.purchaseOrderId);
+  }
+  for (const item of grn?.items || []) {
+    if (item.purchaseOrderId) ids.add(item.purchaseOrderId);
+  }
+  return [...ids];
+}
+
+async function loadPoInvoicingMaps(tx, poId, companyId, excludeInvoiceId = null) {
+  const [received, invoiced, returned] = await Promise.all([
+    getReceivedQtyByPoItemId(tx, poId, companyId),
+    getInvoicedQtyByPoItemId(tx, poId, companyId, excludeInvoiceId),
+    getReturnedQtyByPoItemId(tx, poId, companyId),
+  ]);
+  return { received, invoiced, returned };
+}
+
+async function getReturnedQtyByGrnItemId(tx, companyId, grnId = null) {
+  const returnItems = await tx.purchaseReturnItem.findMany({
+    where: {
+      ...(grnId ? { goodsReceivingId: grnId } : {}),
+      return: {
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        status: { in: ['Draft', 'Processed'] },
+      },
+    },
+    select: {
+      goodsReceivingItemId: true,
+      returnQuantity: true,
+    },
+  });
+
+  const map = {};
+  for (const item of returnItems) {
+    if (!item.goodsReceivingItemId) continue;
+    map[item.goodsReceivingItemId] =
+      (map[item.goodsReceivingItemId] || 0) + Number(item.returnQuantity || 0);
+  }
+  return map;
+}
+
+function toBillableGrnLine(meta, qty, receivedMap, invoicedMap, returnedMap, poItemId) {
+  const unitPrice =
+    meta.purchaseOrderItem?.unitPrice ||
+    meta.unitPrice ||
+    meta.product?.costPrice ||
+    0;
+  const discount = meta.purchaseOrderItem?.discount || 0;
+  const taxRate = meta.purchaseOrderItem?.taxRate || 0;
+
+  return {
+    ...meta,
+    receivingQuantity: qty,
+    quantity: qty,
+    unitPrice,
+    discount,
+    taxRate,
+    totalReceivedOnPoLine: Number(receivedMap[poItemId] || 0),
+    totalReturnedOnPoLine: Number(returnedMap[poItemId] || 0),
+    previouslyInvoiced: Number(
+      invoicedMap[poItemId] || invoicedMap[meta.productId] || 0
+    ),
+    productName: meta.productName || meta.product?.name,
+    sku: meta.sku || meta.product?.sku,
+  };
+}
+
+async function buildBillableItemsForPoIds(
+  tx,
+  poIds,
+  grnItems,
+  companyId,
+  excludeInvoiceId = null
+) {
+  const itemMeta = {};
+  for (const item of grnItems || []) {
+    if (item.purchaseOrderItemId) {
+      itemMeta[item.purchaseOrderItemId] = item;
+    }
+  }
+
+  const mapsByPo = {};
+  await Promise.all(
+    poIds.map(async (poId) => {
+      mapsByPo[poId] = await loadPoInvoicingMaps(
+        tx,
+        poId,
+        companyId,
+        excludeInvoiceId
+      );
+    })
+  );
+
+  const billableItems = [];
+  const seenPoItemIds = new Set();
+
+  for (const poId of poIds) {
+    const { received, invoiced, returned } = mapsByPo[poId];
+    for (const poItemId of Object.keys(received)) {
+      if (seenPoItemIds.has(poItemId)) continue;
+      const meta = itemMeta[poItemId];
+      if (!meta) continue;
+
+      const qty = resolvePoLineInvoiceQuantity(
+        poItemId,
+        meta.productId,
+        received,
+        invoiced,
+        returned
+      );
+      if (qty <= 0) continue;
+
+      seenPoItemIds.add(poItemId);
+      billableItems.push(
+        toBillableGrnLine(meta, qty, received, invoiced, returned, poItemId)
+      );
+    }
+  }
+
+  return billableItems;
+}
+
+function resolvePoLineInvoiceQuantity(
+  poItemId,
+  productId,
+  receivedMap,
+  invoicedMap,
+  returnedMap = {}
+) {
+  const totalReceived = Number(
+    (poItemId && receivedMap[poItemId]) ||
+      (productId && receivedMap[productId]) ||
+      0
+  );
+  const totalReturned = Number(
+    (poItemId && returnedMap[poItemId]) ||
+      (productId && returnedMap[productId]) ||
+      0
+  );
+  const alreadyInvoiced = Number(
+    (poItemId && invoicedMap[poItemId]) ||
+      (productId && invoicedMap[productId]) ||
+      0
+  );
+  const netReceived = Math.max(0, totalReceived - totalReturned);
+  return Math.max(0, netReceived - alreadyInvoiced);
+}
+
+async function buildGrnInvoicingContext(tx, grn, companyId, excludeInvoiceId = null) {
+  const poIds = collectPurchaseOrderIdsFromGrn(grn);
+  if (!poIds.length) {
+    const returnedByGrnItem = await getReturnedQtyByGrnItemId(tx, companyId, grn.id);
+    const qtyByGrnItemId = {};
+    for (const item of grn.items || []) {
+      const received = Number(item.receivingQuantity) || 0;
+      const returned = Number(returnedByGrnItem[item.id] || 0);
+      qtyByGrnItemId[item.id] = Math.max(0, received - returned);
+    }
+    return { qtyByGrnItemId, receivedMap: {}, invoicedMap: {}, returnedMap: {} };
+  }
+
+  const mapsByPo = {};
+  await Promise.all(
+    poIds.map(async (poId) => {
+      mapsByPo[poId] = await loadPoInvoicingMaps(
+        tx,
+        poId,
+        companyId,
+        excludeInvoiceId
+      );
+    })
+  );
+
+  const qtyByGrnItemId = {};
+  for (const item of grn.items || []) {
+    const itemPoId = item.purchaseOrderId || grn.purchaseOrderId;
+    const maps = itemPoId ? mapsByPo[itemPoId] : null;
+    qtyByGrnItemId[item.id] = maps
+      ? resolvePoLineInvoiceQuantity(
+          item.purchaseOrderItemId,
+          item.productId,
+          maps.received,
+          maps.invoiced,
+          maps.returned
+        )
+      : Math.max(0, Number(item.receivingQuantity) || 0);
+  }
+
+  const primaryMaps = mapsByPo[grn.purchaseOrderId] || mapsByPo[poIds[0]] || {
+    received: {},
+    invoiced: {},
+    returned: {},
+  };
+
+  return {
+    qtyByGrnItemId,
+    receivedMap: primaryMaps.received,
+    invoicedMap: primaryMaps.invoiced,
+    returnedMap: primaryMaps.returned,
+  };
+}
+
+function buildInvoiceLineFromGrnItem(item, quantity) {
+  const unitPrice =
+    item.purchaseOrderItem?.unitPrice ??
+    item.unitPrice ??
+    item.product?.costPrice ??
+    0;
+  const lineTotal = quantity * unitPrice;
+  const discount = item.purchaseOrderItem?.discount || 0;
+  const taxRate = item.purchaseOrderItem?.taxRate || 0;
+  const discountAmount = (lineTotal * discount) / 100;
+  const taxableAmount = lineTotal - discountAmount;
+  const taxAmount = (taxableAmount * taxRate) / 100;
+  const total = taxableAmount + taxAmount;
+
+  return {
+    productId: item.productId,
+    productName: item.productName,
+    sku: item.sku,
+    quantity,
+    unitPrice,
+    discount,
+    taxRate,
+    taxAmount,
+    lineTotal: total,
+    notes: item.notes || null,
+    purchaseOrderItemId: item.purchaseOrderItemId || null,
+    _subtotal: lineTotal,
+    _discountAmount: discountAmount,
+  };
+}
+
+async function buildInvoiceItemsFromGrns(
+  tx,
+  grns,
+  companyId,
+  excludeInvoiceId = null
+) {
+  const invoiceItems = [];
+  const seenPoItemIds = new Set();
+
+  for (const grn of grns) {
+    const poIds = collectPurchaseOrderIdsFromGrn(grn);
+
+    if (poIds.length > 0) {
+      const billableItems = await buildBillableItemsForPoIds(
+        tx,
+        poIds,
+        grn.items,
+        companyId,
+        excludeInvoiceId
+      );
+
+      for (const item of billableItems) {
+        const poItemId = item.purchaseOrderItemId;
+        if (poItemId && seenPoItemIds.has(poItemId)) continue;
+        if (poItemId) seenPoItemIds.add(poItemId);
+
+        const line = buildInvoiceLineFromGrnItem(item, item.quantity);
+        invoiceItems.push({
+          productId: line.productId,
+          productName: line.productName,
+          sku: line.sku,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          discount: line.discount,
+          taxRate: line.taxRate,
+          taxAmount: line.taxAmount,
+          lineTotal: line.lineTotal,
+          notes: line.notes,
+          purchaseOrderItemId: line.purchaseOrderItemId,
+        });
+      }
+      continue;
+    }
+
+    const returnedByGrnItem = await getReturnedQtyByGrnItemId(tx, companyId, grn.id);
+    for (const item of grn.items || []) {
+      const received = Number(item.receivingQuantity) || 0;
+      const returned = Number(returnedByGrnItem[item.id] || 0);
+      const quantity = Math.max(0, received - returned);
+      if (quantity <= 0) continue;
+
+      const line = buildInvoiceLineFromGrnItem(item, quantity);
+      invoiceItems.push({
+        productId: line.productId,
+        productName: line.productName,
+        sku: line.sku,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discount: line.discount,
+        taxRate: line.taxRate,
+        taxAmount: line.taxAmount,
+        lineTotal: line.lineTotal,
+        notes: line.notes,
+        purchaseOrderItemId: line.purchaseOrderItemId,
+      });
+    }
+  }
+
+  return invoiceItems;
+}
+
 async function applyPurchaseInvoiceStockIn(tx, invoice, userId) {
   const alreadyMoved = await tx.stockMovement.count({
     where: {
@@ -163,7 +572,10 @@ async function applyPurchaseInvoiceStockIn(tx, invoice, userId) {
         companyId: invoice.companyId,
         isActive: true,
         isDeleted: false,
-        status: { in: ['Confirmed', 'Partially Received', 'Fully Received'] }
+        OR: [
+          { confirmedAt: { not: null } },
+          { status: { in: ['Partially Received', 'Fully Received'] } },
+        ],
       },
       include: { items: true }
     });
@@ -270,15 +682,80 @@ class PurchaseInvoiceModel {
 
       const existingInvoice = await tx.purchaseInvoice.findFirst({
         where: {
-          goodsReceivingId: data.goodsReceivingId,
           isActive: true,
-          isDeleted: false
-        }
+          isDeleted: false,
+          invoiceStatus: { notIn: ['Cancelled'] },
+          OR: [
+            { goodsReceivingId: data.goodsReceivingId },
+            ...(grn.purchaseOrderId
+              ? [{ purchaseOrderId: grn.purchaseOrderId }]
+              : []),
+          ],
+        },
       });
 
       if (existingInvoice) {
-        throw new Error('Invoice already exists for this goods receiving');
+        throw new Error(
+          grn.purchaseOrderId
+            ? 'Invoice already exists for this purchase order / goods receiving'
+            : 'Invoice already exists for this goods receiving'
+        );
       }
+
+      const relatedGrns = grn.purchaseOrderId
+        ? await tx.goodsReceiving.findMany({
+            where: {
+              companyId: data.companyId,
+              isActive: true,
+              isDeleted: false,
+              status: { in: ['Partially Received', 'Fully Received'] },
+              OR: [
+                { purchaseOrderId: grn.purchaseOrderId },
+                {
+                  purchaseOrders: {
+                    some: { purchaseOrderId: grn.purchaseOrderId },
+                  },
+                },
+              ],
+            },
+            include: {
+              items: {
+                include: {
+                  product: true,
+                  purchaseOrderItem: true,
+                },
+              },
+            },
+          })
+        : [grn];
+
+      let subtotal = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+      const invoiceItems = [];
+
+      const builtItems = await buildInvoiceItemsFromGrns(
+        tx,
+        relatedGrns.length ? relatedGrns : [grn],
+        data.companyId
+      );
+
+      for (const line of builtItems) {
+        subtotal += line.quantity * line.unitPrice;
+        totalDiscount += (line.quantity * line.unitPrice * (line.discount || 0)) / 100;
+        totalTax += line.taxAmount || 0;
+        invoiceItems.push(line);
+      }
+
+      if (!invoiceItems.length) {
+        throw new Error(
+          'No received quantity left to invoice for this goods receiving'
+        );
+      }
+
+      const grandTotal = subtotal - totalDiscount + totalTax;
+      const grnsForSource = relatedGrns.length ? relatedGrns : [grn];
+      const linkedGrnNumbers = grnsForSource.map((g) => g.grnNumber).join(', ');
 
       const { supplierId, supplier } = await findOrCreateSupplier(
         tx,
@@ -288,39 +765,6 @@ class PurchaseInvoiceModel {
         data.companyId
       );
 
-      let subtotal = 0;
-      let totalDiscount = 0;
-      let totalTax = 0;
-
-      const invoiceItems = grn.items.map(item => {
-        const unitPrice =
-          item.purchaseOrderItem?.unitPrice ??
-          item.product?.costPrice ??
-          0;
-        const lineTotal = item.receivingQuantity * unitPrice;
-        const discountAmount = (lineTotal * (item.purchaseOrderItem?.discount || 0)) / 100;
-        const taxableAmount = lineTotal - discountAmount;
-        const taxAmount = (taxableAmount * (item.purchaseOrderItem?.taxRate || 0)) / 100;
-        const total = taxableAmount + taxAmount;
-
-        subtotal += lineTotal;
-        totalDiscount += discountAmount;
-        totalTax += taxAmount;
-
-        return {
-          productId: item.productId,
-          productName: item.productName,
-          sku: item.sku,
-          quantity: item.receivingQuantity,
-          unitPrice: unitPrice,
-          discount: item.purchaseOrderItem?.discount || 0,
-          taxRate: item.purchaseOrderItem?.taxRate || 0,
-          taxAmount: taxAmount,
-          lineTotal: total,
-          notes: item.notes || null
-        };
-      });
-      const grandTotal = subtotal - totalDiscount + totalTax;
       const inventoryAccount = await findOrCreateInventoryAccount(
         tx,
         data.companyId,
@@ -342,8 +786,8 @@ class PurchaseInvoiceModel {
           purchaseOrderId: grn.purchaseOrderId,
           purchaseOrderNumber: grn.purchaseOrder?.orderNumber || grn.purchaseOrderNumber || null,
           goodsReceivingId: grn.id,
-          grnNumber: grn.grnNumber,
-          sourceSummary: grn.grnNumber,
+          grnNumber: linkedGrnNumbers,
+          sourceSummary: linkedGrnNumbers,
           invoiceDate: new Date(data.invoiceDate || Date.now()),
           dueDate: new Date(data.dueDate || Date.now() + 30 * 24 * 60 * 60 * 1000),
           paymentTerms: data.paymentTerms || 'Net 30',
@@ -364,14 +808,12 @@ class PurchaseInvoiceModel {
           locationId: data.locationId || grn.locationId || null,
           items: { create: invoiceItems },
           sources: {
-            create: [
-              {
-                sourceType: 'GRN',
-                goodsReceivingId: grn.id,
-                purchaseOrderId: grn.purchaseOrderId,
-                sourceNumber: grn.grnNumber,
-              },
-            ],
+            create: grnsForSource.map((g) => ({
+              sourceType: 'GRN',
+              goodsReceivingId: g.id,
+              purchaseOrderId: g.purchaseOrderId,
+              sourceNumber: g.grnNumber,
+            })),
           },
         },
         include: {
@@ -480,6 +922,54 @@ class PurchaseInvoiceModel {
 
       let invoiceItems = [];
       if (data.items?.length) {
+        // Validate manually supplied item quantities against net billable GRN/PO quantities
+        if (grns.length > 0) {
+          const allPoIds = [
+            ...new Set(grns.flatMap((grn) => collectPurchaseOrderIdsFromGrn(grn))),
+          ];
+          const mapsByPo = {};
+          await Promise.all(
+            allPoIds.map(async (poId) => {
+              mapsByPo[poId] = await loadPoInvoicingMaps(
+                tx,
+                poId,
+                data.companyId
+              );
+            })
+          );
+
+          const poItemToPoId = {};
+          for (const grn of grns) {
+            for (const grnItem of grn.items || []) {
+              if (grnItem.purchaseOrderItemId) {
+                poItemToPoId[grnItem.purchaseOrderItemId] =
+                  grnItem.purchaseOrderId || grn.purchaseOrderId;
+              }
+            }
+          }
+
+          for (const item of data.items) {
+            if (!item.purchaseOrderItemId) continue;
+            const poId =
+              poItemToPoId[item.purchaseOrderItemId] || grns[0]?.purchaseOrderId;
+            const maps = poId ? mapsByPo[poId] : null;
+            if (!maps) continue;
+
+            const maxBillable = resolvePoLineInvoiceQuantity(
+              item.purchaseOrderItemId,
+              item.productId,
+              maps.received,
+              maps.invoiced,
+              maps.returned
+            );
+            if (item.quantity > maxBillable) {
+              throw new Error(
+                `Invoice quantity (${item.quantity}) exceeds max billable quantity (${maxBillable}) for ${item.productName || 'product'}`
+              );
+            }
+          }
+        }
+
         invoiceItems = data.items.map((item) => {
           const lineTotal = item.quantity * item.unitPrice;
           const discountAmount = (lineTotal * (item.discount || 0)) / 100;
@@ -500,32 +990,9 @@ class PurchaseInvoiceModel {
           };
         });
       } else {
-        for (const grn of grns) {
-          for (const item of grn.items) {
-            const unitPrice =
-              item.unitPrice ||
-              item.purchaseOrderItem?.unitPrice ||
-              item.product?.costPrice ||
-              0;
-            const lineTotal = item.receivingQuantity * unitPrice;
-            const discountAmount = (lineTotal * (item.purchaseOrderItem?.discount || 0)) / 100;
-            const taxableAmount = lineTotal - discountAmount;
-            const taxAmount = (taxableAmount * (item.purchaseOrderItem?.taxRate || 0)) / 100;
-            invoiceItems.push({
-              productId: item.productId,
-              productName: item.productName,
-              sku: item.sku,
-              quantity: item.receivingQuantity,
-              unitPrice,
-              discount: item.purchaseOrderItem?.discount || 0,
-              taxRate: item.purchaseOrderItem?.taxRate || 0,
-              taxAmount,
-              lineTotal: taxableAmount + taxAmount,
-              notes: item.notes || null,
-              purchaseOrderItemId: item.purchaseOrderItemId || null,
-            });
-          }
-        }
+        invoiceItems.push(
+          ...(await buildInvoiceItemsFromGrns(tx, grns, data.companyId))
+        );
         for (const po of pos) {
           for (const item of po.items) {
             const lineTotal = item.quantity * item.unitPrice;
@@ -669,13 +1136,11 @@ class PurchaseInvoiceModel {
         throw new Error('Purchase order not found');
       }
 
-      const receivedQty = {};
-      for (const grn of purchaseOrder.goodsReceivings) {
-        for (const item of grn.items) {
-          receivedQty[item.purchaseOrderItemId] =
-            (receivedQty[item.purchaseOrderItemId] || 0) + item.receivingQuantity;
-        }
-      }
+      const receivedQty = await getReceivedQtyByPoItemId(
+        tx,
+        data.purchaseOrderId,
+        data.companyId
+      );
 
       const existingInvoice = await tx.purchaseInvoice.findFirst({
         where: {
@@ -729,7 +1194,8 @@ class PurchaseInvoiceModel {
             taxRate: item.taxRate || 0,
             taxAmount: taxAmount,
             lineTotal: total,
-            notes: item.notes || null
+            notes: item.notes || null,
+            purchaseOrderItemId: item.id,
           };
         })
         .filter(item => item !== null);
@@ -1402,6 +1868,248 @@ class PurchaseInvoiceModel {
       });
 
       return updatedInvoice;
+    });
+  }
+
+  static async prepareGrnsForInvoicing(grns, companyId, excludeInvoiceId = null) {
+    const poIds = [
+      ...new Set(grns.flatMap((grn) => collectPurchaseOrderIdsFromGrn(grn))),
+    ];
+    const mapsByPo = {};
+
+    await Promise.all(
+      poIds.map(async (poId) => {
+        mapsByPo[poId] = await loadPoInvoicingMaps(
+          prisma,
+          poId,
+          companyId,
+          excludeInvoiceId
+        );
+      })
+    );
+
+    const returnedByGrnItemByGrnId = {};
+    await Promise.all(
+      grns.map(async (grn) => {
+        if (!collectPurchaseOrderIdsFromGrn(grn).length) {
+          returnedByGrnItemByGrnId[grn.id] = await getReturnedQtyByGrnItemId(
+            prisma,
+            companyId,
+            grn.id
+          );
+        }
+      })
+    );
+
+    return grns.map((grn) => {
+      const items = (grn.items || []).map((item) => {
+        const itemPoId = item.purchaseOrderId || grn.purchaseOrderId;
+        const maps = itemPoId ? mapsByPo[itemPoId] : null;
+        const unitPrice =
+          item.purchaseOrderItem?.unitPrice || item.product?.costPrice || 0;
+        const discount = item.purchaseOrderItem?.discount || 0;
+        const taxRate = item.purchaseOrderItem?.taxRate || 0;
+        const qty = maps
+          ? resolvePoLineInvoiceQuantity(
+              item.purchaseOrderItemId,
+              item.productId,
+              maps.received,
+              maps.invoiced,
+              maps.returned
+            )
+          : Math.max(
+              0,
+              (Number(item.receivingQuantity) || 0) -
+                (Number(returnedByGrnItemByGrnId[grn.id]?.[item.id] || 0))
+            );
+
+        return {
+          ...item,
+          receivingQuantity: qty,
+          quantity: qty,
+          unitPrice,
+          discount,
+          taxRate,
+          totalReceivedOnPoLine: Number(
+            maps?.received?.[item.purchaseOrderItemId] || 0
+          ),
+          totalReturnedOnPoLine: Number(
+            maps?.returned?.[item.purchaseOrderItemId] || 0
+          ),
+          previouslyInvoiced: Number(
+            maps?.invoiced?.[item.purchaseOrderItemId] ||
+              maps?.invoiced?.[item.productId] ||
+              0
+          ),
+          productName: item.productName || item.product?.name,
+          sku: item.sku || item.product?.sku,
+        };
+      });
+
+      const billableItems = items.filter((item) => (item.quantity || 0) > 0);
+      const totalQuantity = billableItems.reduce(
+        (sum, item) => sum + (item.quantity || 0),
+        0
+      );
+      const invoiceSubtotal = billableItems.reduce(
+        (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
+        0
+      );
+      const totalDiscount = billableItems.reduce((sum, item) => {
+        const line = (item.quantity || 0) * (item.unitPrice || 0);
+        return sum + line * ((item.discount || 0) / 100);
+      }, 0);
+      const totalTax = billableItems.reduce((sum, item) => {
+        const line = (item.quantity || 0) * (item.unitPrice || 0);
+        const afterDisc = line * (1 - (item.discount || 0) / 100);
+        return sum + afterDisc * ((item.taxRate || 0) / 100);
+      }, 0);
+
+      return {
+        grn,
+        items: billableItems,
+        totalQuantity,
+        invoiceSubtotal,
+        totalDiscount,
+        totalTax,
+        grandTotal: invoiceSubtotal - totalDiscount + totalTax,
+      };
+    });
+  }
+
+  static async consolidateGrnsForInvoicing(
+    grns,
+    companyId,
+    excludeInvoiceId = null
+  ) {
+    const groups = new Map();
+
+    for (const grn of grns) {
+      const key = grn.purchaseOrderId || `grn:${grn.id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(grn);
+    }
+
+    const results = [];
+
+    for (const groupGrns of groups.values()) {
+      const sorted = [...groupGrns].sort(
+        (a, b) => new Date(b.receivingDate) - new Date(a.receivingDate)
+      );
+      const primary = sorted[0];
+      const allPoIds = [
+        ...new Set(groupGrns.flatMap((grn) => collectPurchaseOrderIdsFromGrn(grn))),
+      ];
+      const allItems = groupGrns.flatMap((grn) => grn.items || []);
+      let billableItems = [];
+
+      if (allPoIds.length > 0) {
+        billableItems = await buildBillableItemsForPoIds(
+          prisma,
+          allPoIds,
+          allItems,
+          companyId,
+          excludeInvoiceId
+        );
+      } else {
+        const [prepared] = await this.prepareGrnsForInvoicing(
+          [primary],
+          companyId,
+          excludeInvoiceId
+        );
+        billableItems = prepared?.items || [];
+      }
+
+      const totalQuantity = billableItems.reduce(
+        (sum, item) => sum + (item.quantity || 0),
+        0
+      );
+      if (totalQuantity <= 0) continue;
+
+      const invoiceSubtotal = billableItems.reduce(
+        (sum, item) => sum + (item.quantity || 0) * (item.unitPrice || 0),
+        0
+      );
+      const totalDiscount = billableItems.reduce((sum, item) => {
+        const line = (item.quantity || 0) * (item.unitPrice || 0);
+        return sum + line * ((item.discount || 0) / 100);
+      }, 0);
+      const totalTax = billableItems.reduce((sum, item) => {
+        const line = (item.quantity || 0) * (item.unitPrice || 0);
+        const afterDisc = line * (1 - (item.discount || 0) / 100);
+        return sum + afterDisc * ((item.taxRate || 0) / 100);
+      }, 0);
+
+      const linkedGrnIds = groupGrns.map((g) => g.id);
+      const grnNumbers = groupGrns.map((g) => g.grnNumber).join(', ');
+      const allInvoices = groupGrns.flatMap((g) => g.purchaseInvoices || []);
+      const uniqueInvoices = [
+        ...new Map(allInvoices.map((inv) => [inv.id, inv])).values(),
+      ];
+
+      results.push({
+        grn: primary,
+        linkedGrns: groupGrns,
+        linkedGrnIds,
+        grnNumbers,
+        grnCount: groupGrns.length,
+        items: billableItems,
+        totalQuantity,
+        invoiceSubtotal,
+        totalDiscount,
+        totalTax,
+        grandTotal: invoiceSubtotal - totalDiscount + totalTax,
+        purchaseInvoices: uniqueInvoices,
+      });
+    }
+
+    return results;
+  }
+
+  static async getReceivedQuantitiesForPurchaseOrder(purchaseOrderId, companyId) {
+    return getReceivedQtyByPoItemId(prisma, purchaseOrderId, companyId);
+  }
+
+  static async syncDraftInvoiceItemsFromReceiving(invoice, companyId) {
+    if (
+      invoice.invoiceStatus !== 'Draft' ||
+      !invoice.goodsReceiving?.items?.length ||
+      !invoice.items?.length
+    ) {
+      return invoice.items;
+    }
+
+    const prepared = await this.prepareGrnsForInvoicing(
+      [invoice.goodsReceiving],
+      companyId,
+      invoice.id
+    );
+    const resolvedItems = prepared[0]?.items || [];
+
+    return invoice.items.map((invItem) => {
+      const grnLine = resolvedItems.find(
+        (r) =>
+          (invItem.purchaseOrderItemId &&
+            r.purchaseOrderItemId === invItem.purchaseOrderItemId) ||
+          r.productId === invItem.productId
+      );
+      if (!grnLine || (grnLine.quantity || 0) <= 0) return invItem;
+
+      const quantity = grnLine.quantity;
+      const unitPrice = Number(invItem.unitPrice) || 0;
+      const discount = Number(invItem.discount) || 0;
+      const taxRate = Number(invItem.taxRate) || 0;
+      const lineTotal = quantity * unitPrice;
+      const discountAmount = (lineTotal * discount) / 100;
+      const taxableAmount = lineTotal - discountAmount;
+      const taxAmount = (taxableAmount * taxRate) / 100;
+
+      return {
+        ...invItem,
+        quantity,
+        taxAmount,
+        lineTotal: taxableAmount + taxAmount,
+      };
     });
   }
 }

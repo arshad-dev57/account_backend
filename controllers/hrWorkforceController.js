@@ -8,6 +8,9 @@ const {
   workDateKey
 } = require('../utils/hrAccess');
 const payrollEngine = require('../services/hrPayrollEngine');
+const ExcelJS = require('exceljs');
+const nodemailer = require('nodemailer');
+const axios = require('axios');
 
 const EMP_MIN = {
   user: { select: { firstName: true, lastName: true, email: true } }
@@ -1693,3 +1696,551 @@ function nextPeriodStart(period) {
   const next = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
   return `${next.y}-${String(next.m).padStart(2, '0')}-01`;
 }
+
+// ============================================================================
+// PAYSLIP MANAGEMENT & DELIVERY FLOW (PDF, EDIT, EMAIL, WHATSAPP, BANK EXPORT)
+// ============================================================================
+
+function numberToWordsRupees(amount) {
+  const num = Math.round(Math.max(0, Number(amount) || 0));
+  if (num === 0) return 'Zero Rupees Only';
+
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+  function convertChunk(n) {
+    if (n === 0) return '';
+    if (n < 20) return ones[n];
+    if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + ones[n % 10] : '');
+    return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 !== 0 ? ' ' + convertChunk(n % 100) : '');
+  }
+
+  function convert(n) {
+    if (n === 0) return 'Zero';
+    let str = '';
+    if (n >= 10000000) {
+      str += convertChunk(Math.floor(n / 10000000)) + ' Crore ';
+      n %= 10000000;
+    }
+    if (n >= 100000) {
+      str += convertChunk(Math.floor(n / 100000)) + ' Lakh ';
+      n %= 100000;
+    }
+    if (n >= 1000) {
+      str += convertChunk(Math.floor(n / 1000)) + ' Thousand ';
+      n %= 1000;
+    }
+    if (n > 0) {
+      str += convertChunk(n);
+    }
+    return str.trim();
+  }
+
+  return `${convert(num)} Rupees Only`;
+}
+
+function buildPayslipHtml(payroll, company) {
+  const emp = payroll.employee || {};
+  const user = emp.user || {};
+  const empName = [user.firstName, user.lastName].filter(Boolean).join(' ') || emp.employeeCode || 'Employee';
+  const bd = payroll.breakdown || {};
+  const earnings = bd.earnings || {};
+  const deductions = bd.deductions || {};
+  const attendance = bd.attendance || {};
+
+  const basePay = Number(payroll.base || 0);
+  const overtimePay = Number(payroll.overtime || 0);
+  const houseRent = Number(earnings.houseRent || 0);
+  const medical = Number(earnings.medical || 0);
+  const transport = Number(earnings.transport || 0);
+  const commission = Number(earnings.commission || 0);
+  const bonus = Number(payroll.manualBonus || earnings.bonus || 0);
+
+  const totalEarnings = basePay + overtimePay + houseRent + medical + transport + commission + bonus;
+
+  const incomeTax = Number(payroll.customTax || deductions.tax || 0);
+  const eobi = Number(deductions.eobi || 0);
+  const pf = Number(deductions.pf || 0);
+  const absentCut = Number(deductions.absentCut || 0);
+  const lateCut = Number(deductions.lateCut || 0);
+  const manualCut = Number(payroll.manualDeduction || deductions.manualCut || 0);
+
+  const totalDeductions = incomeTax + eobi + pf + absentCut + lateCut + manualCut;
+  const netPay = Math.max(0, totalEarnings - totalDeductions);
+  const netInWords = numberToWordsRupees(netPay);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Payslip - ${empName} (${payroll.period})</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 24px; background: #fff; font-size: 13px; }
+    .payslip-card { max-width: 800px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 20px; }
+    .company-title { font-size: 22px; font-weight: 700; color: #0f172a; margin: 0; }
+    .company-sub { color: #64748b; font-size: 12px; margin-top: 4px; }
+    .badge-period { background: #eff6ff; color: #1d4ed8; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 12px; display: inline-block; margin-top: 4px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px; }
+    .box-title { font-weight: 700; color: #1e3a8a; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .lbl { color: #64748b; font-size: 12px; }
+    .val { font-weight: 600; color: #0f172a; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f1f5f9; text-align: left; padding: 8px 10px; font-size: 12px; border-bottom: 2px solid #cbd5e1; color: #334155; }
+    td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+    .text-right { text-align: right; }
+    .font-bold { font-weight: 700; }
+    .net-box { background: #1e3a8a; color: #ffffff; padding: 18px 20px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; margin-top: 24px; margin-bottom: 30px; }
+    .net-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; }
+    .net-words { font-size: 12px; font-style: italic; margin-top: 4px; opacity: 0.95; }
+    .net-val { font-size: 24px; font-weight: 800; letter-spacing: 0.5px; }
+    .footer-stamps { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; }
+    .stamp { width: 160px; border-top: 1px dashed #94a3b8; padding-top: 6px; color: #64748b; font-size: 11px; font-weight: 500; }
+    @media print {
+      body { padding: 0; background: none; }
+      .payslip-card { border: none; box-shadow: none; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="payslip-card">
+    <div class="header">
+      <div>
+        <h1 class="company-title">${company?.name || 'Bisonstechs ERP'}</h1>
+        <div class="company-sub">${company?.address || 'Official Payroll Statement'}</div>
+      </div>
+      <div style="text-align: right;">
+        <h2 style="margin: 0; color: #1e3a8a; font-size: 20px;">SALARY PAYSLIP</h2>
+        <div class="badge-period">Pay Period: ${payroll.period}</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="info-box">
+        <div class="box-title">Employee Details</div>
+        <div class="row"><span class="lbl">Employee Name:</span><span class="val">${empName}</span></div>
+        <div class="row"><span class="lbl">Employee Code:</span><span class="val">${emp.employeeCode || 'N/A'}</span></div>
+        <div class="row"><span class="lbl">Designation:</span><span class="val">${emp.designation || 'Staff'}</span></div>
+        <div class="row"><span class="lbl">Department:</span><span class="val">${emp.department || 'General'}</span></div>
+        <div class="row"><span class="lbl">Bank Name:</span><span class="val">${emp.bankName || 'N/A'}</span></div>
+        <div class="row"><span class="lbl">Account / IBAN:</span><span class="val">${emp.accountNumber || 'N/A'}</span></div>
+      </div>
+
+      <div class="info-box">
+        <div class="box-title">Attendance & Summary</div>
+        <div class="row"><span class="lbl">Working Days:</span><span class="val">${attendance.workingDays || 30}</span></div>
+        <div class="row"><span class="lbl">Days Present:</span><span class="val">${attendance.presentDays || 30}</span></div>
+        <div class="row"><span class="lbl">Paid Leaves:</span><span class="val">${attendance.paidLeaves || 0}</span></div>
+        <div class="row"><span class="lbl">Absents / Cuts:</span><span class="val">${attendance.absentDays || 0}</span></div>
+        <div class="row"><span class="lbl">Overtime Hours:</span><span class="val">${attendance.overtimeHours || 0} hrs</span></div>
+        <div class="row"><span class="lbl">Status:</span><span class="val" style="color: #059669;">${payroll.status || 'Processed'}</span></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <table>
+          <thead>
+            <tr><th>EARNINGS</th><th class="text-right">AMOUNT (PKR)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Basic Salary</td><td class="text-right">${basePay.toLocaleString()}</td></tr>
+            ${houseRent ? `<tr><td>House Rent Allowance</td><td class="text-right">${houseRent.toLocaleString()}</td></tr>` : ''}
+            ${medical ? `<tr><td>Medical Allowance</td><td class="text-right">${medical.toLocaleString()}</td></tr>` : ''}
+            ${transport ? `<tr><td>Transport Allowance</td><td class="text-right">${transport.toLocaleString()}</td></tr>` : ''}
+            ${overtimePay ? `<tr><td>Overtime Pay</td><td class="text-right">${overtimePay.toLocaleString()}</td></tr>` : ''}
+            ${commission ? `<tr><td>Sales Commission</td><td class="text-right">${commission.toLocaleString()}</td></tr>` : ''}
+            ${bonus ? `<tr><td>Bonus / Incentive</td><td class="text-right">${bonus.toLocaleString()}</td></tr>` : ''}
+            <tr class="font-bold" style="background: #f8fafc;">
+              <td>Total Earnings</td>
+              <td class="text-right" style="color: #059669;">Rs. ${totalEarnings.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <table>
+          <thead>
+            <tr><th>DEDUCTIONS</th><th class="text-right">AMOUNT (PKR)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Income Tax</td><td class="text-right">${incomeTax.toLocaleString()}</td></tr>
+            ${eobi ? `<tr><td>EOBI Contribution</td><td class="text-right">${eobi.toLocaleString()}</td></tr>` : ''}
+            ${pf ? `<tr><td>Provident Fund</td><td class="text-right">${pf.toLocaleString()}</td></tr>` : ''}
+            ${absentCut ? `<tr><td>Absent Cut</td><td class="text-right">${absentCut.toLocaleString()}</td></tr>` : ''}
+            ${lateCut ? `<tr><td>Late Arrival Cut</td><td class="text-right">${lateCut.toLocaleString()}</td></tr>` : ''}
+            ${manualCut ? `<tr><td>Manual Fine / Cut</td><td class="text-right">${manualCut.toLocaleString()}</td></tr>` : ''}
+            <tr class="font-bold" style="background: #f8fafc;">
+              <td>Total Deductions</td>
+              <td class="text-right" style="color: #dc2626;">Rs. ${totalDeductions.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="net-box">
+      <div>
+        <div class="net-title">Net Payable Salary</div>
+        <div class="net-words">"${netInWords}"</div>
+      </div>
+      <div class="net-val">Rs. ${netPay.toLocaleString()}</div>
+    </div>
+
+    <div class="footer-stamps">
+      <div class="stamp">HR Manager</div>
+      <div class="stamp">Accounts / Finance</div>
+      <div class="stamp">Employee Signature</div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+exports.getPayslipPdf = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+    const payrollId = req.query.payrollId || req.params.id;
+
+    if (!payrollId) {
+      return res.status(400).json({ success: false, message: 'Payroll ID is required' });
+    }
+
+    const payroll = await prisma.hrPayrollItem.findFirst({
+      where: { id: payrollId, companyId },
+      include: PAYROLL_INCLUDE
+    });
+
+    if (!payroll) {
+      return res.status(404).json({ success: false, message: 'Payroll record not found' });
+    }
+
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const htmlContent = buildPayslipHtml(payroll, company);
+
+    if (req.query.format === 'json') {
+      return res.json({
+        success: true,
+        html: htmlContent,
+        payroll: serializePayroll(payroll),
+        netInWords: numberToWordsRupees(payroll.net)
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(htmlContent);
+  } catch (error) {
+    console.error('[hr] getPayslipPdf', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.adjustPayrollItem = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+    if (!requireHrManager(req, res)) return;
+
+    const { id } = req.params;
+    const { manualBonus = 0, manualDeduction = 0, customTax = 0, adjustmentNotes = '' } = req.body;
+
+    const existing = await prisma.hrPayrollItem.findFirst({
+      where: { id, companyId }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Payroll item not found' });
+    }
+
+    const bd = existing.breakdown || {};
+    const earnings = bd.earnings || {};
+    const deductions = bd.deductions || {};
+
+    const bonusVal = Math.max(0, Number(manualBonus || 0));
+    const deductionVal = Math.max(0, Number(manualDeduction || 0));
+    const taxVal = Math.max(0, Number(customTax || 0));
+
+    const totalEarnings = (existing.base || 0)
+      + (existing.overtime || 0)
+      + (earnings.houseRent || 0)
+      + (earnings.medical || 0)
+      + (earnings.transport || 0)
+      + (earnings.commission || 0)
+      + bonusVal;
+
+    const totalDeductions = taxVal
+      + (deductions.eobi || 0)
+      + (deductions.pf || 0)
+      + (deductions.absentCut || 0)
+      + (deductions.lateCut || 0)
+      + (deductions.loanRecovery || 0)
+      + deductionVal;
+
+    const recalculatedNet = Math.max(0, totalEarnings - totalDeductions);
+
+    const updated = await prisma.hrPayrollItem.update({
+      where: { id },
+      data: {
+        manualBonus: bonusVal,
+        manualDeduction: deductionVal,
+        customTax: taxVal,
+        deductions: totalDeductions,
+        net: recalculatedNet,
+        adjustedByHr: true,
+        adjustmentNotes: String(adjustmentNotes || ''),
+        breakdown: {
+          ...bd,
+          earnings: { ...earnings, bonus: bonusVal },
+          deductions: { ...deductions, tax: taxVal, manualCut: deductionVal }
+        }
+      },
+      include: PAYROLL_INCLUDE
+    });
+
+    res.json({
+      success: true,
+      message: 'Payslip adjusted and Net Pay recalculated',
+      data: serializePayroll(updated)
+    });
+  } catch (error) {
+    console.error('[hr] adjustPayrollItem', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.sendEmailPayslip = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+
+    const { payrollId } = req.body;
+    const payroll = await prisma.hrPayrollItem.findFirst({
+      where: { id: payrollId, companyId },
+      include: PAYROLL_INCLUDE
+    });
+
+    if (!payroll || !payroll.employee?.user?.email) {
+      return res.status(400).json({ success: false, message: 'Employee email not found' });
+    }
+
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const empName = [payroll.employee.user.firstName, payroll.employee.user.lastName].filter(Boolean).join(' ') || 'Employee';
+
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: Number(process.env.SMTP_PORT || 587),
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+      });
+
+      await transporter.sendMail({
+        from: `"${company?.name || 'Bisonstechs'} HR" <${process.env.SMTP_USER}>`,
+        to: payroll.employee.user.email,
+        subject: `Payslip for ${payroll.period} - ${company?.name || 'Bisonstechs'}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h2 style="color: #1e3a8a;">Salary Payslip - ${payroll.period}</h2>
+            <p>Dear <strong>${empName}</strong>,</p>
+            <p>Your salary payslip for <strong>${payroll.period}</strong> has been generated.</p>
+            <table style="width: 100%; max-width: 400px; margin: 15px 0; border-collapse: collapse;">
+              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Net Payable:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">Rs. ${payroll.net.toLocaleString()}</td></tr>
+              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Status:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${payroll.status}</td></tr>
+            </table>
+            <p>You can view and print your full detailed payslip from your employee dashboard.</p>
+            <br/>
+            <p>Best regards,<br/><strong>${company?.name || 'Bisonstechs'} HR Department</strong></p>
+          </div>
+        `
+      });
+    }
+
+    const updated = await prisma.hrPayrollItem.update({
+      where: { id: payrollId },
+      data: { emailSent: true, emailSentAt: new Date() }
+    });
+
+    res.json({
+      success: true,
+      message: `Payslip email sent to ${payroll.employee.user.email}`,
+      data: serializePayroll(updated)
+    });
+  } catch (error) {
+    console.error('[hr] sendEmailPayslip', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.sendWhatsAppPayslip = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+
+    const { payrollId } = req.body;
+    const payroll = await prisma.hrPayrollItem.findFirst({
+      where: { id: payrollId, companyId },
+      include: PAYROLL_INCLUDE
+    });
+
+    if (!payroll) {
+      return res.status(404).json({ success: false, message: 'Payroll item not found' });
+    }
+
+    const phone = payroll.employee?.phone || '';
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const empName = [payroll.employee?.user?.firstName, payroll.employee?.user?.lastName].filter(Boolean).join(' ') || 'Employee';
+
+    const formattedPhone = phone.replace(/[^0-9]/g, '');
+
+    if (process.env.WHATSAPP_API_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID && formattedPhone) {
+      const messageText = `Hello *${empName}*,\n\nYour salary payslip for *${payroll.period}* is ready.\n\n💵 *Net Salary:* Rs. ${payroll.net.toLocaleString()}\n📅 *Status:* ${payroll.status}\n\nThank you,\n*${company?.name || 'Bisonstechs'} HR Team*`;
+
+      await axios.post(
+        `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: formattedPhone,
+          type: 'text',
+          text: { body: messageText }
+        },
+        { headers: { Authorization: `Bearer ${process.env.WHATSAPP_API_TOKEN}` } }
+      ).catch(err => console.warn('[WhatsApp Send Warning]', err.message));
+    }
+
+    const updated = await prisma.hrPayrollItem.update({
+      where: { id: payrollId },
+      data: { whatsappSent: true, whatsappSentAt: new Date() }
+    });
+
+    res.json({
+      success: true,
+      message: `WhatsApp message dispatched for ${empName}`,
+      data: serializePayroll(updated)
+    });
+  } catch (error) {
+    console.error('[hr] sendWhatsAppPayslip', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.exportBankFile = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+
+    const period = String(req.query.period || currentPeriod());
+    const payrolls = await prisma.hrPayrollItem.findMany({
+      where: { companyId, period },
+      include: PAYROLL_INCLUDE,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(`Bank Transfer ${period}`);
+
+    worksheet.columns = [
+      { header: 'Employee Code', key: 'code', width: 16 },
+      { header: 'Employee Name', key: 'name', width: 28 },
+      { header: 'Bank Name', key: 'bankName', width: 22 },
+      { header: 'Account Title', key: 'accountTitle', width: 28 },
+      { header: 'Account Number / IBAN', key: 'accountNumber', width: 32 },
+      { header: 'SWIFT Code', key: 'swiftCode', width: 16 },
+      { header: 'Net Amount (PKR)', key: 'netAmount', width: 20 },
+      { header: 'Payment Reference', key: 'reference', width: 30 }
+    ];
+
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFF' }, size: 11 };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+
+    payrolls.forEach(item => {
+      const emp = item.employee || {};
+      const user = emp.user || {};
+      const empName = [user.firstName, user.lastName].filter(Boolean).join(' ') || emp.employeeCode || 'Employee';
+
+      worksheet.addRow({
+        code: emp.employeeCode || 'N/A',
+        name: empName,
+        bankName: emp.bankName || 'N/A',
+        accountTitle: emp.accountTitle || empName,
+        accountNumber: emp.accountNumber || 'N/A',
+        swiftCode: emp.bankSwiftCode || 'N/A',
+        netAmount: item.net,
+        reference: `SALARY-${period}-${emp.employeeCode || 'EMP'}`
+      });
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Bank_Payroll_Transfer_${period}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (error) {
+    console.error('[hr] exportBankFile', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.bulkSendPayslips = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+    if (!requireHrManager(req, res)) return;
+
+    const { payrollIds = [], channels = ['email'] } = req.body;
+    if (!Array.isArray(payrollIds) || payrollIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No payroll items selected' });
+    }
+
+    let emailSentCount = 0;
+    let whatsappSentCount = 0;
+    let failedCount = 0;
+
+    for (const id of payrollIds) {
+      try {
+        const item = await prisma.hrPayrollItem.findFirst({
+          where: { id, companyId },
+          include: PAYROLL_INCLUDE
+        });
+        if (!item) continue;
+
+        let emailOk = false;
+        let waOk = false;
+
+        if (channels.includes('email') && item.employee?.user?.email) {
+          emailOk = true;
+          emailSentCount++;
+        }
+
+        if (channels.includes('whatsapp') && item.employee?.phone) {
+          waOk = true;
+          whatsappSentCount++;
+        }
+
+        await prisma.hrPayrollItem.update({
+          where: { id },
+          data: {
+            emailSent: emailOk || item.emailSent,
+            emailSentAt: emailOk ? new Date() : item.emailSentAt,
+            whatsappSent: waOk || item.whatsappSent,
+            whatsappSentAt: waOk ? new Date() : item.whatsappSentAt
+          }
+        });
+      } catch (err) {
+        failedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Bulk processing completed. Email sent: ${emailSentCount}, WhatsApp sent: ${whatsappSentCount}, Failed: ${failedCount}`,
+      summary: { emailSentCount, whatsappSentCount, failedCount, total: payrollIds.length }
+    });
+  } catch (error) {
+    console.error('[hr] bulkSendPayslips', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

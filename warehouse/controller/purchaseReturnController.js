@@ -9,44 +9,69 @@ const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 // ─── PURCHASE RETURN CONTROLLERS ──────────────────────────────
 // ============================================================
 
-// @desc    Get Invoice Products for Return - ✅ FIXED
+// @desc    Get GRN Products for Return - ✅ NEW GRN-BASED
+// @route   GET /api/purchase/returns/grn/:grnId/products
+// @access  Private
+const getGRNProducts = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { grnId } = req.params;
+
+    console.log('🔵 [getGRNProducts] Called for GRN ID:', grnId);
+
+    const result = await PurchaseReturnModel.getGRNProducts(grnId, companyId);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        grn: result.grn,
+        linkedInvoice: result.linkedInvoice,
+        products: result.products
+      }
+    });
+  } catch (error) {
+    console.error('❌ [getGRNProducts] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
+// @desc    Get Supplier GRNs for Return - ✅ NEW
+// @route   GET /api/purchase/returns/supplier/:supplierId/grns
+// @access  Private
+const getSupplierGRNs = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { supplierId } = req.params;
+
+    console.log('🔵 [getSupplierGRNs] Called for Supplier ID:', supplierId);
+
+    const grns = await PurchaseReturnModel.getSupplierGRNs(supplierId, companyId);
+
+    res.status(200).json({
+      success: true,
+      count: grns.length,
+      data: grns
+    });
+  } catch (error) {
+    console.error('❌ [getSupplierGRNs] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
+    });
+  }
+};
+
+// @desc    Get Invoice Products for Return - LEGACY
 // @route   GET /api/purchase/returns/invoice/:invoiceId/products
 // @access  Private
 const getInvoiceProducts = async (req, res) => {
   try {
-    const userId = req.user.id;
     const companyId = req.user.companyId;
     const { invoiceId } = req.params;
 
-    console.log('🔵 [getInvoiceProducts] Called');
-    console.log('🔵 [getInvoiceProducts] Invoice ID:', invoiceId);
-
-    const invoice = await prisma.purchaseInvoice.findFirst({
-      where: {
-        id: invoiceId,
-        companyId: companyId,
-        isActive: true,
-        isDeleted: false
-      },
-      include: {
-        supplier: true,
-        items: {
-          include: {
-            product: true
-          }
-        }
-      }
-    });
-
-    if (!invoice) {
-      console.log('❌ [getInvoiceProducts] Invoice not found');
-      return res.status(404).json({
-        success: false,
-        message: 'Purchase invoice not found'
-      });
-    }
-
-    // ✅ FIXED: Pass companyId instead of userId
     const result = await PurchaseReturnModel.getInvoiceProducts(invoiceId, companyId);
 
     res.status(200).json({
@@ -65,7 +90,7 @@ const getInvoiceProducts = async (req, res) => {
   }
 };
 
-// @desc    Get Supplier Invoices for Return
+// @desc    Get Supplier Invoices for Return - LEGACY
 // @route   GET /api/purchase/returns/supplier/:supplierId/invoices
 // @access  Private
 const getSupplierInvoices = async (req, res) => {
@@ -73,9 +98,6 @@ const getSupplierInvoices = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const { supplierId } = req.params;
-
-    console.log('🔵 [getSupplierInvoices] Called');
-    console.log('🔵 [getSupplierInvoices] Supplier ID:', supplierId);
 
     const supplier = await prisma.supplier.findFirst({
       where: {
@@ -86,7 +108,6 @@ const getSupplierInvoices = async (req, res) => {
     });
 
     if (!supplier) {
-      console.log('❌ [getSupplierInvoices] Supplier not found');
       return res.status(404).json({
         success: false,
         message: 'Supplier not found'
@@ -116,8 +137,6 @@ const getSupplierInvoices = async (req, res) => {
       }
     });
 
-    console.log(`✅ [getSupplierInvoices] Found ${invoices.length} invoices`);
-
     res.status(200).json({
       success: true,
       count: invoices.length,
@@ -132,7 +151,7 @@ const getSupplierInvoices = async (req, res) => {
   }
 };
 
-// @desc    Create Draft Purchase Return - ✅ FIXED
+// @desc    Create Draft Purchase Return - ✅ GRN-BASED WITH INVOICE LINK
 // @route   POST /api/purchase/returns/draft
 // @access  Private
 const createDraftReturn = async (req, res) => {
@@ -142,6 +161,8 @@ const createDraftReturn = async (req, res) => {
     const {
       supplierId,
       supplierName,
+      goodsReceivingId,
+      grnNumber,
       purchaseInvoiceId,
       purchaseInvoiceNumber,
       returnReason,
@@ -166,27 +187,25 @@ const createDraftReturn = async (req, res) => {
     console.log('═══════════════════════════════════════════════════');
     console.log('🔵 [createDraftReturn] Called');
     console.log('🔵 [createDraftReturn] Supplier ID:', supplierId);
+    console.log('🔵 [createDraftReturn] GRN ID:', goodsReceivingId);
     console.log('🔵 [createDraftReturn] Invoice ID:', purchaseInvoiceId);
     console.log('🔵 [createDraftReturn] Items:', items?.length);
 
     if (!supplierId) {
-      console.log('❌ [createDraftReturn] Supplier is required');
       return res.status(400).json({
         success: false,
         message: 'Supplier is required'
       });
     }
 
-    if (!purchaseInvoiceId) {
-      console.log('❌ [createDraftReturn] Purchase invoice is required');
+    if (!goodsReceivingId && !purchaseInvoiceId) {
       return res.status(400).json({
         success: false,
-        message: 'Purchase invoice is required'
+        message: 'Goods receiving (GRN) or Purchase invoice is required'
       });
     }
 
     if (!items || items.length === 0) {
-      console.log('❌ [createDraftReturn] At least one product must be returned');
       return res.status(400).json({
         success: false,
         message: 'At least one product must be returned'
@@ -224,10 +243,12 @@ const createDraftReturn = async (req, res) => {
       }
     }
 
-    // ✅ FIXED: Include companyId
+    // ✅ FIXED: Include goodsReceivingId, grnNumber and companyId
     const returnData = {
       supplierId,
       supplierName,
+      goodsReceivingId,
+      grnNumber,
       purchaseInvoiceId,
       purchaseInvoiceNumber,
       returnReason: returnReason || 'Return',
@@ -299,14 +320,6 @@ const processReturn = async (req, res) => {
       });
     }
 
-    if (purchaseReturn.status === 'Processed') {
-      console.log('❌ [processReturn] Return already processed');
-      return res.status(400).json({
-        success: false,
-        message: 'Purchase return already processed'
-      });
-    }
-
     if (purchaseReturn.status === 'Cancelled') {
       console.log('❌ [processReturn] Return is cancelled');
       return res.status(400).json({
@@ -318,6 +331,7 @@ const processReturn = async (req, res) => {
     console.log('🔵 [processReturn] Processing return...');
 
     // ✅ FIXED: Pass companyId
+    const wasProcessed = purchaseReturn.status === 'Processed';
     const processedReturn = await PurchaseReturnModel.processReturn(id, userId, companyId);
 
     console.log('✅ [processReturn] Return processed successfully');
@@ -326,7 +340,9 @@ const processReturn = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Purchase return processed successfully',
+      message: wasProcessed
+        ? 'Purchase return stock reconciled successfully'
+        : 'Purchase return processed successfully',
       data: processedReturn
     });
   } catch (error) {
@@ -792,6 +808,8 @@ const deleteReturn = async (req, res) => {
 // ─── EXPORT CONTROLLERS ──────────────────────────────────────
 
 module.exports = {
+  getGRNProducts,
+  getSupplierGRNs,
   getInvoiceProducts,
   getSupplierInvoices,
   createDraftReturn,

@@ -4,6 +4,8 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../../middleware/authMiddleware');
 const {
+  getGRNProducts,
+  getSupplierGRNs,
   getInvoiceProducts,
   getSupplierInvoices,
   createDraftReturn,
@@ -28,13 +30,19 @@ router.use(protect);
 router.get('/stats', getReturnStats);
 
 // ============================================================
-// ─── SUPPLIER INVOICE ROUTES ──────────────────────────────────
+// ─── SUPPLIER GRN & INVOICE ROUTES ────────────────────────────
 // ============================================================
 
-// Get supplier invoices for return
+// Get supplier GRNs for return (Primary)
+router.get('/supplier/:supplierId/grns', getSupplierGRNs);
+
+// Get GRN products for return (Primary)
+router.get('/grn/:grnId/products', getGRNProducts);
+
+// Get supplier invoices for return (Legacy)
 router.get('/supplier/:supplierId/invoices', getSupplierInvoices);
 
-// Get invoice products for return
+// Get invoice products for return (Legacy)
 router.get('/invoice/:invoiceId/products', getInvoiceProducts);
 
 // ============================================================

@@ -286,6 +286,185 @@ const createSalesOrder = async (req, res) => {
   }
 };
 
+// @desc    Update Sales Order
+// @route   PUT /api/orders/:id
+// @access  Private
+const updateSalesOrder = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { id } = req.params;
+    const {
+      customerName,
+      customerEmail,
+      customerPhone,
+      customerType,
+      customerCompany,
+      customerTaxId,
+      shippingAddress,
+      billingAddress,
+      items,
+      priority,
+      source,
+      salesPerson,
+      expectedDeliveryDate,
+      shippingMethod,
+      shippingCarrier,
+      shippingCost,
+      paymentMethod,
+      paymentStatus,
+      couponCode,
+      discountTotal,
+      customerNotes,
+      internalNotes,
+      tags,
+      subtotal,
+      taxTotal,
+      grandTotal,
+      totalWeight,
+      totalItems,
+    } = req.body;
+
+    const existing = await prisma.order.findFirst({
+      where: {
+        id,
+        companyId,
+        isActive: true,
+        isDeleted: false,
+        orderType: 'Sales Order',
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sales order not found',
+      });
+    }
+
+    let orderItems = items;
+    if (items) {
+      orderItems = [];
+      for (const item of items) {
+        let product;
+        if (item.productId) {
+          product = await prisma.product.findFirst({
+            where: { id: item.productId, companyId },
+          });
+        } else if (item.sku) {
+          product = await prisma.product.findFirst({
+            where: { sku: item.sku, companyId },
+          });
+        }
+
+        if (!product) {
+          return res.status(404).json({
+            success: false,
+            message: `Product not found: ${item.productName || item.sku || item.productId}`,
+          });
+        }
+
+        const unitPrice = item.unitPrice || product.sellingPrice;
+        const quantity = item.quantity;
+        const totalPrice = unitPrice * quantity;
+        const taxAmount = (totalPrice * (item.taxRate || 0)) / 100;
+
+        if (existing.locationId) {
+          const locationStock = await prisma.productStock.findUnique({
+            where: {
+              productId_locationId: {
+                productId: product.id,
+                locationId: existing.locationId,
+              },
+            },
+          });
+          const locCurrent = locationStock?.currentStock || 0;
+          const locReserved = locationStock?.reservedStock || 0;
+          const freeToSell = Math.max(0, locCurrent - locReserved);
+          const oldItem = await prisma.orderItem.findFirst({
+            where: { orderId: id, productId: product.id },
+          });
+          const previouslyReserved = oldItem?.quantity || 0;
+          const netNeeded = quantity - previouslyReserved;
+          if (netNeeded > 0 && freeToSell < netNeeded) {
+            return res.status(400).json({
+              success: false,
+              message: `Insufficient stock at warehouse for ${product.name}. Available: ${freeToSell}`,
+            });
+          }
+        }
+
+        orderItems.push({
+          productId: product.id,
+          productName: product.name,
+          sku: product.sku,
+          quantity,
+          unitPrice,
+          totalPrice,
+          weight: item.weight || product.weight || 0,
+          weightUnit: item.weightUnit || product.weightUnit || 'KG',
+          dimensions: item.dimensions || '',
+          taxRate: item.taxRate || 0,
+          taxAmount,
+          discount: item.discount || 0,
+          batchNumber: item.batchNumber || '',
+          serialNumber: item.serialNumber || '',
+          notes: item.notes || '',
+        });
+      }
+    }
+
+    const updatedOrder = await Order.updateSalesOrder(
+      id,
+      {
+        updatedBy: userId,
+        customerName,
+        customerEmail,
+        customerPhone,
+        customerType,
+        customerCompany,
+        customerTaxId,
+        shippingAddress,
+        billingAddress,
+        items: orderItems,
+        priority,
+        source,
+        salesPerson,
+        expectedDeliveryDate,
+        shippingMethod,
+        shippingCarrier,
+        shippingCost,
+        paymentMethod,
+        paymentStatus,
+        couponCode,
+        discountTotal,
+        customerNotes,
+        internalNotes,
+        tags,
+        subtotal,
+        taxTotal,
+        grandTotal,
+        totalWeight,
+        totalItems,
+      },
+      companyId
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Sales order updated successfully',
+      data: updatedOrder,
+    });
+  } catch (error) {
+    console.error('Update sales order error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
 // @desc    Get all Sales Orders
 // @route   GET /api/sales/orders
 // @access  Private
@@ -916,6 +1095,7 @@ const getOrderKPI = async (req, res) => {
 module.exports = {
   // Sales Orders
   createSalesOrder,
+  updateSalesOrder,
   getSalesOrders,
   
   // Purchase Orders

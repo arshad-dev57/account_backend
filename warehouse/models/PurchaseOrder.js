@@ -37,8 +37,6 @@ class PurchaseOrderModel {
       if (String(supplier.status || '').toLowerCase() !== 'active') {
         throw new Error('Supplier is inactive. Reactivate it or pick an active supplier.');
       }
-
-      // ─── Validate Products ──────────────────────────────────
       for (const item of data.items) {
         const product = await tx.product.findFirst({
           where: {
@@ -143,6 +141,151 @@ class PurchaseOrderModel {
   }
 
   // ============================================================
+  // ATTACH GRN RECEIVING PROGRESS (per line + order totals)
+  // ============================================================
+  static grnLinkedToOrder(grn, orderId) {
+    if (grn.purchaseOrderId === orderId) return true;
+    return (grn.purchaseOrders || []).some(
+      (link) => link.purchaseOrderId === orderId
+    );
+  }
+
+  static buildReceivedQuantitiesForOrder(order, grns) {
+    const poItems = order.items || [];
+    const poItemIds = new Set(poItems.map((item) => item.id));
+    const receivedByItemId = {};
+    const receivedByProductId = {};
+
+    for (const grn of grns) {
+      if (!this.grnLinkedToOrder(grn, order.id)) continue;
+
+      for (const item of grn.items || []) {
+        const qty = Number(item.receivingQuantity) || 0;
+        if (qty <= 0) continue;
+
+        const matchesPoLine =
+          item.purchaseOrderItemId && poItemIds.has(item.purchaseOrderItemId);
+        const matchesPoScope =
+          matchesPoLine ||
+          item.purchaseOrderId === order.id ||
+          (!item.purchaseOrderId && matchesPoLine);
+
+        if (!matchesPoScope) continue;
+
+        if (matchesPoLine) {
+          receivedByItemId[item.purchaseOrderItemId] =
+            (receivedByItemId[item.purchaseOrderItemId] || 0) + qty;
+          continue;
+        }
+
+        if (item.productId) {
+          receivedByProductId[item.productId] =
+            (receivedByProductId[item.productId] || 0) + qty;
+        }
+      }
+    }
+
+    const productLineCounts = {};
+    for (const item of poItems) {
+      productLineCounts[item.productId] =
+        (productLineCounts[item.productId] || 0) + 1;
+    }
+
+    let totalOrdered = 0;
+    let totalReceived = 0;
+    const items = poItems.map((item) => {
+      const ordered = Number(item.quantity) || 0;
+      let received = Number(receivedByItemId[item.id] || 0);
+
+      if (received <= 0 && productLineCounts[item.productId] === 1) {
+        received = Number(receivedByProductId[item.productId] || 0);
+      }
+
+      const remaining = Math.max(0, ordered - received);
+      totalOrdered += ordered;
+      totalReceived += received;
+
+      return {
+        ...item,
+        receivedQuantity: received,
+        remainingQuantity: remaining,
+        receivingProgress: ordered > 0 ? received / ordered : 0,
+        isFullyReceived: ordered > 0 && remaining <= 0,
+      };
+    });
+
+    const receivingProgress =
+      totalOrdered > 0 ? totalReceived / totalOrdered : 0;
+    let receivingStatus = 'Not Received';
+    if (totalReceived > 0) {
+      receivingStatus =
+        totalReceived >= totalOrdered ? 'Fully Received' : 'Partially Received';
+    }
+
+    return {
+      items,
+      totalOrderedQty: totalOrdered,
+      totalReceivedQty: totalReceived,
+      totalRemainingQty: Math.max(0, totalOrdered - totalReceived),
+      receivingProgress,
+      receivingStatus,
+    };
+  }
+
+  static async attachReceivingProgress(orders) {
+    const list = Array.isArray(orders) ? orders : [orders];
+    if (!list.length) return orders;
+
+    const orderIds = list.map((o) => o.id);
+    const companyIds = [
+      ...new Set(list.map((o) => o.companyId).filter(Boolean)),
+    ];
+
+    const grns = await prisma.goodsReceiving.findMany({
+      where: {
+        isActive: true,
+        isDeleted: false,
+        status: { not: 'Cancelled' },
+        ...(companyIds.length === 1 ? { companyId: companyIds[0] } : {}),
+        OR: [
+          { purchaseOrderId: { in: orderIds } },
+          { purchaseOrders: { some: { purchaseOrderId: { in: orderIds } } } },
+        ],
+      },
+      select: {
+        id: true,
+        purchaseOrderId: true,
+        purchaseOrders: {
+          select: { purchaseOrderId: true },
+        },
+        items: {
+          select: {
+            purchaseOrderItemId: true,
+            purchaseOrderId: true,
+            productId: true,
+            receivingQuantity: true,
+          },
+        },
+      },
+    });
+
+    const enrich = (order) => {
+      const progress = this.buildReceivedQuantitiesForOrder(order, grns);
+      let status = order.status;
+      if (progress.totalReceivedQty > 0 && order.status !== 'Cancelled') {
+        status = progress.totalReceivedQty >= progress.totalOrderedQty ? 'Received' : 'Partially Received';
+      }
+      return {
+        ...order,
+        ...progress,
+        status,
+      };
+    };
+
+    return Array.isArray(orders) ? list.map(enrich) : enrich(list[0]);
+  }
+
+  // ============================================================
   // GET PURCHASE ORDER BY ID
   // ============================================================
   static async findById(id) {
@@ -168,11 +311,10 @@ class PurchaseOrderModel {
 
     if (!order) return null;
 
-    // Calculate totalItems
-    return {
+    return this.attachReceivingProgress({
       ...order,
-      totalItems: order.items.reduce((sum, item) => sum + item.quantity, 0)
-    };
+      totalItems: order.items.reduce((sum, item) => sum + item.quantity, 0),
+    });
   }
 
   // ============================================================
@@ -242,16 +384,14 @@ class PurchaseOrderModel {
       }
     });
 
-    // Calculate totalItems for each order
-    return orders.map(order => ({
+    const mapped = orders.map((order) => ({
       ...order,
-      totalItems: order.items.reduce((sum, item) => sum + item.quantity, 0)
+      totalItems: order.items.reduce((sum, item) => sum + item.quantity, 0),
     }));
+
+    return this.attachReceivingProgress(mapped);
   }
 
-  // ============================================================
-  // COUNT PURCHASE ORDERS - ✅ FIXED
-  // ============================================================
   static async count(filter = {}) {
     // ✅ FIXED: Map userId to createdBy if present
     const cleanFilter = { ...filter };
@@ -269,9 +409,6 @@ class PurchaseOrderModel {
     });
   }
 
-  // ============================================================
-  // UPDATE PURCHASE ORDER
-  // ============================================================
   static async update(id, data) {
     return await prisma.$transaction(async (tx) => {
       const purchaseOrder = await tx.purchaseOrder.findUnique({
@@ -283,7 +420,6 @@ class PurchaseOrderModel {
         throw new Error('Purchase order not found');
       }
 
-      // ─── Don't allow update if cancelled or approved ──────
       if (purchaseOrder.status === 'Cancelled') {
         throw new Error('Cannot update cancelled purchase order');
       }
@@ -291,8 +427,6 @@ class PurchaseOrderModel {
       if (purchaseOrder.status === 'Approved') {
         throw new Error('Cannot update approved purchase order');
       }
-
-      // ─── Update header ──────────────────────────────────────
       const updateData = {
         updatedBy: data.updatedBy,
         ...(data.supplierId && { supplierId: data.supplierId }),
@@ -307,7 +441,6 @@ class PurchaseOrderModel {
         ...(data.termsConditions !== undefined && { termsConditions: data.termsConditions })
       };
 
-      // ─── Update items if provided ──────────────────────────
       if (data.items) {
         await tx.purchaseOrderItem.deleteMany({
           where: { purchaseOrderId: id }
@@ -573,9 +706,6 @@ class PurchaseOrderModel {
     });
   }
 
-  // ============================================================
-  // GET PURCHASE ORDER STATS - ✅ FIXED
-  // ============================================================
   static async getStats(companyId, locationId = null) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -584,7 +714,7 @@ class PurchaseOrderModel {
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      companyId: companyId,
+      ...(companyId ? { companyId } : {}),
       ...(locationId ? { locationId: String(locationId) } : {}),
     };
 
@@ -673,14 +803,11 @@ class PurchaseOrderModel {
     };
   }
 
-  // ============================================================
-  // GET PURCHASE ORDER SUMMARY - ✅ FIXED
-  // ============================================================
-  static async getSummary(companyId) {  // ✅ Use companyId instead of userId
+  static async getSummary(companyId) {  
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      companyId: companyId  // ✅ Use companyId
+      companyId: companyId  
     };
 
     const totalOrders = await prisma.purchaseOrder.count({
@@ -719,14 +846,11 @@ class PurchaseOrderModel {
     };
   }
 
-  // ============================================================
-  // GET SUPPLIER PURCHASE ORDER SUMMARY - ✅ FIXED
-  // ============================================================
-  static async getSupplierSummary(companyId, supplierId) {  // ✅ Use companyId instead of userId
+  static async getSupplierSummary(companyId, supplierId) {  
     const baseFilter = {
       isActive: true,
       isDeleted: false,
-      companyId: companyId,  // ✅ Use companyId
+      companyId: companyId, 
       supplierId: supplierId
     };
 
