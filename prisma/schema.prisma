@@ -105,6 +105,8 @@ model Company {
   hrOvertimes        HrOvertime[]
   hrTasks            HrTask[]
   hrPerformanceReviews HrPerformanceReview[]
+  hrPayPeriods       HrPayPeriod[]
+  hrPayrollRuns      HrPayrollRun[]
   hrPayrollItems     HrPayrollItem[]
   hrSetting          HrSetting?
   hrDepartments      HrDepartment[]
@@ -393,6 +395,7 @@ model User {
   approvedExemptions  TaxExemption[]       @relation("ExemptionApprover")
   pdfReportSettings   PdfReportSetting[]   @relation("PdfReportSettingOwner")
   hrEmployee          HrEmployee?
+  hrPayrollRunsInitiated HrPayrollRun[] @relation("HrPayrollRunInitiator")
   manufacturingBOMsCreated ManufacturingBOM[] @relation("ManufacturingBOMCreator")
   manufacturingBOMsUpdated ManufacturingBOM[] @relation("ManufacturingBOMUpdater")
   manufacturingRoutingsCreated ManufacturingRouting[] @relation("ManufacturingRoutingCreator")
@@ -486,6 +489,7 @@ model HrOffice {
   employees   HrEmployee[]
   locations   HrEmployeeLocation[]
   costCenters CostCenter[]
+  payPeriods  HrPayPeriod[]
 
   @@index([companyId])
   @@map("hr_offices")
@@ -694,10 +698,72 @@ model HrPerformanceReview {
   @@map("hr_performance_reviews")
 }
 
+model HrPayPeriod {
+  id           String    @id @default(uuid())
+  companyId    String    @map("company_id")
+  periodKey    String    @map("period_key")
+  name         String
+  startDate    DateTime  @map("start_date") @db.Date
+  endDate      DateTime  @map("end_date") @db.Date
+  payDate      DateTime? @map("pay_date") @db.Date
+  frequency    String    @default("monthly")
+  branchId     String?   @map("branch_id")
+  status       String    @default("OPEN")
+  openedAt     DateTime? @map("opened_at")
+  calculatedAt DateTime? @map("calculated_at")
+  approvedAt   DateTime? @map("approved_at")
+  finalizedAt  DateTime? @map("finalized_at")
+  paidAt       DateTime? @map("paid_at")
+  closedAt     DateTime? @map("closed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch       HrOffice?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  runs         HrPayrollRun[]
+  payrollItems HrPayrollItem[]
+
+  @@unique([companyId, periodKey])
+  @@index([companyId, status])
+  @@index([branchId])
+  @@map("hr_pay_periods")
+}
+
+model HrPayrollRun {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  payPeriodId        String    @map("pay_period_id")
+  initiatedById      String?   @map("initiated_by_id")
+  startedAt          DateTime  @default(now()) @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+  status             String    @default("RUNNING")
+  employeeCount      Int       @default(0) @map("employee_count")
+  processedCount     Int       @default(0) @map("processed_count")
+  excludedCount      Int       @default(0) @map("excluded_count")
+  grossTotal         Float     @default(0) @map("gross_total")
+  deductionTotal     Float     @default(0) @map("deduction_total")
+  taxTotal           Float     @default(0) @map("tax_total")
+  netTotal           Float     @default(0) @map("net_total")
+  validationWarnings Json?     @map("validation_warnings")
+  validationErrors   Json?     @map("validation_errors")
+  metadata           Json?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  payPeriod   HrPayPeriod @relation(fields: [payPeriodId], references: [id], onDelete: Cascade)
+  initiatedBy User?       @relation("HrPayrollRunInitiator", fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, payPeriodId])
+  @@index([payPeriodId, startedAt])
+  @@map("hr_payroll_runs")
+}
+
 model HrPayrollItem {
   id         String    @id @default(uuid())
   companyId  String    @map("company_id")
   employeeId String    @map("employee_id")
+  payPeriodId String?  @map("pay_period_id")
   period     String
   base       Float
   overtime   Float     @default(0)
@@ -724,12 +790,14 @@ model HrPayrollItem {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  employee      HrEmployee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  costCenterRef CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee      HrEmployee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  payPeriod     HrPayPeriod? @relation(fields: [payPeriodId], references: [id], onDelete: SetNull)
+  costCenterRef CostCenter?  @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
 
   @@unique([employeeId, period])
   @@index([companyId, period])
+  @@index([payPeriodId])
   @@index([costCenterId])
   @@map("hr_payroll_items")
 }

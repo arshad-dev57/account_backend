@@ -354,7 +354,9 @@ function computePayslip({
       : dailyRate;
   const unpaidLeaveAuto = money(absentUnit * unpaidLeaveDays);
   const lateAuto = money(Number(cfg.lateDeductionPerDay || 0) * lateDays);
-  const attendanceAuto = money(unpaidLeaveAuto + lateAuto);
+  const halfDayPct = Math.min(100, Math.max(0, Number(cfg.halfDayDeductionPct ?? 50)));
+  const halfDayCut = money(dailyRate * halfDays * (halfDayPct / 100));
+  const attendanceAuto = money(unpaidLeaveAuto + lateAuto + halfDayCut);
 
   const attendanceOverride =
     attendanceCut != null && attendanceCut !== '' ? money(attendanceCut) : null;
@@ -478,6 +480,7 @@ function computePayslip({
     deductions: {
       unpaidLeave: unpaidLeaveDeduction,
       late: lateDeduction,
+      halfDay: halfDayCut,
       attendanceCut: attendanceCutAmt,
       incomeTax,
       eobi,
@@ -606,6 +609,68 @@ function compensationPreview(employee = {}, settings = {}) {
     eobiMode: String(cfg.eobiMode || 'fixed'),
     workDaysPerWeek: Number(cfg.workDaysPerWeek || 6),
     workHoursPerDay: Number(cfg.workHoursPerDay || 8)
+  };
+}
+
+// ============================================================
+// HR ADJUSTMENTS (canonical keys)
+// ============================================================
+
+function applyPayrollAdjustments(existing, { manualBonus = 0, manualDeduction = 0, customTax = 0, adjustmentNotes = '' }) {
+  const bd = existing.breakdown && typeof existing.breakdown === 'object' ? existing.breakdown : {};
+  const earn = bd.earnings || {};
+  const ded = bd.deductions || {};
+  const bonusVal = money(manualBonus);
+  const deductionVal = money(manualDeduction);
+  const taxVal = money(customTax);
+
+  const slip = buildManualPayslip({
+    period: existing.period,
+    base: bd,
+    lines: {
+      basic: earn.basic,
+      houseAllowance: earn.houseAllowance,
+      transportAllowance: earn.transportAllowance,
+      medicalAllowance: earn.medicalAllowance,
+      allowances: earn.allowances,
+      overtime: earn.overtime ?? existing.overtime,
+      bonus: bonusVal,
+      commission: earn.commission,
+      salesAmount: bd.salesAmount,
+      attendanceCut: ded.attendanceCut,
+      tax: taxVal,
+      incomeTax: taxVal,
+      eobi: ded.eobi,
+      providentFund: ded.providentFund,
+      loan: ded.loan,
+      otherCut: money((ded.otherCut || 0) + deductionVal),
+      noSaleCut: ded.noSaleCut
+    },
+    notes: adjustmentNotes || existing.notes || ''
+  });
+
+  return {
+    breakdown: slip,
+    base: slip.earnings.basic,
+    overtime: slip.earnings.overtime,
+    deductions: slip.deductions.total,
+    net: slip.net,
+    manualBonus: bonusVal,
+    manualDeduction: deductionVal,
+    customTax: taxVal,
+    adjustedByHr: true,
+    adjustmentNotes: String(adjustmentNotes || '')
+  };
+}
+
+/** Map breakdown slip to HrPayrollItem scalar fields — single write path. */
+function breakdownToItemFields(slip) {
+  return {
+    base: slip.earnings?.basic ?? 0,
+    overtime: slip.earnings?.overtime ?? 0,
+    deductions: slip.deductions?.total ?? 0,
+    net: slip.net ?? 0,
+    breakdown: slip
   };
 }
 
@@ -754,6 +819,8 @@ module.exports = {
   ytdFromSlips,
   computePayslip,
   buildManualPayslip,
+  applyPayrollAdjustments,
+  breakdownToItemFields,
   isSalesRoleEmployee,
   serializePayslip,
   runSummary,

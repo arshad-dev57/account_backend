@@ -47,6 +47,18 @@ router.get('/performance', wf.listReviews);
 router.post('/performance', wf.createReview);
 router.put('/performance/:id', wf.updateReview);
 
+const pp = require('../controllers/hrPayrollPeriodController');
+
+router.get('/payroll/periods', pp.listPeriods);
+router.post('/payroll/periods/ensure', pp.ensurePeriod);
+router.get('/payroll/periods/:id', pp.getPeriod);
+router.get('/payroll/periods/:id/validation', pp.getValidation);
+router.post('/payroll/periods/:id/validate', pp.validatePeriod);
+router.post('/payroll/periods/:id/calculate', pp.calculatePeriod);
+router.get('/payroll/periods/:id/review', pp.getReview);
+router.get('/payroll/periods/:id/register', pp.getRegister);
+router.patch('/payroll/periods/:id/status', pp.transitionPeriod);
+
 router.get('/payroll/me', wf.myPayroll);
 router.get('/payroll/report', wf.payrollReport);
 router.get('/payroll/run', wf.getPayrollRun);

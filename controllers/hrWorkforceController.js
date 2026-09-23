@@ -8,6 +8,18 @@ const {
   workDateKey
 } = require('../utils/hrAccess');
 const payrollEngine = require('../services/hrPayrollEngine');
+const periodService = require('../services/hrPayrollPeriodService');
+const { sumLoanDeduction } = require('../services/hrPayrollLoanHelper');
+const {
+  resolveEmployeeCommissionInputs,
+  resolveEmployeeBonusInputs
+} = require('../services/hrPayrollCommission');
+const {
+  assertItemTransition,
+  isItemLocked,
+  isItemEditable,
+  isPeriodLocked
+} = require('../services/hrPayrollStatus');
 const { resolveEmployeeCostCenter, snapshotCostCenter } = require('../services/costCenterHelper');
 const ExcelJS = require('exceljs');
 const nodemailer = require('nodemailer');
@@ -539,6 +551,7 @@ exports.listPayroll = async (req, res) => {
     if (!companyId) return;
     if (!requireHrManager(req, res)) return;
     const period = String(req.query.period || payrollEngine.currentPeriod());
+    const payPeriod = await periodService.ensurePayPeriod(companyId, period);
     const rows = await prisma.hrPayrollItem.findMany({
       where: { companyId, period },
       include: PAYROLL_INCLUDE,
@@ -556,6 +569,7 @@ exports.listPayroll = async (req, res) => {
       data,
       period,
       periodLabel: payrollEngine.periodLabel(period),
+      payPeriod,
       summary: {
         ...summary,
         previousPeriod: prevPeriod,
@@ -635,6 +649,13 @@ exports.generatePayroll = async (req, res) => {
     if (!companyId) return;
     if (!requireHrManager(req, res)) return;
     const period = String(req.body.period || payrollEngine.currentPeriod());
+    const payPeriod = await periodService.ensurePayPeriod(companyId, period);
+    if (isPeriodLocked(payPeriod.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Pay period is ${payPeriod.status} and cannot be recalculated`
+      });
+    }
     const { start, endExclusive } = payrollEngine.periodBounds(period);
     const settings = await loadSettings(companyId);
     let employees = await prisma.hrEmployee.findMany({
@@ -705,44 +726,15 @@ exports.generatePayroll = async (req, res) => {
     });
     const loanByEmp = new Map();
     loans.forEach((row) => {
-      // Only deduct if loan has remaining balance > 0
-      if (Number(row.remaining || 0) > 0) {
-        const installment = Math.min(Number(row.monthlyDeduct || 0), Number(row.remaining || 0));
-        loanByEmp.set(row.employeeId, (loanByEmp.get(row.employeeId) || 0) + installment);
-      }
+      if (!loanByEmp.has(row.employeeId)) loanByEmp.set(row.employeeId, []);
+      loanByEmp.get(row.employeeId).push(row);
     });
     const bonusByEmp = new Map();
-    const commissionByEmp = new Map();
-    const salesByEmp = new Map();
-
-    const parseSalesFromReason = (reason) => {
-      const raw = String(reason || '');
-      try {
-        const j = JSON.parse(raw);
-        if (j && j.salesAmount != null) return Number(j.salesAmount) || 0;
-      } catch {
-        /* plain text */
-      }
-      const m = raw.match(/sales\s*[:=]\s*([\d.]+)/i);
-      return m ? Number(m[1]) || 0 : 0;
-    };
-
     bonuses.forEach((row) => {
-      const kind = String(row.kind || '').toLowerCase();
-      const amt = Number(row.amount || 0);
-      const salesPart = parseSalesFromReason(row.reason);
-      if (salesPart > 0) {
-        salesByEmp.set(row.employeeId, (salesByEmp.get(row.employeeId) || 0) + salesPart);
-      }
-      if (kind === 'sales' || kind === 'commission' || kind.includes('commission')) {
-        // amount = commission; if only sales logged with amount 0, engine will derive from %
-        if (amt > 0) {
-          commissionByEmp.set(row.employeeId, (commissionByEmp.get(row.employeeId) || 0) + amt);
-        }
-      } else {
-        bonusByEmp.set(row.employeeId, (bonusByEmp.get(row.employeeId) || 0) + amt);
-      }
+      if (!bonusByEmp.has(row.employeeId)) bonusByEmp.set(row.employeeId, []);
+      bonusByEmp.get(row.employeeId).push(row);
     });
+    const salesByEmp = new Map();
 
     // Auto sales from Orders linked to employee userId / name
     try {
@@ -772,7 +764,7 @@ exports.generatePayroll = async (req, res) => {
     const items = [];
     for (const emp of employees) {
       const prev = existingByEmp.get(emp.id);
-      if (prev && ['Paid', 'Approved', 'Held'].includes(prev.status) && req.body.force !== true) {
+      if (prev && isItemLocked(prev.status) && req.body.force !== true) {
         items.push(serializePayroll({ ...prev, employee: emp }));
         continue;
       }
@@ -783,10 +775,15 @@ exports.generatePayroll = async (req, res) => {
         continue;
       }
       const keep = req.body.keepAdjustments !== false;
+      const empBonuses = bonusByEmp.get(emp.id) || [];
+      const commissionInputs = resolveEmployeeCommissionInputs({
+        bonuses: empBonuses,
+        orderSalesAmount: salesByEmp.get(emp.id) || 0
+      });
       const salesAmount = Number(
         keep && prevBreak.salesAmount != null && prevBreak.hrManual
           ? prevBreak.salesAmount
-          : salesByEmp.get(emp.id) || prevBreak.salesAmount || 0
+          : commissionInputs.salesAmount || prevBreak.salesAmount || 0
       );
       const slip = payrollEngine.computePayslip({
         employee: emp,
@@ -796,14 +793,22 @@ exports.generatePayroll = async (req, res) => {
         leaveRows: leaveByEmp.get(emp.id) || [],
         overtimeAmount: otAmount.get(emp.id) || 0,
         overtimeHours: otHours.get(emp.id) || 0,
-        bonus: Number(keep ? (prevBreak.earnings?.bonus ?? bonusByEmp.get(emp.id) ?? 0) : (bonusByEmp.get(emp.id) || 0)),
+        bonus: Number(
+          keep && prevBreak.earnings?.bonus != null && prevBreak.hrManual
+            ? prevBreak.earnings.bonus
+            : resolveEmployeeBonusInputs({ bonuses: empBonuses })
+        ),
         commission: Number(
           keep && prevBreak.earnings?.commission != null && prevBreak.hrManual
             ? prevBreak.earnings.commission
-            : commissionByEmp.get(emp.id) || 0
+            : commissionInputs.commission
         ),
         salesAmount,
-        loan: Number(keep ? (prevBreak.deductions?.loan ?? loanByEmp.get(emp.id) ?? 0) : (loanByEmp.get(emp.id) || 0)),
+        loan: Number(
+          keep && prevBreak.deductions?.loan != null
+            ? prevBreak.deductions.loan
+            : sumLoanDeduction(loanByEmp.get(emp.id) || [])
+        ),
         attendanceCut: keep && prevBreak.attendanceCutManual ? prevBreak.deductions?.attendanceCut : null,
         otherCut: Number(keep ? (prevBreak.deductions?.otherCut || 0) : 0),
         noSaleCut: keep && prevBreak.hrManual ? Number(prevBreak.deductions?.noSaleCut || 0) : null,
@@ -817,6 +822,7 @@ exports.generatePayroll = async (req, res) => {
         create: {
           companyId,
           employeeId: emp.id,
+          payPeriodId: payPeriod.id,
           period,
           base: slip.earnings.basic,
           overtime: slip.earnings.overtime,
@@ -828,11 +834,12 @@ exports.generatePayroll = async (req, res) => {
           ...ccSnap
         },
         update: {
+          payPeriodId: payPeriod.id,
           base: slip.earnings.basic,
           overtime: slip.earnings.overtime,
           deductions: slip.deductions.total,
           net: slip.net,
-          status: prev && ['Paid', 'Approved', 'Held'].includes(prev.status) ? prev.status : 'Draft',
+          status: prev && isItemLocked(prev.status) ? prev.status : 'Calculated',
           breakdown: slip,
           ...(preserveCostCenter
             ? {}
@@ -880,8 +887,11 @@ exports.updatePayroll = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Payroll item not found' });
     }
-    if (existing.status === 'Paid' && req.body.status && req.body.status !== 'Paid') {
-      return res.status(400).json({ success: false, message: 'Paid payslips are locked' });
+    if (isItemLocked(existing.status) && req.body.status && req.body.status !== existing.status) {
+      return res.status(400).json({ success: false, message: `${existing.status} payslips are locked` });
+    }
+    if (isItemLocked(existing.status) && !req.body.status) {
+      return res.status(400).json({ success: false, message: `${existing.status} payslips cannot be edited` });
     }
 
     const moneyFields = [
@@ -905,10 +915,10 @@ exports.updatePayroll = async (req, res) => {
     ];
     const editingMoney = moneyFields.some((k) => req.body[k] != null) || req.body.manual === true;
     if (
-      existing.status === 'Paid' &&
+      isItemLocked(existing.status) &&
       (editingMoney || req.body.notes != null || req.body.resetAttendanceCut === true)
     ) {
-      return res.status(400).json({ success: false, message: 'Paid payslips are locked' });
+      return res.status(400).json({ success: false, message: `${existing.status} payslips are locked` });
     }
 
     const breakdown = {
@@ -1039,6 +1049,13 @@ exports.updatePayroll = async (req, res) => {
     }
 
     const nextStatus = req.body.status != null ? String(req.body.status) : existing.status;
+    if (nextStatus !== existing.status) {
+      try {
+        assertItemTransition(existing.status, nextStatus);
+      } catch (e) {
+        return res.status(400).json({ success: false, message: e.message });
+      }
+    }
     const row = await prisma.hrPayrollItem.update({
       where: { id: existing.id },
       data: {
@@ -1083,7 +1100,7 @@ exports.createPayrollItem = async (req, res) => {
       where: { companyId, employeeId, period },
       include: PAYROLL_INCLUDE
     });
-    if (existing && ['Paid', 'Approved', 'Held'].includes(existing.status) && req.body.force !== true) {
+    if (existing && isItemLocked(existing.status) && req.body.force !== true) {
       return res.status(400).json({
         success: false,
         message: `Payslip already ${existing.status} for this month`
@@ -1117,15 +1134,10 @@ exports.createPayrollItem = async (req, res) => {
       prisma.hrBonus.findMany({ where: { companyId, employeeId, status: 'Approved', period } })
     ]);
 
-    let bonus = 0;
-    let commission = 0;
-    bonuses.forEach((row) => {
-      const kind = String(row.kind || '').toLowerCase();
-      const amt = Number(row.amount || 0);
-      if (kind === 'sales' || kind === 'commission' || kind.includes('commission')) commission += amt;
-      else bonus += amt;
-    });
-    const loan = loans.reduce((s, r) => s + Number(r.monthlyDeduct || 0), 0);
+    const bonus = resolveEmployeeBonusInputs({ bonuses });
+    const commissionInputs = resolveEmployeeCommissionInputs({ bonuses, orderSalesAmount: 0 });
+    const loan = sumLoanDeduction(loans);
+    const payPeriod = await periodService.ensurePayPeriod(companyId, period);
 
     const blank = req.body.blank === true;
     let slip;
@@ -1158,7 +1170,8 @@ exports.createPayrollItem = async (req, res) => {
         overtimeAmount: otRows.reduce((s, r) => s + Number(r.amount || 0), 0),
         overtimeHours: otRows.reduce((s, r) => s + Number(r.hours || 0), 0),
         bonus,
-        commission,
+        commission: commissionInputs.commission,
+        salesAmount: commissionInputs.salesAmount,
         loan,
         notes: req.body.notes != null ? String(req.body.notes) : ''
       });
@@ -1169,21 +1182,23 @@ exports.createPayrollItem = async (req, res) => {
       create: {
         companyId,
         employeeId,
+        payPeriodId: payPeriod.id,
         period,
         base: slip.earnings.basic,
         overtime: slip.earnings.overtime,
         deductions: slip.deductions.total,
         net: slip.net,
-        status: 'Draft',
+        status: 'Calculated',
         notes: slip.notes || '',
         breakdown: slip
       },
       update: {
+        payPeriodId: payPeriod.id,
         base: slip.earnings.basic,
         overtime: slip.earnings.overtime,
         deductions: slip.deductions.total,
         net: slip.net,
-        status: 'Draft',
+        status: existing && isItemLocked(existing.status) ? existing.status : 'Calculated',
         notes: slip.notes || '',
         breakdown: slip
       },
@@ -1208,16 +1223,20 @@ exports.bulkPayrollStatus = async (req, res) => {
     const paidAt = status === 'Paid'
       ? (payDateRaw ? new Date(`${payDateRaw}T12:00:00.000Z`) : new Date())
       : undefined;
-    if (!['Draft', 'Review', 'Approved', 'Paid', 'Held'].includes(status)) {
+    const allowed = ['Draft', 'Calculated', 'Review', 'Approved', 'Finalized', 'Paid', 'Closed', 'Held'];
+    if (!allowed.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid payroll status' });
     }
     const where = { companyId, period };
-    if (status === 'Review') where.status = 'Draft';
-    else if (status === 'Approved') where.status = { in: ['Draft', 'Review'] };
-    else if (status === 'Paid') where.status = { in: ['Approved', 'Review'] };
-    else if (status === 'Held') where.status = { in: ['Draft', 'Review'] };
+    if (status === 'Review') where.status = { in: ['Draft', 'Calculated', 'Held'] };
+    else if (status === 'Approved') where.status = { in: ['Draft', 'Calculated', 'Review', 'Held'] };
+    else if (status === 'Finalized') where.status = { in: ['Approved', 'Review'] };
+    else if (status === 'Paid') where.status = { in: ['Approved', 'Finalized', 'Review'] };
+    else if (status === 'Closed') where.status = { in: ['Paid', 'Finalized'] };
+    else if (status === 'Held') where.status = { in: ['Draft', 'Calculated', 'Review'] };
     else if (status === 'Draft') where.status = 'Held';
-    else where.status = { notIn: ['Paid'] };
+    else if (status === 'Calculated') where.status = { in: ['Draft', 'Held'] };
+    else where.status = { notIn: ['Paid', 'Closed'] };
 
     // Mode filter: only affect office or sales employees
     if (mode !== 'all') {
@@ -1767,25 +1786,27 @@ function buildPayslipHtml(payroll, company) {
   const deductions = bd.deductions || {};
   const attendance = bd.attendance || {};
 
-  const basePay = Number(payroll.base || 0);
-  const overtimePay = Number(payroll.overtime || 0);
-  const houseRent = Number(earnings.houseRent || 0);
-  const medical = Number(earnings.medical || 0);
-  const transport = Number(earnings.transport || 0);
+  const basePay = Number(earnings.basic ?? payroll.base ?? 0);
+  const overtimePay = Number(earnings.overtime ?? payroll.overtime ?? 0);
+  const houseRent = Number(earnings.houseAllowance || 0);
+  const medical = Number(earnings.medicalAllowance || 0);
+  const transport = Number(earnings.transportAllowance || 0);
   const commission = Number(earnings.commission || 0);
   const bonus = Number(payroll.manualBonus || earnings.bonus || 0);
+  const allowances = Number(earnings.allowances || houseRent + medical + transport);
 
-  const totalEarnings = basePay + overtimePay + houseRent + medical + transport + commission + bonus;
+  const totalEarnings = Number(earnings.gross ?? basePay + allowances + overtimePay + commission + bonus);
 
-  const incomeTax = Number(payroll.customTax || deductions.tax || 0);
+  const incomeTax = Number(payroll.customTax || deductions.incomeTax || deductions.tax || 0);
   const eobi = Number(deductions.eobi || 0);
-  const pf = Number(deductions.pf || 0);
-  const absentCut = Number(deductions.absentCut || 0);
-  const lateCut = Number(deductions.lateCut || 0);
-  const manualCut = Number(payroll.manualDeduction || deductions.manualCut || 0);
+  const pf = Number(deductions.providentFund || 0);
+  const attendanceCut = Number(deductions.attendanceCut || 0);
+  const loan = Number(deductions.loan || 0);
+  const otherCut = Number(deductions.otherCut || 0) + Number(payroll.manualDeduction || 0);
+  const noSaleCut = Number(deductions.noSaleCut || 0);
 
-  const totalDeductions = incomeTax + eobi + pf + absentCut + lateCut + manualCut;
-  const netPay = Math.max(0, totalEarnings - totalDeductions);
+  const totalDeductions = Number(payroll.deductions ?? deductions.total ?? 0);
+  const netPay = Number(payroll.net ?? bd.net ?? 0);
   const netInWords = numberToWordsRupees(netPay);
 
   return `<!DOCTYPE html>
@@ -1889,9 +1910,10 @@ function buildPayslipHtml(payroll, company) {
             <tr><td>Income Tax</td><td class="text-right">${incomeTax.toLocaleString()}</td></tr>
             ${eobi ? `<tr><td>EOBI Contribution</td><td class="text-right">${eobi.toLocaleString()}</td></tr>` : ''}
             ${pf ? `<tr><td>Provident Fund</td><td class="text-right">${pf.toLocaleString()}</td></tr>` : ''}
-            ${absentCut ? `<tr><td>Absent Cut</td><td class="text-right">${absentCut.toLocaleString()}</td></tr>` : ''}
-            ${lateCut ? `<tr><td>Late Arrival Cut</td><td class="text-right">${lateCut.toLocaleString()}</td></tr>` : ''}
-            ${manualCut ? `<tr><td>Manual Fine / Cut</td><td class="text-right">${manualCut.toLocaleString()}</td></tr>` : ''}
+            ${attendanceCut ? `<tr><td>Attendance Cut</td><td class="text-right">${attendanceCut.toLocaleString()}</td></tr>` : ''}
+            ${loan ? `<tr><td>Loan Recovery</td><td class="text-right">${loan.toLocaleString()}</td></tr>` : ''}
+            ${otherCut ? `<tr><td>Other Deductions</td><td class="text-right">${otherCut.toLocaleString()}</td></tr>` : ''}
+            ${noSaleCut ? `<tr><td>No-sale Cut</td><td class="text-right">${noSaleCut.toLocaleString()}</td></tr>` : ''}
             <tr class="font-bold" style="background: #f8fafc;">
               <td>Total Deductions</td>
               <td class="text-right" style="color: #dc2626;">Rs. ${totalDeductions.toLocaleString()}</td>
@@ -1974,49 +1996,23 @@ exports.adjustPayrollItem = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Payroll item not found' });
     }
+    if (!isItemEditable(existing.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `${existing.status} payslips cannot be adjusted`
+      });
+    }
 
-    const bd = existing.breakdown || {};
-    const earnings = bd.earnings || {};
-    const deductions = bd.deductions || {};
-
-    const bonusVal = Math.max(0, Number(manualBonus || 0));
-    const deductionVal = Math.max(0, Number(manualDeduction || 0));
-    const taxVal = Math.max(0, Number(customTax || 0));
-
-    const totalEarnings = (existing.base || 0)
-      + (existing.overtime || 0)
-      + (earnings.houseRent || 0)
-      + (earnings.medical || 0)
-      + (earnings.transport || 0)
-      + (earnings.commission || 0)
-      + bonusVal;
-
-    const totalDeductions = taxVal
-      + (deductions.eobi || 0)
-      + (deductions.pf || 0)
-      + (deductions.absentCut || 0)
-      + (deductions.lateCut || 0)
-      + (deductions.loanRecovery || 0)
-      + deductionVal;
-
-    const recalculatedNet = Math.max(0, totalEarnings - totalDeductions);
+    const adjusted = payrollEngine.applyPayrollAdjustments(existing, {
+      manualBonus,
+      manualDeduction,
+      customTax,
+      adjustmentNotes
+    });
 
     const updated = await prisma.hrPayrollItem.update({
       where: { id },
-      data: {
-        manualBonus: bonusVal,
-        manualDeduction: deductionVal,
-        customTax: taxVal,
-        deductions: totalDeductions,
-        net: recalculatedNet,
-        adjustedByHr: true,
-        adjustmentNotes: String(adjustmentNotes || ''),
-        breakdown: {
-          ...bd,
-          earnings: { ...earnings, bonus: bonusVal },
-          deductions: { ...deductions, tax: taxVal, manualCut: deductionVal }
-        }
-      },
+      data: adjusted,
       include: PAYROLL_INCLUDE
     });
 
