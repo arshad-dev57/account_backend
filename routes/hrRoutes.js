@@ -155,4 +155,57 @@ router.post('/goals', hcm.saveGoal);
 router.get('/feedback', hcm.listFeedback);
 router.post('/feedback', hcm.saveFeedback);
 
+// ============================================================
+// DEDICATED HR PRINT, BRANDING, SIGNATORY & TEMPLATE ROUTES
+// ============================================================
+const printCtrl = require('../controllers/hrPrintSettingController');
+const templateCtrl = require('../controllers/hrDocumentTemplateController');
+const generatorCtrl = require('../controllers/hrDocumentGeneratorController');
+const { hrAssetUpload } = require('../config/hrAssetUpload');
+
+// Print Settings & Branding
+router.get('/print-settings', printCtrl.getPrintSettings);
+router.put('/print-settings', printCtrl.updatePrintSettings);
+router.post(
+  '/print-settings/branding',
+  hrAssetUpload.fields([
+    { name: 'primaryLogo', maxCount: 1 },
+    { name: 'secondaryLogo', maxCount: 1 },
+    { name: 'officialStamp', maxCount: 1 }
+  ]),
+  printCtrl.uploadBrandingAssets
+);
+router.delete('/print-settings/branding/:assetKey', printCtrl.removeBrandingAsset);
+
+// Dynamic Signature Library
+router.post(
+  '/print-settings/signatories',
+  hrAssetUpload.fields([
+    { name: 'signature', maxCount: 1 },
+    { name: 'stamp', maxCount: 1 }
+  ]),
+  printCtrl.createSignatory
+);
+router.patch(
+  '/print-settings/signatories/:id',
+  hrAssetUpload.fields([
+    { name: 'signature', maxCount: 1 },
+    { name: 'stamp', maxCount: 1 }
+  ]),
+  printCtrl.updateSignatory
+);
+router.delete('/print-settings/signatories/:id', printCtrl.deleteSignatory);
+
+// Document & Letter Templates
+router.get('/templates', templateCtrl.listTemplates);
+router.get('/templates/:id', templateCtrl.getTemplate);
+router.post('/templates', templateCtrl.createTemplate);
+router.patch('/templates/:id', templateCtrl.updateTemplate);
+router.post('/templates/:id/publish', templateCtrl.publishTemplate);
+router.post('/templates/:id/duplicate', templateCtrl.duplicateTemplate);
+
+// Document Generator & Snapshots
+router.post('/documents/generate', generatorCtrl.generateDocument);
+router.get('/documents/generated/:id', generatorCtrl.getGeneratedDocument);
+
 module.exports = router;
