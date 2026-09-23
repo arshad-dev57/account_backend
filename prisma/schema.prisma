@@ -1028,28 +1028,34 @@ model HrBonus {
 }
 
 model HrDocument {
-  id               String    @id @default(uuid())
-  companyId        String    @map("company_id")
-  employeeId       String?   @map("employee_id")
-  title            String
-  category         String    @default("HR")
-  reference        String    @default("")
-  fileUrl          String    @default("") @map("file_url")
-  issueDate        DateTime? @map("issue_date") @db.Date
-  expiresAt        DateTime? @map("expires_at") @db.Date
-  documentNumber   String    @default("") @map("document_number")
-  issuingAuthority String    @default("") @map("issuing_authority")
-  status           String    @default("Uploaded")
-  notes            String    @default("")
-  verifiedBy       String    @default("") @map("verified_by")
-  verifiedAt       DateTime? @map("verified_at")
-  version          Int       @default(1)
-  createdAt        DateTime  @default(now()) @map("created_at")
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  employeeId         String?   @map("employee_id")
+  title              String
+  category           String    @default("HR")
+  reference          String    @default("")
+  fileUrl            String    @default("") @map("file_url")
+  fileName           String    @default("") @map("file_name")
+  fileSize           Int       @default(0) @map("file_size")
+  mimeType           String    @default("") @map("mime_type")
+  cloudinaryPublicId String    @default("") @map("cloudinary_public_id")
+  issueDate          DateTime? @map("issue_date") @db.Date
+  expiresAt          DateTime? @map("expires_at") @db.Date
+  documentNumber     String    @default("") @map("document_number")
+  issuingAuthority   String    @default("") @map("issuing_authority")
+  status             String    @default("Uploaded")
+  notes              String    @default("")
+  verifiedBy         String    @default("") @map("verified_by")
+  verifiedAt         DateTime? @map("verified_at")
+  version            Int       @default(1)
+  previousVersionId  String?   @map("previous_version_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
   company  Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   employee HrEmployee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
+  @@index([employeeId])
   @@map("hr_documents")
 }
 

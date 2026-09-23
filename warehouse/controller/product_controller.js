@@ -256,23 +256,23 @@ const getProducts = async (req, res) => {
             ...(supplierId ? { supplierId } : {}),
             ...(searchQuery
               ? {
-                  OR: [
-                    { name: { contains: searchQuery, mode: 'insensitive' } },
-                    { sku: { contains: searchQuery, mode: 'insensitive' } },
-                    {
-                      barcodeNumber: {
-                        contains: searchQuery,
-                        mode: 'insensitive',
-                      },
+                OR: [
+                  { name: { contains: searchQuery, mode: 'insensitive' } },
+                  { sku: { contains: searchQuery, mode: 'insensitive' } },
+                  {
+                    barcodeNumber: {
+                      contains: searchQuery,
+                      mode: 'insensitive',
                     },
-                    {
-                      qrCode: {
-                        contains: searchQuery,
-                        mode: 'insensitive',
-                      },
+                  },
+                  {
+                    qrCode: {
+                      contains: searchQuery,
+                      mode: 'insensitive',
                     },
-                  ],
-                }
+                  },
+                ],
+              }
               : {}),
           },
           select: { id: true, minimumStock: true },
@@ -341,9 +341,9 @@ const getProducts = async (req, res) => {
       locationId ? `(location ${locationId})` : '',
       locationStockMap
         ? `stocks=${locationStockMap.size} sample=${data
-            .slice(0, 3)
-            .map((x) => `${x.name}:${x.currentStock}`)
-            .join(',')}`
+          .slice(0, 3)
+          .map((x) => `${x.name}:${x.currentStock}`)
+          .join(',')}`
         : ''
     );
 
@@ -437,11 +437,6 @@ const getProductBySku = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get product by barcode
-// @route   GET /api/warehouse/products/barcode/:barcode
-// @access  Private
-// ============================================================
 const getProductByBarcode = async (req, res) => {
   try {
     const companyId = req.user.companyId;
@@ -524,24 +519,17 @@ const checkBarcodeExists = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Create product - ✅ FIXED
-// @route   POST /api/warehouse/products
-// @access  Private
-// ============================================================
 const createProduct = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    
+
     let data = req.body;
 
     // Handle FormData
     if (req.body && typeof req.body === 'object') {
       data = { ...req.body };
     }
-
-    // ─── Validation ──────────────────────────────────────────
     if (!data.name) {
       return res.status(400).json({
         success: false,
@@ -1156,11 +1144,6 @@ const generateSku = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Bulk create products
-// @route   POST /api/warehouse/products/bulk
-// @access  Private
-// ============================================================
 const bulkCreateProducts = async (req, res) => {
   try {
     const userId = req.user.id;

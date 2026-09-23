@@ -129,9 +129,17 @@ router.get('/bonuses', hcm.listBonuses);
 router.post('/bonuses', hcm.saveBonus);
 router.put('/bonuses/:id', hcm.updateBonus);
 
+const docUpload = require('../controllers/hrDocumentUploadController');
+const { hrDocumentUpload } = require('../config/hrDocumentUpload');
+
 router.get('/documents', hcm.listDocuments);
 router.post('/documents', hcm.saveDocument);
+router.post('/documents/upload', hrDocumentUpload.single('file'), docUpload.uploadDocument);
+router.post('/documents/:id/replace', hrDocumentUpload.single('file'), docUpload.replaceDocument);
+router.get('/documents/:id/versions', docUpload.getDocumentVersions);
+router.get('/documents/:id/download', docUpload.downloadDocument);
 router.patch('/documents/:id/status', hcm.updateDocumentStatus);
+router.delete('/documents/:id', docUpload.deleteDocument);
 
 router.get('/lifecycle', hcm.listLifecycle);
 router.post('/lifecycle', hcm.saveLifecycle);
