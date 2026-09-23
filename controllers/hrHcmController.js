@@ -618,9 +618,32 @@ exports.saveDocument = wrap(async (req, res, companyId) => {
       title: String(req.body.title),
       category: String(req.body.category || 'HR'),
       reference: String(req.body.reference || ''),
-      expiresAt: asDate(req.body.expiresAt)
+      fileUrl: String(req.body.fileUrl || ''),
+      issueDate: asDate(req.body.issueDate),
+      expiresAt: asDate(req.body.expiresAt),
+      documentNumber: String(req.body.documentNumber || ''),
+      issuingAuthority: String(req.body.issuingAuthority || ''),
+      status: String(req.body.status || 'Uploaded'),
+      notes: String(req.body.notes || ''),
+      version: Number(req.body.version || 1)
     }
   });
+  await writeAudit(companyId, req.user.id, 'create', 'document', row.id, row.title);
+  res.json({ success: true, data: row });
+});
+
+exports.updateDocumentStatus = wrap(async (req, res, companyId) => {
+  if (!requireHrManager(req, res)) return;
+  const status = String(req.body.status || 'Verified');
+  const row = await prisma.hrDocument.update({
+    where: { id: req.params.id },
+    data: {
+      status,
+      verifiedBy: fullName(req.user),
+      verifiedAt: status === 'Verified' ? new Date() : null
+    }
+  });
+  await writeAudit(companyId, req.user.id, 'verify', 'document', row.id, status);
   res.json({ success: true, data: row });
 });
 

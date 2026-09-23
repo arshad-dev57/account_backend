@@ -131,6 +131,7 @@ router.put('/bonuses/:id', hcm.updateBonus);
 
 router.get('/documents', hcm.listDocuments);
 router.post('/documents', hcm.saveDocument);
+router.patch('/documents/:id/status', hcm.updateDocumentStatus);
 
 router.get('/lifecycle', hcm.listLifecycle);
 router.post('/lifecycle', hcm.saveLifecycle);

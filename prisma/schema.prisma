@@ -984,18 +984,22 @@ model HrAttendanceCorrection {
 }
 
 model HrLoan {
-  id            String   @id @default(uuid())
-  companyId     String   @map("company_id")
-  employeeId    String   @map("employee_id")
-  kind          String   @default("loan")
-  amount        Float
-  installments  Int      @default(1)
-  remaining     Float    @default(0)
-  monthlyDeduct Float    @default(0) @map("monthly_deduct")
-  reason        String   @default("")
-  status        String   @default("Pending")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  companyId       String    @map("company_id")
+  employeeId      String    @map("employee_id")
+  kind            String    @default("loan")
+  amount          Float
+  installments    Int       @default(1)
+  remaining       Float     @default(0)
+  monthlyDeduct   Float     @default(0) @map("monthly_deduct")
+  reason          String    @default("")
+  status          String    @default("Pending")
+  repaymentStatus String    @default("Pending") @map("repayment_status")
+  approvedBy      String    @default("") @map("approved_by")
+  approvedAt      DateTime? @map("approved_at")
+  disbursedAt     DateTime? @map("disbursed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   company  Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   employee HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
@@ -1024,14 +1028,23 @@ model HrBonus {
 }
 
 model HrDocument {
-  id         String    @id @default(uuid())
-  companyId  String    @map("company_id")
-  employeeId String?   @map("employee_id")
-  title      String
-  category   String    @default("HR")
-  reference  String    @default("")
-  expiresAt  DateTime? @map("expires_at") @db.Date
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id               String    @id @default(uuid())
+  companyId        String    @map("company_id")
+  employeeId       String?   @map("employee_id")
+  title            String
+  category         String    @default("HR")
+  reference        String    @default("")
+  fileUrl          String    @default("") @map("file_url")
+  issueDate        DateTime? @map("issue_date") @db.Date
+  expiresAt        DateTime? @map("expires_at") @db.Date
+  documentNumber   String    @default("") @map("document_number")
+  issuingAuthority String    @default("") @map("issuing_authority")
+  status           String    @default("Uploaded")
+  notes            String    @default("")
+  verifiedBy       String    @default("") @map("verified_by")
+  verifiedAt       DateTime? @map("verified_at")
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   company  Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   employee HrEmployee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
