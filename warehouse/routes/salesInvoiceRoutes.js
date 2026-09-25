@@ -5,7 +5,9 @@ const router = express.Router();
 const { protect } = require('../../middleware/authMiddleware');
 const {
   createInvoiceFromOrder,
+  createInvoiceFromDelivery,
   createManualInvoice,
+  createMultiSourceInvoice,
   postInvoice,
   getSalesInvoices,
   getSalesInvoiceById,
@@ -16,6 +18,7 @@ const {
   getInvoiceStats,
   getCustomerInvoiceSummary,
   getAvailableOrdersForInvoicing,
+  getAvailableDeliveriesForInvoicing,
   printInvoice,
   sendInvoice
 } = require('../controller/salesInvoiceController');
@@ -33,6 +36,9 @@ router.get('/stats', getInvoiceStats);
 // Get available orders for invoicing
 router.get('/available-orders', getAvailableOrdersForInvoicing);
 
+// Get available deliveries for invoicing
+router.get('/available-deliveries', getAvailableDeliveriesForInvoicing);
+
 // ============================================================
 // ─── CUSTOMER SUMMARY ROUTES ──────────────────────────────
 // ============================================================
@@ -47,8 +53,14 @@ router.get('/customer/:customerId/summary', getCustomerInvoiceSummary);
 // Create invoice from order
 router.post('/from-order', createInvoiceFromOrder);
 
+// Create invoice from delivery
+router.post('/from-delivery', createInvoiceFromDelivery);
+
 // Create manual invoice
 router.post('/manual', createManualInvoice);
+
+// Create multi-source invoice (orders and/or deliveries)
+router.post('/create-multi', createMultiSourceInvoice);
 
 // ============================================================
 // ─── INVOICE ACTION ROUTES ────────────────────────────────

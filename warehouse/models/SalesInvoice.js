@@ -116,7 +116,8 @@ class SalesInvoiceModel {
           items: { include: { product: true } },
           customer: true,
           deliveries: {
-            where: { isActive: true, isDeleted: false, deliveryStatus: 'Delivered' }
+            where: { isActive: true, isDeleted: false, deliveryStatus: 'Delivered' },
+            include: { items: true }
           }
         }
       });
@@ -146,10 +147,32 @@ class SalesInvoiceModel {
         ? new Date(dueDate)
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+      // ─── Determine quantities to invoice ─────────────────────────────────
+      // If confirmed deliveries exist → bill only delivered quantities (prevent overbilling).
+      // If no deliveries → bill full ordered quantities (direct SO → Invoice flow).
+      const hasConfirmedDeliveries = order.deliveries && order.deliveries.length > 0;
+      const deliveredQtyByProduct = {};
+      if (hasConfirmedDeliveries) {
+        for (const delivery of order.deliveries) {
+          for (const dItem of delivery.items || []) {
+            deliveredQtyByProduct[dItem.productId] =
+              (deliveredQtyByProduct[dItem.productId] || 0) +
+              (Number(dItem.deliveredQuantity) || 0);
+          }
+        }
+      }
+
       let subtotal = 0, totalDiscount = 0, totalTax = 0;
 
       const invoiceItems = order.items.map(item => {
-        const lineTotal = item.quantity * item.unitPrice;
+        // Use delivered quantity if deliveries exist; otherwise use ordered quantity
+        const qty = hasConfirmedDeliveries
+          ? (deliveredQtyByProduct[item.productId] || 0)
+          : item.quantity;
+
+        if (qty <= 0) return null; // skip products not yet delivered
+
+        const lineTotal = qty * item.unitPrice;
         const discountAmount = (lineTotal * (item.discount || 0)) / 100;
         const taxableAmount = lineTotal - discountAmount;
         const taxAmount = (taxableAmount * (item.taxRate || 0)) / 100;
@@ -161,7 +184,7 @@ class SalesInvoiceModel {
           productId: item.productId,
           productName: item.productName,
           sku: item.sku,
-          quantity: item.quantity,
+          quantity: qty,
           unitPrice: item.unitPrice,
           discount: item.discount || 0,
           taxRate: item.taxRate || 0,
@@ -169,7 +192,13 @@ class SalesInvoiceModel {
           lineTotal: total,
           notes: item.notes || null
         };
-      });
+      }).filter(Boolean);
+
+      if (invoiceItems.length === 0) {
+        throw new Error(
+          'No delivered quantities to invoice. Confirm a delivery first, or use manual invoice for advance billing.'
+        );
+      }
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
@@ -225,6 +254,388 @@ class SalesInvoiceModel {
           data: { orderStatus: 'Pending', updatedBy: userId }
         });
       }
+
+      return invoice;
+    });
+  }
+
+  // ============================================================
+  // CREATE SALES INVOICE FROM DELIVERY NOTE
+  // ============================================================
+  static async createFromDelivery(deliveryId, userId, dueDate, paymentTerms = 'Net 30', fiscalYearId) {
+    return await prisma.$transaction(async (tx) => {
+      const delivery = await tx.delivery.findUnique({
+        where: { id: deliveryId },
+        include: {
+          items: { include: { product: true } },
+          customer: true,
+          salesOrder: { include: { items: true } }
+        }
+      });
+
+      if (!delivery) throw new Error('Delivery not found');
+
+      const existingInvoice = await tx.salesInvoice.findFirst({
+        where: { deliveryId, isActive: true, isDeleted: false }
+      });
+      if (existingInvoice) throw new Error('Invoice already exists for this delivery');
+
+      const companyId = delivery.companyId;
+      const customerId = delivery.customerId;
+      const customer = delivery.customer;
+
+      const invoiceNumber = generateInvoiceNumber();
+      const invoiceDate = new Date();
+      const dueDateObj = dueDate
+        ? new Date(dueDate)
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      let subtotal = 0, totalDiscount = 0, totalTax = 0;
+
+      const invoiceItems = delivery.items.map(item => {
+        const orderItem = delivery.salesOrder?.items?.find(oi => oi.productId === item.productId);
+        const unitPrice = orderItem?.unitPrice || item.product?.sellingPrice || item.unitPrice || 0;
+        const discount = orderItem?.discount || 0;
+        const taxRate = orderItem?.taxRate || 0;
+
+        const qty = item.deliveredQuantity || 0;
+        const lineTotal = qty * unitPrice;
+        const discountAmount = (lineTotal * discount) / 100;
+        const taxableAmount = lineTotal - discountAmount;
+        const taxAmount = (taxableAmount * taxRate) / 100;
+        const total = taxableAmount + taxAmount;
+
+        subtotal += lineTotal;
+        totalDiscount += discountAmount;
+        totalTax += taxAmount;
+
+        return {
+          productId: item.productId,
+          productName: item.productName,
+          sku: item.sku,
+          quantity: qty,
+          unitPrice,
+          discount,
+          taxRate,
+          taxAmount,
+          lineTotal: total,
+          notes: item.notes || null
+        };
+      });
+
+      const grandTotal = subtotal - totalDiscount + totalTax;
+
+      const arAccount = await findARAccount(tx, companyId, userId);
+      const revenueAccount = await findRevenueAccount(tx, companyId, userId);
+
+      const invoice = await tx.salesInvoice.create({
+        data: {
+          invoiceNumber,
+          orderId: delivery.salesOrderId || null,
+          orderNumber: delivery.salesOrderNumber || null,
+          deliveryId: delivery.id,
+          deliveryNumber: delivery.deliveryNumber,
+          customerId,
+          customerName: customer?.name || delivery.customerName || 'Unknown Customer',
+          customerEmail: customer?.email || null,
+          customerPhone: customer?.phone || null,
+          billingAddress: delivery.salesOrder?.billingAddress || {},
+          shippingAddress: delivery.salesOrder?.shippingAddress || {},
+          invoiceDate,
+          dueDate: dueDateObj,
+          paymentTerms: paymentTerms || 'Net 30',
+          subtotal,
+          discountTotal: totalDiscount,
+          taxTotal: totalTax,
+          grandTotal,
+          paidAmount: 0,
+          outstanding: grandTotal,
+          invoiceStatus: 'Draft',
+          paymentStatus: 'Unpaid',
+          salesRevenueAccountId: revenueAccount?.id || null,
+          arAccountId: arAccount?.id || null,
+          createdBy: userId,
+          companyId,
+          locationId: delivery.locationId || null,
+          fiscalYearId,
+          items: {
+            create: invoiceItems
+          }
+        },
+        include: {
+          items: { include: { product: true } },
+          customer: true,
+          order: true,
+          delivery: true
+        }
+      });
+
+      return invoice;
+    });
+  }
+
+  // ============================================================
+  // CREATE SALES INVOICE FROM MULTIPLE ORDERS AND/OR DELIVERIES
+  // (With Auto-Delivery Creation & Confirmation for Orders)
+  // ============================================================
+  static async createMultiSource(data) {
+    const {
+      orderIds = [],
+      deliveryIds = [],
+      items = [],
+      userId,
+      companyId,
+      locationId,
+      dueDate,
+      paymentTerms = 'Net 30',
+      notes,
+      fiscalYearId,
+    } = data;
+
+    if (!orderIds.length && !deliveryIds.length) {
+      throw new Error('At least one sales order or delivery ID is required');
+    }
+    if (!items || items.length === 0) {
+      throw new Error('Invoice must have at least one line item');
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      // ── 1. Fetch all source Orders and Deliveries ─────────
+      const salesOrders = orderIds.length > 0
+        ? await tx.order.findMany({
+            where: { id: { in: orderIds } },
+            include: {
+              items: { include: { product: true } },
+              customer: true,
+              deliveries: {
+                where: { isActive: true, isDeleted: false },
+                include: { items: true },
+              },
+            },
+          })
+        : [];
+
+      const salesDeliveries = deliveryIds.length > 0
+        ? await tx.delivery.findMany({
+            where: { id: { in: deliveryIds } },
+            include: {
+              items: { include: { product: true } },
+              customer: true,
+              salesOrder: true,
+            },
+          })
+        : [];
+
+      if (salesOrders.length !== orderIds.length) {
+        throw new Error('One or more selected sales orders were not found');
+      }
+      if (salesDeliveries.length !== deliveryIds.length) {
+        throw new Error('One or more selected deliveries were not found');
+      }
+
+      // ── 2. Validate same customer across all sources ──────
+      const allSources = [...salesOrders, ...salesDeliveries];
+      const firstSource = allSources[0];
+      const primaryCustomerId = firstSource.customerId;
+      const primaryCustomerName = (firstSource.customerName || firstSource.customer?.name || '').toLowerCase().trim();
+
+      for (const src of allSources) {
+        const srcCustId = src.customerId;
+        const srcCustName = (src.customerName || src.customer?.name || '').toLowerCase().trim();
+
+        if (primaryCustomerId && srcCustId && primaryCustomerId !== srcCustId) {
+          throw new Error('All selected orders and deliveries must belong to the same customer.');
+        }
+        if ((!primaryCustomerId || !srcCustId) && primaryCustomerName !== srcCustName) {
+          throw new Error('All selected orders and deliveries must belong to the same customer.');
+        }
+      }
+
+      // Find or create customer from primary source
+      const { customerId, customer } = await findOrCreateCustomer(
+        tx,
+        firstSource,
+        userId,
+        userId,
+        companyId || firstSource.companyId
+      );
+
+      // ── 3. Auto-Create and Confirm Deliveries for Orders ──
+      const createdDeliveryIds = [];
+      const createdDeliveryNumbers = [];
+
+      for (const order of salesOrders) {
+        // Find items in this invoice payload belonging to this order
+        const orderItemsForInvoice = items.filter(
+          (i) => i.orderId === order.id || (!i.orderId && !i.deliveryId && salesOrders.length === 1)
+        );
+
+        if (orderItemsForInvoice.length === 0) continue;
+
+        // Check confirmed delivery quantities for this order
+        const existingDeliveries = order.deliveries || [];
+        const confirmedDeliveredQty = {};
+        for (const d of existingDeliveries) {
+          if (d.confirmedAt || d.deliveryStatus === 'Delivered') {
+            for (const di of d.items || []) {
+              confirmedDeliveredQty[di.productId] = (confirmedDeliveredQty[di.productId] || 0) + di.deliveredQuantity;
+            }
+          }
+        }
+
+        // Calculate items that need delivery creation
+        const deliveryItemsToCreate = [];
+        for (const invItem of orderItemsForInvoice) {
+          const alreadyDelivered = confirmedDeliveredQty[invItem.productId] || 0;
+          const orderItem = order.items.find((oi) => oi.productId === invItem.productId);
+          const orderedQty = orderItem ? orderItem.quantity : invItem.quantity;
+          const unDeliveredQty = Math.max(0, orderedQty - alreadyDelivered);
+
+          const qtyToDeliver = Math.min(invItem.quantity, unDeliveredQty);
+          if (qtyToDeliver > 0) {
+            deliveryItemsToCreate.push({
+              orderId: order.id,
+              productId: invItem.productId,
+              deliveredQuantity: qtyToDeliver,
+              notes: invItem.notes || null,
+            });
+          }
+        }
+
+        if (deliveryItemsToCreate.length > 0) {
+          const DeliveryModel = require('./Delivery');
+          const autoDelivery = await DeliveryModel.createMultiOrder({
+            salesOrderIds: [order.id],
+            deliveryDate: new Date().toISOString(),
+            deliveryPerson: 'Auto-Delivery (Invoice Created)',
+            notes: `Auto-created delivery during Sales Invoice creation for Order #${order.orderNumber}`,
+            locationId: locationId || order.locationId,
+            companyId: companyId || order.companyId,
+            createdBy: userId,
+            items: deliveryItemsToCreate,
+          });
+
+          const confirmedDelivery = await DeliveryModel.confirmDelivery(autoDelivery.id, userId);
+          createdDeliveryIds.push(confirmedDelivery.id);
+          createdDeliveryNumbers.push(confirmedDelivery.deliveryNumber);
+        }
+      }
+
+      // ── 4. Build Sales Invoice Items & Calculations ───────
+      const invoiceNumber = generateInvoiceNumber();
+      const invoiceDate = new Date();
+      const dueDateObj = dueDate
+        ? new Date(dueDate)
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      let subtotal = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+
+      const invoiceItems = items.map((item) => {
+        const qty = Number(item.quantity) || 0;
+        const unitPrice = Number(item.unitPrice) || 0;
+        const discount = Number(item.discount) || 0;
+        const taxRate = Number(item.taxRate) || 0;
+
+        const lineTotal = qty * unitPrice;
+        const discountAmount = (lineTotal * discount) / 100;
+        const taxableAmount = lineTotal - discountAmount;
+        const taxAmount = (taxableAmount * taxRate) / 100;
+        const total = taxableAmount + taxAmount;
+
+        subtotal += lineTotal;
+        totalDiscount += discountAmount;
+        totalTax += taxAmount;
+
+        return {
+          productId: item.productId,
+          productName: item.productName || 'Item',
+          sku: item.sku || '',
+          quantity: qty,
+          unitPrice,
+          discount,
+          taxRate,
+          taxAmount,
+          lineTotal: total,
+          notes: item.notes || null,
+        };
+      });
+
+      const grandTotal = subtotal - totalDiscount + totalTax;
+
+      const targetCompanyId = companyId || firstSource.companyId;
+      const arAccount = await findARAccount(tx, targetCompanyId, userId);
+      const revenueAccount = await findRevenueAccount(tx, targetCompanyId, userId);
+
+      const allOrderNumbers = [
+        ...salesOrders.map((o) => o.orderNumber),
+        ...salesDeliveries.map((d) => d.salesOrderNumber).filter(Boolean),
+      ].filter((v, i, a) => a.indexOf(v) === i).join(', ');
+
+      const allDeliveryNumbers = [
+        ...salesDeliveries.map((d) => d.deliveryNumber),
+        ...createdDeliveryNumbers,
+      ].filter((v, i, a) => a.indexOf(v) === i).join(', ');
+
+      const allLinkedOrderIds = salesOrders.map((o) => o.id);
+      const allLinkedDeliveryIds = [
+        ...salesDeliveries.map((d) => d.id),
+        ...createdDeliveryIds,
+      ];
+
+      let metadata = '';
+      if (allLinkedOrderIds.length > 0) {
+        metadata += `__LINKED_ORDERS__:${JSON.stringify(allLinkedOrderIds)}\n`;
+      }
+      if (allLinkedDeliveryIds.length > 0) {
+        metadata += `__LINKED_DELIVERIES__:${JSON.stringify(allLinkedDeliveryIds)}\n`;
+      }
+      const finalInvoiceNotes = notes ? `${metadata}${notes}` : metadata || null;
+
+      const primaryOrderId = salesOrders[0]?.id || salesDeliveries[0]?.salesOrderId || null;
+      const primaryDeliveryId = salesDeliveries[0]?.id || createdDeliveryIds[0] || null;
+
+      const invoice = await tx.salesInvoice.create({
+        data: {
+          invoiceNumber,
+          orderId: primaryOrderId,
+          orderNumber: allOrderNumbers || null,
+          deliveryId: primaryDeliveryId,
+          deliveryNumber: allDeliveryNumbers || null,
+          customerId,
+          customerName: customer?.name || firstSource.customerName || 'Unknown Customer',
+          customerEmail: customer?.email || firstSource.customerEmail || null,
+          customerPhone: customer?.phone || firstSource.customerPhone || null,
+          billingAddress: firstSource.billingAddress || {},
+          shippingAddress: firstSource.shippingAddress || {},
+          invoiceDate,
+          dueDate: dueDateObj,
+          paymentTerms: paymentTerms || 'Net 30',
+          subtotal,
+          discountTotal: totalDiscount,
+          taxTotal: totalTax,
+          grandTotal,
+          paidAmount: 0,
+          outstanding: grandTotal,
+          invoiceStatus: 'Draft',
+          paymentStatus: 'Unpaid',
+          notes: finalInvoiceNotes,
+          salesRevenueAccountId: revenueAccount?.id || null,
+          arAccountId: arAccount?.id || null,
+          createdBy: userId,
+          companyId: targetCompanyId,
+          locationId: locationId || firstSource.locationId || null,
+          fiscalYearId: fiscalYearId || null,
+          items: { create: invoiceItems },
+        },
+        include: {
+          items: { include: { product: true } },
+          customer: true,
+          order: true,
+          delivery: true,
+        },
+      });
 
       return invoice;
     });

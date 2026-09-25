@@ -328,10 +328,10 @@ const updateSalesOrder = async (req, res) => {
     const existing = await prisma.order.findFirst({
       where: {
         id,
-        companyId,
+        ...(companyId ? { OR: [{ companyId: companyId }, { companyId: null }] } : {}),
         isActive: true,
         isDeleted: false,
-        orderType: 'Sales Order',
+        orderType: { notIn: ['Purchase Order', 'Purchase'] },
       },
     });
 
@@ -346,6 +346,12 @@ const updateSalesOrder = async (req, res) => {
     if (items) {
       orderItems = [];
       for (const item of items) {
+        if (!item.quantity || Number(item.quantity) <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Line quantity must be greater than 0 for ${item.productName || 'product'}`,
+          });
+        }
         let product;
         if (item.productId) {
           product = await prisma.product.findFirst({

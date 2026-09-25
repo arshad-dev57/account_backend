@@ -366,6 +366,7 @@ module.exports = {
   ensureDefaultLocation,
   resolveLocationId,
   getOrCreateProductStock,
+  absorbUnallocatedStock,
   getLocationAvailability,
   syncProductTotalStock,
   adjustLocationStock,

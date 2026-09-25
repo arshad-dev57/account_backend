@@ -107,6 +107,7 @@ const purchaseDashboardRoutes = require('./warehouse/routes/purchase_dashboard_r
 const purchaseReportRoutes = require('./warehouse/routes/purchase_report_routes');
 const expiryReportRoutes = require('./warehouse/routes/expiry_report_routes');
 const lowStockReportRoutes = require('./warehouse/routes/low_stock_report_routes');
+const internalTransferRoutes = require('./warehouse/routes/internalTransferRoutes');
 const emailRoutes = require('./routes/emailRoutes');
 const posRoutes   = require('./pos/routes/posRoutes');
 const taxRoutes   = require('./tax/routes/taxRoutes');
@@ -176,6 +177,7 @@ app.use('/api/settings', settingRoutes);
 app.use('/api/warehouse/dashboard', DashboardRoutes);
 app.use('/api/warehouse/stock', StockRoutes);
 app.use('/api/warehouse/locations', require('./warehouse/routes/locationRoutes'));
+app.use('/api/warehouse/transfers', internalTransferRoutes);
 app.use('/api/warehouse/reports/expiry', expiryReportRoutes);
 app.use('/api/warehouse/reports/low-stock', lowStockReportRoutes);
 app.use('/api/email', emailRoutes);

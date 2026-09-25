@@ -205,43 +205,49 @@ async function getInvoicedQtyByPoItemId(
 }
 
 async function getReturnedQtyByPoItemId(tx, purchaseOrderId, companyId) {
-  const returnItems = await tx.purchaseReturnItem.findMany({
-    where: {
-      return: {
-        companyId,
-        isActive: true,
-        isDeleted: false,
-        status: { in: ['Draft', 'Processed'] },
-      },
-    },
-    include: {
-      goodsReceivingItem: {
-        select: {
-          purchaseOrderItemId: true,
-          purchaseOrderId: true,
+  try {
+    const returnItems = await tx.purchaseReturnItem.findMany({
+      where: {
+        return: {
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          status: { in: ['Draft', 'Processed'] },
         },
       },
-      PurchaseInvoiceItem: {
-        select: {
-          purchaseOrderItemId: true,
+      select: {
+        returnQuantity: true,
+        goodsReceivingItem: {
+          select: {
+            purchaseOrderItemId: true,
+            purchaseOrderId: true,
+          },
+        },
+        PurchaseInvoiceItem: {
+          select: {
+            purchaseOrderItemId: true,
+          },
         },
       },
-    },
-  });
+    });
 
-  const map = {};
-  for (const item of returnItems) {
-    const poItemId =
-      item.goodsReceivingItem?.purchaseOrderItemId ||
-      item.PurchaseInvoiceItem?.purchaseOrderItemId;
-    if (!poItemId) continue;
+    const map = {};
+    for (const item of returnItems) {
+      const poItemId =
+        item.goodsReceivingItem?.purchaseOrderItemId ||
+        item.PurchaseInvoiceItem?.purchaseOrderItemId;
+      if (!poItemId) continue;
 
-    const itemPoId = item.goodsReceivingItem?.purchaseOrderId;
-    if (purchaseOrderId && itemPoId && itemPoId !== purchaseOrderId) continue;
+      const itemPoId = item.goodsReceivingItem?.purchaseOrderId;
+      if (purchaseOrderId && itemPoId && itemPoId !== purchaseOrderId) continue;
 
-    map[poItemId] = (map[poItemId] || 0) + Number(item.returnQuantity || 0);
+      map[poItemId] = (map[poItemId] || 0) + Number(item.returnQuantity || 0);
+    }
+    return map;
+  } catch (error) {
+    console.warn('⚠️ Could not load returned quantities for PO items:', error?.message);
+    return {};
   }
-  return map;
 }
 
 function collectPurchaseOrderIdsFromGrn(grn) {
@@ -266,29 +272,34 @@ async function loadPoInvoicingMaps(tx, poId, companyId, excludeInvoiceId = null)
 }
 
 async function getReturnedQtyByGrnItemId(tx, companyId, grnId = null) {
-  const returnItems = await tx.purchaseReturnItem.findMany({
-    where: {
-      ...(grnId ? { goodsReceivingId: grnId } : {}),
-      return: {
-        companyId,
-        isActive: true,
-        isDeleted: false,
-        status: { in: ['Draft', 'Processed'] },
+  try {
+    const returnItems = await tx.purchaseReturnItem.findMany({
+      where: {
+        ...(grnId ? { goodsReceivingItemId: grnId } : {}),
+        return: {
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          status: { in: ['Draft', 'Processed'] },
+        },
       },
-    },
-    select: {
-      goodsReceivingItemId: true,
-      returnQuantity: true,
-    },
-  });
+      select: {
+        goodsReceivingItemId: true,
+        returnQuantity: true,
+      },
+    });
 
-  const map = {};
-  for (const item of returnItems) {
-    if (!item.goodsReceivingItemId) continue;
-    map[item.goodsReceivingItemId] =
-      (map[item.goodsReceivingItemId] || 0) + Number(item.returnQuantity || 0);
+    const map = {};
+    for (const item of returnItems) {
+      if (!item.goodsReceivingItemId) continue;
+      map[item.goodsReceivingItemId] =
+        (map[item.goodsReceivingItemId] || 0) + Number(item.returnQuantity || 0);
+    }
+    return map;
+  } catch (error) {
+    console.warn('⚠️ Could not load returned quantities for GRN items:', error?.message);
+    return {};
   }
-  return map;
 }
 
 async function getInvoicedQtyByGrnId(tx, grnId, companyId, excludeInvoiceId = null) {

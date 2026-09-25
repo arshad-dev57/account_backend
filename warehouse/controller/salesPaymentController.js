@@ -23,9 +23,9 @@ const getCustomerInvoices = async (req, res) => {
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
-        companyId: companyId,
         isActive: true,
-        isDeleted: false
+        isDeleted: false,
+        ...(companyId ? { OR: [{ companyId: companyId }, { companyId: null }] } : {})
       }
     });
 

@@ -16,6 +16,7 @@ const createDelivery = async (req, res) => {
     const companyId = req.user.companyId;
     const {
       salesOrderId,
+      salesOrderIds,
       deliveryDate,
       deliveryPerson,
       trackingNumber,
@@ -24,8 +25,12 @@ const createDelivery = async (req, res) => {
       locationId,
     } = req.body;
 
+    const orderIds = Array.isArray(salesOrderIds) && salesOrderIds.length > 0
+      ? salesOrderIds
+      : (salesOrderId ? [salesOrderId] : []);
+
     // ─── Validation ──────────────────────────────────────
-    if (!salesOrderId) {
+    if (orderIds.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Sales order ID is required'
@@ -46,48 +51,64 @@ const createDelivery = async (req, res) => {
       });
     }
 
-    // ─── Check if sales order exists ─────────────────────
-    const salesOrder = await prisma.order.findFirst({
-      where: {
-        id: salesOrderId,
-        companyId: companyId,
-        isActive: true,
-        orderType: 'Sales Order'
-      },
-      include: {
-        items: true
+    let delivery;
+    if (orderIds.length > 1) {
+      delivery = await Delivery.createMultiOrder({
+        salesOrderIds: orderIds,
+        deliveryDate,
+        deliveryPerson,
+        trackingNumber,
+        notes,
+        items,
+        createdBy: userId,
+        companyId,
+        locationId,
+      });
+    } else {
+      const singleOrderId = orderIds[0];
+      // ─── Check if sales order exists ─────────────────────
+      const salesOrder = await prisma.order.findFirst({
+        where: {
+          id: singleOrderId,
+          companyId: companyId,
+          isActive: true,
+          orderType: 'Sales Order'
+        },
+        include: {
+          items: true
+        }
+      });
+
+      if (!salesOrder) {
+        return res.status(404).json({
+          success: false,
+          message: 'Sales order not found'
+        });
       }
-    });
 
-    if (!salesOrder) {
-      return res.status(404).json({
-        success: false,
-        message: 'Sales order not found'
-      });
+      // ─── Check if order is already fully delivered ──────
+      if (salesOrder.orderStatus === 'Delivered' || salesOrder.orderStatus === 'Cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot create delivery for ${salesOrder.orderStatus} order`
+        });
+      }
+
+      // ─── Create Delivery ──────────────────────────────────
+      const deliveryData = {
+        salesOrderId: singleOrderId,
+        deliveryDate,
+        deliveryPerson,
+        trackingNumber,
+        notes,
+        items,
+        createdBy: userId,
+        companyId: companyId,
+        locationId: locationId || salesOrder.locationId || undefined,
+      };
+
+      delivery = await Delivery.create(deliveryData);
     }
-
-    // ─── Check if order is already fully delivered ──────
-    if (salesOrder.orderStatus === 'Delivered' || salesOrder.orderStatus === 'Cancelled') {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot create delivery for ${salesOrder.orderStatus} order`
-      });
-    }
-
-    // ─── Create Delivery ──────────────────────────────────
-    const deliveryData = {
-      salesOrderId,
-      deliveryDate,
-      deliveryPerson,
-      trackingNumber,
-      notes,
-      items,
-      createdBy: userId,
-      companyId: companyId,
-      locationId: locationId || salesOrder.locationId || undefined,
-    };
-
-    const delivery = await Delivery.create(deliveryData);
 
     res.status(201).json({
       success: true,
@@ -661,22 +682,18 @@ const getAvailableOrdersForDelivery = async (req, res) => {
     const { search, page = 1, limit = 20, locationId } = req.query;
 
     const locId = String(locationId || '').trim();
-    if (!locId) {
-      return res.status(400).json({
-        success: false,
-        message: 'locationId (warehouse) is required to search orders for delivery',
-        data: [],
-      });
-    }
 
     const and = [
-      { companyId },
+      ...(companyId ? [{ OR: [{ companyId: companyId }, { companyId: null }] }] : []),
       { isActive: true },
       { isDeleted: false },
-      { orderType: 'Sales Order' },
-      { orderStatus: { notIn: ['Delivered', 'Cancelled'] } },
-      { locationId: locId },
+      { orderType: { notIn: ['Purchase Order', 'Purchase'] } },
+      { orderStatus: { notIn: ['Delivered', 'Cancelled', 'Completed'] } },
     ];
+
+    if (locId) {
+      and.push({ locationId: locId });
+    }
 
     if (search && String(search).trim()) {
       const q = String(search).trim();
@@ -716,21 +733,40 @@ const getAvailableOrdersForDelivery = async (req, res) => {
     const ordersWithRemaining = orders.map(order => {
       // Calculate total delivered per product
       const deliveredQty = {};
-      for (const delivery of order.deliveries) {
-        for (const item of delivery.items) {
-          deliveredQty[item.productId] = (deliveredQty[item.productId] || 0) + item.deliveredQuantity;
+      for (const delivery of order.deliveries || []) {
+        for (const item of delivery.items || []) {
+          deliveredQty[item.productId] = (deliveredQty[item.productId] || 0) + (Number(item.deliveredQuantity) || 0);
         }
       }
 
       // Calculate remaining quantities
-      const remainingItems = order.items.map(item => ({
-        ...item,
-        deliveredQuantity: deliveredQty[item.productId] || 0,
-        remainingQuantity: item.quantity - (deliveredQty[item.productId] || 0)
-      })).filter(item => item.remainingQuantity > 0);
+      const remainingItems = (order.items || []).map(item => {
+        const deliv = deliveredQty[item.productId] || 0;
+        const ordQty = Number(item.quantity) || 0;
+        const remQty = Math.max(0, ordQty - deliv);
+        return {
+          id: item.id,
+          productId: item.productId,
+          productName: item.productName,
+          sku: item.sku,
+          orderedQuantity: ordQty,
+          deliveredQuantity: deliv,
+          remainingQuantity: remQty,
+          unitPrice: Number(item.unitPrice) || 0,
+          unit: 'Pcs'
+        };
+      }).filter(item => item.remainingQuantity > 0);
 
       return {
-        ...order,
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail || '',
+        customerPhone: order.customerPhone || '',
+        orderDate: order.orderDate,
+        orderStatus: order.orderStatus,
+        locationId: order.locationId,
+        items: remainingItems,
         remainingItems,
         hasRemainingItems: remainingItems.length > 0
       };
@@ -746,15 +782,14 @@ const getAvailableOrdersForDelivery = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / parseInt(limit)) || 1
       }
     });
   } catch (error) {
-    console.error('Get available orders error:', error);
+    console.error('Get available orders for delivery error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message || 'Server error'
     });
   }
 };

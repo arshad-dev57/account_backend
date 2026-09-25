@@ -16,20 +16,16 @@ function generatePaymentNumber() {
 }
 
 class SalesPaymentReceivedModel {
-  // ============================================================
-  // GET CUSTOMER INVOICES (Unpaid & Partially Paid)
-  // ============================================================
   static async getCustomerInvoices(customerId, companyId, locationId) {
     const invoices = await prisma.salesInvoice.findMany({
       where: {
         customerId: customerId,
-        companyId: companyId,
+        ...(companyId ? { OR: [{ companyId: companyId }, { companyId: null }] } : {}),
         isActive: true,
         isDeleted: false,
         invoiceStatus: {
           notIn: ['Paid', 'Cancelled']
-        },
-        ...(locationId ? { locationId } : {}),
+        }
       },
       orderBy: {
         invoiceDate: 'asc'
@@ -49,17 +45,19 @@ class SalesPaymentReceivedModel {
     });
 
     const invoicesWithOutstanding = invoices.map(invoice => {
-      const totalPaid = invoice.invoicePayments?.reduce((sum, ip) => sum + ip.amountPaid, 0) || 0;
-      const outstanding = invoice.grandTotal - totalPaid;
-      
+      const paymentsSum = invoice.invoicePayments?.reduce((sum, ip) => sum + (Number(ip.amountPaid) || 0), 0) || 0;
+      const totalPaid = Math.max(Number(invoice.paidAmount) || 0, paymentsSum);
+      const grandTotal = Number(invoice.grandTotal) || 0;
+      const outstanding = Math.max(0, grandTotal - totalPaid);
+
       return {
         ...invoice,
         paidAmount: totalPaid,
-        outstanding: Math.max(0, outstanding)
+        outstanding: outstanding
       };
     });
 
-    return invoicesWithOutstanding.filter(inv => inv.outstanding > 0);
+    return invoicesWithOutstanding.filter(inv => inv.outstanding > 0.01);
   }
 
   // ============================================================
@@ -110,8 +108,6 @@ class SalesPaymentReceivedModel {
       if (!customer) {
         throw new Error('Customer not found');
       }
-
-      // ─── Validate Bank Account ──────────────────────────
       if (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque') {
         if (!bankAccountId) {
           throw new Error('Bank account is required for this payment method');
@@ -129,8 +125,6 @@ class SalesPaymentReceivedModel {
           throw new Error('Bank account not found');
         }
       }
-
-      // ─── Validate Invoices ──────────────────────────────
       let totalPaidAmount = 0;
       const validatedInvoices = [];
 
@@ -311,7 +305,7 @@ class SalesPaymentReceivedModel {
       const payment = await tx.salesPaymentReceived.create({
         data: {
           paymentNumber,
-          paymentDate: new Date(),
+          paymentDate: data.paymentDate ? new Date(data.paymentDate) : new Date(),
           customerId: customerId,
           customerName: customer.name,
           amount: amount,
@@ -392,13 +386,11 @@ class SalesPaymentReceivedModel {
         }
       }
 
-      // ─── Sync linked sales orders (payment + lift Draft) ──
       const Order = require('./Order');
       for (const orderId of orderIdsToSync) {
         await Order.syncFromInvoices(orderId, tx);
       }
 
-      // ─── Update Customer Outstanding Balance ─────────────
       const totalOutstanding = await tx.salesInvoice.aggregate({
         where: {
           customerId: customerId,

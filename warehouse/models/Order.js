@@ -51,7 +51,7 @@ class OrderModel {
       const order = await tx.order.create({
         data: {
           orderNumber,
-          orderDate: new Date(),
+          orderDate: data.orderDate ? new Date(data.orderDate) : new Date(),
           customerName: data.customerName,
           customerEmail: data.customerEmail,
           customerPhone: data.customerPhone,
@@ -71,7 +71,7 @@ class OrderModel {
           priority: data.priority || 'Medium',
           source: data.source || 'Web',
           salesPerson: data.salesPerson || '',
-          expectedDeliveryDate: data.expectedDeliveryDate,
+          expectedDeliveryDate: data.expectedDeliveryDate ? new Date(data.expectedDeliveryDate) : null,
           shippingMethod: data.shippingMethod || 'Standard',
           shippingCarrier: data.shippingCarrier || '',
           paymentMethod: data.paymentMethod || 'Cash',

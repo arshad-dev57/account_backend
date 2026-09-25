@@ -86,6 +86,83 @@ const createInvoiceFromOrder = async (req, res) => {
   }
 };
 
+// @desc    Create Sales Invoice from Delivery Note
+// @route   POST /api/sales/invoices/from-delivery
+// @access  Private
+const createInvoiceFromDelivery = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { deliveryId, dueDate, paymentTerms } = req.body;
+    const postingDate = new Date();
+
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
+    if (!deliveryId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery ID is required'
+      });
+    }
+
+    const delivery = await prisma.delivery.findFirst({
+      where: {
+        id: deliveryId,
+        isActive: true,
+        isDeleted: false,
+        ...(companyId ? { OR: [{ companyId }, { companyId: null }] } : {})
+      }
+    });
+
+    if (!delivery) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery not found'
+      });
+    }
+
+    const invoice = await SalesInvoice.createFromDelivery(
+      deliveryId,
+      userId,
+      dueDate,
+      paymentTerms,
+      fiscalYearId
+    );
+
+    const postedInvoice = await SalesInvoice.postInvoice(invoice.id, userId);
+
+    await taxCalculationService.recordFromDocument({
+      companyId,
+      transactionId: postedInvoice.id,
+      transactionType: 'SalesInvoice',
+      items: postedInvoice.items || [],
+      customerId: postedInvoice.customerId
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Sales invoice created from delivery successfully',
+      data: postedInvoice
+    });
+  } catch (error) {
+    console.error('Create invoice from delivery error:', error);
+    res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message || 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // @desc    Create Manual Sales Invoice
 // @route   POST /api/sales/invoices/manual
 // @access  Private
@@ -222,6 +299,85 @@ const createManualInvoice = async (req, res) => {
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const createMultiSourceInvoice = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const {
+      orderIds = [],
+      deliveryIds = [],
+      items = [],
+      dueDate,
+      paymentTerms,
+      notes,
+      locationId,
+    } = req.body;
+
+    const postingDate = new Date();
+
+    try {
+      await fiscalYearGuard(userId, postingDate);
+    } catch (err) {
+      if (err.code === 'FISCAL_YEAR_CLOSED') {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
+
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
+    if ((!orderIds || orderIds.length === 0) && (!deliveryIds || deliveryIds.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one Sales Order ID or Delivery ID is required',
+      });
+    }
+
+    if (!items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invoice must have at least one item',
+      });
+    }
+
+    const invoice = await SalesInvoice.createMultiSource({
+      orderIds,
+      deliveryIds,
+      items,
+      dueDate,
+      paymentTerms,
+      notes,
+      userId,
+      companyId,
+      locationId,
+      fiscalYearId,
+    });
+
+    const postedInvoice = await SalesInvoice.postInvoice(invoice.id, userId);
+
+    await taxCalculationService.recordFromDocument({
+      companyId,
+      transactionId: postedInvoice.id,
+      transactionType: 'SalesInvoice',
+      items: postedInvoice.items || [],
+      customerId: postedInvoice.customerId,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Sales Invoice created and posted successfully',
+      data: postedInvoice,
+    });
+  } catch (error) {
+    console.error('Create multi-source invoice error:', error);
+    res.status(error.statusCode || 400).json({
+      success: false,
+      message: error.message || 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -774,7 +930,7 @@ const getInvoiceStats = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    
+
     const [kpi, stats] = await Promise.all([
       SalesInvoice.getStatusCounts(companyId),
       SalesInvoice.getStats(companyId)
@@ -832,20 +988,13 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
     const { search, page = 1, limit = 20, locationId } = req.query;
 
     const locId = String(locationId || '').trim();
-    if (!locId) {
-      return res.status(400).json({
-        success: false,
-        message: 'locationId (warehouse) is required to search orders for invoicing',
-        data: [],
-      });
-    }
 
     const and = [
       { isActive: true },
       { isDeleted: false },
       { orderType: 'Sales Order' },
       { orderStatus: { notIn: ['Cancelled'] } },
-      { locationId: locId },
+      ...(locId ? [{ locationId: locId }] : []),
       {
         OR: [
           { companyId },
@@ -963,6 +1112,135 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
   }
 };
 
+// @desc    Get Available Deliveries for Invoicing
+// @route   GET /api/sales/invoices/available-deliveries
+// @access  Private
+const getAvailableDeliveriesForInvoicing = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    const { search, page = 1, limit = 20, locationId } = req.query;
+
+    const locId = String(locationId || '').trim();
+
+    const and = [
+      { isActive: true },
+      { isDeleted: false },
+      { deliveryStatus: { in: ['Pending', 'Partially Delivered', 'Delivered'] } },
+      ...(companyId ? [{ OR: [{ companyId }, { companyId: null }] }] : []),
+    ];
+
+    if (locId) {
+      and.push({ locationId: locId });
+    }
+
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
+      and.push({
+        OR: [
+          { deliveryNumber: { contains: q, mode: 'insensitive' } },
+          { salesOrderNumber: { contains: q, mode: 'insensitive' } },
+          { customerName: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const where = { AND: and };
+
+    const deliveries = await prisma.delivery.findMany({
+      where,
+      include: {
+        items: {
+          include: {
+            product: { select: { id: true, name: true, sku: true, sellingPrice: true } }
+          }
+        },
+        salesOrder: {
+          include: {
+            items: true
+          }
+        },
+        customer: { select: { id: true, name: true, email: true, phone: true } },
+        salesInvoices: {
+          where: { isActive: true, isDeleted: false },
+          select: { id: true }
+        }
+      },
+      skip: (parseInt(page) - 1) * parseInt(limit),
+      take: parseInt(limit),
+      orderBy: { deliveryDate: 'desc' }
+    });
+
+    const availableDeliveries = deliveries
+      .filter((dlv) => dlv.salesInvoices.length === 0)
+      .map((dlv) => {
+        const mappedItems = (dlv.items || []).map((item) => {
+          const orderItem = dlv.salesOrder?.items?.find((oi) => oi.productId === item.productId);
+          const unitPrice = orderItem?.unitPrice != null
+            ? Number(orderItem.unitPrice)
+            : (item.product?.sellingPrice != null
+                ? Number(item.product.sellingPrice)
+                : 0);
+
+          const discount = orderItem?.discount != null ? Number(orderItem.discount) : 0;
+          const taxRate = orderItem?.taxRate != null ? Number(orderItem.taxRate) : 0;
+
+          return {
+            id: item.id,
+            productId: item.productId,
+            productName: item.productName || item.product?.name || 'Product',
+            sku: item.sku || item.product?.sku || '',
+            unit: item.unit || 'Pcs',
+            orderedQuantity: item.orderedQuantity || 0,
+            deliveredQuantity: item.deliveredQuantity || 0,
+            quantity: item.deliveredQuantity || 0,
+            unitPrice: unitPrice,
+            discount: discount,
+            taxRate: taxRate,
+            notes: item.notes,
+          };
+        });
+
+        const totalQty = mappedItems.reduce((sum, item) => sum + (item.deliveredQuantity || 0), 0);
+        return {
+          id: dlv.id,
+          deliveryNumber: dlv.deliveryNumber,
+          salesOrderId: dlv.salesOrderId,
+          salesOrderNumber: dlv.salesOrderNumber,
+          customerId: dlv.customerId || dlv.customer?.id,
+          customerName: dlv.customerName || dlv.customer?.name || '',
+          deliveryDate: dlv.deliveryDate,
+          deliveryStatus: dlv.deliveryStatus,
+          locationId: dlv.locationId,
+          totalQuantity: totalQty,
+          itemCount: mappedItems.length,
+          items: mappedItems
+        };
+      });
+
+    const total = availableDeliveries.length;
+
+    res.status(200).json({
+      success: true,
+      count: availableDeliveries.length,
+      data: availableDeliveries,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit)) || 1
+      }
+    });
+  } catch (error) {
+    console.error('Get available deliveries error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error',
+      data: [],
+    });
+  }
+};
+
 // @desc    Print Invoice (Get PDF data)
 // @route   GET /api/sales/invoices/:id/print
 // @access  Private
@@ -1001,8 +1279,6 @@ const printInvoice = async (req, res) => {
       });
     }
 
-    // Here you would generate PDF
-    // For now, return the invoice data
     res.status(200).json({
       success: true,
       message: 'Invoice data for print',
@@ -1028,7 +1304,6 @@ const sendInvoice = async (req, res) => {
     const { id } = req.params;
     const { email } = req.body;
 
-    // ─── Check if invoice exists ────────────────────────
     const invoice = await prisma.salesInvoice.findFirst({
       where: {
         id: id,
@@ -1045,7 +1320,6 @@ const sendInvoice = async (req, res) => {
       });
     }
 
-    // Update invoice status to Sent if currently Draft
     let updatedInvoice = invoice;
     if (invoice.invoiceStatus === 'Draft') {
       updatedInvoice = await prisma.salesInvoice.update({
@@ -1057,9 +1331,6 @@ const sendInvoice = async (req, res) => {
         }
       });
     }
-
-    // Here you would send email with PDF attachment
-    // For now, just return success
 
     res.status(200).json({
       success: true,
@@ -1076,11 +1347,12 @@ const sendInvoice = async (req, res) => {
   }
 };
 
-// ─── EXPORT CONTROLLERS ──────────────────────────────────────
 
 module.exports = {
   createInvoiceFromOrder,
+  createInvoiceFromDelivery,
   createManualInvoice,
+  createMultiSourceInvoice,
   postInvoice,
   getSalesInvoices,
   getSalesInvoiceById,
@@ -1091,6 +1363,7 @@ module.exports = {
   getInvoiceStats,
   getCustomerInvoiceSummary,
   getAvailableOrdersForInvoicing,
+  getAvailableDeliveriesForInvoicing,
   printInvoice,
   sendInvoice
 };

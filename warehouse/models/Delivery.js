@@ -8,14 +8,13 @@ const {
 } = require('../services/locationService');
 const { getIssuedByInvoiceQty } = require('../services/inventoryService');
 
-// ─── Generate Delivery Number Function ──────────────────────
 function generateDeliveryNumber() {
   const date = new Date();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  
+
   return `DLV-${year}${month}${day}-${random}`;
 }
 
@@ -98,7 +97,7 @@ async function findOrCreateCustomer(tx, salesOrder, companyId, createdBy) {
 
   // Generate unique customer number
   const customerNumber = `CUS-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  
+
   // Create new customer — email/phone unique per company only
   let email = salesOrder.customerEmail;
   let phone = salesOrder.customerPhone;
@@ -173,7 +172,6 @@ async function findOrCreateCustomer(tx, salesOrder, companyId, createdBy) {
           return { customerId: existing.id, customer: existing };
         }
       }
-      // Try to find by phone
       if (phone) {
         const existing = await tx.customer.findFirst({
           where: {
@@ -196,12 +194,9 @@ async function findOrCreateCustomer(tx, salesOrder, companyId, createdBy) {
 }
 
 class DeliveryModel {
-  // ============================================================
-  // CREATE DELIVERY AGAINST SALES ORDER
-  // ============================================================
   static async create(data) {
     const deliveryNumber = generateDeliveryNumber();
-    
+
     return await prisma.$transaction(async (tx) => {
       // Get sales order with items
       const salesOrder = await tx.order.findUnique({
@@ -244,7 +239,7 @@ class DeliveryModel {
       const deliveredQuantities = {};
       for (const delivery of existingDeliveries) {
         for (const item of delivery.items) {
-          deliveredQuantities[item.productId] = 
+          deliveredQuantities[item.productId] =
             (deliveredQuantities[item.productId] || 0) + item.deliveredQuantity;
         }
       }
@@ -255,7 +250,7 @@ class DeliveryModel {
 
       for (const item of data.items) {
         const orderItem = salesOrder.items.find(oi => oi.productId === item.productId);
-        
+
         if (!orderItem) {
           throw new Error(`Product ${item.productId} not found in sales order`);
         }
@@ -369,6 +364,189 @@ class DeliveryModel {
   }
 
   // ============================================================
+  // CREATE DELIVERY AGAINST MULTIPLE SALES ORDERS (same customer)
+  // ============================================================
+  static async createMultiOrder(data) {
+    // data.salesOrderIds: string[]  (at least 1)
+    // data.items: Array<{ productId, orderId, deliveredQuantity, notes? }>
+    const salesOrderIds = data.salesOrderIds;
+    if (!salesOrderIds || salesOrderIds.length === 0) {
+      throw new Error('At least one sales order ID is required');
+    }
+
+    const deliveryNumber = generateDeliveryNumber();
+
+    return await prisma.$transaction(async (tx) => {
+      // ── 1. Load all orders ────────────────────────────────
+      const salesOrders = await tx.order.findMany({
+        where: { id: { in: salesOrderIds } },
+        include: {
+          items: { include: { product: true } },
+          customer: true,
+        },
+      });
+
+      if (salesOrders.length !== salesOrderIds.length) {
+        const found = salesOrders.map((o) => o.id);
+        const missing = salesOrderIds.filter((id) => !found.includes(id));
+        throw new Error(`Sales orders not found: ${missing.join(', ')}`);
+      }
+
+      // ── 2. Validate same customer ─────────────────────────
+      const firstOrder = salesOrders[0];
+      for (const order of salesOrders) {
+        if (firstOrder.customerId && order.customerId && firstOrder.customerId !== order.customerId) {
+          throw new Error(
+            `All orders must belong to the same customer. Order ${order.orderNumber} belongs to a different customer.`
+          );
+        }
+        if (
+          (!firstOrder.customerId || !order.customerId) &&
+          (firstOrder.customerName || '').toLowerCase().trim() !==
+          (order.customerName || '').toLowerCase().trim()
+        ) {
+          throw new Error(
+            `All orders must belong to the same customer. Order ${order.orderNumber} has a different customer name.`
+          );
+        }
+        if (order.orderStatus === 'Delivered' || order.orderStatus === 'Cancelled') {
+          throw new Error(
+            `Cannot include order ${order.orderNumber} — it is ${order.orderStatus}.`
+          );
+        }
+      }
+
+      // ── 3. Find or create customer from primary order ─────
+      const primaryOrder = salesOrders[0];
+      const companyId = primaryOrder.companyId || data.companyId || null;
+      const { customerId, customer } = await findOrCreateCustomer(
+        tx,
+        primaryOrder,
+        companyId,
+        data.createdBy
+      );
+
+      // ── 4. Build a map: orderId → { order, existingDeliveredQty by productId } ──
+      const orderMap = {};
+      for (const order of salesOrders) {
+        const existingDeliveries = await tx.delivery.findMany({
+          where: { salesOrderId: order.id, isActive: true, isDeleted: false },
+          include: { items: true },
+        });
+        const deliveredQty = {};
+        for (const d of existingDeliveries) {
+          for (const di of d.items) {
+            deliveredQty[di.productId] = (deliveredQty[di.productId] || 0) + di.deliveredQuantity;
+          }
+        }
+        orderMap[order.id] = { order, deliveredQty };
+      }
+
+      // ── 5. Validate & build delivery items ─────────────────
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        data.locationId || primaryOrder.locationId,
+        data.createdBy
+      );
+
+      const deliveryItems = [];
+      let totalDeliveredQuantity = 0;
+
+      for (const item of data.items) {
+        if (!item.orderId) {
+          throw new Error(`Each item must specify orderId. Product ${item.productId} is missing orderId.`);
+        }
+        const entry = orderMap[item.orderId];
+        if (!entry) {
+          throw new Error(`Order ${item.orderId} not found in selected orders`);
+        }
+        const { order, deliveredQty } = entry;
+        const orderItem = order.items.find((oi) => oi.productId === item.productId);
+        if (!orderItem) {
+          throw new Error(`Product ${item.productId} not found in order ${order.orderNumber}`);
+        }
+
+        const alreadyDelivered = deliveredQty[item.productId] || 0;
+        const orderedQuantity = orderItem.quantity;
+        const remainingQuantity = orderedQuantity - alreadyDelivered;
+
+        if (item.deliveredQuantity <= 0) {
+          throw new Error(
+            `Delivered quantity must be > 0 for ${orderItem.productName} (Order ${order.orderNumber})`
+          );
+        }
+        if (item.deliveredQuantity > remainingQuantity) {
+          throw new Error(
+            `Delivered quantity (${item.deliveredQuantity}) exceeds remaining (${remainingQuantity}) for ${orderItem.productName} (Order ${order.orderNumber})`
+          );
+        }
+
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!product) throw new Error(`Product ${item.productId} not found`);
+
+        const locStock = await getLocationAvailability(tx, { productId: item.productId, locationId });
+        if (locStock.current < item.deliveredQuantity) {
+          throw new Error(
+            `Insufficient stock for ${orderItem.productName}. On hand: ${locStock.current}, Required: ${item.deliveredQuantity}`
+          );
+        }
+
+        deliveryItems.push({
+          productId: item.productId,
+          productName: orderItem.productName,
+          sku: orderItem.sku,
+          unit: product.stockUnitName || 'Pcs',
+          orderedQuantity: orderedQuantity,
+          deliveredQuantity: item.deliveredQuantity,
+          remainingQuantity: remainingQuantity - item.deliveredQuantity,
+          // Store the source orderId in the item notes so confirmDelivery can update each order status
+          notes: `__ORDER_ID__:${item.orderId}${item.notes ? ' ' + item.notes : ''}`,
+        });
+
+        totalDeliveredQuantity += item.deliveredQuantity;
+      }
+
+      if (totalDeliveredQuantity === 0) {
+        throw new Error('No items with delivery quantity > 0');
+      }
+
+      // ── 6. Build notes with linked order IDs metadata ──────
+      const linkedOrdersMeta = `__LINKED_ORDERS__:${JSON.stringify(salesOrderIds)}`;
+      const finalNotes = data.notes
+        ? `${linkedOrdersMeta}\n${data.notes}`
+        : linkedOrdersMeta;
+
+      // ── 7. Create the single delivery ─────────────────────
+      const allOrderNumbers = salesOrders.map((o) => o.orderNumber).join(', ');
+      const delivery = await tx.delivery.create({
+        data: {
+          deliveryNumber,
+          salesOrder: { connect: { id: primaryOrder.id } },
+          salesOrderNumber: allOrderNumbers,
+          customer: customerId ? { connect: { id: customerId } } : undefined,
+          customerName: customer?.name || primaryOrder.customerName || 'Unknown Customer',
+          deliveryDate: new Date(data.deliveryDate),
+          deliveryStatus: 'Pending',
+          deliveryPerson: data.deliveryPerson || null,
+          trackingNumber: data.trackingNumber || null,
+          notes: finalNotes,
+          creator: (data.createdBy || primaryOrder.createdBy) ? { connect: { id: data.createdBy || primaryOrder.createdBy } } : undefined,
+          company: companyId ? { connect: { id: companyId } } : undefined,
+          location: locationId ? { connect: { id: locationId } } : undefined,
+          items: { create: deliveryItems },
+        },
+        include: {
+          items: true,
+          salesOrder: { include: { customer: true } },
+        },
+      });
+
+      return delivery;
+    });
+  }
+
+  // ============================================================
   // CONFIRM DELIVERY (Reduce Stock)
   // ============================================================
   static async confirmDelivery(id, userId) {
@@ -433,10 +611,13 @@ class DeliveryModel {
             userId
           );
 
+          const itemOrderIdMatch = item.notes ? item.notes.match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/) : null;
+          const itemOrderId = itemOrderIdMatch ? itemOrderIdMatch[1] : delivery.salesOrderId;
+
           const alreadyIssued = await getIssuedByInvoiceQty(tx, {
             companyId,
             productId: item.productId,
-            orderId: delivery.salesOrderId,
+            orderId: itemOrderId,
           });
           const qtyToIssue = Math.max(0, item.deliveredQuantity - alreadyIssued);
 
@@ -493,49 +674,69 @@ class DeliveryModel {
         }
       });
 
-      // Update sales order status based on cumulative confirmed deliveries
-      const orderWithItems = await tx.order.findUnique({
-        where: { id: delivery.salesOrderId },
-        include: { items: true },
-      });
-      const confirmedDeliveries = await tx.delivery.findMany({
-        where: {
-          salesOrderId: delivery.salesOrderId,
-          confirmedAt: { not: null },
-        },
-        include: { items: true },
-      });
-      const deliveredByProduct = {};
-      for (const d of confirmedDeliveries) {
-        for (const di of d.items || []) {
-          deliveredByProduct[di.productId] =
-            (deliveredByProduct[di.productId] || 0) +
-            (Number(di.deliveredQuantity) || 0);
-        }
+      // Update sales order status for all linked orders based on cumulative confirmed deliveries
+      const linkedOrderIds = [];
+      if (delivery.notes && delivery.notes.includes('__LINKED_ORDERS__:')) {
+        try {
+          const match = delivery.notes.match(/__LINKED_ORDERS__:(\[.*?\])/);
+          if (match) linkedOrderIds.push(...JSON.parse(match[1]));
+        } catch (e) { }
       }
-      let allDelivered = true;
-      for (const oi of orderWithItems?.items || []) {
-        const delivered = deliveredByProduct[oi.productId] || 0;
-        if (delivered < oi.quantity) {
-          allDelivered = false;
-          break;
-        }
+      if (delivery.salesOrderId && !linkedOrderIds.includes(delivery.salesOrderId)) {
+        linkedOrderIds.push(delivery.salesOrderId);
       }
-      await tx.order.update({
-        where: { id: delivery.salesOrderId },
-        data: {
-          deliveryDate: new Date(),
-          orderStatus: allDelivered ? 'Delivered' : 'Partially Delivered',
-        },
-      });
+
+      for (const targetOrderId of linkedOrderIds) {
+        const orderWithItems = await tx.order.findUnique({
+          where: { id: targetOrderId },
+          include: { items: true },
+        });
+        if (!orderWithItems) continue;
+
+        const confirmedDeliveries = await tx.delivery.findMany({
+          where: {
+            confirmedAt: { not: null },
+            isActive: true,
+            isDeleted: false,
+          },
+          include: { items: true },
+        });
+
+        const deliveredByProduct = {};
+        for (const d of confirmedDeliveries) {
+          for (const di of d.items || []) {
+            const diOrderIdMatch = di.notes ? di.notes.match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/) : null;
+            const diOrderId = diOrderIdMatch ? diOrderIdMatch[1] : d.salesOrderId;
+            if (diOrderId === targetOrderId) {
+              deliveredByProduct[di.productId] =
+                (deliveredByProduct[di.productId] || 0) +
+                (Number(di.deliveredQuantity) || 0);
+            }
+          }
+        }
+
+        let allDelivered = true;
+        for (const oi of orderWithItems.items || []) {
+          const delivered = deliveredByProduct[oi.productId] || 0;
+          if (delivered < oi.quantity) {
+            allDelivered = false;
+            break;
+          }
+        }
+
+        await tx.order.update({
+          where: { id: targetOrderId },
+          data: {
+            deliveryDate: new Date(),
+            orderStatus: allDelivered ? 'Delivered' : 'Partially Delivered',
+          },
+        });
+      }
 
       return updatedDelivery;
     });
   }
 
-  // ============================================================
-  // GET DELIVERY BY ID
-  // ============================================================
   static async findById(id) {
     return await prisma.delivery.findUnique({
       where: { id },
@@ -637,7 +838,7 @@ class DeliveryModel {
   // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { deliveryDate: 'desc' } } = options;
-    
+
     return await prisma.delivery.findMany({
       where: {
         ...filter,
@@ -756,7 +957,7 @@ class DeliveryModel {
         const deliveredQuantities = {};
         for (const d of otherDeliveries) {
           for (const item of d.items) {
-            deliveredQuantities[item.productId] = 
+            deliveredQuantities[item.productId] =
               (deliveredQuantities[item.productId] || 0) + item.deliveredQuantity;
           }
         }
@@ -767,7 +968,7 @@ class DeliveryModel {
 
         for (const item of data.items) {
           const orderItem = delivery.salesOrder.items.find(oi => oi.productId === item.productId);
-          
+
           if (!orderItem) {
             throw new Error(`Product ${item.productId} not found in sales order`);
           }
@@ -803,7 +1004,7 @@ class DeliveryModel {
         // Determine delivery status
         const allItemsFullyDelivered = deliveryItems.every(item => item.remainingQuantity === 0);
         let deliveryStatus = 'Pending';
-        
+
         if (allItemsFullyDelivered) {
           deliveryStatus = 'Delivered';
         } else if (totalDeliveredQuantity > 0) {
@@ -846,7 +1047,7 @@ class DeliveryModel {
         const salesOrder = await tx.order.findUnique({
           where: { id: delivery.salesOrderId }
         });
-        
+
         if (salesOrder && salesOrder.orderStatus !== 'Delivered' && salesOrder.orderStatus !== 'Cancelled') {
           await tx.order.update({
             where: { id: delivery.salesOrderId },
@@ -891,9 +1092,6 @@ class DeliveryModel {
     });
   }
 
-  // ============================================================
-  // GET DELIVERY STATS / KPI
-  // ============================================================
   static async getStats(companyId, locationId = null) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -922,7 +1120,6 @@ class DeliveryModel {
       }
     });
 
-    // Today's confirmed deliveries
     const todayConfirmed = await prisma.delivery.count({
       where: {
         ...baseFilter,
@@ -1005,9 +1202,6 @@ class DeliveryModel {
     };
   }
 
-  // ============================================================
-  // GET AVAILABLE ORDERS FOR DELIVERY
-  // ============================================================
   static async getAvailableOrders(companyId, search = '', page = 1, limit = 20, locationId = null) {
     const where = {
       companyId: companyId,
@@ -1095,9 +1289,6 @@ class DeliveryModel {
     };
   }
 
-  // ============================================================
-  // GET PRODUCT DELIVERY SUMMARY
-  // ============================================================
   static async getProductDeliverySummary(companyId, startDate, endDate, locationId = null) {
     const where = {
       companyId: companyId,

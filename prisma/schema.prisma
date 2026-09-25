@@ -131,6 +131,7 @@ model Company {
   hrSignatories      HrSignatory[]
   hrDocumentTemplates HrDocumentTemplate[]
   hrGeneratedDocuments HrGeneratedDocument[]
+  internalTransfers    InternalTransfer[]   @relation("InternalTransferCompany")
   manufacturingBOMs  ManufacturingBOM[]            @relation("ManufacturingBOMCompany")
   manufacturingRoutings ManufacturingRouting[]        @relation("ManufacturingRoutingCompany")
   manufacturingWorkCenters ManufacturingWorkCenter[] @relation("ManufacturingWorkCenterCompany")
@@ -216,6 +217,9 @@ model Location {
   @@index([companyId])
   @@index([isActive])
   @@index([isDefault])
+  internalTransfersFrom InternalTransfer[] @relation("InternalTransferFrom")
+  internalTransfersTo   InternalTransfer[] @relation("InternalTransferTo")
+
   @@map("locations")
 }
 
@@ -447,6 +451,8 @@ model User {
   @@index([createdBy])
   @@index([companyId])
   @@index([assignedTerminalId])
+  internalTransfersCreated InternalTransfer[] @relation("InternalTransferCreator")
+
   @@map("users")
 }
 
@@ -1708,6 +1714,8 @@ model Product {
   @@index([qrCode])
   @@index([companyId])
   @@index([companyId, updatedAt, id])
+  internalTransferItems InternalTransferItem[] @relation("InternalTransferItemProduct")
+
   @@map("products")
 }
 
@@ -6131,4 +6139,93 @@ model HrGeneratedDocument {
   @@index([companyId])
   @@index([employeeId])
   @@map("hr_generated_documents")
+}
+
+// ============================================================
+// INTERNAL WAREHOUSE TRANSFERS
+// ============================================================
+
+model InternalTransfer {
+  id              String   @id @default(uuid())
+  transferNumber  String   @unique @map("transfer_number")
+  companyId       String   @map("company_id")
+  transferDate    DateTime @map("transfer_date")
+  fromLocationId  String   @map("from_location_id")
+  toLocationId    String   @map("to_location_id")
+  status          String   @default("Draft") // Draft | Confirmed | InTransit | Received | Done | Cancelled
+  priority        String   @default("Normal") // Low | Normal | High | Urgent
+  reference       String?
+  reason          String?
+  notes           String?
+  createdBy       String   @map("created_by")
+  updatedBy       String?  @map("updated_by")
+  confirmedBy     String?  @map("confirmed_by")
+  confirmedAt     DateTime? @map("confirmed_at")
+  dispatchedBy    String?  @map("dispatched_by")
+  dispatchedAt    DateTime? @map("dispatched_at")
+  receivedBy      String?  @map("received_by")
+  receivedAt      DateTime? @map("received_at")
+  completedBy     String?  @map("completed_by")
+  completedAt     DateTime? @map("completed_at")
+  cancelledBy     String?  @map("cancelled_by")
+  cancelledAt     DateTime? @map("cancelled_at")
+  cancelReason    String?  @map("cancel_reason")
+  isDeleted       Boolean  @default(false) @map("is_deleted")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company  @relation("InternalTransferCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  fromLocation Location @relation("InternalTransferFrom", fields: [fromLocationId], references: [id])
+  toLocation   Location @relation("InternalTransferTo", fields: [toLocationId], references: [id])
+  creator      User     @relation("InternalTransferCreator", fields: [createdBy], references: [id])
+
+  items   InternalTransferItem[]
+  history InternalTransferHistory[]
+
+  @@index([companyId])
+  @@index([fromLocationId])
+  @@index([toLocationId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("internal_transfers")
+}
+
+model InternalTransferItem {
+  id              String @id @default(uuid())
+  transferId      String @map("transfer_id")
+  productId       String @map("product_id")
+  productName     String @map("product_name")
+  sku             String @default("")
+  requestedQty    Float  @default(0) @map("requested_qty")
+  dispatchedQty   Float  @default(0) @map("dispatched_qty")
+  receivedQty     Float  @default(0) @map("received_qty")
+  unit            String @default("pcs")
+  batchNumber     String? @map("batch_number")
+  serialNumber    String? @map("serial_number")
+  notes           String?
+
+  transfer InternalTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product  Product          @relation("InternalTransferItemProduct", fields: [productId], references: [id])
+
+  @@index([transferId])
+  @@index([productId])
+  @@map("internal_transfer_items")
+}
+
+model InternalTransferHistory {
+  id         String   @id @default(uuid())
+  transferId String   @map("transfer_id")
+  action     String   // Created | Confirmed | Dispatched | Received | Completed | Cancelled | Updated
+  fromStatus String?  @map("from_status")
+  toStatus   String?  @map("to_status")
+  note       String?
+  userId     String   @map("user_id")
+  userName   String   @map("user_name")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  transfer InternalTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+  @@map("internal_transfer_history")
 }
