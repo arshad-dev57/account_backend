@@ -36,22 +36,52 @@ async function ensureDefaultLocation(txOrPrisma, companyId, userId) {
   });
 }
 
-async function resolveLocationId(txOrPrisma, companyId, locationId, userId) {
+async function resolveLocationId(txOrPrisma, companyId, locationId, userId, opts = {}) {
   const db = txOrPrisma || prisma;
   const { assertCanUseLocationId, getLocationScope } = require('../../utils/locationAccessHelper');
+  const required = opts.required === true;
+  const allowCreateDefault = opts.allowCreateDefault === true;
+
   if (locationId) {
     const loc = await db.location.findFirst({
       where: { id: locationId, companyId, isDeleted: false, isActive: true },
     });
     if (!loc) {
-      const err = new Error('Location not found or inactive');
+      const err = new Error('Location not found or inactive for this company');
       err.statusCode = 400;
       throw err;
     }
     assertCanUseLocationId(loc.id);
     return loc.id;
   }
-  const def = await ensureDefaultLocation(db, companyId, userId);
+
+  // Prefer existing default / first location — never auto-create unless explicitly allowed
+  let def = await db.location.findFirst({
+    where: { companyId, isDeleted: false, isDefault: true, isActive: true },
+  });
+  if (!def) {
+    def = await db.location.findFirst({
+      where: { companyId, isDeleted: false, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  if (!def && allowCreateDefault) {
+    def = await ensureDefaultLocation(db, companyId, userId);
+  }
+
+  if (!def) {
+    if (required) {
+      const err = new Error(
+        'No warehouse/location configured. Create a warehouse before performing inventory operations.'
+      );
+      err.statusCode = 400;
+      err.code = 'WAREHOUSE_REQUIRED';
+      throw err;
+    }
+    return null;
+  }
+
   const scope = getLocationScope();
   if (scope && !scope.isAdmin && Array.isArray(scope.ids) && scope.ids.length) {
     if (scope.ids.includes(def.id)) return def.id;
@@ -63,6 +93,14 @@ async function resolveLocationId(txOrPrisma, companyId, locationId, userId) {
     throw err;
   }
   return def.id;
+}
+
+/** Inventory/stock writes: location required; never auto-creates. */
+async function resolveLocationIdRequired(txOrPrisma, companyId, locationId, userId) {
+  return resolveLocationId(txOrPrisma, companyId, locationId, userId, {
+    required: true,
+    allowCreateDefault: false,
+  });
 }
 
 async function getOrCreateProductStock(tx, { companyId, productId, locationId }) {
@@ -365,6 +403,7 @@ async function backfillCompanyLocationStock(companyId, userId) {
 module.exports = {
   ensureDefaultLocation,
   resolveLocationId,
+  resolveLocationIdRequired,
   getOrCreateProductStock,
   absorbUnallocatedStock,
   getLocationAvailability,

@@ -5,7 +5,6 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const emailService = require('../services/emailService');
 const { initializeDefaultChartOfAccounts } = require('../services/defaultChartOfAccountsService');
-const { ensureDefaultLocation } = require('../warehouse/services/locationService');
 const {
   resolveAndSyncSubscriptionAccess,
   companyHasActiveSubscription,
@@ -357,11 +356,18 @@ exports.register = async (req, res) => {
     }
 
     try {
-      await ensureDefaultLocation(prisma, company.id, user._id);
-      console.log('✅ [register] Default location (Main Warehouse) created');
-    } catch (locError) {
-      console.error('⚠️ [register] Default location creation failed (non-fatal):', locError.message);
+      const { ensureMembershipForUserCompany } = require('../utils/companyAccess');
+      await ensureMembershipForUserCompany(user._id, company.id, {
+        role: 'admin',
+        isOwner: true,
+        forceRole: true,
+      });
+      console.log('✅ [register] Company membership created');
+    } catch (memError) {
+      console.error('⚠️ [register] Company membership failed (non-fatal):', memError.message);
     }
+
+    // NOTE: Do NOT auto-create a Main Warehouse. Warehouse creation is an explicit user action.
 
     try {
       await emailService.sendWelcomeEmail(email, firstName);

@@ -7,6 +7,7 @@ const {
   scheduleSubscriptionHeal,
   companyHasActiveSubscription,
 } = require('../utils/companySubscription');
+const { resolveActiveCompanyContext } = require('../utils/companyAccess');
 
 const AUTH_TTL_MS = 8000;
 const authCache = new Map();
@@ -53,10 +54,11 @@ async function loadUserWithCompany(userId) {
   return promise;
 }
 
-function toReqUser(row) {
+function toReqUser(row, activeCompanyId, activeCompany) {
   const user = new User(row);
-  user.companyId = row.companyId;
-  user.company = row.company || null;
+  user.companyId = activeCompanyId || null;
+  user.company = activeCompany || null;
+  user.primaryCompanyId = row.companyId || null;
   return user;
 }
 
@@ -113,7 +115,34 @@ async function runProtect(req, res, next, { requireSubscription }) {
       });
     }
 
-    if (row.company && !row.company.isActive && !isPlatformOwner(row.email)) {
+    const companyHeader =
+      req.headers['x-company-id'] ||
+      req.headers['x-active-company-id'] ||
+      req.query?.companyId;
+
+    let companyCtx;
+    try {
+      companyCtx = await resolveActiveCompanyContext(
+        row.id,
+        row.companyId,
+        companyHeader
+      );
+    } catch (accessErr) {
+      return res.status(accessErr.status || 403).json({
+        success: false,
+        code: accessErr.code || 'COMPANY_ACCESS_DENIED',
+        message: accessErr.message || 'Company access denied',
+      });
+    }
+
+    const activeCompany = companyCtx.company || null;
+
+    if (
+      companyCtx.mode === 'single' &&
+      activeCompany &&
+      !activeCompany.isActive &&
+      !isPlatformOwner(row.email)
+    ) {
       return res.status(403).json({
         success: false,
         code: 'COMPANY_INACTIVE',
@@ -121,10 +150,14 @@ async function runProtect(req, res, next, { requireSubscription }) {
       });
     }
 
-    const evaluated = accessFromRecords(row, row.company);
-    scheduleSubscriptionHeal(row, row.company);
+    const subCompany =
+      companyCtx.mode === 'single'
+        ? activeCompany
+        : row.company;
+    const evaluated = accessFromRecords(row, subCompany);
+    scheduleSubscriptionHeal(row, subCompany);
 
-    if (requireSubscription && !evaluated.hasAccess) {
+    if (requireSubscription && companyCtx.mode !== 'all' && !evaluated.hasAccess) {
       const now = new Date();
       const plan = row.subscriptionPlan;
       const status = row.subscriptionStatus;
@@ -134,7 +167,7 @@ async function runProtect(req, res, next, { requireSubscription }) {
         status === 'active' &&
         row.subscriptionEndDate &&
         now > new Date(row.subscriptionEndDate);
-      if (status === 'active' && (trialGone || paidGone) && !companyHasActiveSubscription(row.company)) {
+      if (status === 'active' && (trialGone || paidGone) && !companyHasActiveSubscription(subCompany)) {
         prisma.user
           .update({
             where: { id: row.id },
@@ -150,8 +183,14 @@ async function runProtect(req, res, next, { requireSubscription }) {
       });
     }
 
-    req.user = toReqUser(row);
+    req.user = toReqUser(row, companyCtx.companyId, activeCompany);
     req.authUserRow = row;
+    req.companyMode = companyCtx.mode;
+    req.accessibleCompanyIds = companyCtx.accessibleCompanyIds || [];
+    req.companyMembership = {
+      role: companyCtx.membershipRole,
+      isOwner: companyCtx.isOwner,
+    };
     return attachLocationScope(req, res, next);
   } catch (error) {
     console.error('Auth middleware error:', error);

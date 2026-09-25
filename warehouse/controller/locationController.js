@@ -32,9 +32,13 @@ function locationToJson(loc) {
 const listLocations = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    await ensureDefaultLocation(prisma, companyId, req.user.id);
-    // Ensure legacy company stock is on the default warehouse so filters work
-    await backfillCompanyLocationStock(companyId, req.user.id);
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        code: 'COMPANY_REQUIRED',
+        message: 'Select a specific company to manage warehouses',
+      });
+    }
 
     const locations = await prisma.location.findMany({
       where: { companyId, isDeleted: false },

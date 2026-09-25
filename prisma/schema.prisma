@@ -41,6 +41,7 @@ model Company {
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
   users              User[]
+  memberships        CompanyMembership[]
   categories         Category[]             @relation("CategoryCompany")
   suppliers          Supplier[]             @relation("SupplierCompany")
   settings           Setting[]              @relation("SettingCompany")
@@ -393,6 +394,7 @@ model User {
   permissions         UserPermission[]
   userLocations        UserLocation[]
   company             Company?             @relation(fields: [companyId], references: [id])
+  memberships         CompanyMembership[]
   assignedTerminal    POSTerminal?         @relation("UserAssignedTerminal", fields: [assignedTerminalId], references: [id], onDelete: SetNull)
   createdTerminals    POSTerminal[]        @relation("TerminalCreator")
   shifts              POSShift[]           @relation("CashierShift")
@@ -454,6 +456,30 @@ model User {
   internalTransfersCreated InternalTransfer[] @relation("InternalTransferCreator")
 
   @@map("users")
+}
+
+// ============================================================
+// MULTI-COMPANY MEMBERSHIP (one user → many companies)
+// ============================================================
+
+model CompanyMembership {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  companyId String   @map("company_id")
+  role      String   @default("admin") // admin | user | employee (company-scoped)
+  isOwner   Boolean  @default(false) @map("is_owner")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([userId])
+  @@index([companyId])
+  @@index([isActive])
+  @@map("company_memberships")
 }
 
 // ============================================================
