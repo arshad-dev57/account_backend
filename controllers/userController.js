@@ -19,6 +19,7 @@ const {
   getDemoOtpExpiry,
 } = require('../utils/demoAccount');
 const { isEmployeeRole } = require('../utils/hrAccess');
+const { TRIAL_DAYS } = require('../utils/subscriptionPricing');
 
 const OTP_TTL_MS = 60 * 1000;
 
@@ -189,7 +190,7 @@ exports.register = async (req, res) => {
 
     const now = new Date();
     const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 14);
+    trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
 
     const userRole = 'admin';
 

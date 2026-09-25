@@ -1,12 +1,14 @@
 // models/Subscription.js - Prisma Version (Fixed)
 const prisma = require('../prisma/client');
 
+const { TRIAL_DAYS } = require('../utils/subscriptionPricing');
+
 // ─── Calculate end date based on plan ──────────────────────
 function calculateEndDate(startDate, plan) {
   const endDate = new Date(startDate);
 
   if (plan === 'trial') {
-    endDate.setDate(endDate.getDate() + 14);
+    endDate.setDate(endDate.getDate() + TRIAL_DAYS);
   } else if (plan === 'monthly') {
     endDate.setMonth(endDate.getMonth() + 1);
   } else if (plan === 'yearly') {

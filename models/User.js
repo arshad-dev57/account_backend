@@ -264,9 +264,10 @@ class User {
 
   // Start free trial
   async startTrial() {
+    const { TRIAL_DAYS } = require('../utils/subscriptionPricing');
     const now = new Date();
     const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 14);
+    trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
 
     const updated = await prisma.user.update({
       where: { id: this._id },

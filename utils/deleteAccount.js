@@ -325,4 +325,4 @@ async function deleteMyAccount(userId) {
   }
 }
 
-module.exports = { deleteMyAccount };
+module.exports = { deleteMyAccount, wipeEntireCompany };

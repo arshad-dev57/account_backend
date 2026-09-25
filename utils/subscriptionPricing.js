@@ -1,6 +1,7 @@
 /** Subscription pricing & capacity helpers (USD) */
 
-const TRIAL_DAYS = 14;
+/** Default trial length for NEW trials only. Existing stored trialEndDate values are never recalculated. */
+const TRIAL_DAYS = 5;
 
 /** PKR list prices → USD (4000 PKR ≈ $14/user/mo) */
 const PKR_TO_USD = 4000 / 14;

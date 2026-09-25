@@ -460,7 +460,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
 };
 
 // ============================================================
-// @desc    Start free trial (14 days)
+// @desc    Start free trial (TRIAL_DAYS — new trials only)
 // @route   POST /api/subscription/trial/start
 // @access  Private
 // ============================================================

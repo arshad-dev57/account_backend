@@ -9,6 +9,7 @@ router.get('/companies', protectOnly, ctrl.listCompanies);
 router.get('/companies/:id', protectOnly, ctrl.getCompany);
 router.put('/companies/:id/status', protectOnly, ctrl.updateCompanyStatus);
 router.put('/companies/:id/subscription', protectOnly, ctrl.updateCompanySubscription);
+router.delete('/companies/:id', protectOnly, ctrl.deleteCompany);
 router.get('/users', protectOnly, ctrl.listUsers);
 router.post('/notifications', protectOnly, ctrl.sendNotification);
 router.post('/emails', protectOnly, ctrl.sendEmail);

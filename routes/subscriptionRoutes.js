@@ -38,7 +38,7 @@ router.get('/validate', protectOnly, validateAccess);
 router.get('/details', protectOnly, getSubscriptionDetails);
 
 // ─── Trial ────────────────────────────────────────────────
-// Start a 14-day free trial (new users only)
+// Start a free trial (new users only; duration from TRIAL_DAYS)
 router.post('/trial/start', protectOnly, startTrial);
 
 // ─── Subscribe (Direct — No Stripe) ──────────────────────

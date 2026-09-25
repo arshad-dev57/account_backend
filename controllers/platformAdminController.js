@@ -11,6 +11,7 @@ const {
   calculatePrice,
   TRIAL_DAYS,
 } = require('../utils/companySubscription');
+const { wipeEntireCompany } = require('../utils/deleteAccount');
 
 const COMPANY_SUBSCRIPTION_SELECT = {
   id: true,
@@ -137,6 +138,53 @@ exports.updateCompanyStatus = async (req, res) => {
   } catch (err) {
     if (err.code === 'P2025') {
       return res.status(404).json({ success: false, message: 'Company not found' });
+    }
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Permanently delete company + all users/data ──────────────────────────────
+exports.deleteCompany = async (req, res) => {
+  try {
+    const companyId = req.params.id;
+    const existing = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        _count: { select: { users: true } },
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Company not found' });
+    }
+
+    const userCount = existing._count?.users || 0;
+    const result = await wipeEntireCompany(existing.id);
+
+    if (!result.companyDeleted) {
+      return res.status(500).json({
+        success: false,
+        message: `Failed to fully delete company "${existing.name}". Some data may remain — try again or check server logs.`,
+        data: result,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Company "${existing.name}" and all related users/data have been permanently deleted.`,
+      data: {
+        id: existing.id,
+        name: existing.name,
+        usersDeleted: userCount,
+        companyDeleted: result.companyDeleted,
+      },
+    });
+  } catch (err) {
+    console.error('deleteCompany error:', err);
+    if (err.message === 'Invalid id') {
+      return res.status(400).json({ success: false, message: 'Invalid company id' });
     }
     res.status(500).json({ success: false, message: err.message });
   }
