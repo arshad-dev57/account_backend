@@ -648,6 +648,151 @@ const createExpense = async (req, res) => {
   }
 };
 
+// Helper to merge direct Expense table records with Expense Journal Lines (e.g. COGS, Payroll, Journal Entries)
+async function fetchAllExpensesMerged({ companyId, userId, locationId, startDate, endDate, status, expenseType, search }) {
+  const companyFilter = {
+    OR: [
+      { companyId: companyId },
+      { companyId: null, createdBy: userId }
+    ]
+  };
+
+  const filter = { AND: [companyFilter] };
+  const locFilter = withLocation(locationId);
+  if (Object.keys(locFilter).length) filter.AND.push(locFilter);
+
+  if (expenseType && expenseType !== 'All') {
+    filter.AND.push({ expenseType });
+  }
+
+  if (status && status !== 'All') {
+    filter.AND.push({ status });
+  }
+
+  if (startDate && endDate) {
+    filter.AND.push({
+      date: {
+        gte: new Date(startDate),
+        lte: new Date(endDate)
+      }
+    });
+  }
+
+  if (search) {
+    filter.AND.push({
+      OR: [
+        { expenseNumber: { contains: search, mode: 'insensitive' } },
+        { vendorName:    { contains: search, mode: 'insensitive' } },
+        { description:   { contains: search, mode: 'insensitive' } }
+      ]
+    });
+  }
+
+  const dbExpenses = await prisma.expense.findMany({
+    where: filter,
+    include: {
+      expenseAccount: true,
+      vendor: true,
+      bankAccount: true
+    },
+    orderBy: { date: 'desc' }
+  });
+
+  const existingRefs = new Set();
+  dbExpenses.forEach(e => {
+    if (e.expenseNumber) existingRefs.add(e.expenseNumber);
+    if (e.reference) existingRefs.add(e.reference);
+  });
+
+  // Query Journal Entry Lines for Expense accounts
+  const jeWhere = {
+    journal: {
+      companyId,
+      status: status && status !== 'All' ? (status === 'Draft' ? 'Draft' : { not: 'Cancelled' }) : { not: 'Cancelled' }
+    },
+    account: { type: { in: ['Expense', 'Expenses'] } },
+    debit: { gt: 0 }
+  };
+
+  if (startDate && endDate) {
+    jeWhere.journal.date = {
+      gte: new Date(startDate),
+      lte: new Date(endDate)
+    };
+  }
+
+  const jeLines = await prisma.journalLine.findMany({
+    where: jeWhere,
+    include: {
+      journal: true,
+      account: true
+    }
+  });
+
+  const jeExpenses = jeLines
+    .filter(jl => {
+      const ref = jl.journal.reference;
+      const num = jl.journal.entryNumber;
+      if (ref && existingRefs.has(ref)) return false;
+      if (num && existingRefs.has(num)) return false;
+
+      if (expenseType && expenseType !== 'All') {
+        const typeMatch = (jl.accountName || jl.account?.name || '').toLowerCase().includes(expenseType.toLowerCase());
+        if (!typeMatch) return false;
+      }
+
+      if (search) {
+        const q = search.toLowerCase();
+        const numMatch = (jl.journal.entryNumber || '').toLowerCase().includes(q);
+        const refMatch = (jl.journal.reference || '').toLowerCase().includes(q);
+        const descMatch = (jl.journal.description || '').toLowerCase().includes(q);
+        const accMatch = (jl.accountName || '').toLowerCase().includes(q);
+        if (!numMatch && !refMatch && !descMatch && !accMatch) return false;
+      }
+      return true;
+    })
+    .map(jl => {
+      const amt = Number(jl.debit) || 0;
+      return {
+        id: `je-${jl.id}`,
+        expenseNumber: jl.journal.entryNumber || `JE-${jl.id.slice(0, 8)}`,
+        date: jl.journal.date || jl.journal.createdAt,
+        expenseType: jl.accountName || jl.account?.name || 'General Expense',
+        vendorName: jl.journal.reference || 'General Ledger',
+        items: [
+          {
+            description: jl.journal.description || jl.accountName,
+            quantity: 1,
+            unitPrice: amt,
+            amount: amt
+          }
+        ],
+        amount: amt,
+        hasItems: true,
+        subtotal: amt,
+        taxRate: 0,
+        taxAmount: 0,
+        totalAmount: amt,
+        description: jl.journal.description || `${jl.accountName} - ${jl.journal.entryNumber}`,
+        reference: jl.journal.reference || jl.journal.entryNumber,
+        paymentMethod: 'Journal Entry',
+        status: jl.journal.status === 'Draft' ? 'Draft' : 'Posted',
+        expenseAccount: jl.account ? {
+          id: jl.account.id,
+          code: jl.account.code,
+          name: jl.account.name,
+          type: jl.account.type
+        } : null,
+        isJournalEntry: true,
+        createdAt: jl.journal.createdAt,
+        updatedAt: jl.journal.updatedAt || jl.journal.createdAt
+      };
+    });
+
+  const merged = [...dbExpenses, ...jeExpenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+  return merged;
+}
+
 const getExpenses = async (req, res) => {
   try {
     const { 
@@ -662,67 +807,33 @@ const getExpenses = async (req, res) => {
     } = req.query;
 
     const userId = req.user.id;
-
     const companyId = req.user.companyId;
-    // Company scoping: show this company's expenses + old records without companyId (backward compat)
-    const companyFilter = {
-      OR: [
-        { companyId: companyId },
-        { companyId: null, createdBy: userId }
-      ]
-    };
 
-    const filter = { AND: [companyFilter] };
-
-    const locFilter = withLocation(locationId);
-    if (Object.keys(locFilter).length) {
-      filter.AND.push(locFilter);
-    }
-
-    if (expenseType && expenseType !== 'All') {
-      filter.AND.push({ expenseType });
-    }
-
-    if (status && status !== 'All') {
-      filter.AND.push({ status });
-    }
-
-    if (startDate && endDate) {
-      filter.AND.push({
-        date: {
-          gte: new Date(startDate),
-          lte: new Date(endDate)
-        }
-      });
-    }
-
-    if (search) {
-      filter.AND.push({
-        OR: [
-          { expenseNumber: { contains: search, mode: 'insensitive' } },
-          { vendorName:    { contains: search, mode: 'insensitive' } },
-          { description:   { contains: search, mode: 'insensitive' } }
-        ]
-      });
-    }
+    const allMerged = await fetchAllExpensesMerged({
+      companyId,
+      userId,
+      locationId,
+      startDate,
+      endDate,
+      status,
+      expenseType,
+      search
+    });
 
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(limit) || 20;
     const skip = (pageNum - 1) * limitNum;
 
-    const [expenses, totalCount] = await Promise.all([
-      ExpenseModel.findAll(filter, { skip, take: limitNum, orderBy: { date: 'desc' } }),
-      ExpenseModel.count(filter)
-    ]);
-
+    const paginatedData = allMerged.slice(skip, skip + limitNum);
+    const totalCount = allMerged.length;
     const totalPages = Math.ceil(totalCount / limitNum);
 
     const responseData = {
-      count: expenses.length,
+      count: paginatedData.length,
       total: totalCount,
       page: pageNum,
       pages: totalPages,
-      data: expenses
+      data: paginatedData
     };
 
     res.status(200).json({
@@ -1079,36 +1190,17 @@ const getSummary = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
-    const filter = {
-      OR: [
-        { companyId: companyId },
-        { companyId: null, createdBy: userId }
-      ],
-      ...withLocation(locationId)
-    };
-
-    if (status && status !== 'All') {
-      filter.status = status;
-    } else {
-      filter.status = { not: 'Cancelled' };
-    }
-
-    if (expenseType && expenseType !== 'All') {
-      filter.expenseType = expenseType;
-    }
-
-    if (startDate && endDate) {
-      filter.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate)
-      };
-    }
-
-    const allExpenses = await prisma.expense.findMany({
-      where: filter
+    const allMerged = await fetchAllExpensesMerged({
+      companyId,
+      userId,
+      locationId,
+      startDate,
+      endDate,
+      status,
+      expenseType
     });
 
-    const summary = await ExpenseModel.getSummary(allExpenses);
+    const summary = await ExpenseModel.getSummary(allMerged);
 
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1116,12 +1208,12 @@ const getSummary = async (req, res) => {
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
 
-    const thisMonth = allExpenses
+    const thisMonth = allMerged
       .filter(e => new Date(e.date) >= startOfMonth)
-      .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
-    const thisWeek = allExpenses
+      .reduce((sum, e) => sum + (e.totalAmount || e.amount || 0), 0);
+    const thisWeek = allMerged
       .filter(e => new Date(e.date) >= startOfWeek)
-      .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
+      .reduce((sum, e) => sum + (e.totalAmount || e.amount || 0), 0);
 
     res.status(200).json({
       success: true,
