@@ -1595,7 +1595,7 @@ async function buildDashboardOverview({
 const getDashboardOverview = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const {
       start: startDate,
       end: endDate,
@@ -1627,7 +1627,7 @@ const getDashboardOverview = async (req, res) => {
 const getDashboardSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { start: startDate, end: endDate, timePeriod, fiscalYearId } = await resolveDateRange(
       req.query,
       companyId
@@ -1666,7 +1666,7 @@ const getDashboardSummary = async (req, res) => {
 const getChartData = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { start: startDate, end: endDate, timePeriod, fiscalYearId } = await resolveDateRange(
       req.query,
       companyId
@@ -1698,7 +1698,7 @@ const getChartData = async (req, res) => {
 const getExpenseCategories = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { start: startDate, end: endDate, timePeriod, fiscalYearId } = await resolveDateRange(
       req.query,
       companyId
@@ -1732,7 +1732,7 @@ const getRecentTransactions = async (req, res) => {
     const { limit = 10 } = req.query;
     const limitNum = parseInt(limit, 10) || 10;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const loc = normalizeLocationId(req.query.locationId);
 
     const [paymentsReceived, incomes, expenses, invoices, bills] = await Promise.all([
@@ -1914,7 +1914,7 @@ const getYearlySummary = async (req, res) => {
   try {
     const { year = new Date().getFullYear() } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const y = parseInt(year, 10);
     const startDate = new Date(y, 0, 1, 0, 0, 0, 0);
     const endDate = endOfDay(new Date(y, 11, 31));

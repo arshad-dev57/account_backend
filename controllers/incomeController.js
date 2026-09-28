@@ -234,7 +234,7 @@ async function createIncomeJournalEntry(userId, companyId, income, cashOrBankAcc
 exports.getIncomeAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const accounts = await getIncomeAccountsForDropdown(userId, companyId);
 
     res.status(200).json({
@@ -268,7 +268,7 @@ exports.createIncome = async (req, res) => {
 
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const postingDate = date ? new Date(date) : new Date();
     try {
       await fiscalYearGuard(userId, postingDate);
@@ -552,7 +552,7 @@ exports.getIncomes = async (req, res) => {
     const { incomeType, status, startDate, endDate, search, page = 1, limit = 10, locationId } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const filter = { companyId: companyId, ...withLocation(locationId) };
 
     if (incomeType && incomeType !== 'All') {
@@ -616,7 +616,7 @@ exports.getIncome = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const income = await prisma.income.findFirst({
       where: {
         id,
@@ -690,7 +690,7 @@ exports.updateIncome = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       date,
       incomeType,
@@ -893,7 +893,7 @@ exports.deleteIncome = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const existing = await prisma.income.findFirst({
       where: {
         id,
@@ -939,7 +939,7 @@ exports.deleteIncome = async (req, res) => {
 exports.getSummary = async (req, res) => {
   try {
     const { startDate, endDate, locationId, status, incomeType } = req.query;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const baseFilter = { companyId, ...withLocation(locationId) };
     if (status && status !== 'All') {
@@ -1005,7 +1005,7 @@ exports.postIncome = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const income = await prisma.income.findFirst({
       where: {
         id,

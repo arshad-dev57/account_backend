@@ -13,7 +13,7 @@ const prisma = require('../../prisma/client');
 const createSalesRefund = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refundData = {
       ...req.body,
       refundType: 'Sales Refund',
@@ -48,7 +48,7 @@ const createSalesRefund = async (req, res) => {
 const getSalesRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -136,7 +136,7 @@ const getSalesRefunds = async (req, res) => {
 const createPurchaseRefund = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refundData = {
       ...req.body,
       refundType: 'Purchase Refund',
@@ -163,7 +163,7 @@ const createPurchaseRefund = async (req, res) => {
 const getPurchaseRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -246,7 +246,7 @@ const getPurchaseRefunds = async (req, res) => {
 const getRefundById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refund = await prisma.refund.findFirst({
       where: {
         id: req.params.id,
@@ -290,7 +290,7 @@ const getRefundById = async (req, res) => {
 const getRefundByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refund = await prisma.refund.findFirst({
       where: {
         refundNumber: req.params.refundNumber,
@@ -328,7 +328,7 @@ const getRefundByNumber = async (req, res) => {
 const getOrderRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refunds = await Refund.findByOrderId(req.params.orderId);
     res.status(200).json({ success: true, data: refunds });
   } catch (error) {
@@ -343,7 +343,7 @@ const getOrderRefunds = async (req, res) => {
 const getPurchaseRefundsByPurchase = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refunds = await Refund.findByPurchaseId(req.params.purchaseId);
     res.status(200).json({ success: true, data: refunds });
   } catch (error) {
@@ -358,7 +358,7 @@ const getPurchaseRefundsByPurchase = async (req, res) => {
 const updateRefund = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -389,7 +389,7 @@ const updateRefund = async (req, res) => {
 const processRefund = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -416,7 +416,7 @@ const processRefund = async (req, res) => {
 const completeRefund = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -443,7 +443,7 @@ const completeRefund = async (req, res) => {
 const cancelRefund = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -470,7 +470,7 @@ const cancelRefund = async (req, res) => {
 const deleteRefund = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const refund = await Refund.findById(req.params.id);
     if (!refund) {
       return res.status(404).json({ success: false, message: 'Refund not found' });
@@ -497,7 +497,7 @@ const deleteRefund = async (req, res) => {
 const getRefundStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { period = 'month', type } = req.query;
     
     let stats;
@@ -531,7 +531,7 @@ const getRefundStats = async (req, res) => {
 const searchRefunds = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { q, limit = 10 } = req.query;
 
     if (!q || q.length < 2) {

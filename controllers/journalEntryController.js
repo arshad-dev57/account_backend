@@ -183,7 +183,7 @@ const createJournalEntry = async (req, res) => {
   try {
     const { date, description, reference, lines } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const postingDate = date ? new Date(date) : new Date();
     const { pickRequestedLocationId } = require('../utils/locationAccessHelper');
     const { resolveLocationId } = require('../warehouse/services/locationService');
@@ -414,7 +414,7 @@ const getJournalEntries = async (req, res) => {
     console.log('getJournalEntries called with params:', { search, startDate, endDate, page, limit, status, locationId });
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       journalEntryLocationWhere,
     } = require('../utils/accountingLocationHelper');
@@ -556,7 +556,7 @@ const getJournalEntry = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     
     const journalEntry = await prisma.journalEntry.findFirst({
       where: {
@@ -608,7 +608,7 @@ const deleteJournalEntry = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     
     const existing = await prisma.journalEntry.findFirst({
       where: {
@@ -693,7 +693,7 @@ const deleteJournalEntry = async (req, res) => {
 
 const getJournalEntryStats = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { locationId } = req.query;
     const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
 
@@ -742,7 +742,7 @@ const getJournalEntryStats = async (req, res) => {
 const getJournalEntriesByAccount = async (req, res) => {
   try {
     const { accountId } = req.params;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { locationId } = req.query;
     const { journalEntryLocationWhere } = require('../utils/accountingLocationHelper');
 
@@ -793,7 +793,7 @@ const postJournalEntry = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const existing = await prisma.journalEntry.findFirst({
       where: {

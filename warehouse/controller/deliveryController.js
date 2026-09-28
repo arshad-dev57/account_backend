@@ -13,7 +13,7 @@ const prisma = require('../../prisma/client');
 const createDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       salesOrderId,
       salesOrderIds,
@@ -131,7 +131,7 @@ const createDelivery = async (req, res) => {
 const confirmDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if delivery exists ────────────────────────
@@ -189,7 +189,7 @@ const confirmDelivery = async (req, res) => {
 const getDeliveryById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const delivery = await prisma.delivery.findFirst({
@@ -267,7 +267,7 @@ const getDeliveryById = async (req, res) => {
 const getDeliveryByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { deliveryNumber } = req.params;
 
     const delivery = await prisma.delivery.findFirst({
@@ -326,7 +326,7 @@ const getDeliveryByNumber = async (req, res) => {
 const getDeliveriesByOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { orderId } = req.params;
 
     // ─── Check if order exists ──────────────────────────
@@ -368,7 +368,7 @@ const getDeliveriesByOrder = async (req, res) => {
 const getDeliveries = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -484,7 +484,7 @@ const getDeliveries = async (req, res) => {
 const updateDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const {
       deliveryDate,
@@ -553,7 +553,7 @@ const updateDelivery = async (req, res) => {
 const deleteDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if delivery exists ────────────────────────
@@ -602,7 +602,7 @@ const deleteDelivery = async (req, res) => {
 // @access  Private
 const getDeliveryStats = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { locationId } = req.query;
     const stats = await Delivery.getStats(companyId, locationId || null);
     
@@ -625,7 +625,7 @@ const getDeliveryStats = async (req, res) => {
 // @access  Private
 const getDeliveryKPI = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { locationId } = req.query;
     const kpi = await Delivery.getStatusCounts(companyId, locationId || null);
     
@@ -648,7 +648,7 @@ const getDeliveryKPI = async (req, res) => {
 // @access  Private
 const getProductDeliverySummary = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { startDate, endDate, locationId } = req.query;
 
     const summary = await Delivery.getProductDeliverySummary(
@@ -678,7 +678,7 @@ const getProductDeliverySummary = async (req, res) => {
 const getAvailableOrdersForDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { search, page = 1, limit = 20, locationId } = req.query;
 
     const locId = String(locationId || '').trim();

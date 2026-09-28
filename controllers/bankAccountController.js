@@ -73,7 +73,7 @@ exports.createBankAccount = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const opening = Number(openingBalance) || 0;
     const resolvedOffsetType = offsetType || openingBalanceSource;
 
@@ -216,7 +216,7 @@ exports.getBankAccounts = async (req, res) => {
   try {
     const { status, search, page = 1, limit = 10 } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     // One-time soft repair: orphan OB JEs missing companyId break Trial Balance
     try {
@@ -333,7 +333,7 @@ exports.getBankAccount = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
@@ -404,7 +404,7 @@ exports.updateBankAccount = async (req, res) => {
       sourceAccountId
     } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const existing = await prisma.bankAccount.findFirst({
       where: {
@@ -516,7 +516,7 @@ exports.deleteBankAccount = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
@@ -582,7 +582,7 @@ exports.updateBalance = async (req, res) => {
     const { id } = req.params;
     const { amount, type } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     if (!amount || !type) {
       return res.status(400).json({
@@ -637,7 +637,7 @@ exports.reconcileBankAccount = async (req, res) => {
     const { id } = req.params;
     const { statementBalance, reconciledDate } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     if (statementBalance === undefined) {
       return res.status(400).json({
@@ -703,7 +703,7 @@ exports.getBankAccountTransactions = async (req, res) => {
     const { id } = req.params;
     const { startDate, endDate, limit = 20, page = 1 } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const bankAccount = await prisma.bankAccount.findFirst({
       where: {
@@ -769,7 +769,7 @@ exports.getBankAccountTransactions = async (req, res) => {
 exports.getBankAccountSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const bankAccounts = await prisma.bankAccount.findMany({
       where: {
@@ -818,7 +818,7 @@ exports.bulkImportBankAccounts = async (req, res) => {
   try {
     const { accounts } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
       return res.status(400).json({
@@ -855,7 +855,7 @@ exports.getBankAccountWithTransactions = async (req, res) => {
     const { id } = req.params;
     const { limit = 5 } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const result = await BankAccountModel.getWithLatestTransactions(id, parseInt(limit));
 
@@ -896,7 +896,7 @@ exports.depositToBankAccount = async (req, res) => {
       notes
     } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const result = await createBankDeposit({
       userId,
@@ -942,7 +942,7 @@ exports.depositToBankAccount = async (req, res) => {
 // ============================================================
 exports.getBankAccountsStats = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const accounts = await prisma.bankAccount.findMany({
       where: { companyId },

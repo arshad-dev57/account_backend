@@ -15,7 +15,7 @@ const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 const getCustomerInvoices = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { customerId } = req.params;
     const { locationId } = req.query;
 
@@ -62,7 +62,7 @@ const getCustomerInvoices = async (req, res) => {
 const receivePayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       customerId,
       customerName,
@@ -153,7 +153,7 @@ const receivePayment = async (req, res) => {
 const getPayments = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -255,7 +255,7 @@ const getPayments = async (req, res) => {
 const getPaymentById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const payment = await prisma.salesPaymentReceived.findFirst({
@@ -319,7 +319,7 @@ const getPaymentById = async (req, res) => {
 const getPaymentByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { paymentNumber } = req.params;
 
     const payment = await prisma.salesPaymentReceived.findFirst({
@@ -376,7 +376,7 @@ const getPaymentByNumber = async (req, res) => {
 const cancelPayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -425,7 +425,7 @@ const cancelPayment = async (req, res) => {
 const getPaymentStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const stats = await SalesPaymentReceived.getStats(companyId);
 
     res.status(200).json({
@@ -448,7 +448,7 @@ const getPaymentStats = async (req, res) => {
 const updatePayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { paymentDate, paymentMethod, reference, notes } = req.body;
 
@@ -487,7 +487,7 @@ const updatePayment = async (req, res) => {
 const deletePayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const payment = await prisma.salesPaymentReceived.findFirst({

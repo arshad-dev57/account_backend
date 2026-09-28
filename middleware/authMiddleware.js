@@ -187,6 +187,13 @@ async function runProtect(req, res, next, { requireSubscription }) {
     req.authUserRow = row;
     req.companyMode = companyCtx.mode;
     req.accessibleCompanyIds = companyCtx.accessibleCompanyIds || [];
+    req.companyIdFilter = (() => {
+      if (companyCtx.mode === 'all') {
+        const ids = companyCtx.accessibleCompanyIds || [];
+        return { in: ids.length ? ids : ['00000000-0000-0000-0000-000000000000'] };
+      }
+      return companyCtx.companyId || null;
+    })();
     req.companyMembership = {
       role: companyCtx.membershipRole,
       isOwner: companyCtx.isOwner,

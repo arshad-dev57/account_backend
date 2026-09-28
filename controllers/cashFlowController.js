@@ -286,7 +286,7 @@ function buildOperatingBreakdown(incomes, expenses, customerPayments, billPaymen
 exports.getCashFlowStatement = async (req, res) => {
   try {
     const { period, startDate, endDate, fiscalYearId, locationId } = req.query;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({
@@ -540,7 +540,7 @@ exports.getCashFlowStatement = async (req, res) => {
 exports.getSummary = async (req, res) => {
   try {
     const { fiscalYearId } = req.query;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({
@@ -668,7 +668,7 @@ exports.getSummary = async (req, res) => {
 exports.getTrend = async (req, res) => {
   try {
     const { months = 12 } = req.query;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({

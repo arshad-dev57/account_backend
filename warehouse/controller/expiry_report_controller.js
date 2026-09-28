@@ -6,7 +6,7 @@ const { sendToUser } = require('../../services/notificationService');
 const getExpiryReport = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const now = new Date();
     
     // Calculate date ranges
@@ -396,7 +396,7 @@ const sendExpiryPushNotification = async (userId, expiredProducts, expiringSoonP
 const sendManualExpiryNotifications = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const now = new Date();
     const thirtyDaysFromNow = new Date(now);
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);

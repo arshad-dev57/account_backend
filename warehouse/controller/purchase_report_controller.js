@@ -347,7 +347,7 @@ function buildSummary(rows) {
  */
 const getPurchaseReport = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const userId = req.user.id || req.user.userId;
     const {
       channel = 'all',

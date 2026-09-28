@@ -153,7 +153,7 @@ exports.getTrialBalance = async (req, res) => {
   try {
     const { startDate, endDate, accountType, showZeroBalance, fiscalYearId, search, locationId } =
       req.query;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     const { periodStart, periodEnd } = await resolvePeriodBounds({
       startDate,
@@ -259,7 +259,7 @@ exports.getTrialBalanceSummary = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     // ─── Build date filter ──────────────────────────────────────
     let dateFilter = {};
     if (startDate && endDate) {
@@ -411,7 +411,7 @@ exports.getTrialBalanceByType = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     // ─── Map frontend type to backend type ──────────────────────
     const typeMap = {
       'Assets': 'Asset',
@@ -556,7 +556,7 @@ exports.exportTrialBalance = async (req, res) => {
     const { startDate, endDate, accountType, showZeroBalance } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     // ─── Build date filter ──────────────────────────────────────
     let dateFilter = {};
     if (startDate && endDate) {
@@ -714,7 +714,7 @@ exports.compareTrialBalance = async (req, res) => {
     } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     if (!startDate1 || !endDate1 || !startDate2 || !endDate2) {
       return res.status(400).json({
         success: false,
@@ -897,7 +897,7 @@ exports.getTrialBalanceHierarchy = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     // ─── Build date filter ──────────────────────────────────────
     let dateFilter = {};
     if (startDate && endDate) {

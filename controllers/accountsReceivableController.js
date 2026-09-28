@@ -252,7 +252,7 @@ const createCustomer = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     console.log('👤 [AR] User ID:', userId);
 
     const normalizedEmail = email && typeof email === 'string'
@@ -337,7 +337,7 @@ const getCustomers = async (req, res) => {
     const { search, status, refresh, locationId } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     if (refresh !== 'true') {
     } else {
       // Clear the cache
@@ -473,7 +473,7 @@ const getCustomer = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const customer = await prisma.customer.findFirst({
       where: {
         id,
@@ -591,7 +591,7 @@ const updateCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       customerNumber,
       name,
@@ -668,7 +668,7 @@ const deleteCustomer = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const hasInvoices = await prisma.warehouseInvoice.findFirst({
       where: {
         customerId: id,
@@ -727,7 +727,7 @@ const createInvoice = async (req, res) => {
 
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     // Validate warehouse customer
     const customer = await validateWarehouseCustomer(customerId, userId);
 
@@ -790,7 +790,7 @@ const getInvoices = async (req, res) => {
     const { customerId, status, startDate, endDate, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const filter = {
       companyId: companyId,
       ...warehouseInvoiceLocationWhere(locationId)
@@ -874,7 +874,7 @@ const getInvoice = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const invoice = await prisma.warehouseInvoice.findFirst({
       where: {
         id,
@@ -931,7 +931,7 @@ const cancelInvoice = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const invoice = await prisma.warehouseInvoice.findFirst({
       where: {
         id,
@@ -988,7 +988,7 @@ const getUnpaidInvoices = async (req, res) => {
     const { customerId } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     // v2: includes sales invoices (not just warehouse)
     const customer = await prisma.customer.findFirst({
       where: {
@@ -1123,7 +1123,7 @@ const recordPayment = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📦 [AR] recordPayment called');
@@ -1353,7 +1353,7 @@ const getSummary = async (req, res) => {
   
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { fiscalYearId, locationId } = req.query;
     const whLoc = warehouseInvoiceLocationWhere(locationId);
     const salesLoc = salesInvoiceLocationWhere(locationId);
@@ -1458,7 +1458,7 @@ const getAgedReceivables = async (req, res) => {
   
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { fiscalYearId, locationId } = req.query;
     const whLoc = warehouseInvoiceLocationWhere(locationId);
     const salesLoc = salesInvoiceLocationWhere(locationId);

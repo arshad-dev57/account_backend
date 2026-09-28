@@ -321,7 +321,7 @@ exports.getNextBillNumber = async (req, res) => {
 
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const billNumber = await generateBillNumber(companyId);
 
     res.status(200).json({
@@ -350,7 +350,7 @@ exports.getSuppliers = async (req, res) => {
   try {
     const { search, status, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const filter = { companyId: companyId };
@@ -457,7 +457,7 @@ exports.getSupplier = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const locationId = req.query.locationId || null;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
 
@@ -553,7 +553,7 @@ exports.createBill = async (req, res) => {
   try {
     const { supplierId, date, dueDate, items, discount, notes } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({
@@ -719,7 +719,7 @@ exports.getBills = async (req, res) => {
   try {
     const { supplierId, status, startDate, endDate, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
 
     const filter = { companyId: companyId };
@@ -856,7 +856,7 @@ exports.getBill = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const bill = await prisma.bill.findFirst({
       where: {
@@ -945,7 +945,7 @@ exports.updateBill = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const existing = await prisma.bill.findFirst({
       where: {
@@ -1065,7 +1065,7 @@ exports.deleteBill = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const bill = await prisma.bill.findFirst({
       where: {
@@ -1140,7 +1140,7 @@ exports.recordPayment = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -1307,7 +1307,7 @@ exports.getSummary = async (req, res) => {
 
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { fiscalYearId, locationId } = req.query;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
 
@@ -1362,7 +1362,7 @@ exports.getAgedPayables = async (req, res) => {
 
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { fiscalYearId, locationId } = req.query;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
 
@@ -1502,7 +1502,7 @@ exports.getUnpaidBills = async (req, res) => {
   try {
     const { supplierId } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const locationId = req.query.locationId || null;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
 
@@ -1598,7 +1598,7 @@ exports.markOverdueBills = async (req, res) => {
 
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const result = await prisma.bill.updateMany({
       where: {

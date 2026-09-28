@@ -497,7 +497,7 @@ exports.createCreditNote = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const postingDate = new Date();
 
     if (!amount || amount <= 0) {
@@ -805,7 +805,7 @@ exports.getCreditNotes = async (req, res) => {
     const { customerId, status, startDate, endDate, search } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const filter = {
       OR: [
         { companyId: companyId },
@@ -898,7 +898,7 @@ exports.getCreditNote = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id,
@@ -960,7 +960,7 @@ exports.getSummary = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const filter = {
       OR: [
         { companyId: companyId },
@@ -1049,7 +1049,7 @@ exports.getUnpaidInvoices = async (req, res) => {
   try {
     const { customerId } = req.params;
     const userId    = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const purpose = req.query.purpose || 'create';
     // sales = Sales Invoice module (same as Sales Payments)
     // warehouse | all (default)
@@ -1264,7 +1264,7 @@ exports.applyCreditNote = async (req, res) => {
   try {
     const { creditNoteId, invoiceId, amount, applications } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const postingDate = new Date();
 
     // Support single or multi-invoice application (backward compatible)
@@ -1480,7 +1480,7 @@ exports.expireCreditNotes = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const expiredNotes = await prisma.creditNote.findMany({
       where: {
         companyId: companyId,
@@ -1526,7 +1526,7 @@ exports.deleteCreditNote = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         id,
@@ -1575,7 +1575,7 @@ exports.voidCreditNote = async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     await prisma.$transaction(async (tx) => {
       const creditNote = await tx.creditNote.findFirst({
@@ -1683,7 +1683,7 @@ exports.getCreditNoteByNumber = async (req, res) => {
     const { creditNumber } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const creditNote = await prisma.creditNote.findFirst({
       where: {
         creditNumber: creditNumber,

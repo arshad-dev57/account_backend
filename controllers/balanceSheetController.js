@@ -5,7 +5,7 @@ exports.getBalanceSheet = async (req, res) => {
   try {
     const { period, asOfDate, fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({
@@ -43,7 +43,7 @@ exports.getSummary = async (req, res) => {
   try {
     const { fiscalYearId, startDate, endDate, asOfDate, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({
@@ -90,7 +90,7 @@ exports.getBalanceSheetByDate = async (req, res) => {
     const { date } = req.params;
     const { fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({
@@ -168,7 +168,7 @@ exports.getAssetsBreakdown = async (req, res) => {
   try {
     const { asOfDate, fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({
@@ -233,7 +233,7 @@ exports.getLiabilitiesBreakdown = async (req, res) => {
   try {
     const { asOfDate, fiscalYearId, startDate, endDate, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
 
     if (!companyId) {
       return res.status(400).json({

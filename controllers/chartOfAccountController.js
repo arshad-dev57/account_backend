@@ -284,7 +284,7 @@ const createAccount = async (req, res) => {
 
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     // ─── Validation ──────────────────────────────────────────────
     if (!code || !name || !type) {
       return res.status(400).json({
@@ -397,7 +397,7 @@ const getOpeningBalanceStatus = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const entry = await getOpeningBalanceEntry(userId);
     const equityAccount = await getOrCreateOpeningBalanceEquity(userId);
 
@@ -477,7 +477,7 @@ const getOpeningBalanceSummary = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const entry = await getOpeningBalanceEntry(userId);
     
     if (!entry) {
@@ -561,7 +561,7 @@ const getOpeningBalanceSummary = async (req, res) => {
 const validateOpeningBalance = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { entries } = req.body;
 
     if (!entries || !Array.isArray(entries)) {
@@ -648,7 +648,7 @@ const getAccounts = async (req, res) => {
 
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const filter = { 
       companyId: companyId,
@@ -852,7 +852,7 @@ const getAccount = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
@@ -893,7 +893,7 @@ const updateAccount = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     let {
       code,
       name,
@@ -1020,7 +1020,7 @@ const deleteAccount = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
@@ -1081,7 +1081,7 @@ const archiveAccount = async (req, res) => {
     const { isActive } = req.body;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const account = await prisma.chartOfAccount.findFirst({
       where: {
         id,
@@ -1129,7 +1129,7 @@ const getAccountSummary = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
         companyId: companyId,
@@ -1181,7 +1181,7 @@ const searchAccounts = async (req, res) => {
     const { q, limit = 20 } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     if (!q || q.length < 1) {
       return res.status(400).json({
         success: false,
@@ -1230,7 +1230,7 @@ const updateAccountBalance = async (req, res) => {
     const { amount, type = 'add' } = req.body;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     if (amount === undefined || amount === null) {
       return res.status(400).json({
         success: false,
@@ -1300,7 +1300,7 @@ const getAccountsByType = async (req, res) => {
     let { type } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     if (TYPE_MAP[type]) {
       type = TYPE_MAP[type];
     }
@@ -1346,7 +1346,7 @@ const fixAccountType = async (req, res) => {
     let { type } = req.body;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     if (!type) {
       return res.status(400).json({
         success: false,
@@ -1407,7 +1407,7 @@ const fixCashAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const accounts = await prisma.chartOfAccount.findMany({
       where: {
         companyId: companyId,
@@ -1474,7 +1474,7 @@ const getAccountTypeStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const stats = {};
     for (const type of VALID_ACCOUNT_TYPES) {
       const count = await prisma.chartOfAccount.count({
@@ -1545,7 +1545,7 @@ const bulkImportAccounts = async (req, res) => {
     const { accounts } = req.body;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
       return res.status(400).json({
         success: false,

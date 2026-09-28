@@ -14,7 +14,7 @@ const LedgerHelper = require('../utils/ledgerHelper');
 exports.getAccountSummaries = asyncHandler(async (req, res) => {
   const { startDate, endDate, fiscalYearId, locationId } = req.query;
   const userId = req.user.id;
-  const companyId = req.user.companyId;
+  const companyId = req.companyIdFilter ?? req.user.companyId;
 
   // Build filters using helper — prefer FY date window over FK-only filter
   let dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
@@ -203,7 +203,7 @@ exports.getSingleAccountSummary = asyncHandler(async (req, res) => {
   const { startDate, endDate } = req.query;
   const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
   // Verify account belongs to user
   const account = await prisma.chartOfAccount.findFirst({
     where: {
@@ -322,7 +322,7 @@ exports.getLedgerEntries = asyncHandler(async (req, res) => {
   } = req.query;
   const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
   const account = await prisma.chartOfAccount.findFirst({
     where: {
       id: accountId,
@@ -467,7 +467,7 @@ exports.getAllLedgerEntries = asyncHandler(async (req, res) => {
 
   const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
   // Only cache first page to avoid large cache entries
@@ -650,7 +650,7 @@ exports.getTrialBalanceStatus = asyncHandler(async (req, res) => {
   const { startDate, endDate } = req.query;
   const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
   const dateFilter = LedgerHelper.buildDateFilter(startDate, endDate);
 
   // Get all journal entries
@@ -751,7 +751,7 @@ exports.exportLedgerEntries = asyncHandler(async (req, res) => {
   const { startDate, endDate, accountId } = req.query;
   const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
   let query = {
     companyId: companyId,
     status: 'Posted'
@@ -869,7 +869,7 @@ exports.getAccountTransactions = asyncHandler(async (req, res) => {
   const { limit = 10, offset = 0 } = req.query;
   const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
   const account = await prisma.chartOfAccount.findFirst({
     where: {
       id: accountId,

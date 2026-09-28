@@ -57,7 +57,7 @@ const autoCreateRefund = async (returnData, userId, companyId) => {
 const createSalesReturn = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const returnData = {
       ...req.body,
       returnType: 'Sales Return',
@@ -84,7 +84,7 @@ const createSalesReturn = async (req, res) => {
 const getSalesReturns = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -183,7 +183,7 @@ const getSalesReturns = async (req, res) => {
 const createPurchaseReturn = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const returnData = {
       ...req.body,
       returnType: 'Purchase Return',
@@ -210,7 +210,7 @@ const createPurchaseReturn = async (req, res) => {
 const getPurchaseReturns = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 10,
@@ -305,7 +305,7 @@ const getPurchaseReturns = async (req, res) => {
 const getReturnById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const returnData = await prisma.return.findFirst({
       where: {
         id: req.params.id,
@@ -353,7 +353,7 @@ const getReturnById = async (req, res) => {
 const approveReturn = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { notes } = req.body;
 
@@ -383,7 +383,7 @@ const approveReturn = async (req, res) => {
 const rejectReturn = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { rejectionReason } = req.body;
 
@@ -417,7 +417,7 @@ const rejectReturn = async (req, res) => {
 const completeReturn = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { receivedDate } = req.body;
 
@@ -463,7 +463,7 @@ const completeReturn = async (req, res) => {
 const cancelReturn = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -493,7 +493,7 @@ const cancelReturn = async (req, res) => {
 const deleteReturn = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const returnData = await Return.findById(id);
@@ -515,7 +515,7 @@ const deleteReturn = async (req, res) => {
 const getReturnStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { period = 'month', type } = req.query;
     
     let stats;
@@ -548,7 +548,7 @@ const getReturnStats = async (req, res) => {
 const getReturnsByOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { orderId } = req.params;
 
     const order = await prisma.order.findFirst({

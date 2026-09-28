@@ -352,7 +352,7 @@ const getExpenseAccounts = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const accounts = await getExpenseAccountsForDropdown(userId, companyId);
 
     res.status(200).json({
@@ -391,7 +391,7 @@ const createExpense = async (req, res) => {
 
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const postingDate = date ? new Date(date) : new Date();
     try {
       await fiscalYearGuard(userId, postingDate);
@@ -807,7 +807,7 @@ const getExpenses = async (req, res) => {
     } = req.query;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const allMerged = await fetchAllExpensesMerged({
       companyId,
@@ -854,7 +854,7 @@ const getExpense = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const expense = await prisma.expense.findFirst({
       where: {
         id,
@@ -930,7 +930,7 @@ const updateExpense = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const existing = await prisma.expense.findFirst({
       where: expenseAccessWhere(id, userId, companyId)
@@ -1142,7 +1142,7 @@ const deleteExpense = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const existing = await prisma.expense.findFirst({
       where: expenseAccessWhere(id, userId, companyId)
     });
@@ -1188,7 +1188,7 @@ const getSummary = async (req, res) => {
   try {
     const { startDate, endDate, locationId, status, expenseType } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const allMerged = await fetchAllExpensesMerged({
       companyId,
@@ -1237,7 +1237,7 @@ const postExpense = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const expense = await prisma.expense.findFirst({
       where: {
         id,

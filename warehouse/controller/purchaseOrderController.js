@@ -15,7 +15,7 @@ const emailSenderService = require('../../services/emailSenderService');
 const createPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       supplierId,
       supplierName,
@@ -221,7 +221,7 @@ const getPurchaseOrders = async (req, res) => {
 const getPurchaseOrderById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const order = await PurchaseOrder.findById(id);
@@ -253,7 +253,7 @@ const getPurchaseOrderById = async (req, res) => {
 const getPurchaseOrderByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { orderNumber } = req.params;
 
     const order = await PurchaseOrder.findByOrderNumber(orderNumber);
@@ -285,7 +285,7 @@ const getPurchaseOrderByNumber = async (req, res) => {
 const updatePurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const {
       supplierId,
@@ -417,7 +417,7 @@ const updatePurchaseOrder = async (req, res) => {
 const updatePurchaseOrderStatus = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { status, notes } = req.body;
 
@@ -469,7 +469,7 @@ const updatePurchaseOrderStatus = async (req, res) => {
 const sendPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if order exists ──────────────────────────
@@ -530,7 +530,7 @@ const sendPurchaseOrder = async (req, res) => {
 const cancelPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -582,7 +582,7 @@ const cancelPurchaseOrder = async (req, res) => {
 const deletePurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if order exists ──────────────────────────
@@ -632,7 +632,7 @@ const deletePurchaseOrder = async (req, res) => {
 const getPurchaseOrderStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     // ✅ FIXED: Pass companyId instead of userId
     const stats = await PurchaseOrder.getStats(companyId);
 
@@ -656,7 +656,7 @@ const getPurchaseOrderStats = async (req, res) => {
 const getSupplierPurchaseOrderSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { supplierId } = req.params;
 
     // ✅ FIXED: Pass companyId first, then supplierId
@@ -682,7 +682,7 @@ const getSupplierPurchaseOrderSummary = async (req, res) => {
 const getPurchaseOrderSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     // ✅ FIXED: Pass companyId instead of userId
     const summary = await PurchaseOrder.getSummary(companyId);
 
@@ -706,7 +706,7 @@ const getPurchaseOrderSummary = async (req, res) => {
 const sendPurchaseOrderWithInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if order exists ──────────────────────────

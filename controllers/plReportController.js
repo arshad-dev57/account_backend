@@ -90,7 +90,7 @@ exports.getProfitLossStatement = async (req, res) => {
     console.log('📅 Request params:', { startDate, endDate, period, fiscalYearId, locationId });
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     let { start, end } = getDateRange(period, startDate, endDate);
 
     if (fiscalYearId && companyId) {
@@ -151,7 +151,7 @@ exports.getSummary = async (req, res) => {
     const now = new Date();
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now);
     endOfMonth.setHours(23, 59, 59, 999);
@@ -298,7 +298,7 @@ exports.getTrendData = async (req, res) => {
 
     const { months = 12 } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(endDate.getMonth() - parseInt(months));
@@ -399,7 +399,7 @@ exports.getBalanceSheet = async (req, res) => {
 
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     // ─── GET CHART OF ACCOUNTS ──────────────────────────────────
     const accounts = await prisma.chartOfAccount.findMany({
       where: { companyId: companyId}
@@ -517,7 +517,7 @@ exports.getCashFlowStatement = async (req, res) => {
 
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     // ─── GET INCOMES ──────────────────────────────────────────────
     const incomes = await prisma.income.findMany({
       where: {

@@ -14,7 +14,7 @@ const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 // @access  Private
 const getSupplierInvoices = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const userId = req.user.id;
     const { supplierId } = req.params;
 
@@ -60,7 +60,7 @@ const getSupplierInvoices = async (req, res) => {
 const makePayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       supplierId,
       supplierName,
@@ -218,7 +218,7 @@ const makePayment = async (req, res) => {
 const getPayments = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -300,7 +300,7 @@ const getPayments = async (req, res) => {
 const getPaymentById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const payment = await prisma.purchasePaymentMake.findFirst({
@@ -374,7 +374,7 @@ const getPaymentById = async (req, res) => {
 const getPaymentByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { paymentNumber } = req.params;
 
     const payment = await prisma.purchasePaymentMake.findFirst({
@@ -431,7 +431,7 @@ const getPaymentByNumber = async (req, res) => {
 const cancelPayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -487,7 +487,7 @@ const cancelPayment = async (req, res) => {
 const getPaymentStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const stats = await PurchasePaymentMake.getStats(userId, companyId);
 
     res.status(200).json({
@@ -510,7 +510,7 @@ const getPaymentStats = async (req, res) => {
 const getPaymentVoucher = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if payment exists ────────────────────────
@@ -551,7 +551,7 @@ const getPaymentVoucher = async (req, res) => {
 const deletePayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if payment exists ────────────────────────
@@ -609,7 +609,7 @@ const deletePayment = async (req, res) => {
 const updatePayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { paymentDate, paymentMethod, reference, notes } = req.body;
 

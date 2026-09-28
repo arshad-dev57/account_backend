@@ -82,7 +82,7 @@ exports.getProfitLossStatement = async (req, res) => {
 
     const { startDate, endDate, period, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     let { start, end } = getDateRange(period, startDate, endDate);
 
     if (fiscalYearId && companyId) {
@@ -141,7 +141,7 @@ exports.getBalanceSheet = async (req, res) => {
     const { period, asOfDate, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
     let reportDate;
     let startDate, endDate;
@@ -405,7 +405,7 @@ exports.getCashFlowStatement = async (req, res) => {
 
     const { startDate, endDate, period, fiscalYearId, locationId } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { start, end } = getDateRange(period, startDate, endDate);
     const scopedLocation = Boolean(normalizeLocationId(locationId));
 
@@ -591,7 +591,7 @@ exports.getJournalEntries = async (req, res) => {
     } = req.query;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // ─── BUILD WHERE CLAUSE (User-specific) ──────────────────────
@@ -727,7 +727,7 @@ exports.getJournalEntry = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const journalEntry = await prisma.journalEntry.findFirst({
       where: {
         id,

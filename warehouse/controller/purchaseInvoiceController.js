@@ -16,7 +16,7 @@ const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 const createInvoiceFromGRN = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       goodsReceivingId,
       supplierInvoiceNo,
@@ -131,7 +131,7 @@ const createInvoiceFromGRN = async (req, res) => {
 const createInvoiceFromSources = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       goodsReceivingIds,
       purchaseOrderIds,
@@ -192,7 +192,7 @@ const createInvoiceFromSources = async (req, res) => {
 const createInvoiceFromPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       purchaseOrderId,
       supplierInvoiceNo,
@@ -283,7 +283,7 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
 const postPurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({
@@ -339,7 +339,7 @@ const postPurchaseInvoice = async (req, res) => {
 const getPurchaseInvoices = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -444,7 +444,7 @@ const getPurchaseInvoices = async (req, res) => {
 const getPurchaseInvoiceById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({
@@ -555,7 +555,7 @@ const getPurchaseInvoiceById = async (req, res) => {
 const getPurchaseInvoiceByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { invoiceNumber } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({
@@ -618,7 +618,7 @@ const getPurchaseInvoiceByNumber = async (req, res) => {
 const updatePurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const {
       supplierInvoiceNo,
@@ -725,7 +725,7 @@ const updatePurchaseInvoice = async (req, res) => {
 const cancelPurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -782,7 +782,7 @@ const cancelPurchaseInvoice = async (req, res) => {
 const deletePurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({
@@ -830,7 +830,7 @@ const deletePurchaseInvoice = async (req, res) => {
 const getPurchaseInvoiceStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     // ✅ FIXED: Pass companyId
     const stats = await PurchaseInvoice.getStats(companyId);
 
@@ -854,7 +854,7 @@ const getPurchaseInvoiceStats = async (req, res) => {
 const getSupplierPurchaseInvoiceSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { supplierId } = req.params;
 
     // ✅ FIXED: Pass companyId first
@@ -880,7 +880,7 @@ const getSupplierPurchaseInvoiceSummary = async (req, res) => {
 const getAvailableGRNsForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
     const where = {
@@ -1027,7 +1027,7 @@ const getAvailableGRNsForInvoicing = async (req, res) => {
 const getAvailablePOsForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { search, page = 1, limit = 20 } = req.query;
 
     // Show POs available for invoicing (GRN optional).
@@ -1203,7 +1203,7 @@ const getAvailablePOsForInvoicing = async (req, res) => {
 const printPurchaseInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.purchaseInvoice.findFirst({

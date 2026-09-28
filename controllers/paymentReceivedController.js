@@ -166,7 +166,7 @@ const recordPayment = async (req, res) => {
     } = req.body;
 
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📦 [recordPayment] START');
@@ -516,7 +516,7 @@ const getPayments = async (req, res) => {
     const { customerId, invoiceId, status, startDate, endDate, search, page = 1, limit = 20 } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const filter = { companyId: companyId };
 
     if (customerId) {
@@ -588,7 +588,7 @@ const getPayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const payment = await prisma.paymentReceived.findFirst({
       where: { id, companyId: companyId},
       include: {
@@ -617,7 +617,7 @@ const getPayment = async (req, res) => {
 const getUnpaidInvoices = async (req, res) => {
   try {
     const { customerId } = req.params;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const customer = await prisma.customer.findFirst({ where: { id: customerId, companyId: companyId} });
     if (!customer) {
       return res.status(404).json({ success: false, message: 'Customer not found' });
@@ -722,7 +722,7 @@ const getSummary = async (req, res) => {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const filter = { companyId: companyId };
 
     if (startDate && endDate) {
@@ -828,7 +828,7 @@ const deletePayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const payment = await prisma.paymentReceived.findFirst({
       where: { id, companyId: companyId},
       include: { customer: true }
@@ -881,7 +881,7 @@ const clearChequePayment = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const payment = await prisma.paymentReceived.findFirst({ where: { id, companyId: companyId} });
 
     if (!payment) {

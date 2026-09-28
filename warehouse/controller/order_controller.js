@@ -74,7 +74,7 @@ const autoGenerateInvoice = async (order, userId, companyId) => {
 const createSalesOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       customerName,
       customerEmail,
@@ -292,7 +292,7 @@ const createSalesOrder = async (req, res) => {
 const updateSalesOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const {
       customerName,
@@ -477,7 +477,7 @@ const updateSalesOrder = async (req, res) => {
 const getSalesOrders = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -574,7 +574,7 @@ const getSalesOrders = async (req, res) => {
 const createPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       supplierName,
       supplierEmail,
@@ -745,7 +745,7 @@ const createPurchaseOrder = async (req, res) => {
 const getPurchaseOrders = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -830,7 +830,7 @@ const getPurchaseOrders = async (req, res) => {
 const getOrderById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const order = await prisma.order.findFirst({
       where: {
         id: req.params.id,
@@ -909,7 +909,7 @@ const getOrderById = async (req, res) => {
 const updateOrderStatus = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { status, notes } = req.body;
 
@@ -959,7 +959,7 @@ const updateOrderStatus = async (req, res) => {
 const updateOrderPayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { paymentStatus, paymentReference } = req.body;
 
@@ -989,7 +989,7 @@ const updateOrderPayment = async (req, res) => {
 const cancelOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -1022,7 +1022,7 @@ const cancelOrder = async (req, res) => {
 const deleteOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const order = await prisma.order.findFirst({
@@ -1054,7 +1054,7 @@ const deleteOrder = async (req, res) => {
 const getOrderStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { type } = req.query;
     
     let stats;
@@ -1079,7 +1079,7 @@ const getOrderStats = async (req, res) => {
 const getOrderKPI = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { type } = req.query;
     
     let kpi;

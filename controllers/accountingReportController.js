@@ -93,7 +93,7 @@ function mapEntry(entry) {
 // GET /api/accounting/reports
 const getAccountingReports = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     if (!companyId) {
       return res.status(400).json({ success: false, message: 'Company required' });
     }

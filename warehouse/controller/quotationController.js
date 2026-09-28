@@ -13,7 +13,7 @@ const prisma = require('../../prisma/client');
 const createQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       customerId,
       customerName,
@@ -175,7 +175,7 @@ const createQuotation = async (req, res) => {
 const getQuotations = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -272,7 +272,7 @@ const getQuotations = async (req, res) => {
 const getQuotationById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const quotation = await prisma.quotation.findFirst({
@@ -330,7 +330,7 @@ const getQuotationById = async (req, res) => {
 const getQuotationByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { quotationNumber } = req.params;
 
     const quotation = await prisma.quotation.findFirst({
@@ -385,7 +385,7 @@ const getQuotationByNumber = async (req, res) => {
 const updateQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const {
       customerId,
@@ -512,7 +512,7 @@ const updateQuotation = async (req, res) => {
 const updateQuotationStatus = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { status, notes } = req.body;
 
@@ -580,7 +580,7 @@ const updateQuotationStatus = async (req, res) => {
 const convertQuotationToOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if quotation exists ──────────────────────
@@ -644,7 +644,7 @@ const convertQuotationToOrder = async (req, res) => {
 const deleteQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if quotation exists ──────────────────────
@@ -695,7 +695,7 @@ const getQuotationStats = async (req, res) => {
   try {
     const userId = req.user.id;
     
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     // Check and update expired quotations
     await Quotation.updateExpiredQuotations(companyId, userId);
 
@@ -727,7 +727,7 @@ const getQuotationStats = async (req, res) => {
 const getCustomerQuotationSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { startDate, endDate } = req.query;
 
     const summary = await Quotation.getCustomerSummary(companyId, startDate, endDate);
@@ -752,7 +752,7 @@ const getCustomerQuotationSummary = async (req, res) => {
 const getProductQuotationSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { startDate, endDate } = req.query;
 
     const summary = await Quotation.getProductSummary(companyId, startDate, endDate);
@@ -777,7 +777,7 @@ const getProductQuotationSummary = async (req, res) => {
 const sendQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { email } = req.body;
 
@@ -833,7 +833,7 @@ const sendQuotation = async (req, res) => {
 const printQuotation = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const quotation = await prisma.quotation.findFirst({

@@ -5,7 +5,7 @@ const prisma = require('../../prisma/client');
 const createPurchaseRequisition = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       title,
       department,
@@ -86,7 +86,7 @@ const createPurchaseRequisition = async (req, res) => {
 
 const getPurchaseRequisitions = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { status, search, page, limit, locationId } = req.query;
     const result = await PurchaseRequisition.findAll({
       companyId,
@@ -118,7 +118,7 @@ const getPurchaseRequisitionById = async (req, res) => {
 
 const updatePurchaseRequisition = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const userId = req.user.id;
     const {
       title,
@@ -246,7 +246,7 @@ const getPurchaseRequisitionStats = async (req, res) => {
 const convertToPurchaseOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const {
       supplierId,

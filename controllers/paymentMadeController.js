@@ -450,7 +450,7 @@ const deletePayment = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const payment = await prisma.paymentMade.findFirst({
       where: {
@@ -530,7 +530,7 @@ const clearChequePayment = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const payment = await prisma.paymentMade.findFirst({
       where: {
@@ -606,7 +606,7 @@ const getPayments = async (req, res) => {
   try {
     const { supplierId, billId, status, startDate, endDate, search, page = 1, limit = 20 } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const filter = { companyId: companyId };
 
@@ -702,7 +702,7 @@ const getPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const payment = await prisma.paymentMade.findFirst({
       where: {
@@ -766,7 +766,7 @@ const getUnpaidBills = async (req, res) => {
   try {
     const { supplierId } = req.params;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const supplier = await prisma.supplier.findFirst({
       where: {
@@ -832,7 +832,7 @@ const getSummary = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const filter = { companyId: companyId };
 

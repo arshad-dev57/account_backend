@@ -10,7 +10,7 @@ const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
 const createInvoiceFromOrder = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { orderId, dueDate, paymentTerms } = req.body;
     const postingDate = new Date();
 
@@ -92,7 +92,7 @@ const createInvoiceFromOrder = async (req, res) => {
 const createInvoiceFromDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { deliveryId, dueDate, paymentTerms } = req.body;
     const postingDate = new Date();
 
@@ -169,7 +169,7 @@ const createInvoiceFromDelivery = async (req, res) => {
 const createManualInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       customerId,
       customerName,
@@ -306,7 +306,7 @@ const createManualInvoice = async (req, res) => {
 const createMultiSourceInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       orderIds = [],
       deliveryIds = [],
@@ -388,7 +388,7 @@ const createMultiSourceInvoice = async (req, res) => {
 const postInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if invoice exists ────────────────────────
@@ -447,7 +447,7 @@ const postInvoice = async (req, res) => {
 const getSalesInvoices = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const {
       page = 1,
       limit = 20,
@@ -547,7 +547,7 @@ const getSalesInvoices = async (req, res) => {
 const getSalesInvoiceById = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.salesInvoice.findFirst({
@@ -624,7 +624,7 @@ const getSalesInvoiceById = async (req, res) => {
 const getSalesInvoiceByNumber = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { invoiceNumber } = req.params;
 
     const invoice = await prisma.salesInvoice.findFirst({
@@ -687,7 +687,7 @@ const getSalesInvoiceByNumber = async (req, res) => {
 const updateSalesInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const {
       customerId,
@@ -820,7 +820,7 @@ const updateSalesInvoice = async (req, res) => {
 const cancelSalesInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -879,7 +879,7 @@ const cancelSalesInvoice = async (req, res) => {
 const deleteSalesInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     // ─── Check if invoice exists ────────────────────────
@@ -929,7 +929,7 @@ const deleteSalesInvoice = async (req, res) => {
 const getInvoiceStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const [kpi, stats] = await Promise.all([
       SalesInvoice.getStatusCounts(companyId),
@@ -959,7 +959,7 @@ const getInvoiceStats = async (req, res) => {
 const getCustomerInvoiceSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { customerId } = req.params;
 
     const summary = await SalesInvoice.getCustomerSummary(companyId, customerId);
@@ -984,7 +984,7 @@ const getCustomerInvoiceSummary = async (req, res) => {
 const getAvailableOrdersForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { search, page = 1, limit = 20, locationId } = req.query;
 
     const locId = String(locationId || '').trim();
@@ -1118,7 +1118,7 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
 const getAvailableDeliveriesForInvoicing = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { search, page = 1, limit = 20, locationId } = req.query;
 
     const locId = String(locationId || '').trim();
@@ -1247,7 +1247,7 @@ const getAvailableDeliveriesForInvoicing = async (req, res) => {
 const printInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
     const invoice = await prisma.salesInvoice.findFirst({
@@ -1300,7 +1300,7 @@ const printInvoice = async (req, res) => {
 const sendInvoice = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
     const { email } = req.body;
 

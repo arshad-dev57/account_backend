@@ -1,13 +1,37 @@
 // warehouse/controller/sales_dashboard_controller.js - MULTI-TENANT VERSION
 
 const prisma = require('../../prisma/client');
+const { Prisma } = require('@prisma/client');
 const { applyFiscalYearWindow } = require('../../utils/fiscalYearHelper');
-const {
-  withLocation,
-  salesInvoiceLocationWhere,
-  warehouseInvoiceLocationWhere,
-} = require('../../utils/accountingLocationHelper');
 const { constraintIds } = require('../../utils/locationAccessHelper');
+
+
+/** Build company_id SQL predicate (supports string or { in: [...] }). */
+function sqlCompany(companyId, columnSql) {
+  const col = Prisma.raw(columnSql);
+  if (companyId && typeof companyId === 'object' && Array.isArray(companyId.in)) {
+    if (!companyId.in.length) return Prisma.sql`FALSE`;
+    return Prisma.sql`${col} IN (${Prisma.join(companyId.in)})`;
+  }
+  return Prisma.sql`${col} = ${companyId}`;
+}
+
+/** Location predicate via constraintIds. null/undefined ids = no filter. */
+function sqlLocation(locationId, columnSql) {
+  const ids = constraintIds(locationId);
+  if (ids == null) return Prisma.sql`TRUE`;
+  if (!ids.length) return Prisma.sql`FALSE`;
+  const col = Prisma.raw(columnSql);
+  if (ids.length === 1) return Prisma.sql`${col} = ${ids[0]}`;
+  return Prisma.sql`${col} IN (${Prisma.join(ids)})`;
+}
+
+function dateGte(dateFilter) {
+  return dateFilter?.gte || null;
+}
+function dateLte(dateFilter) {
+  return dateFilter?.lte || null;
+}
 
 function toNum(v) {
   const n = Number(v);
@@ -119,47 +143,38 @@ async function resolveSalesDateFilter({
 
 // ─── GET ORDER TREND ──────────────────────────────────────
 const getOrderTrend = async (userId, companyId, dateFilter, locationId = null) => {
-  const trendData = await prisma.order.findMany({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      isDeleted: false,
-      orderDate: dateFilter,
-      ...withLocation(locationId),
-    },
-    select: {
-      orderDate: true,
-      grandTotal: true,
-      orderStatus: true
-    },
-    orderBy: { orderDate: 'asc' }
-  });
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
 
-  const trendMap = {};
-  trendData.forEach((o) => {
-    const key = o.orderDate.toISOString().split('T')[0];
-    if (!trendMap[key]) {
-      trendMap[key] = {
-        date: key,
-        orders: 0,
-        revenue: 0,
-        pending: 0,
-        completed: 0,
-        cancelled: 0
-      };
-    }
-    trendMap[key].orders += 1;
-    trendMap[key].revenue += o.grandTotal;
-    
-    if (o.orderStatus === 'Pending') trendMap[key].pending += 1;
-    else if (o.orderStatus === 'Completed') trendMap[key].completed += 1;
-    else if (o.orderStatus === 'Cancelled') trendMap[key].cancelled += 1;
-  });
+  const rows = await prisma.$queryRaw`
+    SELECT
+      (o.order_date AT TIME ZONE 'UTC')::date::text AS date,
+      COUNT(*)::int AS orders,
+      COALESCE(SUM(o.grand_total), 0)::float AS revenue,
+      COUNT(*) FILTER (WHERE o.order_status = 'Pending')::int AS pending,
+      COUNT(*) FILTER (WHERE o.order_status = 'Completed')::int AS completed,
+      COUNT(*) FILTER (WHERE o.order_status = 'Cancelled')::int AS cancelled
+    FROM orders o
+    WHERE ${sqlCompany(companyId, 'o.company_id')}
+      AND o.is_active = true
+      AND o.is_deleted = false
+      AND (${periodStart}::timestamptz IS NULL OR o.order_date >= ${periodStart})
+      AND (${periodEnd}::timestamptz IS NULL OR o.order_date <= ${periodEnd})
+      AND ${sqlLocation(locationId, 'o.location_id')}
+    GROUP BY (o.order_date AT TIME ZONE 'UTC')::date
+    ORDER BY date ASC
+  `;
 
-  return Object.values(trendMap);
+  return (rows || []).map((r) => ({
+    date: String(r.date || '').slice(0, 10),
+    orders: toNum(r.orders),
+    revenue: toNum(r.revenue),
+    pending: toNum(r.pending),
+    completed: toNum(r.completed),
+    cancelled: toNum(r.cancelled),
+  }));
 };
 
-// ─── POS SALE FILTER (exclude cancelled/held/returned; Invoiced counted under invoices) ───
 const posSaleWhere = (companyId, dateFilter, locationId = null) => ({
   companyId,
   status: 'Completed',
@@ -168,51 +183,79 @@ const posSaleWhere = (companyId, dateFilter, locationId = null) => ({
 });
 
 const getPosTrend = async (companyId, dateFilter, locationId = null) => {
-  const rows = await prisma.pOSSale.findMany({
-    where: posSaleWhere(companyId, dateFilter, locationId),
-    select: { createdAt: true, grandTotal: true },
-    orderBy: { createdAt: 'asc' }
-  });
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
 
-  const trendMap = {};
-  rows.forEach((sale) => {
-    const key = sale.createdAt.toISOString().split('T')[0];
-    if (!trendMap[key]) {
-      trendMap[key] = { date: key, sales: 0, revenue: 0, orderRevenue: 0 };
-    }
-    trendMap[key].sales += 1;
-    trendMap[key].revenue += toNum(sale.grandTotal);
-  });
+  const rows = await prisma.$queryRaw`
+    SELECT
+      (ps.created_at AT TIME ZONE 'UTC')::date::text AS date,
+      COUNT(*)::int AS sales,
+      COALESCE(SUM(ps.grand_total), 0)::float AS revenue
+    FROM pos_sales ps
+    LEFT JOIN pos_terminals t ON t.id = ps.terminal_id
+    WHERE ${sqlCompany(companyId, 'ps.company_id')}
+      AND ps.status = 'Completed'
+      AND (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+      AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+      AND ${sqlLocation(locationId, 't.location_id')}
+    GROUP BY (ps.created_at AT TIME ZONE 'UTC')::date
+    ORDER BY date ASC
+  `;
 
-  return Object.values(trendMap);
+  return (rows || []).map((r) => ({
+    date: String(r.date || '').slice(0, 10),
+    sales: toNum(r.sales),
+    revenue: toNum(r.revenue),
+    orderRevenue: 0,
+  }));
 };
 
 const getPosStats = async (companyId, dateFilter, locationId = null) => {
-  const [agg, todayAgg] = await Promise.all([
-    prisma.pOSSale.aggregate({
-      where: posSaleWhere(companyId, dateFilter, locationId),
-      _sum: { grandTotal: true, discountTotal: true, taxTotal: true, paidAmount: true },
-      _count: { id: true }
-    }),
-    prisma.pOSSale.aggregate({
-      where: posSaleWhere(companyId, (() => {
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        return { gte: start };
-      })(), locationId),
-      _sum: { grandTotal: true },
-      _count: { id: true }
-    }),
-  ]);
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
 
+  const rows = await prisma.$queryRaw`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+      )::int AS count,
+      COALESCE(SUM(ps.grand_total) FILTER (
+        WHERE (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+      ), 0)::float AS revenue,
+      COALESCE(SUM(ps.discount_total) FILTER (
+        WHERE (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+      ), 0)::float AS "discountTotal",
+      COALESCE(SUM(ps.tax_total) FILTER (
+        WHERE (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+      ), 0)::float AS "taxTotal",
+      COALESCE(SUM(ps.paid_amount) FILTER (
+        WHERE (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+      ), 0)::float AS "paidAmount",
+      COUNT(*) FILTER (WHERE ps.created_at >= ${todayStart})::int AS "todayCount",
+      COALESCE(SUM(ps.grand_total) FILTER (WHERE ps.created_at >= ${todayStart}), 0)::float AS "todayRevenue"
+    FROM pos_sales ps
+    LEFT JOIN pos_terminals t ON t.id = ps.terminal_id
+    WHERE ${sqlCompany(companyId, 'ps.company_id')}
+      AND ps.status = 'Completed'
+      AND ${sqlLocation(locationId, 't.location_id')}
+  `;
+
+  const row = rows[0] || {};
   return {
-    count: agg._count.id || 0,
-    revenue: toNum(agg._sum.grandTotal),
-    discountTotal: toNum(agg._sum.discountTotal),
-    taxTotal: toNum(agg._sum.taxTotal),
-    paidAmount: toNum(agg._sum.paidAmount),
-    todayCount: todayAgg._count.id || 0,
-    todayRevenue: toNum(todayAgg._sum.grandTotal)
+    count: toNum(row.count),
+    revenue: toNum(row.revenue),
+    discountTotal: toNum(row.discountTotal),
+    taxTotal: toNum(row.taxTotal),
+    paidAmount: toNum(row.paidAmount),
+    todayCount: toNum(row.todayCount),
+    todayRevenue: toNum(row.todayRevenue),
   };
 };
 
@@ -256,367 +299,383 @@ const getRecentPosActivity = async (companyId, limit = 8, locationId = null) => 
 
 // ─── GET INVOICE STATS ────────────────────────────────────
 const getInvoiceStats = async (userId, companyId, dateFilter, locationId = null) => {
-  const baseWhere = {
-    companyId,
-    isActive: true,
-    isDeleted: false,
-    ...(dateFilter ? { invoiceDate: dateFilter } : {})
-  };
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
 
-  const [warehouseRows, salesRows] = await Promise.all([
-    prisma.warehouseInvoice.findMany({
-      where: {
-        ...baseWhere,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-        ...warehouseInvoiceLocationWhere(locationId),
-      },
-      select: {
-        id: true,
-        orderId: true,
-        grandTotal: true,
-        paidAmount: true,
-        outstanding: true,
-        paymentStatus: true,
-        invoiceStatus: true
-      }
-    }),
-    prisma.salesInvoice.findMany({
-      where: {
-        ...baseWhere,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-        ...salesInvoiceLocationWhere(locationId),
-      },
-      select: {
-        id: true,
-        orderId: true,
-        grandTotal: true,
-        paidAmount: true,
-        outstanding: true,
-        paymentStatus: true,
-        invoiceStatus: true
-      }
-    }),
-  ]);
+  const rows = await prisma.$queryRaw`
+    WITH sales AS (
+      SELECT
+        si.id,
+        si.order_id,
+        si.grand_total,
+        si.paid_amount,
+        si.outstanding,
+        si.payment_status,
+        si.invoice_status
+      FROM sales_invoices si
+      LEFT JOIN orders o ON o.id = si.order_id
+      WHERE ${sqlCompany(companyId, 'si.company_id')}
+        AND si.is_active = true
+        AND si.is_deleted = false
+        AND si.invoice_status NOT IN ('Draft', 'Cancelled')
+        AND (${periodStart}::timestamptz IS NULL OR si.invoice_date >= ${periodStart})
+        AND (${periodEnd}::timestamptz IS NULL OR si.invoice_date <= ${periodEnd})
+        AND (
+          ${sqlLocation(locationId, 'si.location_id')}
+          OR (si.location_id IS NULL AND ${sqlLocation(locationId, 'o.location_id')})
+        )
+    ),
+    warehouse AS (
+      SELECT
+        wi.id,
+        wi.order_id,
+        wi.grand_total,
+        wi.paid_amount,
+        wi.outstanding,
+        wi.payment_status,
+        wi.invoice_status
+      FROM warehouse_invoices wi
+      LEFT JOIN orders o ON o.id = wi.order_id
+      WHERE ${sqlCompany(companyId, 'wi.company_id')}
+        AND wi.is_active = true
+        AND wi.is_deleted = false
+        AND wi.invoice_status NOT IN ('Draft', 'Cancelled')
+        AND (${periodStart}::timestamptz IS NULL OR wi.invoice_date >= ${periodStart})
+        AND (${periodEnd}::timestamptz IS NULL OR wi.invoice_date <= ${periodEnd})
+        AND ${sqlLocation(locationId, 'o.location_id')}
+        AND (
+          wi.order_id IS NULL
+          OR NOT EXISTS (
+            SELECT 1 FROM sales_invoices si2
+            WHERE si2.order_id = wi.order_id
+              AND si2.order_id IS NOT NULL
+              AND ${sqlCompany(companyId, 'si2.company_id')}
+              AND si2.is_active = true
+              AND si2.is_deleted = false
+              AND si2.invoice_status NOT IN ('Draft', 'Cancelled')
+          )
+        )
+    ),
+    merged AS (
+      SELECT * FROM sales
+      UNION ALL
+      SELECT * FROM warehouse
+    ),
+    calc AS (
+      SELECT
+        grand_total,
+        paid_amount,
+        CASE
+          WHEN payment_status IN ('Paid', 'Credit Balance', 'Cancelled')
+            OR invoice_status IN ('Paid', 'Credit Balance', 'Cancelled')
+            THEN 0
+          WHEN outstanding IS NOT NULL THEN GREATEST(0, outstanding)
+          ELSE GREATEST(0, COALESCE(grand_total, 0) - COALESCE(paid_amount, 0))
+        END AS due
+      FROM merged
+    )
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE due <= 0.01)::int AS paid,
+      COUNT(*) FILTER (WHERE due > 0.01 AND COALESCE(paid_amount, 0) > 0.01)::int AS partial,
+      COUNT(*) FILTER (WHERE due > 0.01 AND COALESCE(paid_amount, 0) <= 0.01)::int AS unpaid,
+      COALESCE(SUM(grand_total), 0)::float AS "grandTotal",
+      COALESCE(SUM(paid_amount), 0)::float AS "paidAmount",
+      COALESCE(SUM(due), 0)::float AS outstanding
+    FROM calc
+  `;
 
-  const merged = mergeSalesInvoiceRows(warehouseRows, salesRows);
-
-  let grandTotal = 0;
-  let paidAmount = 0;
-  let outstanding = 0;
-  let paid = 0;
-  let unpaid = 0;
-  let partial = 0;
-
-  for (const inv of merged) {
-    const total = toNum(inv.grandTotal);
-    const paidAmt = toNum(inv.paidAmount);
-    const due = invoiceDue(inv);
-
-    grandTotal += total;
-    paidAmount += paidAmt;
-    outstanding += due;
-
-    if (due <= 0.01) paid += 1;
-    else if (paidAmt > 0.01) partial += 1;
-    else unpaid += 1;
-  }
-
+  const row = rows[0] || {};
+  const grandTotal = toNum(row.grandTotal);
   return {
-    total: merged.length,
-    paid,
-    unpaid,
-    partial,
-    // revenue kept for older clients; equals invoiced grand total
+    total: toNum(row.total),
+    paid: toNum(row.paid),
+    unpaid: toNum(row.unpaid),
+    partial: toNum(row.partial),
     revenue: grandTotal,
     grandTotal,
-    paidAmount,
-    outstanding
+    paidAmount: toNum(row.paidAmount),
+    outstanding: toNum(row.outstanding),
   };
 };
 
-// ─── GET INVOICE TREND ────────────────────────────────────
 const getInvoiceTrend = async (userId, companyId, days = 30, locationId = null) => {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
   startDate.setHours(0, 0, 0, 0);
-  const dateFilter = { gte: startDate };
 
-  const [warehouseRows, salesRows] = await Promise.all([
-    prisma.warehouseInvoice.findMany({
-      where: {
-        companyId,
-        isActive: true,
-        isDeleted: false,
-        invoiceDate: dateFilter,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-        ...warehouseInvoiceLocationWhere(locationId),
-      },
-      select: {
-        orderId: true,
-        invoiceDate: true,
-        grandTotal: true,
-        paidAmount: true,
-        outstanding: true,
-        paymentStatus: true,
-        invoiceStatus: true
-      },
-      orderBy: { invoiceDate: 'asc' }
-    }),
-    prisma.salesInvoice.findMany({
-      where: {
-        companyId,
-        isActive: true,
-        isDeleted: false,
-        invoiceDate: dateFilter,
-        invoiceStatus: { notIn: ['Draft', 'Cancelled'] },
-        ...salesInvoiceLocationWhere(locationId),
-      },
-      select: {
-        orderId: true,
-        invoiceDate: true,
-        grandTotal: true,
-        paidAmount: true,
-        outstanding: true,
-        paymentStatus: true,
-        invoiceStatus: true
-      },
-      orderBy: { invoiceDate: 'asc' }
-    }),
-  ]);
+  const rows = await prisma.$queryRaw`
+    WITH sales AS (
+      SELECT
+        si.order_id,
+        si.invoice_date,
+        si.grand_total,
+        si.paid_amount,
+        si.outstanding,
+        si.payment_status,
+        si.invoice_status
+      FROM sales_invoices si
+      LEFT JOIN orders o ON o.id = si.order_id
+      WHERE ${sqlCompany(companyId, 'si.company_id')}
+        AND si.is_active = true
+        AND si.is_deleted = false
+        AND si.invoice_status NOT IN ('Draft', 'Cancelled')
+        AND si.invoice_date >= ${startDate}
+        AND (
+          ${sqlLocation(locationId, 'si.location_id')}
+          OR (si.location_id IS NULL AND ${sqlLocation(locationId, 'o.location_id')})
+        )
+    ),
+    warehouse AS (
+      SELECT
+        wi.order_id,
+        wi.invoice_date,
+        wi.grand_total,
+        wi.paid_amount,
+        wi.outstanding,
+        wi.payment_status,
+        wi.invoice_status
+      FROM warehouse_invoices wi
+      LEFT JOIN orders o ON o.id = wi.order_id
+      WHERE ${sqlCompany(companyId, 'wi.company_id')}
+        AND wi.is_active = true
+        AND wi.is_deleted = false
+        AND wi.invoice_status NOT IN ('Draft', 'Cancelled')
+        AND wi.invoice_date >= ${startDate}
+        AND ${sqlLocation(locationId, 'o.location_id')}
+        AND (
+          wi.order_id IS NULL
+          OR NOT EXISTS (
+            SELECT 1 FROM sales_invoices si2
+            WHERE si2.order_id = wi.order_id
+              AND si2.order_id IS NOT NULL
+              AND ${sqlCompany(companyId, 'si2.company_id')}
+              AND si2.is_active = true
+              AND si2.is_deleted = false
+              AND si2.invoice_status NOT IN ('Draft', 'Cancelled')
+          )
+        )
+    ),
+    merged AS (
+      SELECT * FROM sales
+      UNION ALL
+      SELECT * FROM warehouse
+    ),
+    calc AS (
+      SELECT
+        (invoice_date AT TIME ZONE 'UTC')::date AS day,
+        grand_total,
+        paid_amount,
+        CASE
+          WHEN payment_status IN ('Paid', 'Credit Balance', 'Cancelled')
+            OR invoice_status IN ('Paid', 'Credit Balance', 'Cancelled')
+            THEN 0
+          WHEN outstanding IS NOT NULL THEN GREATEST(0, outstanding)
+          ELSE GREATEST(0, COALESCE(grand_total, 0) - COALESCE(paid_amount, 0))
+        END AS due
+      FROM merged
+    )
+    SELECT
+      day::text AS date,
+      COALESCE(SUM(grand_total), 0)::float AS total,
+      COALESCE(SUM(grand_total), 0)::float AS revenue,
+      COALESCE(SUM(paid_amount), 0)::float AS collected,
+      COALESCE(SUM(grand_total) FILTER (WHERE due <= 0.01), 0)::float AS paid,
+      COALESCE(SUM(due) FILTER (WHERE due > 0.01), 0)::float AS unpaid,
+      COUNT(*)::int AS count
+    FROM calc
+    GROUP BY day
+    ORDER BY day ASC
+  `;
 
-  const invoices = mergeSalesInvoiceRows(warehouseRows, salesRows);
-
-  const trendMap = {};
-  invoices.forEach((inv) => {
-    const key = new Date(inv.invoiceDate).toISOString().split('T')[0];
-    if (!trendMap[key]) {
-      trendMap[key] = {
-        date: key,
-        total: 0,
-        paid: 0,
-        unpaid: 0,
-        revenue: 0,
-        collected: 0,
-        count: 0
-      };
-    }
-    const total = toNum(inv.grandTotal);
-    const paidAmt = toNum(inv.paidAmount);
-    const due = invoiceDue(inv);
-    trendMap[key].total += total;
-    trendMap[key].revenue += total;
-    trendMap[key].collected += paidAmt;
-    trendMap[key].count += 1;
-    if (due <= 0.01) {
-      trendMap[key].paid += total;
-    } else {
-      trendMap[key].unpaid += due;
-    }
-  });
-
-  return Object.values(trendMap);
+  return (rows || []).map((r) => ({
+    date: String(r.date || '').slice(0, 10),
+    total: toNum(r.total),
+    paid: toNum(r.paid),
+    unpaid: toNum(r.unpaid),
+    revenue: toNum(r.revenue),
+    collected: toNum(r.collected),
+    count: toNum(r.count),
+  }));
 };
 
-// ─── GET RETURN STATS ─────────────────────────────────────
 const getReturnStats = async (userId, companyId, dateFilter, locationId = null) => {
-  const base = {
-    companyId,
-    isActive: true,
-    isDeleted: false,
-    returnDate: dateFilter,
-    ...viaOrderLocation(locationId),
-  };
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
 
-  const [total, pending, approved, rejected, completed] = await Promise.all([
-    prisma.return.count({ where: base }),
-    prisma.return.count({ where: { ...base, returnStatus: 'Pending' } }),
-    prisma.return.count({ where: { ...base, returnStatus: 'Approved' } }),
-    prisma.return.count({ where: { ...base, returnStatus: 'Rejected' } }),
-    prisma.return.count({ where: { ...base, returnStatus: 'Completed' } }),
-  ]);
+  const rows = await prisma.$queryRaw`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE r.return_status = 'Pending')::int AS pending,
+      COUNT(*) FILTER (WHERE r.return_status = 'Approved')::int AS approved,
+      COUNT(*) FILTER (WHERE r.return_status = 'Rejected')::int AS rejected,
+      COUNT(*) FILTER (WHERE r.return_status = 'Completed')::int AS completed,
+      COALESCE(SUM(r.refund_amount), 0)::float AS "refundAmount"
+    FROM returns r
+    LEFT JOIN orders o ON o.id = r.order_id
+    WHERE ${sqlCompany(companyId, 'r.company_id')}
+      AND r.is_active = true
+      AND r.is_deleted = false
+      AND (${periodStart}::timestamptz IS NULL OR r.return_date >= ${periodStart})
+      AND (${periodEnd}::timestamptz IS NULL OR r.return_date <= ${periodEnd})
+      AND ${sqlLocation(locationId, 'o.location_id')}
+  `;
 
-  const refundAmount = await prisma.return.aggregate({
-    where: base,
-    _sum: { refundAmount: true }
-  });
-
+  const row = rows[0] || {};
   return {
-    total,
-    pending,
-    approved,
-    rejected,
-    completed,
-    refundAmount: refundAmount._sum.refundAmount || 0
+    total: toNum(row.total),
+    pending: toNum(row.pending),
+    approved: toNum(row.approved),
+    rejected: toNum(row.rejected),
+    completed: toNum(row.completed),
+    refundAmount: toNum(row.refundAmount),
   };
 };
 
-// ─── GET CREDIT NOTE (SALES CREDITS) STATS ────────────────
 const getCreditNoteStats = async (userId, companyId, dateFilter, locationId = null) => {
-  const baseWhere = {
-    companyId,
-    date: dateFilter,
-    status: { notIn: ['Voided', 'Cancelled', 'Expired'] },
-    ...(locationId
-      ? {
-          OR: [
-            { salesInvoice: { locationId: String(locationId) } },
-            {
-              salesInvoiceId: null,
-              originalInvoice: { order: { locationId: String(locationId) } },
-            },
-          ],
-        }
-      : {}),
-  };
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
+  // Credit notes have no direct locationId — skip nested relation location filter (index-killer).
+  void locationId;
 
-  const [total, issued, partiallyApplied, fullyApplied, amounts] =
-    await Promise.all([
-      prisma.creditNote.count({ where: baseWhere }),
-      prisma.creditNote.count({
-        where: { ...baseWhere, status: 'Issued' }
-      }),
-      prisma.creditNote.count({
-        where: { ...baseWhere, status: 'PartiallyApplied' }
-      }),
-      prisma.creditNote.count({
-        where: { ...baseWhere, status: 'Applied' }
-      }),
-      prisma.creditNote.aggregate({
-        where: baseWhere,
-        _sum: {
-          amount: true,
-          appliedAmount: true,
-          remainingAmount: true
-        }
-      }),
-    ]);
+  const rows = await prisma.$queryRaw`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE cn.status = 'Issued')::int AS issued,
+      COUNT(*) FILTER (WHERE cn.status = 'PartiallyApplied')::int AS "partiallyApplied",
+      COUNT(*) FILTER (WHERE cn.status = 'Applied')::int AS "fullyApplied",
+      COALESCE(SUM(cn.amount), 0)::float AS "creditAmount",
+      COALESCE(SUM(cn.applied_amount), 0)::float AS "appliedAmount",
+      COALESCE(SUM(cn.remaining_amount), 0)::float AS "remainingAmount"
+    FROM credit_notes cn
+    WHERE ${sqlCompany(companyId, 'cn.company_id')}
+      AND cn.status NOT IN ('Voided', 'Cancelled', 'Expired')
+      AND (${periodStart}::timestamptz IS NULL OR cn.date >= ${periodStart})
+      AND (${periodEnd}::timestamptz IS NULL OR cn.date <= ${periodEnd})
+  `;
 
+  const row = rows[0] || {};
   return {
-    total,
-    issued,
-    partiallyApplied,
-    fullyApplied,
-    creditAmount: amounts._sum.amount || 0,
-    appliedAmount: amounts._sum.appliedAmount || 0,
-    remainingAmount: amounts._sum.remainingAmount || 0
+    total: toNum(row.total),
+    issued: toNum(row.issued),
+    partiallyApplied: toNum(row.partiallyApplied),
+    fullyApplied: toNum(row.fullyApplied),
+    creditAmount: toNum(row.creditAmount),
+    appliedAmount: toNum(row.appliedAmount),
+    remainingAmount: toNum(row.remainingAmount),
   };
 };
 
-// ─── GET REFUND STATS ─────────────────────────────────────
 const getRefundStats = async (userId, companyId, dateFilter, locationId = null) => {
-  const base = {
-    companyId,
-    isActive: true,
-    isDeleted: false,
-    refundDate: dateFilter,
-    ...viaOrderLocation(locationId),
-  };
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
 
-  const [total, pending, completed, failed] = await Promise.all([
-    prisma.refund.count({ where: base }),
-    prisma.refund.count({ where: { ...base, refundStatus: 'Pending' } }),
-    prisma.refund.count({ where: { ...base, refundStatus: 'Completed' } }),
-    prisma.refund.count({ where: { ...base, refundStatus: 'Failed' } }),
-  ]);
+  const rows = await prisma.$queryRaw`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE rf.refund_status = 'Pending')::int AS pending,
+      COUNT(*) FILTER (WHERE rf.refund_status = 'Completed')::int AS completed,
+      COUNT(*) FILTER (WHERE rf.refund_status = 'Failed')::int AS failed,
+      COALESCE(SUM(rf.amount) FILTER (WHERE rf.refund_status = 'Completed'), 0)::float AS "refundAmount"
+    FROM refunds rf
+    LEFT JOIN orders o ON o.id = rf.order_id
+    WHERE ${sqlCompany(companyId, 'rf.company_id')}
+      AND rf.is_active = true
+      AND rf.is_deleted = false
+      AND (${periodStart}::timestamptz IS NULL OR rf.refund_date >= ${periodStart})
+      AND (${periodEnd}::timestamptz IS NULL OR rf.refund_date <= ${periodEnd})
+      AND ${sqlLocation(locationId, 'o.location_id')}
+  `;
 
-  const refundAmount = await prisma.refund.aggregate({
-    where: {
-      ...base,
-      refundStatus: 'Completed'
-    },
-    _sum: { amount: true }
-  });
-
+  const row = rows[0] || {};
   return {
-    total,
-    pending,
-    completed,
-    failed,
-    refundAmount: refundAmount._sum.amount || 0
+    total: toNum(row.total),
+    pending: toNum(row.pending),
+    completed: toNum(row.completed),
+    failed: toNum(row.failed),
+    refundAmount: toNum(row.refundAmount),
   };
 };
 
-// ─── GET TOP PRODUCTS (orders + POS) ──────────────────────
 const getTopProducts = async (userId, companyId, dateFilter, locationId = null, limit = 10) => {
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
+  const take = Math.max(1, Math.min(Number(limit) || 10, 100));
 
-  const [orderProducts, posProducts] = await Promise.all([
-    prisma.orderItem.groupBy({
-      by: ['productId', 'productName', 'sku'],
-      where: {
-        order: {
-          companyId,
-          isActive: true,
-          isDeleted: false,
-          orderDate: dateFilter,
-          ...withLocation(locationId),
-        }
-      },
-      _count: { id: true },
-      _sum: { quantity: true, totalPrice: true }
-    }),
-    prisma.pOSSaleItem.groupBy({
-      by: ['productId', 'productName', 'sku'],
-      where: {
-        posSale: posSaleWhere(companyId, dateFilter, locationId)
-      },
-      _count: { id: true },
-      _sum: { quantity: true, lineTotal: true }
-    }),
-  ]);
+  const rows = await prisma.$queryRaw`
+    WITH lines AS (
+      SELECT
+        oi.product_id AS "productId",
+        oi.product_name AS "productName",
+        oi.sku,
+        oi.quantity,
+        oi.total_price AS revenue
+      FROM order_items oi
+      INNER JOIN orders o ON o.id = oi.order_id
+      WHERE ${sqlCompany(companyId, 'o.company_id')}
+        AND o.is_active = true
+        AND o.is_deleted = false
+        AND (${periodStart}::timestamptz IS NULL OR o.order_date >= ${periodStart})
+        AND (${periodEnd}::timestamptz IS NULL OR o.order_date <= ${periodEnd})
+        AND ${sqlLocation(locationId, 'o.location_id')}
 
-  const merged = {};
-  for (const item of orderProducts) {
-    const key = item.productId || item.sku || item.productName;
-    merged[key] = {
-      productId: item.productId,
-      productName: item.productName,
-      sku: item.sku,
-      quantity: toNum(item._sum.quantity),
-      revenue: toNum(item._sum.totalPrice),
-      orderCount: item._count.id || 0
-    };
-  }
-  for (const item of posProducts) {
-    const key = item.productId || item.sku || item.productName;
-    if (!merged[key]) {
-      merged[key] = {
-        productId: item.productId,
-        productName: item.productName,
-        sku: item.sku,
-        quantity: 0,
-        revenue: 0,
-        orderCount: 0
-      };
-    }
-    merged[key].quantity += toNum(item._sum.quantity);
-    merged[key].revenue += toNum(item._sum.lineTotal);
-    merged[key].orderCount += item._count.id || 0;
-  }
+      UNION ALL
 
-  return Object.values(merged)
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, limit);
+      SELECT
+        psi.product_id AS "productId",
+        psi.product_name AS "productName",
+        psi.sku,
+        psi.quantity,
+        psi.line_total AS revenue
+      FROM pos_sale_items psi
+      INNER JOIN pos_sales ps ON ps.id = psi.pos_sale_id
+      LEFT JOIN pos_terminals t ON t.id = ps.terminal_id
+      WHERE ${sqlCompany(companyId, 'ps.company_id')}
+        AND ps.status = 'Completed'
+        AND (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+        AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+        AND ${sqlLocation(locationId, 't.location_id')}
+    )
+    SELECT
+      "productId",
+      "productName",
+      sku,
+      COALESCE(SUM(quantity), 0)::float AS quantity,
+      COALESCE(SUM(revenue), 0)::float AS revenue,
+      COUNT(*)::int AS "orderCount"
+    FROM lines
+    GROUP BY "productId", "productName", sku
+    ORDER BY revenue DESC
+    LIMIT ${take}
+  `;
+
+  return (rows || []).map((item) => ({
+    productId: item.productId,
+    productName: item.productName,
+    sku: item.sku,
+    quantity: toNum(item.quantity),
+    revenue: toNum(item.revenue),
+    orderCount: toNum(item.orderCount),
+  }));
 };
 
-// ─── GET CUSTOMER STATS ──────────────────────────────────
 const getCustomerStats = async (userId, companyId, dateFilter) => {
+  const periodStart = dateGte(dateFilter);
+  const periodEnd = dateLte(dateFilter);
 
-  const [totalCustomers, newCustomers, topCustomers] = await Promise.all([
-    prisma.customer.count({
-      where: {
-        companyId: companyId, // 👈 User-specific
-        isActive: true,
-        isDeleted: false
-      }
-    }),
-    prisma.customer.count({
-      where: {
-        companyId: companyId,
-        isActive: true,
-        isDeleted: false,
-        createdAt: dateFilter
-      }
-    }),
+  const [countRows, topCustomers] = await Promise.all([
+    prisma.$queryRaw`
+      SELECT
+        COUNT(*) FILTER (WHERE c.is_active = true AND c.is_deleted = false)::int AS "totalCustomers",
+        COUNT(*) FILTER (
+          WHERE c.is_active = true
+            AND c.is_deleted = false
+            AND (${periodStart}::timestamptz IS NULL OR c.created_at >= ${periodStart})
+            AND (${periodEnd}::timestamptz IS NULL OR c.created_at <= ${periodEnd})
+        )::int AS "newCustomers"
+      FROM customers c
+      WHERE ${sqlCompany(companyId, 'c.company_id')}
+    `,
     prisma.customer.findMany({
       where: {
         companyId: companyId,
@@ -636,12 +695,13 @@ const getCustomerStats = async (userId, companyId, dateFilter) => {
         totalSpent: 'desc'
       },
       take: 5
-    })
+    }),
   ]);
 
+  const row = countRows[0] || {};
   return {
-    totalCustomers,
-    newCustomers,
+    totalCustomers: toNum(row.totalCustomers),
+    newCustomers: toNum(row.newCustomers),
     topCustomers
   };
 };
@@ -671,107 +731,69 @@ async function buildSalesComparison(companyId, locationId = null) {
   const lastYearStart = new Date(yearStart);
   lastYearStart.setFullYear(lastYearStart.getFullYear() - 1);
 
-  const orderBase = {
-    companyId,
-    isActive: true,
-    isDeleted: false,
-    ...withLocation(locationId),
-  };
-  const returnBase = {
-    companyId,
-    isActive: true,
-    isDeleted: false,
-    ...viaOrderLocation(locationId),
-  };
-
-  const [
-    todaySalesAgg,
-    yesterdaySalesAgg,
-    todayPos,
-    yesterdayPos,
-    weekSalesAgg,
-    lastWeekSalesAgg,
-    weekPos,
-    lastWeekPos,
-    monthSalesAgg,
-    lastMonthSalesAgg,
-    monthPos,
-    lastMonthPos,
-    yearSalesAgg,
-    lastYearSalesAgg,
-    yearPos,
-    lastYearPos,
-    todayReturns,
-    weekReturns,
-    monthReturns,
-    yearReturns,
-  ] = await Promise.all([
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: todayStart } },
-      _sum: { grandTotal: true },
-    }),
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: yesterdayStart, lt: todayStart } },
-      _sum: { grandTotal: true },
-    }),
-    sumPosRevenue(companyId, { gte: todayStart }, locationId),
-    sumPosRevenue(companyId, { gte: yesterdayStart, lt: todayStart }, locationId),
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: weekStart } },
-      _sum: { grandTotal: true },
-    }),
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: lastWeekStart, lt: weekStart } },
-      _sum: { grandTotal: true },
-    }),
-    sumPosRevenue(companyId, { gte: weekStart }, locationId),
-    sumPosRevenue(companyId, { gte: lastWeekStart, lt: weekStart }, locationId),
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: monthStart } },
-      _sum: { grandTotal: true },
-    }),
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: lastMonthStart, lt: monthStart } },
-      _sum: { grandTotal: true },
-    }),
-    sumPosRevenue(companyId, { gte: monthStart }, locationId),
-    sumPosRevenue(companyId, { gte: lastMonthStart, lt: monthStart }, locationId),
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: yearStart } },
-      _sum: { grandTotal: true },
-    }),
-    prisma.order.aggregate({
-      where: { ...orderBase, orderDate: { gte: lastYearStart, lt: yearStart } },
-      _sum: { grandTotal: true },
-    }),
-    sumPosRevenue(companyId, { gte: yearStart }, locationId),
-    sumPosRevenue(companyId, { gte: lastYearStart, lt: yearStart }, locationId),
-    prisma.return.aggregate({
-      where: { ...returnBase, returnDate: { gte: todayStart } },
-      _sum: { refundAmount: true },
-    }),
-    prisma.return.aggregate({
-      where: { ...returnBase, returnDate: { gte: weekStart } },
-      _sum: { refundAmount: true },
-    }),
-    prisma.return.aggregate({
-      where: { ...returnBase, returnDate: { gte: monthStart } },
-      _sum: { refundAmount: true },
-    }),
-    prisma.return.aggregate({
-      where: { ...returnBase, returnDate: { gte: yearStart } },
-      _sum: { refundAmount: true },
-    }),
+  const [orderRows, posRows, returnRows] = await Promise.all([
+    prisma.$queryRaw`
+      SELECT
+        COALESCE(SUM(CASE WHEN o.order_date >= ${todayStart} THEN o.grand_total ELSE 0 END), 0)::float AS "todaySales",
+        COALESCE(SUM(CASE WHEN o.order_date >= ${yesterdayStart} AND o.order_date < ${todayStart} THEN o.grand_total ELSE 0 END), 0)::float AS "yesterdaySales",
+        COALESCE(SUM(CASE WHEN o.order_date >= ${weekStart} THEN o.grand_total ELSE 0 END), 0)::float AS "weekSales",
+        COALESCE(SUM(CASE WHEN o.order_date >= ${lastWeekStart} AND o.order_date < ${weekStart} THEN o.grand_total ELSE 0 END), 0)::float AS "lastWeekSales",
+        COALESCE(SUM(CASE WHEN o.order_date >= ${monthStart} THEN o.grand_total ELSE 0 END), 0)::float AS "monthSales",
+        COALESCE(SUM(CASE WHEN o.order_date >= ${lastMonthStart} AND o.order_date < ${monthStart} THEN o.grand_total ELSE 0 END), 0)::float AS "lastMonthSales",
+        COALESCE(SUM(CASE WHEN o.order_date >= ${yearStart} THEN o.grand_total ELSE 0 END), 0)::float AS "yearSales",
+        COALESCE(SUM(CASE WHEN o.order_date >= ${lastYearStart} AND o.order_date < ${yearStart} THEN o.grand_total ELSE 0 END), 0)::float AS "lastYearSales"
+      FROM orders o
+      WHERE ${sqlCompany(companyId, 'o.company_id')}
+        AND o.is_active = true
+        AND o.is_deleted = false
+        AND o.order_date >= ${lastYearStart}
+        AND ${sqlLocation(locationId, 'o.location_id')}
+    `,
+    prisma.$queryRaw`
+      SELECT
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${todayStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "todaySales",
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${yesterdayStart} AND ps.created_at < ${todayStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "yesterdaySales",
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${weekStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "weekSales",
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${lastWeekStart} AND ps.created_at < ${weekStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "lastWeekSales",
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${monthStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "monthSales",
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${lastMonthStart} AND ps.created_at < ${monthStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "lastMonthSales",
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${yearStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "yearSales",
+        COALESCE(SUM(CASE WHEN ps.created_at >= ${lastYearStart} AND ps.created_at < ${yearStart} THEN ps.grand_total ELSE 0 END), 0)::float AS "lastYearSales"
+      FROM pos_sales ps
+      LEFT JOIN pos_terminals t ON t.id = ps.terminal_id
+      WHERE ${sqlCompany(companyId, 'ps.company_id')}
+        AND ps.status = 'Completed'
+        AND ps.created_at >= ${lastYearStart}
+        AND ${sqlLocation(locationId, 't.location_id')}
+    `,
+    prisma.$queryRaw`
+      SELECT
+        COALESCE(SUM(CASE WHEN r.return_date >= ${todayStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "todayReturns",
+        COALESCE(SUM(CASE WHEN r.return_date >= ${weekStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "weekReturns",
+        COALESCE(SUM(CASE WHEN r.return_date >= ${monthStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "monthReturns",
+        COALESCE(SUM(CASE WHEN r.return_date >= ${yearStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "yearReturns"
+      FROM returns r
+      LEFT JOIN orders o ON o.id = r.order_id
+      WHERE ${sqlCompany(companyId, 'r.company_id')}
+        AND r.is_active = true
+        AND r.is_deleted = false
+        AND r.return_date >= ${yearStart}
+        AND ${sqlLocation(locationId, 'o.location_id')}
+    `,
   ]);
 
-  const todaySales = toNum(todaySalesAgg._sum.grandTotal) + todayPos;
-  const yesterdaySales = toNum(yesterdaySalesAgg._sum.grandTotal) + yesterdayPos;
-  const weekSales = toNum(weekSalesAgg._sum.grandTotal) + weekPos;
-  const lastWeekSales = toNum(lastWeekSalesAgg._sum.grandTotal) + lastWeekPos;
-  const monthSales = toNum(monthSalesAgg._sum.grandTotal) + monthPos;
-  const lastMonthSales = toNum(lastMonthSalesAgg._sum.grandTotal) + lastMonthPos;
-  const yearSales = toNum(yearSalesAgg._sum.grandTotal) + yearPos;
-  const lastYearSales = toNum(lastYearSalesAgg._sum.grandTotal) + lastYearPos;
+  const o = orderRows[0] || {};
+  const p = posRows[0] || {};
+  const ret = returnRows[0] || {};
+
+  const todaySales = toNum(o.todaySales) + toNum(p.todaySales);
+  const yesterdaySales = toNum(o.yesterdaySales) + toNum(p.yesterdaySales);
+  const weekSales = toNum(o.weekSales) + toNum(p.weekSales);
+  const lastWeekSales = toNum(o.lastWeekSales) + toNum(p.lastWeekSales);
+  const monthSales = toNum(o.monthSales) + toNum(p.monthSales);
+  const lastMonthSales = toNum(o.lastMonthSales) + toNum(p.lastMonthSales);
+  const yearSales = toNum(o.yearSales) + toNum(p.yearSales);
+  const lastYearSales = toNum(o.lastYearSales) + toNum(p.lastYearSales);
 
   const pctChange = (current, prior) =>
     prior > 0 ? ((current - prior) / prior) * 100 : 0;
@@ -780,7 +802,7 @@ async function buildSalesComparison(companyId, locationId = null) {
     today: {
       currentSales: todaySales,
       priorSales: yesterdaySales,
-      currentReturns: todayReturns._sum.refundAmount || 0,
+      currentReturns: toNum(ret.todayReturns),
       priorReturns: 0,
       salesChangePercent: pctChange(todaySales, yesterdaySales),
       returnsChangePercent: 0,
@@ -788,7 +810,7 @@ async function buildSalesComparison(companyId, locationId = null) {
     week: {
       currentSales: weekSales,
       priorSales: lastWeekSales,
-      currentReturns: weekReturns._sum.refundAmount || 0,
+      currentReturns: toNum(ret.weekReturns),
       priorReturns: 0,
       salesChangePercent: pctChange(weekSales, lastWeekSales),
       returnsChangePercent: 0,
@@ -796,7 +818,7 @@ async function buildSalesComparison(companyId, locationId = null) {
     month: {
       currentSales: monthSales,
       priorSales: lastMonthSales,
-      currentReturns: monthReturns._sum.refundAmount || 0,
+      currentReturns: toNum(ret.monthReturns),
       priorReturns: 0,
       salesChangePercent: pctChange(monthSales, lastMonthSales),
       returnsChangePercent: 0,
@@ -804,7 +826,7 @@ async function buildSalesComparison(companyId, locationId = null) {
     year: {
       currentSales: yearSales,
       priorSales: lastYearSales,
-      currentReturns: yearReturns._sum.refundAmount || 0,
+      currentReturns: toNum(ret.yearReturns),
       priorReturns: 0,
       salesChangePercent: pctChange(yearSales, lastYearSales),
       returnsChangePercent: 0,
@@ -820,7 +842,7 @@ async function buildSalesComparison(companyId, locationId = null) {
 const getSalesDashboard = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const period = req.query.period || 'month';
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
@@ -835,32 +857,51 @@ const getSalesDashboard = async (req, res) => {
       companyId
     });
 
-    // ─── ORDERS ──────────────────────────────────────────────
-    const orderFilter = {
-      companyId: companyId,
-      isActive: true,
-      isDeleted: false,
-      orderDate: dateFilter,
-      ...(locationId ? { locationId } : {}),
-    };
+    // ─── ORDERS + POS ────────────────────────────────────────
+    const periodStart = dateGte(dateFilter);
+    const periodEnd = dateLte(dateFilter);
 
-    const [orderCount, orderRevenue, orderStatusCounts, orderTrend, posStats, posTrend] =
+    const [orderAggRows, orderStatusRows, orderTrend, posStats, posTrend] =
       await Promise.all([
-        prisma.order.count({ where: orderFilter }),
-        prisma.order.aggregate({
-          where: orderFilter,
-          _sum: { grandTotal: true }
-        }),
-        prisma.order.groupBy({
-          by: ['orderStatus'],
-          where: orderFilter,
-          _count: { _all: true },
-          _sum: { grandTotal: true }
-        }),
+        prisma.$queryRaw`
+          SELECT
+            COUNT(*)::int AS count,
+            COALESCE(SUM(o.grand_total), 0)::float AS revenue
+          FROM orders o
+          WHERE ${sqlCompany(companyId, 'o.company_id')}
+            AND o.is_active = true
+            AND o.is_deleted = false
+            AND (${periodStart}::timestamptz IS NULL OR o.order_date >= ${periodStart})
+            AND (${periodEnd}::timestamptz IS NULL OR o.order_date <= ${periodEnd})
+            AND ${sqlLocation(locationId, 'o.location_id')}
+        `,
+        prisma.$queryRaw`
+          SELECT
+            o.order_status AS "orderStatus",
+            COUNT(*)::int AS count,
+            COALESCE(SUM(o.grand_total), 0)::float AS revenue
+          FROM orders o
+          WHERE ${sqlCompany(companyId, 'o.company_id')}
+            AND o.is_active = true
+            AND o.is_deleted = false
+            AND (${periodStart}::timestamptz IS NULL OR o.order_date >= ${periodStart})
+            AND (${periodEnd}::timestamptz IS NULL OR o.order_date <= ${periodEnd})
+            AND ${sqlLocation(locationId, 'o.location_id')}
+          GROUP BY o.order_status
+        `,
         getOrderTrend(userId, companyId, dateFilter, locationId),
         getPosStats(companyId, dateFilter, locationId),
         getPosTrend(companyId, dateFilter, locationId),
       ]);
+
+    const orderCount = toNum(orderAggRows?.[0]?.count);
+    const orderRevTotal = toNum(orderAggRows?.[0]?.revenue);
+    const orderRevenue = { _sum: { grandTotal: orderRevTotal } };
+    const orderStatusCounts = (orderStatusRows || []).map((s) => ({
+      orderStatus: s.orderStatus,
+      _count: { _all: toNum(s.count) },
+      _sum: { grandTotal: toNum(s.revenue) },
+    }));
 
     // Enrich order trend with orderRevenue alias for Flutter/Next clients
     const enrichedOrderTrend = orderTrend.map((t) => ({
@@ -1000,7 +1041,7 @@ const getSalesDashboard = async (req, res) => {
 const getSalesSummary = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
     const dateFilter = await resolveSalesDateFilter({
       period,
@@ -1137,7 +1178,7 @@ const getSalesSummary = async (req, res) => {
 const getSalesTrends = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { days = 30, period = 'day' } = req.query;
     const daysInt = parseInt(days);
 
@@ -1217,7 +1258,7 @@ const getSalesTrends = async (req, res) => {
 const getSalesPerformance = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
     const dateFilter = await resolveSalesDateFilter({
       period,
@@ -1333,7 +1374,7 @@ const getSalesPerformance = async (req, res) => {
 // ============================================================
 const getCombinedRevenue = async (req, res) => {
   try {
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { period = 'month', startDate, endDate, fiscalYearId } = req.query;
     const dateFilter = await resolveSalesDateFilter({
       period,

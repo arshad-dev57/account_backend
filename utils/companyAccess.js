@@ -236,6 +236,21 @@ function requireSingleCompany(req) {
   return req.user.companyId;
 }
 
+/**
+ * Prisma-ready companyId value for READ queries.
+ * - single company → uuid string
+ * - All Companies → { in: [accessible ids] }
+ */
+function companyIdForQuery(req) {
+  if (req?.companyMode === 'all') {
+    const ids = Array.isArray(req.accessibleCompanyIds)
+      ? req.accessibleCompanyIds.filter(Boolean)
+      : [];
+    return { in: ids.length ? ids : ['00000000-0000-0000-0000-000000000000'] };
+  }
+  return req?.user?.companyId || null;
+}
+
 async function assertRecordCompanyAccess(req, recordCompanyId) {
   if (!recordCompanyId) return;
   const accessible = req.accessibleCompanyIds || [];
@@ -280,6 +295,7 @@ module.exports = {
   getAccessibleCompanyIds,
   resolveActiveCompanyContext,
   requireSingleCompany,
+  companyIdForQuery,
   assertRecordCompanyAccess,
   assertLocationBelongsToActiveCompany,
 };

@@ -209,7 +209,7 @@ const normalizeOrderStatus = (s) => {
 const getMetrics = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
@@ -345,7 +345,7 @@ const getMetrics = async (req, res) => {
 const getSpendTrend = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end, groupBy } = await parsePeriod(period, startDate, endDate, {
       companyId,
@@ -421,7 +421,7 @@ const getSpendTrend = async (req, res) => {
 const getOrderStatusDistribution = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
@@ -481,7 +481,7 @@ const getOrderStatusDistribution = async (req, res) => {
 const getTopSuppliers = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { period = 'month', startDate, endDate, fiscalYearId, locationId } = req.query;
     const { start, end } = await parsePeriod(period, startDate, endDate, {
       companyId,
@@ -552,7 +552,7 @@ const getTopSuppliers = async (req, res) => {
 const getRecentActivities = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = req.companyIdFilter ?? req.user.companyId;
     const { locationId } = req.query;
     const scope = baseWhere(companyId, userId, purchaseOrderLocationWhere(locationId));
     const invoiceScope = baseWhere(
