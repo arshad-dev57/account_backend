@@ -71,7 +71,10 @@ const makePayment = async (req, res) => {
       reference,
       notes,
       invoicePayments,
-      paymentDate
+      paymentDate,
+      currencyId,
+      exchangeRate,
+      exchangeRateDate,
     } = req.body;
 
     const postingDate = paymentDate ? new Date(paymentDate) : new Date();
@@ -190,7 +193,10 @@ const makePayment = async (req, res) => {
       userId,
       createdBy: userId,
       companyId,
-      fiscalYearId
+      fiscalYearId,
+      currencyId: currencyId || null,
+      exchangeRate: exchangeRate ?? null,
+      exchangeRateDate: exchangeRateDate || null,
     };
 
     const payment = await PurchasePaymentMake.makePayment(paymentData);

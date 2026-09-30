@@ -8,6 +8,11 @@ const {
   resolveLocationId,
   adjustLocationStock,
 } = require('../services/locationService');
+const {
+  snapshotFromDocument,
+  buildCurrencyPersistFields,
+  resolveTransactionCurrency,
+} = require('../../utils/multiCurrency');
 
 // ─── Generate Return Number ──────────────────────────────
 function generateReturnNumber() {
@@ -529,7 +534,8 @@ class PurchaseReturnModel {
             isDeleted: false
           },
           include: {
-            items: true
+            items: true,
+            purchaseOrder: true,
           }
         });
 
@@ -652,6 +658,42 @@ class PurchaseReturnModel {
         });
       }
 
+      // ─── Resolve FX (prefer invoice → GRN → PO → supplier) ──
+      const sourceDocs = [invoice, grn, grn?.purchaseOrder].filter(Boolean);
+      let fxSlice = {};
+      const inheritDoc = sourceDocs.find((d) => d?.currencyId);
+      if (inheritDoc) {
+        const snap = snapshotFromDocument(inheritDoc);
+        const fx = buildCurrencyPersistFields(snap, grandTotal);
+        fxSlice = {
+          currencyId: fx.currencyId,
+          baseCurrencyId: fx.baseCurrencyId,
+          exchangeRate: fx.exchangeRate,
+          exchangeRateDate: fx.exchangeRateDate,
+          foreignAmount: fx.foreignAmount,
+          baseAmount: fx.baseAmount,
+        };
+      } else {
+        const resolved = await resolveTransactionCurrency({
+          companyId,
+          currencyId: data.currencyId,
+          exchangeRate: data.exchangeRate,
+          exchangeRateDate: data.exchangeRateDate,
+          foreignAmount: grandTotal,
+          supplierId,
+          client: tx,
+        });
+        const fx = buildCurrencyPersistFields(resolved, grandTotal);
+        fxSlice = {
+          currencyId: fx.currencyId,
+          baseCurrencyId: fx.baseCurrencyId,
+          exchangeRate: fx.exchangeRate,
+          exchangeRateDate: fx.exchangeRateDate,
+          foreignAmount: fx.foreignAmount,
+          baseAmount: fx.baseAmount,
+        };
+      }
+
       // ─── Create Purchase Return ─────────────────────────────
       const purchaseReturn = await tx.purchaseReturn.create({
         data: {
@@ -669,6 +711,7 @@ class PurchaseReturnModel {
           totalReturnQty,
           returnAmount,
           grandTotal,
+          ...fxSlice,
           createdBy: createdBy || userId,
           companyId: companyId,
           fiscalYearId: fiscalYearId,
@@ -705,7 +748,9 @@ class PurchaseReturnModel {
           },
           supplier: true,
           goodsReceiving: true,
-          purchaseInvoice: true
+          purchaseInvoice: true,
+          currency: true,
+          baseCurrency: true,
         }
       });
 
@@ -790,6 +835,9 @@ class PurchaseReturnModel {
         throw new Error('Return amount must be greater than zero');
       }
 
+      const snap = snapshotFromDocument(purchaseReturn);
+      const baseJeAmount = snap.baseAmountNumber;
+
       const invoice = purchaseReturn.purchaseInvoice;
       const isPostedInvoice = invoice && ['posted', 'partially paid', 'paid'].includes(String(invoice.invoiceStatus || '').toLowerCase());
       const isPaidInvoice = invoice && (
@@ -831,7 +879,7 @@ class PurchaseReturnModel {
                   accountId: debitAccount.id,
                   accountName: debitAccount.name,
                   accountCode: debitAccount.code,
-                  debit: amount,
+                  debit: baseJeAmount,
                   credit: 0
                 },
                 {
@@ -839,7 +887,7 @@ class PurchaseReturnModel {
                   accountName: inventoryAccount.name,
                   accountCode: inventoryAccount.code,
                   debit: 0,
-                  credit: amount
+                  credit: baseJeAmount
                 },
               ]
             }

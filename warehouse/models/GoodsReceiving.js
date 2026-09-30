@@ -5,6 +5,11 @@ const {
   resolveLocationId,
   adjustLocationStock,
 } = require('../services/locationService');
+const {
+  snapshotFromDocument,
+  buildCurrencyPersistFields,
+  resolveTransactionCurrency,
+} = require('../../utils/multiCurrency');
 
 function generateGRNNumber() {
   const date = new Date();
@@ -401,6 +406,41 @@ class GoodsReceivingModel {
 
       const purchaseOrderNumbers = purchaseOrders.map((po) => po.orderNumber).join(', ');
 
+      // Inherit FX snapshot from primary PO (do not re-lookup master rates)
+      let fxFields = {};
+      if (primaryPo.currencyId) {
+        const snap = snapshotFromDocument(primaryPo);
+        const foreign =
+          primaryPo.foreignAmount != null
+            ? primaryPo.foreignAmount
+            : primaryPo.grandTotal;
+        const fx = buildCurrencyPersistFields(snap, foreign);
+        fxFields = {
+          currencyId: fx.currencyId,
+          baseCurrencyId: fx.baseCurrencyId,
+          exchangeRate: fx.exchangeRate,
+          exchangeRateDate: fx.exchangeRateDate,
+          foreignAmount: fx.foreignAmount,
+          baseAmount: fx.baseAmount,
+        };
+      } else {
+        const resolved = await resolveTransactionCurrency({
+          companyId: data.companyId,
+          supplierId: primaryPo.supplierId,
+          foreignAmount: primaryPo.grandTotal || 0,
+          client: tx,
+        });
+        const fx = buildCurrencyPersistFields(resolved, primaryPo.grandTotal || 0);
+        fxFields = {
+          currencyId: fx.currencyId,
+          baseCurrencyId: fx.baseCurrencyId,
+          exchangeRate: fx.exchangeRate,
+          exchangeRateDate: fx.exchangeRateDate,
+          foreignAmount: fx.foreignAmount,
+          baseAmount: fx.baseAmount,
+        };
+      }
+
       const goodsReceiving = await tx.goodsReceiving.create({
         data: {
           grnNumber,
@@ -416,6 +456,7 @@ class GoodsReceivingModel {
           createdBy: data.createdBy,
           companyId: data.companyId,
           locationId,
+          ...fxFields,
           items: { create: receivingItems },
           purchaseOrders: {
             create: purchaseOrders.map((po) => ({
@@ -434,6 +475,8 @@ class GoodsReceivingModel {
           purchaseOrders: true,
           purchaseOrder: { include: { supplier: true } },
           supplier: true,
+          currency: true,
+          baseCurrency: true,
           creator: {
             select: { id: true, firstName: true, lastName: true, email: true },
           },

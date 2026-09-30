@@ -384,7 +384,7 @@ exports.register = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully. Free trial started for 14 days!',
+      message: `User registered successfully. Free trial started for ${TRIAL_DAYS} days!`,
       token,
       refreshToken,
       user: {

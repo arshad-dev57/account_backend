@@ -28,6 +28,7 @@ const DEFAULT_ACCOUNTS = [
   { code: '4001', name: 'Sales Revenue', type: 'Revenue', parentAccount: 'Revenue', balanceType: 'Credit' },
   { code: '4100', name: 'Service Revenue', type: 'Revenue', parentAccount: 'Revenue', balanceType: 'Credit' },
   { code: '4200', name: 'Other Income', type: 'Revenue', parentAccount: 'Revenue', balanceType: 'Credit' },
+  { code: '4201', name: 'Foreign Exchange Gain', type: 'Revenue', parentAccount: 'Revenue', balanceType: 'Credit' },
   { code: '4300', name: 'Sales Returns & Allowances', type: 'Revenue', parentAccount: 'Revenue', balanceType: 'Debit' },
   { code: '4400', name: 'Sales Discounts', type: 'Revenue', parentAccount: 'Revenue', balanceType: 'Debit' },
 
@@ -45,6 +46,7 @@ const DEFAULT_ACCOUNTS = [
   { code: '6700', name: 'Depreciation Expense', type: 'Expense', parentAccount: 'Operating Expenses', balanceType: 'Debit' },
   { code: '6800', name: 'Bank Charges', type: 'Expense', parentAccount: 'Operating Expenses', balanceType: 'Debit' },
   { code: '6900', name: 'Miscellaneous Expense', type: 'Expense', parentAccount: 'Operating Expenses', balanceType: 'Debit' },
+  { code: '7100', name: 'Foreign Exchange Loss', type: 'Expense', parentAccount: 'Operating Expenses', balanceType: 'Debit' },
 ];
 
 /**

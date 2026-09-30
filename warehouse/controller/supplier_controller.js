@@ -1,6 +1,7 @@
 // warehouse/controller/supplier_controller.js - MULTI-TENANT VERSION
 
 const prisma = require('../../prisma/client');
+const { getCompanyBaseCurrency, getCurrencyById } = require('../../utils/multiCurrency');
 
 // ─── HELPERS ────────────────────────────────────────────────
 const buildSupplierFilter = (companyId, search, status) => {
@@ -55,7 +56,8 @@ const getSuppliers = async (req, res) => {
         where: filter,
         skip,
         take: limitNum,
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        include: { currency: true },
       }),
       prisma.supplier.count({ where: filter }),
       getSupplierStatsInternal(companyId) // 👈 Company-specific stats
@@ -107,6 +109,7 @@ const getSupplierById = async (req, res) => {
         companyId: companyId // 👈 CRITICAL
       },
       include: {
+        currency: true,
         products: {
           where: {
             isActive: true,
@@ -212,7 +215,8 @@ const createSupplier = async (req, res) => {
       status,
       isPreferred,
       isVerified,
-      notes
+      notes,
+      currencyId,
     } = req.body;
 
     // Validation
@@ -290,6 +294,21 @@ const createSupplier = async (req, res) => {
       }
     }
 
+    // Resolve currency — explicit or company base
+    let resolvedCurrencyId = currencyId || null;
+    if (resolvedCurrencyId) {
+      const currency = await getCurrencyById(resolvedCurrencyId);
+      if (!currency || !currency.isActive) {
+        return res.status(400).json({
+          success: false,
+          message: 'Selected currency is inactive or not found',
+        });
+      }
+    } else {
+      const base = await getCompanyBaseCurrency(companyId);
+      resolvedCurrencyId = base?.id || null;
+    }
+
     // Build supplier data with companyId
     const supplierData = {
       name,
@@ -312,11 +331,13 @@ const createSupplier = async (req, res) => {
       isVerified: isVerified || false,
       notes: notes || '',
       createdBy: req.user.id,
-      companyId: companyId // 👈 CRITICAL: Link to current company
+      companyId: companyId, // 👈 CRITICAL: Link to current company
+      currencyId: resolvedCurrencyId,
     };
 
     const supplier = await prisma.supplier.create({
-      data: supplierData
+      data: supplierData,
+      include: { currency: true },
     });
 
     res.status(201).json({
@@ -446,7 +467,7 @@ const updateSupplier = async (req, res) => {
       'phone', 'email', 'address', 'city', 'country',
       'industry', 'businessType', 'paymentTerms',
       'gstNumber', 'taxId', 'status', 'isPreferred',
-      'isVerified', 'notes'
+      'isVerified', 'notes', 'currencyId',
     ];
 
     const updateData = {};
@@ -456,9 +477,20 @@ const updateSupplier = async (req, res) => {
       }
     }
 
+    if (updateData.currencyId) {
+      const currency = await getCurrencyById(updateData.currencyId);
+      if (!currency || !currency.isActive) {
+        return res.status(400).json({
+          success: false,
+          message: 'Selected currency is inactive or not found',
+        });
+      }
+    }
+
     const supplier = await prisma.supplier.update({
       where: { id: supplierId },
-      data: updateData
+      data: updateData,
+      include: { currency: true },
     });
 
     res.status(200).json({
@@ -961,6 +993,158 @@ const toggleSupplierStatus = async (req, res) => {
   }
 };
 
+// ============================================================
+// @desc    Supplier multi-currency ledger (invoices + payments + returns)
+// @route   GET /api/warehouse/supplier/:id/ledger
+// @access  Private
+// ============================================================
+const getSupplierLedger = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const supplierId = req.params.id;
+
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: supplierId, companyId },
+      include: { currency: true },
+    });
+    if (!supplier) {
+      return res.status(404).json({ success: false, message: 'Supplier not found' });
+    }
+
+    const [invoices, payments, returns] = await Promise.all([
+      prisma.purchaseInvoice.findMany({
+        where: {
+          supplierId,
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          invoiceStatus: { not: 'Cancelled' },
+        },
+        include: { currency: true, baseCurrency: true },
+        orderBy: { invoiceDate: 'asc' },
+      }),
+      prisma.purchasePaymentMake.findMany({
+        where: {
+          supplierId,
+          companyId,
+          status: { not: 'Cancelled' },
+        },
+        include: { currency: true, baseCurrency: true },
+        orderBy: { paymentDate: 'asc' },
+      }),
+      prisma.purchaseReturn.findMany({
+        where: {
+          supplierId,
+          companyId,
+          isActive: true,
+          isDeleted: false,
+          status: { not: 'Cancelled' },
+        },
+        include: { currency: true, baseCurrency: true },
+        orderBy: { returnDate: 'asc' },
+      }),
+    ]);
+
+    const entries = [];
+
+    for (const inv of invoices) {
+      const foreign = Number(inv.foreignAmount ?? inv.grandTotal) || 0;
+      const rate = Number(inv.exchangeRate) || 1;
+      const local = Number(inv.baseAmount ?? foreign * rate) || 0;
+      entries.push({
+        date: inv.invoiceDate,
+        documentType: 'Purchase Invoice',
+        documentNumber: inv.invoiceNumber,
+        documentId: inv.id,
+        currencyCode: inv.currency?.code || supplier.currency?.code || null,
+        currencySymbol: inv.currency?.symbol || null,
+        foreignAmount: foreign,
+        exchangeRate: rate,
+        localAmount: local,
+        direction: 'debit',
+      });
+    }
+
+    for (const pay of payments) {
+      const foreign = Number(pay.foreignAmount ?? pay.amount) || 0;
+      const rate = Number(pay.exchangeRate) || 1;
+      const local = Number(pay.baseAmount ?? foreign * rate) || 0;
+      entries.push({
+        date: pay.paymentDate,
+        documentType: 'Payment',
+        documentNumber: pay.paymentNumber,
+        documentId: pay.id,
+        currencyCode: pay.currency?.code || supplier.currency?.code || null,
+        currencySymbol: pay.currency?.symbol || null,
+        foreignAmount: foreign,
+        exchangeRate: rate,
+        localAmount: local,
+        direction: 'credit',
+      });
+    }
+
+    for (const ret of returns) {
+      const foreign = Number(ret.foreignAmount ?? ret.grandTotal) || 0;
+      const rate = Number(ret.exchangeRate) || 1;
+      const local = Number(ret.baseAmount ?? foreign * rate) || 0;
+      entries.push({
+        date: ret.returnDate,
+        documentType: 'Purchase Return',
+        documentNumber: ret.returnNumber,
+        documentId: ret.id,
+        currencyCode: ret.currency?.code || supplier.currency?.code || null,
+        currencySymbol: ret.currency?.symbol || null,
+        foreignAmount: foreign,
+        exchangeRate: rate,
+        localAmount: local,
+        direction: 'credit',
+      });
+    }
+
+    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let foreignBalance = 0;
+    let localBalance = 0;
+    const ledger = entries.map((row) => {
+      if (row.direction === 'debit') {
+        foreignBalance += row.foreignAmount;
+        localBalance += row.localAmount;
+      } else {
+        foreignBalance -= row.foreignAmount;
+        localBalance -= row.localAmount;
+      }
+      return {
+        ...row,
+        foreignBalance: Math.round(foreignBalance * 10000) / 10000,
+        localBalance: Math.round(localBalance * 10000) / 10000,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        supplier: {
+          id: supplier.id,
+          name: supplier.name,
+          currency: supplier.currency,
+        },
+        ledger,
+        totals: {
+          foreignBalance,
+          localBalance,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('getSupplierLedger error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getSuppliers,
   getSupplierById,
@@ -971,5 +1155,6 @@ module.exports = {
   searchSuppliers,
   getSupplierStats,
   bulkCreateSuppliers,
-  toggleSupplierStatus
+  toggleSupplierStatus,
+  getSupplierLedger,
 };

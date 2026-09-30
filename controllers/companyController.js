@@ -10,6 +10,61 @@ const {
   requireSingleCompany,
 } = require('../utils/companyAccess');
 const { invalidateAuthUser } = require('../middleware/authMiddleware');
+const {
+  ensureCurrenciesSeeded,
+  getCurrencyByCode,
+} = require('../utils/multiCurrency');
+const { ensureFxAccounts } = require('../utils/fxAccountHelper');
+
+/**
+ * Build opening fiscal-year dates from the company period label
+ * (e.g. "April - March", "July - June", "January - December").
+ */
+function fiscalYearDatesFromPeriod(periodType) {
+  const period = String(periodType || 'January - December').trim();
+  const now = new Date();
+  const y = now.getFullYear();
+  const month = now.getMonth(); // 0-based
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const toDate = (year, m, d) => new Date(`${year}-${pad(m)}-${pad(d)}`);
+
+  if (/april\s*-\s*march/i.test(period)) {
+    // Apr 1 → Mar 31 next year
+    const startYear = month >= 3 ? y : y - 1;
+    return {
+      name: `FY ${startYear}-${String(startYear + 1).slice(-2)}`,
+      startDate: toDate(startYear, 4, 1),
+      endDate: toDate(startYear + 1, 3, 31),
+      periodType: period,
+    };
+  }
+  if (/july\s*-\s*june/i.test(period)) {
+    const startYear = month >= 6 ? y : y - 1;
+    return {
+      name: `FY ${startYear}-${String(startYear + 1).slice(-2)}`,
+      startDate: toDate(startYear, 7, 1),
+      endDate: toDate(startYear + 1, 6, 30),
+      periodType: period,
+    };
+  }
+  if (/october\s*-\s*september/i.test(period)) {
+    const startYear = month >= 9 ? y : y - 1;
+    return {
+      name: `FY ${startYear}-${String(startYear + 1).slice(-2)}`,
+      startDate: toDate(startYear, 10, 1),
+      endDate: toDate(startYear + 1, 9, 30),
+      periodType: period,
+    };
+  }
+  // Default: calendar year
+  return {
+    name: `FY ${y}`,
+    startDate: toDate(y, 1, 1),
+    endDate: toDate(y, 12, 31),
+    periodType: period || 'January - December',
+  };
+}
 
 function companyPublic(c) {
   if (!c) return null;
@@ -131,17 +186,17 @@ exports.createCompany = async (req, res) => {
       });
     }
 
-    // Fiscal year
+    // Fiscal year — dates follow the company's selected period
     try {
-      const currentYear = new Date().getFullYear();
+      const fy = fiscalYearDatesFromPeriod(body.fiscalYear || body.periodType);
       await prisma.fiscalYear.create({
         data: {
           companyId: company.id,
-          name: `FY ${currentYear}`,
-          startDate: new Date(`${currentYear}-01-01`),
-          endDate: new Date(`${currentYear}-12-31`),
+          name: fy.name,
+          startDate: fy.startDate,
+          endDate: fy.endDate,
           status: 'Open',
-          periodType: body.fiscalYear || 'January - December',
+          periodType: fy.periodType,
         },
       });
     } catch (fyErr) {
@@ -152,6 +207,22 @@ exports.createCompany = async (req, res) => {
       await initializeDefaultChartOfAccounts(company.id, userId);
     } catch (coaErr) {
       console.error('createCompany COA warning:', coaErr.message);
+    }
+
+    // Multi-currency: seed currencies, set PKR as base, ensure FX gain/loss accounts
+    try {
+      await ensureCurrenciesSeeded();
+      const pkr = await getCurrencyByCode('PKR');
+      if (pkr) {
+        await prisma.company.update({
+          where: { id: company.id },
+          data: { baseCurrencyId: pkr.id },
+        });
+        company.baseCurrencyId = pkr.id;
+      }
+      await ensureFxAccounts(userId, company.id);
+    } catch (fxErr) {
+      console.error('createCompany currency/FX warning:', fxErr.message);
     }
 
     // Do NOT create a warehouse automatically.

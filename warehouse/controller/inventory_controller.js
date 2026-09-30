@@ -90,7 +90,11 @@ const getInventoryValuation = async (req, res) => {
       const qty = locationId
         ? product.productStocks?.[0]?.currentStock ?? 0
         : product.currentStock || 0;
-      const unitCost = product.costPrice || 0;
+      // Inventory cost: averageCost (WAC) preferred — never selling price
+      const unitCost =
+        product.averageCost != null && product.averageCost > 0
+          ? product.averageCost
+          : product.costPrice || 0;
       const sellingPrice = product.sellingPrice || 0;
       const totalCostValue = qty * unitCost;
       const sellingValue = qty * sellingPrice;

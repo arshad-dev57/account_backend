@@ -29,6 +29,9 @@ const createPurchaseOrder = async (req, res) => {
       termsConditions,
       status,
       locationId,
+      currencyId,
+      exchangeRate,
+      exchangeRateDate,
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
@@ -106,6 +109,9 @@ const createPurchaseOrder = async (req, res) => {
       createdBy: userId,      // ✅ Use createdBy
       companyId: companyId,   // ✅ Use companyId
       locationId: locationId || null,
+      currencyId: currencyId || null,
+      exchangeRate: exchangeRate ?? null,
+      exchangeRateDate: exchangeRateDate || null,
     };
 
     const purchaseOrder = await PurchaseOrder.create(orderData);
@@ -298,7 +304,10 @@ const updatePurchaseOrder = async (req, res) => {
       items,
       notes,
       termsConditions,
-      status
+      status,
+      currencyId,
+      exchangeRate,
+      exchangeRateDate,
     } = req.body;
 
     // ─── Check if order exists ──────────────────────────
@@ -345,7 +354,10 @@ const updatePurchaseOrder = async (req, res) => {
       ...(expectedDeliveryDate && { expectedDeliveryDate: new Date(expectedDeliveryDate) }),
       ...(status && { status }),
       ...(notes !== undefined && { notes }),
-      ...(termsConditions !== undefined && { termsConditions })
+      ...(termsConditions !== undefined && { termsConditions }),
+      ...(currencyId !== undefined && { currencyId }),
+      ...(exchangeRate !== undefined && { exchangeRate }),
+      ...(exchangeRateDate !== undefined && { exchangeRateDate }),
     };
 
     // ─── Process items if provided ──────────────────────

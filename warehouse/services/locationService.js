@@ -175,8 +175,14 @@ async function syncProductTotalStock(tx, productId) {
 
   const product = await tx.product.findUnique({
     where: { id: productId },
-    select: { costPrice: true },
+    select: { costPrice: true, averageCost: true },
   });
+
+  // Stock value = on-hand × inventory cost (averageCost preferred; never selling price)
+  const unitCost =
+    product?.averageCost != null && product.averageCost > 0
+      ? product.averageCost
+      : product?.costPrice || 0;
 
   return tx.product.update({
     where: { id: productId },
@@ -184,7 +190,7 @@ async function syncProductTotalStock(tx, productId) {
       currentStock: current,
       reservedStock: reserved,
       availableStock: available,
-      totalValue: current * (product?.costPrice || 0),
+      totalValue: current * unitCost,
     },
   });
 }

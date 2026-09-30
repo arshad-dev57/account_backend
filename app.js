@@ -113,7 +113,9 @@ const posRoutes   = require('./pos/routes/posRoutes');
 const taxRoutes   = require('./tax/routes/taxRoutes');
 const platformAdminRoutes = require('./routes/platformAdminRoutes');
 const companyStorageRoutes = require('./routes/companyStorageRoutes');
+const currencyRoutes = require('./routes/currencyRoutes');
 
+app.use('/api/currencies', currencyRoutes);
 app.use('/api/purchase/dashboard', purchaseDashboardRoutes);
 app.use('/api/purchase/reports', purchaseReportRoutes);
 app.use('/api/purchase/returns', purchaseReturnRoutes);

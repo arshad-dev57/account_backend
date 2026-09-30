@@ -532,6 +532,8 @@ module.exports = {
   validateStockOutReason,
   postStockInAccounting,
   postStockOutAccounting,
+  createStockJournalEntry,
   createStockCreditPayableBill,
   findOrCreateInventoryAccount,
+  findOrCreateEquityAccount,
 };

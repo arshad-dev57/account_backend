@@ -18,6 +18,11 @@ const REQUIRED_MODELS = [
   'hrEmployee',
   'hrAttendance',
   'hrLeave',
+  // Inventory import / UOM engine
+  'companyInventorySetting',
+  'unitOfMeasure',
+  'uomConversion',
+  'inventoryImportBatch',
 ];
 
 function getPrismaHealth(prisma) {

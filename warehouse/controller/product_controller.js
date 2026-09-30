@@ -155,6 +155,7 @@ const getProducts = async (req, res) => {
       search,
       q,
       categoryId,
+      categoryIds,
       supplierId,
       stockStatus,
       minPrice,
@@ -185,7 +186,17 @@ const getProducts = async (req, res) => {
       ];
     }
 
-    if (categoryId) {
+    if (categoryIds) {
+      const ids = String(categoryIds)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (ids.length === 1) {
+        filter.categoryId = ids[0];
+      } else if (ids.length > 1) {
+        filter.categoryId = { in: ids };
+      }
+    } else if (categoryId) {
       filter.categoryId = categoryId;
     }
 

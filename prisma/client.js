@@ -51,13 +51,23 @@ function hasHrModels(client) {
   );
 }
 
+function hasInventoryImportModels(client) {
+  return Boolean(
+    client?.companyInventorySetting &&
+      client?.unitOfMeasure &&
+      client?.uomConversion &&
+      client?.inventoryImportBatch
+  );
+}
+
 function clientSchemaIsCurrent(client) {
   return (
     userModelHasAssignedTerminal(client) &&
     companyModelHasPosMode(client) &&
     companyModelHasPosModeConfigured(client) &&
     restaurantLineHasKitchenStation(client) &&
-    hasHrModels(client)
+    hasHrModels(client) &&
+    hasInventoryImportModels(client)
   );
 }
 
@@ -143,6 +153,7 @@ if (prisma && !clientSchemaIsCurrent(prisma)) {
     /* ignore */
   }
   delete globalForPrisma.__accountPrisma;
+  delete globalForPrisma.__accountPrismaHealthLogged;
   prisma = null;
 }
 

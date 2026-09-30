@@ -10,6 +10,70 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+// ============================================================
+// MULTI-CURRENCY MASTER
+// ============================================================
+
+model Currency {
+  id             String   @id @default(uuid())
+  code           String   @unique // ISO 4217 e.g. PKR, USD
+  name           String
+  symbol         String
+  decimalPlaces  Int      @default(2) @map("decimal_places")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  companiesBase     Company[]       @relation("CompanyBaseCurrency")
+  suppliers         Supplier[]      @relation("SupplierCurrency")
+  exchangeRatesFrom ExchangeRate[]  @relation("ExchangeRateFrom")
+  exchangeRatesTo   ExchangeRate[]  @relation("ExchangeRateTo")
+
+  purchaseOrdersAsTxn      PurchaseOrder[]         @relation("POCurrency")
+  purchaseOrdersAsBase     PurchaseOrder[]         @relation("POBaseCurrency")
+  purchaseInvoicesAsTxn    PurchaseInvoice[]       @relation("PICurrency")
+  purchaseInvoicesAsBase   PurchaseInvoice[]       @relation("PIBaseCurrency")
+  purchasePaymentsAsTxn    PurchasePaymentMake[]   @relation("PPMCurrency")
+  purchasePaymentsAsBase   PurchasePaymentMake[]   @relation("PPMBaseCurrency")
+  purchaseReturnsAsTxn     PurchaseReturn[]        @relation("PRCurrency")
+  purchaseReturnsAsBase    PurchaseReturn[]        @relation("PRBaseCurrency")
+  goodsReceivingsAsTxn     GoodsReceiving[]        @relation("GRNCurrency")
+  goodsReceivingsAsBase    GoodsReceiving[]        @relation("GRNBaseCurrency")
+  accountsPayableAsTxn     AccountsPayable[]       @relation("APCurrency")
+  accountsPayableAsBase    AccountsPayable[]       @relation("APBaseCurrency")
+
+  @@index([code])
+  @@index([isActive])
+  @@map("currencies")
+}
+
+model ExchangeRate {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  fromCurrencyId  String   @map("from_currency_id")
+  toCurrencyId    String   @map("to_currency_id")
+  rate            Decimal  @db.Decimal(18, 8)
+  effectiveDate   DateTime @map("effective_date") @db.Date
+  isActive        Boolean  @default(true) @map("is_active")
+  notes           String?
+  createdBy       String?  @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  company      Company  @relation("CompanyExchangeRates", fields: [companyId], references: [id], onDelete: Cascade)
+  fromCurrency Currency @relation("ExchangeRateFrom", fields: [fromCurrencyId], references: [id])
+  toCurrency   Currency @relation("ExchangeRateTo", fields: [toCurrencyId], references: [id])
+  creator      User?    @relation("ExchangeRateCreator", fields: [createdBy], references: [id])
+
+  @@unique([companyId, fromCurrencyId, toCurrencyId, effectiveDate])
+  @@index([companyId])
+  @@index([fromCurrencyId, toCurrencyId])
+  @@index([effectiveDate])
+  @@index([isActive])
+  @@map("exchange_rates")
+}
+
 // ============================================================
 // COMPANY MODEL (Multi-tenant)
 // ============================================================
@@ -37,9 +101,12 @@ model Company {
   subscriptionEndDate   DateTime? @map("subscription_end_date")
   posMode               String    @default("retail") @map("pos_mode") // retail | restaurant
   posModeConfigured     Boolean   @default(false) @map("pos_mode_configured")
+  baseCurrencyId        String?   @map("base_currency_id")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
+  baseCurrency       Currency?             @relation("CompanyBaseCurrency", fields: [baseCurrencyId], references: [id])
+  exchangeRates      ExchangeRate[]        @relation("CompanyExchangeRates")
   users              User[]
   memberships        CompanyMembership[]
   categories         Category[]             @relation("CategoryCompany")
@@ -156,6 +223,10 @@ model Company {
   manufacturingDemands ManufacturingDemand[]       @relation("ManufacturingDemandCompany")
   manufacturingProductCosts ManufacturingProductCost[] @relation("ManufacturingProductCostCompany")
   manufacturingSetting ManufacturingSetting?      @relation("ManufacturingSettingCompany")
+  inventorySettings        CompanyInventorySetting?
+  inventoryImportBatches   InventoryImportBatch[]
+  unitsOfMeasure           UnitOfMeasure[]
+  uomConversions           UomConversion[]
 
   @@index([email])
   @@index([isActive])
@@ -244,11 +315,12 @@ model ProductStock {
   companyId      String @map("company_id")
   productId      String @map("product_id")
   locationId     String @map("location_id")
-  currentStock   Int    @default(0) @map("current_stock")
-  reservedStock  Int    @default(0) @map("reserved_stock")
-  availableStock Int    @default(0) @map("available_stock")
-  minimumStock   Int    @default(0) @map("minimum_stock")
-  reorderLevel   Int    @default(0) @map("reorder_level")
+  // Float to support fractional base-UOM quantities (KG, LTR, MTR)
+  currentStock   Float  @default(0) @map("current_stock")
+  reservedStock  Float  @default(0) @map("reserved_stock")
+  availableStock Float  @default(0) @map("available_stock")
+  minimumStock   Float  @default(0) @map("minimum_stock")
+  reorderLevel   Float  @default(0) @map("reorder_level")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -262,6 +334,122 @@ model ProductStock {
   @@index([productId])
   @@index([locationId])
   @@map("product_stocks")
+}
+
+// ============================================================
+// INVENTORY SETTINGS / UOM / IMPORT
+// ============================================================
+
+model CompanyInventorySetting {
+  id     String @id @default(uuid())
+  companyId String @unique @map("company_id")
+
+  /// WEIGHTED_AVERAGE | FIFO | STANDARD
+  valuationMethod     String  @default("WEIGHTED_AVERAGE") @map("valuation_method")
+  allowNegativeStock  Boolean @default(false) @map("allow_negative_stock")
+  enableBatchTracking Boolean @default(true) @map("enable_batch_tracking")
+  enableSerialTracking Boolean @default(false) @map("enable_serial_tracking")
+  enableMultiWarehouse Boolean @default(true) @map("enable_multi_warehouse")
+  enableBinManagement Boolean @default(true) @map("enable_bin_management")
+  enableUomConversion Boolean @default(true) @map("enable_uom_conversion")
+  quantityPrecision   Int     @default(6) @map("quantity_precision")
+  costPrecision       Int     @default(4) @map("cost_precision")
+  maxImportFileMb     Int     @default(15) @map("max_import_file_mb")
+  inventoryOpeningDate DateTime? @map("inventory_opening_date")
+  createMissingMastersDefault Boolean @default(false) @map("create_missing_masters_default")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_inventory_settings")
+}
+
+model UnitOfMeasure {
+  id          String  @id @default(uuid())
+  companyId   String  @map("company_id")
+  code        String
+  name        String
+  symbol      String?
+  isBase      Boolean @default(false) @map("is_base")
+  isActive    Boolean @default(true) @map("is_active")
+  decimalPlaces Int   @default(0) @map("decimal_places")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversionsFrom UomConversion[] @relation("UomConversionFrom")
+  conversionsTo   UomConversion[] @relation("UomConversionTo")
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("units_of_measure")
+}
+
+model UomConversion {
+  id             String @id @default(uuid())
+  companyId      String @map("company_id")
+  fromUomId      String @map("from_uom_id")
+  toUomId        String @map("to_uom_id")
+  /// 1 fromUom = factor toUom (e.g. 1 BOX = 100 PCS → factor 100)
+  conversionFactor Float @map("conversion_factor")
+  isActive       Boolean @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromUom UnitOfMeasure @relation("UomConversionFrom", fields: [fromUomId], references: [id], onDelete: Cascade)
+  toUom   UnitOfMeasure @relation("UomConversionTo", fields: [toUomId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, fromUomId, toUomId])
+  @@index([companyId])
+  @@map("uom_conversions")
+}
+
+model InventoryImportBatch {
+  id            String @id @default(uuid())
+  companyId     String @map("company_id")
+  batchNumber   String @map("batch_number")
+  importType    String @default("ITEM_MASTER") @map("import_type") // ITEM_MASTER | TRANSACTIONS
+  fileName      String? @map("file_name")
+  fileHash      String? @map("file_hash")
+  fileSize      Int?    @map("file_size")
+  status        String  @default("Pending") // Pending | Validating | Preview | Processing | Completed | CompletedWithWarnings | Failed | Cancelled
+  duplicateSkuMode String @default("skip") @map("duplicate_sku_mode") // skip | update | error
+  createMissingMasters Boolean @default(false) @map("create_missing_masters")
+  openingDate   DateTime? @map("opening_date")
+
+  totalRows     Int @default(0) @map("total_rows")
+  validRows     Int @default(0) @map("valid_rows")
+  warningRows   Int @default(0) @map("warning_rows")
+  errorRows     Int @default(0) @map("error_rows")
+  duplicateRows Int @default(0) @map("duplicate_rows")
+  importedCount Int @default(0) @map("imported_count")
+  updatedCount  Int @default(0) @map("updated_count")
+  skippedCount  Int @default(0) @map("skipped_count")
+
+  /// Parsed + validated row payloads (preview / result)
+  previewData   Json? @map("preview_data")
+  resultSummary Json? @map("result_summary")
+  columnMapping Json? @map("column_mapping")
+  errorReport   Json? @map("error_report")
+  warningReport Json? @map("warning_report")
+
+  createdBy String  @map("created_by")
+  startedAt DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+
+  @@unique([companyId, batchNumber])
+  @@index([companyId])
+  @@index([fileHash])
+  @@index([status])
+  @@map("inventory_import_batches")
 }
 
 // ============================================================
@@ -340,6 +528,7 @@ model User {
   warehousePurchaseUpdaters WarehousePurchase[] @relation("WarehousePurchaseUpdater")
 
   chartOfAccountCreators  ChartOfAccount[]  @relation("ChartOfAccountCreator")
+  exchangeRateCreators    ExchangeRate[]    @relation("ExchangeRateCreator")
   bankAccountCreators     BankAccount[]     @relation("BankAccountCreator")
   journalEntryCreators    JournalEntry[]    @relation("JournalEntryCreator")
   journalEntryPosters     JournalEntry[]    @relation("JournalEntryPoster")
@@ -1558,6 +1747,11 @@ model Product {
   reorderQty   Int     @default(50) @map("reorder_qty")
 
   costPrice         Float     @map("cost_price")
+  /// Weighted average inventory cost (valuation) — may differ from last purchase price
+  averageCost       Float?    @map("average_cost")
+  lastPurchasePrice Float?    @map("last_purchase_price")
+  lastPurchaseDate  DateTime? @map("last_purchase_date")
+  standardCost      Float?    @map("standard_cost")
   sellingPrice      Float     @map("selling_price")
   landingCost       Float     @default(0) @map("landing_cost")
   margin            Float     @default(0)
@@ -1842,7 +2036,8 @@ model Supplier {
   createdBy     String  @map("created_by")
   notes         String?
 
-  companyId String? @map("company_id")
+  companyId  String? @map("company_id")
+  currencyId String? @map("currency_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1850,6 +2045,7 @@ model Supplier {
   // Relations
   creator          User?                 @relation("SupplierCreator", fields: [createdBy], references: [id])
   company          Company?              @relation("SupplierCompany", fields: [companyId], references: [id])
+  currency         Currency?             @relation("SupplierCurrency", fields: [currencyId], references: [id])
   products         Product[]
   stockMovements   StockMovement[]
   purchases        WarehousePurchase[]
@@ -1879,6 +2075,7 @@ model Supplier {
   @@index([createdAt])
   @@index([name])
   @@index([companyId])
+  @@index([currencyId])
   @@map("suppliers")
 }
 
@@ -1920,9 +2117,19 @@ model StockMovement {
   productId     String @map("product_id")
   productName   String @map("product_name")
   type          String
+  /// Canonical ERP movement: OPENING_BALANCE, PURCHASE_RECEIPT, SALES_DELIVERY, TRANSFER_IN, etc.
+  movementType  String? @map("movement_type")
   quantity      Float
+  /// Quantity normalized to item base UOM
+  baseQuantity  Float?  @map("base_quantity")
+  uom           String?
   previousStock Float    @map("previous_stock")
   newStock      Float    @map("new_stock")
+  unitCost      Float?   @map("unit_cost")
+  totalValue    Float?   @map("total_value")
+  batchNumber   String?  @map("batch_number")
+  binLocation   String?  @map("bin_location")
+  movementDate  DateTime? @map("movement_date")
 
   stockType    String @default("bulk") @map("stock_type")
   stockDetails Json?  @map("stock_details")
@@ -1933,6 +2140,7 @@ model StockMovement {
   customerName String? @map("customer_name")
   reference    String?
   purchaseId   String? @map("purchase_id")
+  importBatchId String? @map("import_batch_id")
   status       String  @default("Completed")
   notes        String?
 
@@ -1953,15 +2161,18 @@ model StockMovement {
   creator  User?              @relation("StockMovementCreator", fields: [createdBy], references: [id])
   company  Company?           @relation("StockMovementCompany", fields: [companyId], references: [id])
   location Location?          @relation(fields: [locationId], references: [id])
+  importBatch InventoryImportBatch? @relation(fields: [importBatchId], references: [id])
 
   @@index([productId])
   @@index([type])
+  @@index([movementType])
   @@index([createdAt])
   @@index([status])
   @@index([supplierId])
   @@index([purchaseId])
   @@index([companyId])
   @@index([locationId])
+  @@index([importBatchId])
   @@map("stock_movements")
 }
 model OrderItem {
@@ -2531,6 +2742,15 @@ model AccountsReceivable {
   outstanding Float
   dueDate     DateTime @map("due_date")
 
+  currencyId       String?   @map("currency_id")
+  baseCurrencyId   String?   @map("base_currency_id")
+  exchangeRate     Decimal   @default(1) @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateDate DateTime? @map("exchange_rate_date")
+  foreignAmount    Decimal?  @map("foreign_amount") @db.Decimal(18, 4)
+  baseAmount       Decimal?  @map("base_amount") @db.Decimal(18, 4)
+  foreignPaidAmount Decimal  @default(0) @map("foreign_paid_amount") @db.Decimal(18, 4)
+  foreignOutstanding Decimal? @map("foreign_outstanding") @db.Decimal(18, 4)
+
   status String @default("Current") // Current, Overdue, Paid, WrittenOff
 
   notes String?
@@ -2575,6 +2795,15 @@ model AccountsPayable {
   outstanding Float
   dueDate     DateTime @map("due_date")
 
+  currencyId           String?   @map("currency_id")
+  baseCurrencyId       String?   @map("base_currency_id")
+  exchangeRate         Decimal   @default(1) @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateDate     DateTime? @map("exchange_rate_date")
+  foreignAmount        Decimal?  @map("foreign_amount") @db.Decimal(18, 4)
+  baseAmount           Decimal?  @map("base_amount") @db.Decimal(18, 4)
+  foreignPaidAmount    Decimal   @default(0) @map("foreign_paid_amount") @db.Decimal(18, 4)
+  foreignOutstanding   Decimal?  @map("foreign_outstanding") @db.Decimal(18, 4)
+
   status String @default("Current") // Current, Overdue, Paid, WrittenOff
 
   notes String?
@@ -2591,6 +2820,8 @@ model AccountsPayable {
   invoice          PurchaseInvoice       @relation(fields: [invoiceId], references: [id])
   supplier         Supplier              @relation(fields: [supplierId], references: [id])
   account          ChartOfAccount?       @relation("APAccount", fields: [accountId], references: [id])
+  currency         Currency?             @relation("APCurrency", fields: [currencyId], references: [id])
+  baseCurrency     Currency?             @relation("APBaseCurrency", fields: [baseCurrencyId], references: [id])
   payments         PaymentMade[]
   purchasePayments PurchasePaymentMake[] @relation("PaymentMakeAPRecords")
   PurchaseReturn   PurchaseReturn[]
@@ -2601,6 +2832,8 @@ model AccountsPayable {
   @@index([dueDate])
   @@index([fiscalYearId])
   @@index([companyId])
+  @@index([currencyId])
+  @@index([baseCurrencyId])
   @@map("accounts_payable")
 }
 
@@ -3185,6 +3418,14 @@ model PurchasePaymentMake {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
+
+  currencyId       String?   @map("currency_id")
+  baseCurrencyId   String?   @map("base_currency_id")
+  exchangeRate     Decimal   @default(1) @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateDate DateTime? @map("exchange_rate_date")
+  foreignAmount    Decimal?  @map("foreign_amount") @db.Decimal(18, 4)
+  baseAmount       Decimal?  @map("base_amount") @db.Decimal(18, 4)
+
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
 
@@ -3197,6 +3438,8 @@ model PurchasePaymentMake {
   creator         User?                    @relation("PurchasePaymentMakeCreator", fields: [createdBy], references: [id])
   updater         User?                    @relation("PurchasePaymentMakeUpdater", fields: [updatedBy], references: [id])
   company         Company?                 @relation("PurchasePaymentMakeCompany", fields: [companyId], references: [id])
+  currency        Currency?                @relation("PPMCurrency", fields: [currencyId], references: [id])
+  baseCurrency    Currency?                @relation("PPMBaseCurrency", fields: [baseCurrencyId], references: [id])
   invoicePayments PurchasePaymentInvoice[]
   journalEntry    JournalEntry?            @relation("PaymentJournalEntry", fields: [journalEntryId], references: [id])
   accountsPayable AccountsPayable[]        @relation("PaymentMakeAPRecords")
@@ -3210,6 +3453,8 @@ model PurchasePaymentMake {
   @@index([paymentMethod])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([currencyId])
+  @@index([baseCurrencyId])
   @@map("purchase_payments_make")
 }
 
@@ -3300,6 +3545,14 @@ model PurchaseReturn {
   isActive    Boolean   @default(true) @map("is_active")
   isDeleted   Boolean   @default(false) @map("is_deleted")
 
+
+  currencyId       String?   @map("currency_id")
+  baseCurrencyId   String?   @map("base_currency_id")
+  exchangeRate     Decimal   @default(1) @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateDate DateTime? @map("exchange_rate_date")
+  foreignAmount    Decimal?  @map("foreign_amount") @db.Decimal(18, 4)
+  baseAmount       Decimal?  @map("base_amount") @db.Decimal(18, 4)
+
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
 
@@ -3316,6 +3569,8 @@ model PurchaseReturn {
   processor       User?                @relation("PurchaseReturnProcessor", fields: [processedBy], references: [id])
   canceller       User?                @relation("PurchaseReturnCanceller", fields: [cancelledBy], references: [id])
   company         Company?             @relation("PurchaseReturnCompany", fields: [companyId], references: [id])
+  currency        Currency?            @relation("PRCurrency", fields: [currencyId], references: [id])
+  baseCurrency    Currency?            @relation("PRBaseCurrency", fields: [baseCurrencyId], references: [id])
   journalEntry    JournalEntry?        @relation("PurchaseReturnJournalEntry", fields: [journalEntryId], references: [id])
   apRecord        AccountsPayable?     @relation(fields: [apRecordId], references: [id])
   fiscalYear      FiscalYear?          @relation("PurchaseReturnFiscalYear", fields: [fiscalYearId], references: [id])
@@ -3329,6 +3584,8 @@ model PurchaseReturn {
   @@index([isActive])
   @@index([companyId])
   @@index([fiscalYearId])
+  @@index([currencyId])
+  @@index([baseCurrencyId])
   @@map("purchase_returns")
 }
 
@@ -3834,6 +4091,14 @@ model PurchaseOrder {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
+
+  currencyId       String?   @map("currency_id")
+  baseCurrencyId   String?   @map("base_currency_id")
+  exchangeRate     Decimal   @default(1) @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateDate DateTime? @map("exchange_rate_date")
+  foreignAmount    Decimal?  @map("foreign_amount") @db.Decimal(18, 4)
+  baseAmount       Decimal?  @map("base_amount") @db.Decimal(18, 4)
+
   companyId  String? @map("company_id")
   locationId String? @map("location_id")
 
@@ -3847,6 +4112,8 @@ model PurchaseOrder {
   creator              User?               @relation("PurchaseOrderCreator", fields: [createdBy], references: [id])
   updater              User?               @relation("PurchaseOrderUpdater", fields: [updatedBy], references: [id])
   company              Company?            @relation("PurchaseOrderCompany", fields: [companyId], references: [id])
+  currency             Currency?           @relation("POCurrency", fields: [currencyId], references: [id])
+  baseCurrency         Currency?           @relation("POBaseCurrency", fields: [baseCurrencyId], references: [id])
   location             Location?           @relation(fields: [locationId], references: [id])
   goodsReceivings      GoodsReceiving[]
   goodsReceivingLinks  GoodsReceivingPurchaseOrder[]
@@ -3861,6 +4128,8 @@ model PurchaseOrder {
   @@index([companyId])
   @@index([locationId])
   @@index([purchaseRequisitionId])
+  @@index([currencyId])
+  @@index([baseCurrencyId])
   @@map("purchase_orders")
 }
 
@@ -4017,6 +4286,14 @@ model GoodsReceiving {
   companyId  String? @map("company_id")
   locationId String? @map("location_id")
 
+
+  currencyId       String?   @map("currency_id")
+  baseCurrencyId   String?   @map("base_currency_id")
+  exchangeRate     Decimal   @default(1) @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateDate DateTime? @map("exchange_rate_date")
+  foreignAmount    Decimal?  @map("foreign_amount") @db.Decimal(18, 4)
+  baseAmount       Decimal?  @map("base_amount") @db.Decimal(18, 4)
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -4030,6 +4307,8 @@ model GoodsReceiving {
   confirmer        User?                @relation("GoodsReceivingConfirmer", fields: [confirmedBy], references: [id])
   company          Company?             @relation("GoodsReceivingCompany", fields: [companyId], references: [id])
   location         Location?            @relation(fields: [locationId], references: [id])
+  currency         Currency?            @relation("GRNCurrency", fields: [currencyId], references: [id])
+  baseCurrency     Currency?            @relation("GRNBaseCurrency", fields: [baseCurrencyId], references: [id])
   purchaseInvoices PurchaseInvoice[]
   invoiceSources   PurchaseInvoiceSource[]
   purchaseReturns  PurchaseReturn[]
@@ -4043,6 +4322,8 @@ model GoodsReceiving {
   @@index([isActive])
   @@index([companyId])
   @@index([locationId])
+  @@index([currencyId])
+  @@index([baseCurrencyId])
   @@map("goods_receivings")
 }
 
@@ -4144,6 +4425,14 @@ model PurchaseInvoice {
   isActive  Boolean @default(true) @map("is_active")
   isDeleted Boolean @default(false) @map("is_deleted")
 
+
+  currencyId       String?   @map("currency_id")
+  baseCurrencyId   String?   @map("base_currency_id")
+  exchangeRate     Decimal   @default(1) @map("exchange_rate") @db.Decimal(18, 8)
+  exchangeRateDate DateTime? @map("exchange_rate_date")
+  foreignAmount    Decimal?  @map("foreign_amount") @db.Decimal(18, 4)
+  baseAmount       Decimal?  @map("base_amount") @db.Decimal(18, 4)
+
   fiscalYearId String? @map("fiscal_year_id")
   companyId    String? @map("company_id")
   locationId   String? @map("location_id")
@@ -4160,6 +4449,8 @@ model PurchaseInvoice {
   creator            User?                    @relation("PurchaseInvoiceCreator", fields: [createdBy], references: [id])
   updater            User?                    @relation("PurchaseInvoiceUpdater", fields: [updatedBy], references: [id])
   company            Company?                 @relation("PurchaseInvoiceCompany", fields: [companyId], references: [id])
+  currency           Currency?                @relation("PICurrency", fields: [currencyId], references: [id])
+  baseCurrency       Currency?                @relation("PIBaseCurrency", fields: [baseCurrencyId], references: [id])
   location           Location?                @relation(fields: [locationId], references: [id])
   journalEntry       JournalEntry?            @relation(fields: [journalEntryId], references: [id])
   accountsPayable    AccountsPayable[]
@@ -4182,6 +4473,8 @@ model PurchaseInvoice {
   @@index([companyId])
   @@index([fiscalYearId])
   @@index([locationId])
+  @@index([currencyId])
+  @@index([baseCurrencyId])
   @@map("purchase_invoices")
 }
 

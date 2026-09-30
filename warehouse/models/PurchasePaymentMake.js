@@ -4,6 +4,19 @@ const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
 const { getOrCreateApAccount } = require('../../utils/apAccountHelper');
 const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
+const {
+  resolveTransactionCurrency,
+  buildCurrencyPersistFields,
+  computeExchangeDifference,
+  toDecimal,
+  toNumber,
+  ZERO,
+} = require('../../utils/multiCurrency');
+const {
+  ensureFxAccounts,
+  getOrCreateFxGainAccount,
+  getOrCreateFxLossAccount,
+} = require('../../utils/fxAccountHelper');
 
 // ─── Generate Payment Number ──────────────────────────────
 function generatePaymentNumber() {
@@ -134,7 +147,10 @@ class PurchasePaymentMakeModel {
         userId,
         createdBy,
         companyId,
-        fiscalYearId
+        fiscalYearId,
+        currencyId,
+        exchangeRate,
+        exchangeRateDate,
       } = data;
 
       // ─── Validation ──────────────────────────────────────────
@@ -240,6 +256,46 @@ class PurchasePaymentMakeModel {
         throw new Error('Total paid amount does not match invoice amounts');
       }
 
+      // ─── Resolve payment currency (foreign amount = `amount`) ─
+      const defaultCurrencyId =
+        currencyId ||
+        validatedInvoices[0]?.invoice?.currencyId ||
+        supplier.currencyId ||
+        null;
+
+      const currencyResolved = await resolveTransactionCurrency({
+        companyId,
+        currencyId: defaultCurrencyId,
+        exchangeRate,
+        exchangeRateDate,
+        foreignAmount: amount,
+        supplierId,
+        client: tx,
+      });
+      const fxPersist = buildCurrencyPersistFields(currencyResolved, amount);
+      const paymentRate = fxPersist.exchangeRate;
+
+      // Aggregate FX: invoice historical base relief vs payment base
+      let totalInvoiceBaseRelief = ZERO;
+      let totalPaymentBase = ZERO;
+      for (const inv of validatedInvoices) {
+        const invRate =
+          inv.invoice.exchangeRate != null ? inv.invoice.exchangeRate : 1;
+        const diff = computeExchangeDifference({
+          foreignPaid: inv.amountPaid,
+          invoiceExchangeRate: invRate,
+          paymentExchangeRate: paymentRate,
+        });
+        totalInvoiceBaseRelief = totalInvoiceBaseRelief.add(diff.invoiceBaseSlice);
+        totalPaymentBase = totalPaymentBase.add(diff.paymentBase);
+      }
+      const fxDiff = totalPaymentBase.sub(totalInvoiceBaseRelief);
+      const totalInvoiceBaseReliefNum = toNumber(totalInvoiceBaseRelief, 4);
+      const totalPaymentBaseNum = toNumber(totalPaymentBase, 4);
+      const fxDiffNum = toNumber(fxDiff, 4);
+      const isLoss = fxDiff.gt(0.005);
+      const isGain = fxDiff.lt(-0.005);
+
       // ─── Get AP Account ──────────────────────────────────────
       const apAccount = await findAPAccount(tx, companyId);
       if (!apAccount) {
@@ -266,9 +322,45 @@ class PurchasePaymentMakeModel {
         throw new Error('Cash in Hand account not found. Cannot record cash payment.');
       }
 
-      const debitAccountId = creditAccount.id;
-      const debitAccountName = creditAccount.name;
-      const debitAccountCode = creditAccount.code;
+      await ensureFxAccounts(createdBy || userId, companyId, tx);
+
+      const jeLines = [
+        {
+          accountId: apAccount.id,
+          accountName: apAccount.name,
+          accountCode: apAccount.code,
+          debit: totalInvoiceBaseReliefNum,
+          credit: 0,
+        },
+      ];
+
+      if (isLoss) {
+        const fxLoss = await getOrCreateFxLossAccount(createdBy || userId, companyId, tx);
+        jeLines.push({
+          accountId: fxLoss.id,
+          accountName: fxLoss.name,
+          accountCode: fxLoss.code,
+          debit: Math.abs(fxDiffNum),
+          credit: 0,
+        });
+      } else if (isGain) {
+        const fxGain = await getOrCreateFxGainAccount(createdBy || userId, companyId, tx);
+        jeLines.push({
+          accountId: fxGain.id,
+          accountName: fxGain.name,
+          accountCode: fxGain.code,
+          debit: 0,
+          credit: Math.abs(fxDiffNum),
+        });
+      }
+
+      jeLines.push({
+        accountId: creditAccount.id,
+        accountName: creditAccount.name,
+        accountCode: creditAccount.code,
+        debit: 0,
+        credit: totalPaymentBaseNum,
+      });
 
       // ─── Create Journal Entry ────────────────────────────────
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -286,22 +378,7 @@ class PurchasePaymentMakeModel {
           companyId: companyId,
           fiscalYearId: fiscalYearId,
           lines: {
-            create: [
-              {
-                accountId: apAccount.id,
-                accountName: apAccount.name,
-                accountCode: apAccount.code,
-                debit: amount,
-                credit: 0
-              },
-              {
-                accountId: debitAccountId,
-                accountName: debitAccountName,
-                accountCode: debitAccountCode,
-                debit: 0,
-                credit: amount
-              }
-            ]
+            create: jeLines,
           }
         },
         include: {
@@ -334,6 +411,12 @@ class PurchasePaymentMakeModel {
           createdBy: createdBy,
           companyId: companyId,
           fiscalYearId: fiscalYearId,
+          currencyId: fxPersist.currencyId,
+          baseCurrencyId: fxPersist.baseCurrencyId,
+          exchangeRate: fxPersist.exchangeRate,
+          exchangeRateDate: fxPersist.exchangeRateDate,
+          foreignAmount: fxPersist.foreignAmount,
+          baseAmount: fxPersist.baseAmount,
           invoicePayments: {
             create: invoicePayments.map(inv => ({
               invoiceId: inv.invoiceId,
@@ -350,6 +433,8 @@ class PurchasePaymentMakeModel {
           },
           supplier: true,
           bankAccount: true,
+          currency: true,
+          baseCurrency: true,
           journalEntry: {
             include: {
               lines: {
@@ -362,7 +447,7 @@ class PurchasePaymentMakeModel {
         }
       });
 
-      // ─── Update Each Invoice ──────────────────────────────────
+      // ─── Update Each Invoice (FOREIGN terms) ─────────────────
       for (const inv of validatedInvoices) {
         const invoice = inv.invoice;
         const newPaidAmount = inv.totalPaid + inv.amountPaid;
@@ -385,23 +470,27 @@ class PurchasePaymentMakeModel {
           }
         });
 
+        const foreignPaid = toDecimal(newPaidAmount);
+        const foreignOut = toDecimal(Math.max(0, newOutstanding));
         await tx.accountsPayable.updateMany({
           where: { invoiceId: invoice.id },
           data: {
             paidAmount: newPaidAmount,
             outstanding: Math.max(0, newOutstanding),
+            foreignPaidAmount: foreignPaid,
+            foreignOutstanding: foreignOut,
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
       }
 
-      // ─── Update Bank Account Balance ─────────────────────────
+      // ─── Update Bank Account Balance (BASE amount leaving) ───
       if (bankAccountId) {
         await tx.bankAccount.update({
           where: { id: bankAccountId },
           data: {
             currentBalance: {
-              decrement: amount
+              decrement: totalPaymentBaseNum
             }
           }
         });
@@ -764,13 +853,17 @@ class PurchasePaymentMakeModel {
         await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);
       }
 
-      // ─── Update Bank Account Balance ──────────────────────
+      // ─── Update Bank Account Balance (restore BASE amount) ──
       if (payment.bankAccountId) {
+        const restoreBase =
+          payment.baseAmount != null
+            ? toNumber(payment.baseAmount, 4)
+            : payment.amount;
         await tx.bankAccount.update({
           where: { id: payment.bankAccountId },
           data: {
             currentBalance: {
-              increment: payment.amount
+              increment: restoreBase
             }
           }
         });

@@ -2,6 +2,10 @@
 
 const prisma = require('../../prisma/client');
 const { resolveLocationId } = require('../services/locationService');
+const {
+  resolveTransactionCurrency,
+  buildCurrencyPersistFields,
+} = require('../../utils/multiCurrency');
 
 // ─── Generate Order Number Function ──────────────────────
 function generateOrderNumber() {
@@ -90,6 +94,18 @@ class PurchaseOrderModel {
         data.createdBy
       );
 
+      const currencyResolved = await resolveTransactionCurrency({
+        companyId: data.companyId,
+        currencyId: data.currencyId,
+        exchangeRate: data.exchangeRate,
+        exchangeRateDate: data.exchangeRateDate,
+        foreignAmount: grandTotal,
+        supplierId: data.supplierId,
+        asOfDate: data.orderDate ? new Date(data.orderDate) : new Date(),
+        client: tx,
+      });
+      const fx = buildCurrencyPersistFields(currencyResolved, grandTotal);
+
       // ─── Create Purchase Order ──────────────────────────────
       // ✅ FIXED: Use createdBy and companyId (NOT userId)
       const purchaseOrder = await tx.purchaseOrder.create({
@@ -110,6 +126,12 @@ class PurchaseOrderModel {
           totalDiscount,
           totalTax,
           grandTotal,
+          currencyId: fx.currencyId,
+          baseCurrencyId: fx.baseCurrencyId,
+          exchangeRate: fx.exchangeRate,
+          exchangeRateDate: fx.exchangeRateDate,
+          foreignAmount: fx.foreignAmount,
+          baseAmount: fx.baseAmount,
           notes: data.notes || null,
           termsConditions: data.termsConditions || null,
           createdBy: data.createdBy,        // ✅ Use createdBy
@@ -126,6 +148,8 @@ class PurchaseOrderModel {
             }
           },
           supplier: true,
+          currency: true,
+          baseCurrency: true,
           creator: {
             select: { id: true, firstName: true, lastName: true, email: true }
           }
@@ -300,6 +324,8 @@ class PurchaseOrderModel {
           }
         },
         supplier: true,
+        currency: true,
+        baseCurrency: true,
         creator: {
           select: { id: true, firstName: true, lastName: true, email: true }
         },
@@ -332,6 +358,8 @@ class PurchaseOrderModel {
           }
         },
         supplier: true,
+        currency: true,
+        baseCurrency: true,
         creator: {
           select: { id: true, firstName: true, lastName: true, email: true }
         }
@@ -378,6 +406,8 @@ class PurchaseOrderModel {
           }
         },
         supplier: true,
+        currency: true,
+        baseCurrency: true,
         creator: {
           select: { id: true, firstName: true, lastName: true, email: true }
         }
@@ -427,6 +457,10 @@ class PurchaseOrderModel {
       if (purchaseOrder.status === 'Approved') {
         throw new Error('Cannot update approved purchase order');
       }
+
+      // Currency may only change while Draft
+      const isDraft = purchaseOrder.status === 'Draft';
+
       const updateData = {
         updatedBy: data.updatedBy,
         ...(data.supplierId && { supplierId: data.supplierId }),
@@ -440,6 +474,9 @@ class PurchaseOrderModel {
         ...(data.notes !== undefined && { notes: data.notes }),
         ...(data.termsConditions !== undefined && { termsConditions: data.termsConditions })
       };
+
+      let nextGrandTotal = purchaseOrder.grandTotal;
+      let totalsChanged = false;
 
       if (data.items) {
         await tx.purchaseOrderItem.deleteMany({
@@ -476,6 +513,8 @@ class PurchaseOrderModel {
         });
 
         const grandTotal = subtotal - totalDiscount + totalTax;
+        nextGrandTotal = grandTotal;
+        totalsChanged = true;
 
         updateData.subtotal = subtotal;
         updateData.totalDiscount = totalDiscount;
@@ -484,6 +523,36 @@ class PurchaseOrderModel {
         updateData.items = {
           create: orderItems
         };
+      }
+
+      const currencyProvided =
+        data.currencyId !== undefined ||
+        data.exchangeRate !== undefined ||
+        data.exchangeRateDate !== undefined;
+
+      if (isDraft && (currencyProvided || totalsChanged)) {
+        const currencyResolved = await resolveTransactionCurrency({
+          companyId: purchaseOrder.companyId,
+          currencyId: data.currencyId !== undefined ? data.currencyId : purchaseOrder.currencyId,
+          exchangeRate: data.exchangeRate !== undefined ? data.exchangeRate : purchaseOrder.exchangeRate,
+          exchangeRateDate:
+            data.exchangeRateDate !== undefined
+              ? data.exchangeRateDate
+              : purchaseOrder.exchangeRateDate,
+          foreignAmount: nextGrandTotal,
+          supplierId: data.supplierId || purchaseOrder.supplierId,
+          asOfDate: data.orderDate
+            ? new Date(data.orderDate)
+            : purchaseOrder.orderDate || new Date(),
+          client: tx,
+        });
+        const fx = buildCurrencyPersistFields(currencyResolved, nextGrandTotal);
+        updateData.currencyId = fx.currencyId;
+        updateData.baseCurrencyId = fx.baseCurrencyId;
+        updateData.exchangeRate = fx.exchangeRate;
+        updateData.exchangeRateDate = fx.exchangeRateDate;
+        updateData.foreignAmount = fx.foreignAmount;
+        updateData.baseAmount = fx.baseAmount;
       }
 
       const updatedOrder = await tx.purchaseOrder.update({
@@ -496,6 +565,8 @@ class PurchaseOrderModel {
             }
           },
           supplier: true,
+          currency: true,
+          baseCurrency: true,
           creator: {
             select: { id: true, firstName: true, lastName: true, email: true }
           }

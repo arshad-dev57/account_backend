@@ -950,6 +950,13 @@ const updateExpense = async (req, res) => {
       });
     }
 
+    if (existing.status !== 'Draft') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only draft expenses can be edited. Posted expenses cannot be changed.'
+      });
+    }
+
     const newDate = req.body.date ? new Date(req.body.date) : existing.date;
     try {
       await fiscalYearGuard(userId, newDate, existing.date);

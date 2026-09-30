@@ -8,7 +8,8 @@ const {
   getSupplierById,
   createSupplier,
   updateSupplier,
-  deleteSupplier
+  deleteSupplier,
+  getSupplierLedger,
 } = require('../controller/supplier_controller');
 
 // All routes are protected
@@ -16,6 +17,7 @@ router.use(protect);
 
 // Supplier routes
 router.get('/', getSuppliers);
+router.get('/:id/ledger', getSupplierLedger);
 router.get('/:id', getSupplierById);
 router.post('/', createSupplier);
 router.put('/:id', updateSupplier);

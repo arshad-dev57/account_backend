@@ -6,7 +6,56 @@ const {
   resolveLocationId,
   adjustLocationStock,
 } = require('../services/locationService');
+const {
+  resolveTransactionCurrency,
+  buildCurrencyPersistFields,
+  snapshotFromDocument,
+} = require('../../utils/multiCurrency');
 
+/**
+ * Prefer historical FX from PO/GRN; else resolve via supplier / explicit body.
+ * grandTotal stays foreign; returned fields are for Prisma Decimal columns.
+ */
+async function resolveInvoiceFxFields({
+  companyId,
+  supplierId,
+  foreignAmount,
+  sourceDocs = [],
+  currencyId,
+  exchangeRate,
+  exchangeRateDate,
+  asOfDate,
+  client,
+}) {
+  for (const doc of sourceDocs) {
+    if (doc?.currencyId) {
+      const snap = snapshotFromDocument(doc);
+      return buildCurrencyPersistFields(snap, foreignAmount);
+    }
+  }
+  const resolved = await resolveTransactionCurrency({
+    companyId,
+    currencyId,
+    exchangeRate,
+    exchangeRateDate,
+    foreignAmount,
+    supplierId,
+    asOfDate: asOfDate || new Date(),
+    client,
+  });
+  return buildCurrencyPersistFields(resolved, foreignAmount);
+}
+
+function fxPersistSlice(fx) {
+  return {
+    currencyId: fx.currencyId,
+    baseCurrencyId: fx.baseCurrencyId,
+    exchangeRate: fx.exchangeRate,
+    exchangeRateDate: fx.exchangeRateDate,
+    foreignAmount: fx.foreignAmount,
+    baseAmount: fx.baseAmount,
+  };
+}
 
 function generateInvoiceNumber() {
   const date = new Date();
@@ -821,6 +870,19 @@ class PurchaseInvoiceModel {
         data.companyId,
         data.userId
       );
+
+      const fx = await resolveInvoiceFxFields({
+        companyId: data.companyId,
+        supplierId,
+        foreignAmount: grandTotal,
+        sourceDocs: [grn, grn.purchaseOrder],
+        currencyId: data.currencyId,
+        exchangeRate: data.exchangeRate,
+        exchangeRateDate: data.exchangeRateDate,
+        asOfDate: data.invoiceDate ? new Date(data.invoiceDate) : new Date(),
+        client: tx,
+      });
+
       const invoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber,
@@ -852,6 +914,7 @@ class PurchaseInvoiceModel {
           companyId: data.companyId,
           fiscalYearId: data.fiscalYearId,
           locationId: data.locationId || grn.locationId || null,
+          ...fxPersistSlice(fx),
           items: { create: invoiceItems },
           sources: {
             create: grnsForSource.map((g) => ({
@@ -868,6 +931,8 @@ class PurchaseInvoiceModel {
           purchaseOrder: true,
           goodsReceiving: true,
           sources: true,
+          currency: true,
+          baseCurrency: true,
         }
       });
 
@@ -1107,6 +1172,18 @@ class PurchaseInvoiceModel {
         ...pos.map((p) => p.orderNumber),
       ].join(', ');
 
+      const fx = await resolveInvoiceFxFields({
+        companyId: data.companyId,
+        supplierId,
+        foreignAmount: grandTotal,
+        sourceDocs: [...grns, ...pos, primary.purchaseOrder].filter(Boolean),
+        currencyId: data.currencyId,
+        exchangeRate: data.exchangeRate,
+        exchangeRateDate: data.exchangeRateDate,
+        asOfDate: data.invoiceDate ? new Date(data.invoiceDate) : new Date(),
+        client: tx,
+      });
+
       const invoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber,
@@ -1139,6 +1216,7 @@ class PurchaseInvoiceModel {
           companyId: data.companyId,
           fiscalYearId: data.fiscalYearId,
           locationId: data.locationId || primary.locationId || null,
+          ...fxPersistSlice(fx),
           items: { create: invoiceItems },
           sources: {
             create: [
@@ -1162,6 +1240,8 @@ class PurchaseInvoiceModel {
           purchaseOrder: true,
           goodsReceiving: true,
           sources: true,
+          currency: true,
+          baseCurrency: true,
         },
       });
 
@@ -1284,6 +1364,18 @@ class PurchaseInvoiceModel {
         data.userId
       );
 
+      const fx = await resolveInvoiceFxFields({
+        companyId: data.companyId,
+        supplierId,
+        foreignAmount: grandTotal,
+        sourceDocs: [purchaseOrder],
+        currencyId: data.currencyId,
+        exchangeRate: data.exchangeRate,
+        exchangeRateDate: data.exchangeRateDate,
+        asOfDate: data.invoiceDate ? new Date(data.invoiceDate) : new Date(),
+        client: tx,
+      });
+
       const invoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber,
@@ -1315,6 +1407,7 @@ class PurchaseInvoiceModel {
           companyId: data.companyId,
           fiscalYearId: data.fiscalYearId,
           locationId: data.locationId || purchaseOrder.locationId || null,
+          ...fxPersistSlice(fx),
           items: { create: invoiceItems },
           sources: {
             create: [
@@ -1331,6 +1424,8 @@ class PurchaseInvoiceModel {
           supplier: true,
           purchaseOrder: true,
           sources: true,
+          currency: true,
+          baseCurrency: true,
         }
       });
 
@@ -1382,6 +1477,9 @@ class PurchaseInvoiceModel {
         }
       });
 
+      const snap = snapshotFromDocument(invoice);
+      const baseJeAmount = snap.baseAmountNumber;
+
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
       const journalEntry = await tx.journalEntry.create({
@@ -1402,7 +1500,7 @@ class PurchaseInvoiceModel {
                 accountId: inventoryAccount.id,
                 accountName: inventoryAccount.name,
                 accountCode: inventoryAccount.code,
-                debit: invoice.grandTotal,
+                debit: baseJeAmount,
                 credit: 0
               },
               {
@@ -1410,7 +1508,7 @@ class PurchaseInvoiceModel {
                 accountName: apAccount.name,
                 accountCode: apAccount.code,
                 debit: 0,
-                credit: invoice.grandTotal
+                credit: baseJeAmount
               }
             ]
           }
@@ -1423,21 +1521,30 @@ class PurchaseInvoiceModel {
 
       await applyPurchaseInvoiceStockIn(tx, invoice, userId);
 
+      const foreignTotal = snap.foreignAmountNumber;
       const apRecord = await tx.accountsPayable.create({
         data: {
           invoiceId: invoice.id,
           invoiceNumber: invoice.invoiceNumber,
           supplierId: invoice.supplierId,
           supplierName: invoice.supplierName,
-          amount: invoice.grandTotal,
+          amount: foreignTotal,
           paidAmount: 0,
-          outstanding: invoice.grandTotal,
+          outstanding: foreignTotal,
           dueDate: invoice.dueDate,
           status: 'Current',
           accountId: apAccount.id,
           companyId: invoice.companyId,
           fiscalYearId: invoice.fiscalYearId,
-          notes: `Created from invoice #${invoice.invoiceNumber}`
+          notes: `Created from invoice #${invoice.invoiceNumber}`,
+          currencyId: snap.currencyId,
+          baseCurrencyId: snap.baseCurrencyId,
+          exchangeRate: snap.exchangeRate,
+          exchangeRateDate: snap.exchangeRateDate,
+          foreignAmount: snap.foreignAmount,
+          baseAmount: snap.baseAmount,
+          foreignPaidAmount: 0,
+          foreignOutstanding: snap.foreignAmount,
         }
       });
 
@@ -1453,6 +1560,8 @@ class PurchaseInvoiceModel {
         include: {
           items: { include: { product: true } },
           supplier: true,
+          currency: true,
+          baseCurrency: true,
           journalEntry: {
             include: { lines: { include: { account: true } } }
           },
@@ -1479,6 +1588,8 @@ class PurchaseInvoiceModel {
           }
         },
         supplier: true,
+        currency: true,
+        baseCurrency: true,
         purchaseOrder: { include: { supplier: true } },
         goodsReceiving: { include: { items: true } },
         creator: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -1629,6 +1740,35 @@ class PurchaseInvoiceModel {
         updateData.grandTotal = grandTotal;
         updateData.outstanding = grandTotal - invoice.paidAmount;
         updateData.items = { create: invoiceItems };
+
+        // Recompute FX fields for draft (foreign = grandTotal; keep currency unless overridden)
+        const fx = await resolveInvoiceFxFields({
+          companyId: invoice.companyId,
+          supplierId: invoice.supplierId,
+          currencyId: data.currencyId || invoice.currencyId,
+          exchangeRate: data.exchangeRate != null ? data.exchangeRate : invoice.exchangeRate,
+          exchangeRateDate: data.exchangeRateDate || invoice.exchangeRateDate,
+          foreignAmount: grandTotal,
+          sourceDocs: [],
+          client: tx,
+        });
+        Object.assign(updateData, fxPersistSlice(fx));
+      } else if (
+        data.currencyId !== undefined ||
+        data.exchangeRate !== undefined ||
+        data.exchangeRateDate !== undefined
+      ) {
+        const fx = await resolveInvoiceFxFields({
+          companyId: invoice.companyId,
+          supplierId: invoice.supplierId,
+          currencyId: data.currencyId || invoice.currencyId,
+          exchangeRate: data.exchangeRate != null ? data.exchangeRate : invoice.exchangeRate,
+          exchangeRateDate: data.exchangeRateDate || invoice.exchangeRateDate,
+          foreignAmount: invoice.grandTotal,
+          sourceDocs: [],
+          client: tx,
+        });
+        Object.assign(updateData, fxPersistSlice(fx));
       }
 
       return await tx.purchaseInvoice.update({
@@ -1636,7 +1776,9 @@ class PurchaseInvoiceModel {
         data: updateData,
         include: {
           items: { include: { product: true } },
-          supplier: true
+          supplier: true,
+          currency: true,
+          baseCurrency: true,
         }
       });
     });
