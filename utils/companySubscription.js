@@ -72,7 +72,9 @@ function asUserRecord(user) {
     return {
       subscriptionPlan: user.subscription.plan,
       subscriptionStatus: user.subscription.status,
+      trialStartDate: user.subscription.trialStartDate,
       trialEndDate: user.subscription.trialEndDate,
+      subscriptionStartDate: user.subscription.startDate,
       subscriptionEndDate: user.subscription.endDate,
     };
   }
@@ -108,6 +110,7 @@ function userRecordHasAccessInner(user) {
 /**
  * Company subscription is the source of truth (platform admin assigns here).
  * If company is active but the user row is stale, re-sync all company users.
+ * If company plan is unset/none but the user still has a valid sub, push user → company.
  */
 function healPayloadFromCompany(company) {
   return {
@@ -124,12 +127,62 @@ function healPayloadFromCompany(company) {
   };
 }
 
+function healPayloadFromUser(user) {
+  const row = asUserRecord(user);
+  const plan = row.subscriptionPlan;
+  return {
+    subscriptionPlan: plan,
+    subscriptionStatus: row.subscriptionStatus || 'active',
+    trialStartDate: row.trialStartDate ?? null,
+    trialEndDate: row.trialEndDate ?? null,
+    subscriptionStartDate: row.subscriptionStartDate ?? null,
+    subscriptionEndDate: row.subscriptionEndDate ?? null,
+    billingCycle: plan === 'monthly' || plan === 'yearly' ? plan : null,
+    productTier: 'erp_pos',
+    licensedUsers: plan === 'trial' ? 999 : undefined,
+    licensedBranches: plan === 'trial' ? 999 : undefined,
+  };
+}
+
+function companyPlanUnset(company) {
+  if (!company) return true;
+  const plan = company.subscriptionPlan;
+  return !plan || plan === 'none';
+}
+
 function accessFromRecords(user, company) {
   if (company) {
     const companyAccess = companyHasActiveSubscription(company);
+    const userAccess = userRecordHasAccess(user);
+
+    if (companyAccess) {
+      return {
+        hasAccess: true,
+        needsHeal: !userAccess,
+        needsReverseHeal: false,
+        user,
+        company,
+        healed: false,
+      };
+    }
+
+    // Company has no plan set, but user still has a valid subscription — restore company.
+    // Do NOT reverse-heal when company is intentionally expired / paid-ended.
+    if (userAccess && companyPlanUnset(company)) {
+      return {
+        hasAccess: true,
+        needsHeal: false,
+        needsReverseHeal: true,
+        user,
+        company,
+        healed: false,
+      };
+    }
+
     return {
-      hasAccess: companyAccess,
-      needsHeal: companyAccess && !userRecordHasAccess(user),
+      hasAccess: false,
+      needsHeal: false,
+      needsReverseHeal: false,
       user,
       company,
       healed: false,
@@ -138,6 +191,7 @@ function accessFromRecords(user, company) {
   return {
     hasAccess: userRecordHasAccess(user),
     needsHeal: false,
+    needsReverseHeal: false,
     user,
     company: null,
     healed: false,
@@ -177,6 +231,20 @@ async function resolveAndSyncSubscriptionAccess(userId, companyId, preloaded = {
     await applyCompanySubscription(companyId, healPayloadFromCompany(company));
     const refreshed = await prisma.user.findUnique({ where: { id: userId } });
     return { hasAccess: true, user: refreshed, company, healed: true };
+  }
+
+  if (evaluated.needsReverseHeal && user) {
+    await applyCompanySubscription(companyId, healPayloadFromUser(user));
+    const [refreshedUser, refreshedCompany] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId } }),
+      prisma.company.findUnique({ where: { id: companyId } }),
+    ]);
+    return {
+      hasAccess: true,
+      user: refreshedUser,
+      company: refreshedCompany,
+      healed: true,
+    };
   }
 
   return evaluated;

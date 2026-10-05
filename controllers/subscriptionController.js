@@ -583,15 +583,33 @@ const checkSubscription = async (req, res) => {
     const liveUser = new User(liveUserData);
     const company = resolved.company;
 
-    // Auto-expire only when the COMPANY plan has actually ended
+    // Auto-expire only when trial/paid end dates have actually passed
     let shouldExpire = false;
-    if (company && !companyHasActiveSubscription(company) && company.subscriptionStatus === 'active') {
-      shouldExpire = true;
-    } else if (!company) {
+    const now = new Date();
+    if (company) {
+      const plan = company.subscriptionPlan;
+      const status = company.subscriptionStatus;
+      if (status !== 'expired') {
+        if (
+          plan === 'trial' &&
+          company.trialEndDate &&
+          now > new Date(company.trialEndDate)
+        ) {
+          shouldExpire = true;
+        }
+        if (
+          (plan === 'monthly' || plan === 'yearly') &&
+          company.subscriptionEndDate &&
+          now > new Date(company.subscriptionEndDate)
+        ) {
+          shouldExpire = true;
+        }
+      }
+    } else {
       if (
         liveUser.subscription.plan === 'trial' &&
         liveUser.subscription.trialEndDate &&
-        new Date() > new Date(liveUser.subscription.trialEndDate) &&
+        now > new Date(liveUser.subscription.trialEndDate) &&
         liveUser.subscription.status === 'active'
       ) {
         shouldExpire = true;
@@ -599,7 +617,7 @@ const checkSubscription = async (req, res) => {
       if (
         (liveUser.subscription.plan === 'monthly' || liveUser.subscription.plan === 'yearly') &&
         liveUser.subscription.endDate &&
-        new Date() > new Date(liveUser.subscription.endDate) &&
+        now > new Date(liveUser.subscription.endDate) &&
         liveUser.subscription.status === 'active'
       ) {
         shouldExpire = true;
