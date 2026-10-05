@@ -97,13 +97,18 @@ class QuotationModel {
   }
 
   // ============================================================
-  // CONVERT QUOTATION TO SALES ORDER
+  // CONVERT QUOTATION TO SALES ORDER (supports partial line/qty conversion)
   // ============================================================
-  static async convertToOrder(id, userId) {
+  static async convertToOrder(id, userId, selectedItems = null) {
     const {
       resolveLocationId,
       reserveLocationStock,
     } = require('../services/locationService');
+    const {
+      getConvertedQtyFromQuotation,
+      remainingQuotationLines,
+      quotationMarker,
+    } = require('../services/salesQuantityService');
 
     return await prisma.$transaction(async (tx) => {
       const quotation = await tx.quotation.findUnique({
@@ -123,10 +128,10 @@ class QuotationModel {
       }
 
       if (quotation.status === 'Converted') {
-        throw new Error('Quotation already converted to order');
+        throw new Error('Quotation already fully converted to order');
       }
 
-      if (quotation.status === 'Rejected' || quotation.status === 'Expired') {
+      if (quotation.status === 'Rejected' || quotation.status === 'Expired' || quotation.status === 'Cancelled') {
         throw new Error(`Cannot convert ${quotation.status} quotation`);
       }
 
@@ -142,8 +147,42 @@ class QuotationModel {
         userId
       );
 
+      const convertedMap = await getConvertedQtyFromQuotation(id, { tx });
+      const remainingLines = remainingQuotationLines(quotation.items, convertedMap);
+      if (remainingLines.length === 0) {
+        throw new Error('No remaining quantities left to convert on this quotation');
+      }
+
+      // Build conversion plan: either selected items or all remaining
+      let plan = [];
+      if (Array.isArray(selectedItems) && selectedItems.length > 0) {
+        for (const sel of selectedItems) {
+          const productId = sel.productId || sel.id;
+          const remLine = remainingLines.find((l) => l.productId === productId);
+          if (!remLine) {
+            throw new Error(`Product ${sel.productName || productId} has no remaining quantity to convert`);
+          }
+          const qty = Number(sel.quantity);
+          if (!qty || qty <= 0) {
+            throw new Error(`Convert quantity must be > 0 for ${remLine.productName}`);
+          }
+          if (qty > remLine.remainingQuantity) {
+            throw new Error(
+              `Convert quantity ${qty} exceeds remaining ${remLine.remainingQuantity} for ${remLine.productName}`
+            );
+          }
+          plan.push({ ...remLine, convertQty: qty });
+        }
+      } else {
+        plan = remainingLines.map((l) => ({ ...l, convertQty: l.remainingQuantity }));
+      }
+
+      if (plan.length === 0) {
+        throw new Error('Select at least one line to convert');
+      }
+
       // Validate + reserve stock at warehouse
-      for (const item of quotation.items) {
+      for (const item of plan) {
         const stock = await tx.productStock.findUnique({
           where: {
             productId_locationId: {
@@ -154,7 +193,7 @@ class QuotationModel {
         });
         const available =
           (stock?.currentStock || 0) - (stock?.reservedStock || 0);
-        if (item.quantity > available) {
+        if (item.convertQty > available) {
           throw new Error(
             `Insufficient stock at warehouse for ${item.productName}. Available: ${Math.max(0, available)}`
           );
@@ -169,7 +208,38 @@ class QuotationModel {
       const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
       const orderNumber = `SO-${year}${month}${day}-${random}`;
 
-      // Create order from quotation
+      // Recalculate totals for converted subset
+      let subtotal = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+      const orderItemsData = plan.map((item) => {
+        const qty = item.convertQty;
+        const lineGross = qty * item.unitPrice;
+        const discountAmount = (lineGross * (item.discount || 0)) / 100;
+        const taxable = lineGross - discountAmount;
+        const taxAmount = (taxable * (item.taxRate || 0)) / 100;
+        const lineTotal = taxable + taxAmount;
+        subtotal += lineGross;
+        totalDiscount += discountAmount;
+        totalTax += taxAmount;
+        return {
+          productId: item.productId,
+          productName: item.productName,
+          sku: item.sku,
+          quantity: qty,
+          unitPrice: item.unitPrice,
+          totalPrice: lineTotal,
+          taxRate: item.taxRate || 0,
+          taxAmount,
+          discount: item.discount || 0,
+        };
+      });
+      const grandTotal = subtotal - totalDiscount + totalTax;
+
+      const marker = quotationMarker(id);
+      const existingNotes = quotation.notes || '';
+
+      // Create order from quotation (partial or full)
       const order = await tx.order.create({
         data: {
           orderNumber,
@@ -179,11 +249,11 @@ class QuotationModel {
           customerEmail: quotation.customerEmail,
           customerPhone: quotation.customerPhone,
           customerCompany: quotation.customerCompany,
-          subtotal: quotation.subtotal,
-          taxTotal: quotation.totalTax,
-          discountTotal: quotation.totalDiscount,
-          grandTotal: quotation.grandTotal,
-          totalItems: quotation.items.reduce((sum, item) => sum + item.quantity, 0),
+          subtotal,
+          taxTotal: totalTax,
+          discountTotal: totalDiscount,
+          grandTotal,
+          totalItems: orderItemsData.reduce((sum, item) => sum + item.quantity, 0),
           orderType: 'Sales Order',
           orderStatus: 'Pending',
           paymentStatus: 'Pending',
@@ -191,43 +261,45 @@ class QuotationModel {
           companyId,
           locationId,
           salesPerson: quotation.salesPerson,
-          customerNotes: quotation.notes,
+          customerNotes: existingNotes
+            ? `${existingNotes}\n${marker}`
+            : marker,
+          internalNotes: marker,
           items: {
-            create: quotation.items.map(item => ({
-              productId: item.productId,
-              productName: item.productName,
-              sku: item.sku,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.lineTotal,
-              taxRate: item.taxRate || 0,
-              taxAmount: item.taxAmount || 0,
-              discount: item.discount || 0
-            }))
-          }
+            create: orderItemsData,
+          },
         },
         include: {
           items: true,
-          customer: true
-        }
+          customer: true,
+        },
       });
 
-      for (const item of quotation.items) {
+      for (const item of plan) {
         await reserveLocationStock(tx, {
           companyId,
           productId: item.productId,
           locationId,
-          qty: item.quantity,
+          qty: item.convertQty,
         });
       }
 
-      // Update quotation status
+      // Recompute remaining after this conversion
+      const newConvertedMap = { ...convertedMap };
+      for (const item of plan) {
+        newConvertedMap[item.productId] =
+          (newConvertedMap[item.productId] || 0) + item.convertQty;
+      }
+      const stillRemaining = remainingQuotationLines(quotation.items, newConvertedMap);
+      const newStatus = stillRemaining.length === 0 ? 'Converted' : 'Partially Converted';
+
       const updatedQuotation = await tx.quotation.update({
         where: { id },
         data: {
-          status: 'Converted',
+          status: newStatus,
           convertedAt: new Date(),
-          convertedOrderId: order.id,
+          // Keep first converted order id; subsequent partials tracked via order notes marker
+          convertedOrderId: quotation.convertedOrderId || order.id,
           updatedBy: userId,
         },
         include: {
@@ -237,7 +309,7 @@ class QuotationModel {
         },
       });
 
-      return { quotation: updatedQuotation, order };
+      return { quotation: updatedQuotation, order, remainingLines: stillRemaining };
     });
   }
 
@@ -245,7 +317,7 @@ class QuotationModel {
   // UPDATE QUOTATION STATUS
   // ============================================================
   static async updateStatus(id, status, userId, notes = '') {
-    const quotation = await tx.quotation.findUnique({ where: { id } });
+    const quotation = await prisma.quotation.findUnique({ where: { id } });
     if (!quotation) {
       throw new Error('Quotation not found');
     }
@@ -258,13 +330,13 @@ class QuotationModel {
     // Set timestamps based on status
     if (status === 'Sent') {
       updateData.sentAt = new Date();
-    } else if (status === 'Accepted') {
+    } else if (status === 'Accepted' || status === 'Approved') {
       updateData.acceptedAt = new Date();
     } else if (status === 'Rejected') {
       updateData.rejectedAt = new Date();
     }
 
-    return await tx.quotation.update({
+    return await prisma.quotation.update({
       where: { id },
       data: updateData,
       include: {

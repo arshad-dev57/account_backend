@@ -736,14 +736,22 @@ exports.employeeDossier = wrap(async (req, res, companyId) => {
     balancesFor(companyId, employee.id)
   ]);
   const salaryVisible = canViewSalary(req.user) || isSelf;
+  const profile = employee.profile && typeof employee.profile === 'object' ? employee.profile : {};
+  const fromUser = [employee.user?.firstName, employee.user?.lastName].filter(Boolean).join(' ').trim();
+  const fromProfile = [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim();
+  const displayName = fromUser || fromProfile || profile.name || employee.employeeCode;
   res.json({
     success: true,
     data: {
       id: employee.id,
+      userId: employee.userId || null,
+      hasApplicationAccess: Boolean(employee.userId),
       employeeCode: employee.employeeCode,
-      name: fullName(employee.user),
-      email: employee.user?.email,
-      phone: employee.phone,
+      name: displayName,
+      firstName: employee.user?.firstName || profile.firstName || '',
+      lastName: employee.user?.lastName || profile.lastName || '',
+      email: employee.user?.email || profile.email || '',
+      phone: employee.phone || employee.user?.phone || profile.phone || '',
       department: employee.department,
       designation: employee.designation,
       position: employee.position,
@@ -751,18 +759,18 @@ exports.employeeDossier = wrap(async (req, res, companyId) => {
       office: employee.office?.name,
       officeId: employee.officeId,
       managerId: employee.managerId,
-      manager: employee.manager ? fullName(employee.manager.user) : '',
+      manager: employee.manager
+        ? ([employee.manager.user?.firstName, employee.manager.user?.lastName].filter(Boolean).join(' ').trim() || '')
+        : '',
       employmentType: employee.employmentType,
       employeeType: employee.employeeType,
       shift: employee.shiftLabel,
       joiningDate: employee.joiningDate,
       status: employee.status,
       trackingEnabled: employee.trackingEnabled,
-      profile: employee.profile || {},
+      profile,
       salary: salaryVisible ? employee.salary : null,
-      payBasis:
-        (employee.profile && typeof employee.profile === 'object' && employee.profile.payBasis) ||
-        'monthly',
+      payBasis: profile.payBasis || 'monthly',
       attendance: attendance.map((r) => ({ ...r, workDate: ymd(r.workDate) })),
       leaves: leaves.map((r) => ({ ...r, from: ymd(r.fromDate), to: ymd(r.toDate) })),
       payrolls: salaryVisible ? payrolls : [],

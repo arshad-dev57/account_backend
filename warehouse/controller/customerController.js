@@ -121,7 +121,6 @@ const getCustomerById = async (req, res) => {
       where: { 
         id, 
         companyId, 
-        isActive: true, 
         isDeleted: false 
       }
     });

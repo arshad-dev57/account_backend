@@ -165,6 +165,9 @@ app.use('/api/balance-sheet', balanceSheetRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/warehouse/reports', plReportRoutes);
 
+app.use('/api/warehouse/products', productRoutes);
+app.use('/api/warehouse/supplier', supplierRoutes);
+app.use('/api/warehouse/categories', WarehouseCategory);
 app.use('/api/warehouse/inventory', inventoryRoutes);
 // Merged sales+purchase list (invoiceType filter) must register first —
 // the legacy invoiceRoutes also mounts GET / and would otherwise win.
@@ -195,10 +198,12 @@ app.use('/api/manufacturing', require('./routes/manufacturingRoutes'));
 
 app.use('/api/orders', OrderRoutes);
 
-  app.use('/api/warehouse/supplier', supplierRoutes);
-app.use('/api/warehouse/categories', WarehouseCategory);
-app.use('/api/warehouse/products', productRoutes);
-
 app.use('/api/warehouse/order', OrderRoutes);
+
+const distributorRoutes = require('./routes/distributorRoutes');
+const stockWriteOffRoutes = require('./routes/stockWriteOffRoutes');
+
+app.use('/api/distributor', distributorRoutes);
+app.use('/api/inventory/write-offs', stockWriteOffRoutes);
 
 module.exports = app;

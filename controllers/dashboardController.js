@@ -756,7 +756,9 @@ async function buildCapitalPosition({
     retainedEarnings: owners
       .filter((item) => /retained/i.test(item.name || ''))
       .reduce((sum, item) => sum + toNum(item.balance), 0),
-    drawings: 0,
+    drawings: owners
+      .filter((item) => /drawing/i.test(item.name || ''))
+      .reduce((sum, item) => sum + Math.abs(toNum(item.balance)), 0),
     bookedEarnings: ytdEarnings,
     periodEarnings,
     currentEquity,
@@ -863,7 +865,9 @@ function buildLiteCapitalPosition(equityAccounts, lineSums, periodPl, equityModu
     .reduce((sum, item) => sum + toNum(item.balance), 0);
 
   const periodEarnings = toNum(periodPl?.netProfit);
-  const currentEquity = yourCapital + retainedEarnings + periodEarnings;
+  // Equity now = owner capital + retained (incl. YTD earnings already in equity accounts).
+  // Do NOT add periodEarnings again — that double-counts current-period P&L.
+  const currentEquity = yourCapital + retainedEarnings;
   const isIncrease = periodEarnings >= 0;
 
   return {
@@ -874,7 +878,7 @@ function buildLiteCapitalPosition(equityAccounts, lineSums, periodPl, equityModu
     bookedEarnings: retainedEarnings,
     periodEarnings,
     currentEquity,
-    changeOnCapital: currentEquity - yourCapital,
+    changeOnCapital: periodEarnings,
     isIncrease,
     chart: [
       {
@@ -889,7 +893,7 @@ function buildLiteCapitalPosition(equityAccounts, lineSums, periodPl, equityModu
         label: 'Now',
         opening: yourCapital,
         capital: currentEquity,
-        earnings: periodEarnings
+        earnings: retainedEarnings
       }
     ],
     kpi: {
@@ -899,8 +903,8 @@ function buildLiteCapitalPosition(equityAccounts, lineSums, periodPl, equityModu
       openingFormatted: formatAmount(yourCapital),
       periodEarnings,
       periodEarningsFormatted: formatAmount(periodEarnings),
-      changeOnCapital: currentEquity - yourCapital,
-      changeFormatted: formatAmount(currentEquity - yourCapital),
+      changeOnCapital: periodEarnings,
+      changeFormatted: formatAmount(periodEarnings),
       isPositive: isIncrease,
       period: 'Current'
     }
@@ -1284,11 +1288,15 @@ async function buildDashboardOverview({
         : Promise.resolve([]),
     ]);
 
-  const [currentPl, ledgerChart] = await Promise.all([
+  const [currentPl, previousPl, ledgerChart] = await Promise.all([
     buildProfitLossFromLedger(companyId, startDate, endDate, loc, {
       prefetchedEntries: journalEntries,
       prefetchedAccounts: plAccounts,
     }),
+    (() => {
+      const prev = getPreviousPeriod(startDate, endDate);
+      return buildProfitLossFromLedger(companyId, prev.start, prev.end, loc);
+    })(),
     buildLedgerChartSeries(
       companyId,
       startDate,
@@ -1297,13 +1305,31 @@ async function buildDashboardOverview({
       journalEntries
     ),
   ]);
-  const capitalPosition = buildLiteCapitalPosition(
-    equityAccounts,
-    equityLineSums,
-    currentPl,
-    equityModuleAccounts
-  );
+
+  // Balance-sheet equity (avoids double-counting period P&L into equity)
+  let capitalPosition;
+  try {
+    capitalPosition = await buildCapitalPosition({
+      companyId,
+      userId,
+      startDate,
+      endDate,
+      fiscalYearId,
+      periodPl: currentPl,
+      locationId: loc,
+    });
+  } catch (capErr) {
+    console.warn('[dashboard] buildCapitalPosition fallback:', capErr.message);
+    capitalPosition = buildLiteCapitalPosition(
+      equityAccounts,
+      equityLineSums,
+      currentPl,
+      equityModuleAccounts
+    );
+  }
+
   const ledger = plKpis(currentPl);
+  const previousLedger = plKpis(previousPl);
 
   const salesInPeriod = mappedSales.filter((d) => inRange(d.date, startDate, endDate));
   const totalSalesInvoiced = salesInPeriod.reduce(
@@ -1315,6 +1341,22 @@ async function buildDashboardOverview({
     0
   );
   const totalSalesCount = salesInPeriod.length;
+
+  const prevRange = getPreviousPeriod(startDate, endDate);
+  const salesPrevPeriod = mappedSales.filter((d) =>
+    inRange(d.date, prevRange.start, prevRange.end)
+  );
+  const prevSalesInvoiced = salesPrevPeriod.reduce(
+    (s, d) => s + toNum(d.totalAmount),
+    0
+  );
+  const purchasesPrevPeriod = mappedPurchases.filter((d) =>
+    inRange(d.date, prevRange.start, prevRange.end)
+  );
+  const prevPurchases = purchasesPrevPeriod.reduce(
+    (s, d) => s + toNum(d.totalAmount),
+    0
+  );
 
   const expenseScreenTotal = current.operatingExpenses;
   const expenseScreenCount = allExpenses.filter((d) =>
@@ -1348,11 +1390,12 @@ async function buildDashboardOverview({
   const posSalesAmount = toNum(posAgg._sum?.grandTotal);
   const posSalesCount = posAgg._count?.id || 0;
 
-  const revenueChange = 0;
-  const expenseChange = 0;
-  const profitChange = 0;
-  const salesChange = 0;
-  const purchasesChange = 0;
+  const revenueChange = pct(ledger.revenue, previousLedger.revenue);
+  const expenseChange = pct(ledger.expenses, previousLedger.expenses);
+  const profitChange = pct(ledger.netProfit, previousLedger.netProfit);
+  const salesChange = pct(totalSalesInvoiced, prevSalesInvoiced);
+  const purchasesChange = pct(current.purchases, prevPurchases);
+  const grossProfitChange = pct(ledger.grossProfit, previousLedger.grossProfit);
 
   const { chartData: moduleChart, useDaily } = buildChartSeries({
     incomes: allIncomes,
@@ -1478,11 +1521,13 @@ async function buildDashboardOverview({
             ? Math.round((netProfitAmount / ledger.revenue) * 1000) / 10
             : 0,
         period: timePeriod,
-        formula: 'Ledger P&L net profit (same as Profit & Loss screen)'
+        formula: 'Gross profit − operating expenses − other expenses (same as P&L report)',
+        basis: 'accrual',
       },
       grossProfit: {
         amount: ledger.grossProfit,
         formatted: formatAmount(ledger.grossProfit),
+        change: Math.round(grossProfitChange * 10) / 10,
         isPositive: ledger.grossProfit >= 0,
         period: timePeriod,
         formula: 'Ledger revenue − COGS (same as P&L)'
@@ -1494,7 +1539,7 @@ async function buildDashboardOverview({
         isPositive: true,
         count: allOutstandingSales.length,
         period: 'Current',
-        source: 'Sales invoices outstanding'
+        source: 'Sales invoices outstanding (subledger · point-in-time)'
       },
       accountsReceivable: {
         amount: totalReceivables,
@@ -1502,7 +1547,9 @@ async function buildDashboardOverview({
         change: 0,
         isPositive: true,
         count: allOutstandingSales.length,
-        period: 'Current'
+        period: 'Current',
+        basis: 'subledger',
+        source: 'Outstanding customer invoices (not GL AR control)'
       },
       accountsPayable: {
         amount: totalPayables,
@@ -1511,6 +1558,8 @@ async function buildDashboardOverview({
         isPositive: totalPayables === 0,
         count: outstandingBills.length + outstandingPurchaseInvoices.length,
         period: 'Current',
+        basis: 'subledger',
+        source: 'Outstanding bills + purchase invoices (not GL AP control)',
         breakdown: {
           bills: billsPayable,
           purchaseInvoices: purchasePayable
@@ -1523,7 +1572,8 @@ async function buildDashboardOverview({
         isPositive: bankBalance >= 0,
         cashOnly: cashOnlyBalance,
         accountsCount: bankAccounts.length,
-        period: 'Current'
+        period: 'Current',
+        basis: 'snapshot'
       },
       cashInHand: {
         amount: cashOnlyBalance,
@@ -1532,7 +1582,8 @@ async function buildDashboardOverview({
         name: cashAccount?.name || 'Cash in Hand',
         isPositive: cashOnlyBalance >= 0,
         period: 'Current',
-        source: 'Chart of Accounts'
+        basis: 'snapshot',
+        source: 'Chart of Accounts current balance'
       },
       bankBalance: {
         amount: bankBalance,
@@ -1540,11 +1591,31 @@ async function buildDashboardOverview({
         change: 0,
         isPositive: bankBalance >= 0,
         accountsCount: bankAccounts.length,
-        period: 'Current'
+        period: 'Current',
+        basis: 'snapshot',
+        source: 'Sum of active bank account balances'
       },
       capital: capitalPosition.kpi
     },
     capital: capitalPosition,
+    comparison: {
+      previousPeriod: {
+        startDate: prevRange.start.toISOString(),
+        endDate: prevRange.end.toISOString(),
+        revenue: previousLedger.revenue,
+        expenses: previousLedger.expenses,
+        netProfit: previousLedger.netProfit,
+        grossProfit: previousLedger.grossProfit,
+      },
+    },
+    accountingBasis: {
+      pnl: 'accrual',
+      pnlSource: 'Posted journal entries (same as Profit & Loss report)',
+      arAp: 'subledger',
+      cashBank: 'account_snapshot',
+      note:
+        'P&L KPIs are accrual (IFRS-style). AR/AP are open invoice balances. Cash/Bank are current account balances.',
+    },
     breakdown: {
       salesRevenue: current.salesRevenue,
       salesInvoiced: totalSalesInvoiced,
@@ -1600,10 +1671,35 @@ const getDashboardOverview = async (req, res) => {
       start: startDate,
       end: endDate,
       timePeriod,
-      fiscalYearId
+      fiscalYearId,
+      empty,
     } = await resolveDateRange(req.query, companyId);
     const txnLimit = parseInt(req.query.limit, 10) || 10;
     const locationId = req.query.locationId || null;
+
+    if (empty) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          kpi: {},
+          capital: null,
+          chartData: [],
+          expenseCategories: [],
+          recentTransactions: [],
+          period: {
+            timePeriod,
+            startDate: startDate?.toISOString?.() || null,
+            endDate: endDate?.toISOString?.() || null,
+            empty: true,
+          },
+          accountingBasis: {
+            pnl: 'accrual',
+            note: 'Selected fiscal year window is empty (e.g. future FY).',
+          },
+        },
+        message: 'No data for this fiscal year window',
+      });
+    }
 
     const data = await buildDashboardOverview({
       userId,

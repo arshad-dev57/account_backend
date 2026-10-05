@@ -164,6 +164,8 @@ model Company {
   pdfReportSettings  PdfReportSetting[]
   supportTickets     SupportTicket[]
   locations          Location[]
+  salespersons       Salesperson[]          @relation("SalespersonCompany")
+  stockWriteOffs     StockWriteOff[]        @relation("StockWriteOffCompany")
   productStocks      ProductStock[]
   hrOffices          HrOffice[]
   hrEmployees        HrEmployee[]
@@ -268,6 +270,8 @@ model Location {
   purchaseInvoices     PurchaseInvoice[]
   quotations           Quotation[]
   userLocations        UserLocation[]
+  salespersons         Salesperson[]
+  stockWriteOffs       StockWriteOff[]
   expenses             Expense[]
   incomes              Income[]
   journalEntries       JournalEntry[]
@@ -518,6 +522,11 @@ model User {
   returnCustomers           Return[]            @relation("ReturnCustomer")
   customerCreators          Customer[]          @relation("CustomerCreator")
   customerUpdaters          Customer[]          @relation("CustomerUpdater")
+  salesperson               Salesperson?
+  createdWriteOffs          StockWriteOff[]     @relation("WriteOffCreator")
+  submittedWriteOffs        StockWriteOff[]     @relation("WriteOffSubmitter")
+  approvedWriteOffs         StockWriteOff[]     @relation("WriteOffApprover")
+  postedWriteOffs           StockWriteOff[]     @relation("WriteOffPoster")
   refundCreators            Refund[]            @relation("RefundCreator")
   refundUpdaters            Refund[]            @relation("RefundUpdater")
   refundProcessors          Refund[]            @relation("RefundProcessor")
@@ -619,6 +628,7 @@ model User {
   manufacturingReworksCreated ManufacturingRework[] @relation("ManufacturingReworkCreator")
   manufacturingReworksUpdated ManufacturingRework[] @relation("ManufacturingReworkUpdater")
   manufacturingQualityInspectionsCreated ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionCreator")
+  manufacturingQualityInspectionsAsInspector ManufacturingQualityInspection[] @relation("ManufacturingQualityInspectionInspectorUser")
   manufacturingMaintenanceRequestsCreated ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestCreator")
   manufacturingMaintenanceRequestsUpdated ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestUpdater")
   manufacturingMaintenanceRequestsRequested ManufacturingMaintenanceRequest[] @relation("ManufacturingMaintenanceRequestRequester")
@@ -723,7 +733,8 @@ model HrOffice {
 model HrEmployee {
   id             String    @id @default(uuid())
   companyId      String    @map("company_id")
-  userId         String    @unique @map("user_id")
+  /// Optional application login. Null = HR-only employee (no ERP access).
+  userId         String?   @unique @map("user_id")
   employeeCode   String    @map("employee_code")
   department     String    @default("")
   designation    String    @default("")
@@ -750,7 +761,7 @@ model HrEmployee {
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
   office      HrOffice?            @relation(fields: [officeId], references: [id], onDelete: SetNull)
   costCenterRef CostCenter?        @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   manager     HrEmployee?          @relation("HrReporting", fields: [managerId], references: [id], onDelete: SetNull)
@@ -773,6 +784,7 @@ model HrEmployee {
   feedbacks   HrFeedback[]
   shiftSwaps  HrShiftSwap[]
   generatedDocuments HrGeneratedDocument[]
+  salesperson        Salesperson?
   manufacturingWorkOrders ManufacturingWorkOrder[] @relation("ManufacturingWorkOrderEmployee")
   manufacturingScraps ManufacturingScrap[] @relation("ManufacturingScrapOperator")
   manufacturingReworks ManufacturingRework[] @relation("ManufacturingReworkOperator")
@@ -1591,6 +1603,7 @@ model FiscalYear {
   equityAccounts     EquityAccount[]        @relation("EquityAccountFiscalYear")
   posSales           POSSale[]              @relation("POSSaleFiscalYear")
   posReturns         POSReturn[]            @relation("POSReturnFiscalYear")
+  stockWriteOffs     StockWriteOff[]
 
   @@unique([companyId, name])
   @@index([companyId, startDate, endDate])
@@ -1665,6 +1678,11 @@ model Customer {
   outstandingBalance Float     @default(0) @map("outstanding_balance")
   creditLimit        Float     @default(0) @map("credit_limit")
   creditTerms        String    @default("Net 30") @map("credit_terms")
+  creditDays         Int       @default(30) @map("credit_days")
+  creditPolicy       String    @default("WARN") @map("credit_policy") // ALLOW | WARN | BLOCK
+  territory          String?
+
+  salespersonId      String?   @map("salesperson_id")
 
   notes String?
   tags  String[] @default([])
@@ -1685,6 +1703,7 @@ model Customer {
   creator            User?                  @relation("CustomerCreator", fields: [createdBy], references: [id])
   updater            User?                  @relation("CustomerUpdater", fields: [updatedBy], references: [id])
   company            Company?               @relation("CustomerCompany", fields: [companyId], references: [id])
+  salesperson        Salesperson?           @relation(fields: [salespersonId], references: [id], onDelete: SetNull)
   orders             Order[]
   warehouseInvoices  WarehouseInvoice[]
   creditNotes        CreditNote[]
@@ -1900,6 +1919,7 @@ model Product {
   posSaleItems              POSSaleItem[]
   posReturnItems            POSReturnItem[]
   taxExemptions             TaxExemption[]          @relation("ProductTaxExemptions")
+  stockWriteOffItems        StockWriteOffItem[]
   productStocks             ProductStock[]
   manufacturingBOMs        ManufacturingBOM[]       @relation("ManufacturingBOMProduct")
   manufacturingBOMComponents ManufacturingBOMComponent[] @relation("ManufacturingBOMComponentProduct")
@@ -2296,6 +2316,7 @@ model Order {
   shipper            User?              @relation("OrderShipper", fields: [shippedBy], references: [id])
   company            Company?           @relation("OrderCompany", fields: [companyId], references: [id])
   location           Location?          @relation(fields: [locationId], references: [id])
+  salesperson        Salesperson?       @relation(fields: [salesPersonId], references: [id], onDelete: SetNull)
   deliveries         Delivery[]         @relation("SalesOrderDeliveries")
   convertedQuotation Quotation?         @relation("ConvertedQuotation")
   salesInvoices      SalesInvoice[]
@@ -2716,6 +2737,7 @@ model ChartOfAccount {
   inventoryAccounts    PurchaseInvoice[]    @relation("InventoryAccount")
   accountsPayable      AccountsPayable[]    @relation("APAccount")
   purchaseInvoices     PurchaseInvoice[]    @relation("APAccount")
+  stockWriteOffExpenses StockWriteOff[]     @relation("WriteOffExpenseAccount")
 
   @@unique([code, companyId])
   @@index([code])
@@ -3072,6 +3094,7 @@ model JournalEntry {
   fiscalYear        FiscalYear?           @relation("JournalEntryFiscalYear", fields: [fiscalYearId], references: [id])
   salesPayment      SalesPaymentReceived?
   salesInvoice      SalesInvoice?
+  stockWriteOff     StockWriteOff?        @relation("WriteOffJournalEntry")
   PurchaseInvoice   PurchaseInvoice?
   purchasePayment   PurchasePaymentMake?  @relation("PaymentJournalEntry")
   purchasePaymentId String?               @unique @map("purchase_payment_id")
@@ -4140,6 +4163,7 @@ model PurchaseRequisitionItem {
   productName           String  @map("product_name")
   sku                   String
   quantity              Float
+  unit                  String  @default("Pcs")
   estimatedUnitPrice    Float   @default(0) @map("estimated_unit_price")
   notes                 String?
   purpose               String?
@@ -4548,6 +4572,9 @@ model SalesInvoice {
   arAccountId           String? @map("ar_account_id")
   journalEntryId        String? @unique @map("journal_entry_id")
 
+  salesPerson   String? @map("sales_person")
+  salesPersonId String? @map("sales_person_id")
+
   createdBy String  @map("created_by")
   updatedBy String? @map("updated_by")
   isActive  Boolean @default(true) @map("is_active")
@@ -4570,6 +4597,7 @@ model SalesInvoice {
   location            Location?             @relation(fields: [locationId], references: [id])
   journalEntry        JournalEntry?         @relation(fields: [journalEntryId], references: [id])
   accountsReceivable  AccountsReceivable[]
+  salesperson         Salesperson?          @relation(fields: [salesPersonId], references: [id], onDelete: SetNull)
   salesRevenueAccount ChartOfAccount?       @relation("SalesRevenueAccount", fields: [salesRevenueAccountId], references: [id])
   arAccount           ChartOfAccount?       @relation("ARAccount", fields: [arAccountId], references: [id])
   invoicePayments     SalesInvoicePayment[]
@@ -5851,7 +5879,10 @@ model ManufacturingQualityInspection {
   productId         String   @map("product_id")
   productName       String   @map("product_name")
   operationName     String?  @map("operation_name")
-  inspectorId       String   @map("inspector_id")
+  /// Optional HR employee (when company uses HR and inspector is linked).
+  inspectorId       String?  @map("inspector_id")
+  /// Primary inspector identity: application User (login account).
+  inspectorUserId   String?  @map("inspector_user_id")
   inspectionDate    DateTime @map("inspection_date")
   inspectionType    String   @map("inspection_type") // Incoming | InProcess | Final
   result            String   @default("Pending") // Pending | Passed | Failed | Rework | Scrap
@@ -5868,7 +5899,8 @@ model ManufacturingQualityInspection {
   productionOrder   ManufacturingProductionOrder @relation("ManufacturingQualityInspectionProductionOrder", fields: [productionOrderId], references: [id])
   workOrder         ManufacturingWorkOrder?     @relation("ManufacturingQualityInspectionWorkOrder", fields: [workOrderId], references: [id])
   product           Product                    @relation("ManufacturingQualityInspectionProduct", fields: [productId], references: [id])
-  inspector         HrEmployee                 @relation("ManufacturingQualityInspectionInspector", fields: [inspectorId], references: [id])
+  inspector         HrEmployee?                @relation("ManufacturingQualityInspectionInspector", fields: [inspectorId], references: [id])
+  inspectorUser     User?                      @relation("ManufacturingQualityInspectionInspectorUser", fields: [inspectorUserId], references: [id])
   creator           User?                      @relation("ManufacturingQualityInspectionCreator", fields: [createdBy], references: [id])
   company           Company                    @relation("ManufacturingQualityInspectionCompany", fields: [companyId], references: [id])
   qualityParameters ManufacturingQualityParameter[]
@@ -5878,6 +5910,7 @@ model ManufacturingQualityInspection {
   @@index([inspectionDate])
   @@index([result])
   @@index([companyId])
+  @@index([inspectorUserId])
   @@map("manufacturing_quality_inspections")
 }
 
@@ -6548,3 +6581,118 @@ model InternalTransferHistory {
   @@index([transferId])
   @@map("internal_transfer_history")
 }
+
+// ============================================================
+// SALESPERSON MODEL
+// ============================================================
+
+model Salesperson {
+  id                String   @id @default(uuid())
+  salespersonNumber String   @map("salesperson_number")
+  name              String
+  phone             String?
+  email             String?
+  employeeCode      String?  @map("employee_code")
+  status            String   @default("Active")
+  territory         String?
+  commissionRate    Float    @default(0) @map("commission_rate")
+  monthlyTarget     Float    @default(0) @map("monthly_target")
+  notes             String?
+
+  userId       String? @unique @map("user_id")
+  hrEmployeeId String? @unique @map("hr_employee_id")
+  companyId    String  @map("company_id")
+  locationId   String? @map("location_id")
+
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company       Company        @relation("SalespersonCompany", fields: [companyId], references: [id])
+  user          User?          @relation(fields: [userId], references: [id])
+  hrEmployee    HrEmployee?    @relation(fields: [hrEmployeeId], references: [id])
+  location      Location?      @relation(fields: [locationId], references: [id])
+  customers     Customer[]
+  salesInvoices SalesInvoice[]
+  orders        Order[]
+
+  @@unique([companyId, salespersonNumber])
+  @@index([companyId])
+  @@index([userId])
+  @@index([hrEmployeeId])
+  @@index([locationId])
+  @@index([status])
+  @@map("salespersons")
+}
+
+// ============================================================
+// STOCK WRITE-OFF MODELS
+// ============================================================
+
+model StockWriteOff {
+  id             String    @id @default(uuid())
+  writeOffNumber String    @unique @map("write_off_number")
+  writeOffDate   DateTime  @default(now()) @map("write_off_date")
+  status         String    @default("Draft") @map("status") // Draft | Submitted | Approved | Rejected | Posted
+  reason         String    @map("reason") // Expired | Damaged | Broken | Spoiled | Missing | Obsolete | Quality Issue | Other
+  notes          String?
+  totalCost      Float     @default(0) @map("total_cost")
+
+  companyId        String  @map("company_id")
+  locationId       String  @map("location_id")
+  fiscalYearId     String? @map("fiscal_year_id")
+  expenseAccountId String? @map("expense_account_id")
+  journalEntryId   String? @unique @map("journal_entry_id")
+
+  createdBy   String    @map("created_by")
+  submittedBy String?   @map("submitted_by")
+  approvedBy  String?   @map("approved_by")
+  postedBy    String?   @map("posted_by")
+  postedAt    DateTime? @map("posted_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company        Company            @relation("StockWriteOffCompany", fields: [companyId], references: [id])
+  location       Location           @relation(fields: [locationId], references: [id])
+  fiscalYear     FiscalYear?        @relation(fields: [fiscalYearId], references: [id])
+  expenseAccount ChartOfAccount?    @relation("WriteOffExpenseAccount", fields: [expenseAccountId], references: [id])
+  journalEntry   JournalEntry?      @relation("WriteOffJournalEntry", fields: [journalEntryId], references: [id])
+  creator        User               @relation("WriteOffCreator", fields: [createdBy], references: [id])
+  submitter      User?              @relation("WriteOffSubmitter", fields: [submittedBy], references: [id])
+  approver       User?              @relation("WriteOffApprover", fields: [approvedBy], references: [id])
+  poster         User?              @relation("WriteOffPoster", fields: [postedBy], references: [id])
+  items          StockWriteOffItem[]
+
+  @@index([companyId])
+  @@index([locationId])
+  @@index([status])
+  @@index([writeOffDate])
+  @@map("stock_write_offs")
+}
+
+model StockWriteOffItem {
+  id             String    @id @default(uuid())
+  writeOffId     String    @map("write_off_id")
+  productId      String    @map("product_id")
+  productName    String    @map("product_name")
+  sku            String
+  batchNumber    String?   @map("batch_number")
+  expiryDate     DateTime? @map("expiry_date")
+  unitOfMeasure  String?   @map("unit_of_measure")
+  availableStock Float     @map("available_stock")
+  quantity       Float     @map("quantity")
+  unitCost       Float     @map("unit_cost")
+  totalCost      Float     @map("total_cost")
+  reason         String?
+
+  writeOff StockWriteOff @relation(fields: [writeOffId], references: [id], onDelete: Cascade)
+  product  Product       @relation(fields: [productId], references: [id])
+
+  @@index([writeOffId])
+  @@index([productId])
+  @@map("stock_write_off_items")
+}
+

@@ -370,13 +370,18 @@ async function buildBalanceSheetFromLedger(
       totalLiabilities += balance;
       liabilitiesData[classifyLiabilityBucket(account.parentAccount)].push(item);
     } else if (account.type === 'Equity') {
+      // Skip Current Year Earnings COA placeholder — live P&L is added once below (avoids double-count)
+      const isCye =
+        String(account.code) === '3200' ||
+        /current year earnings/i.test(String(account.name || ''));
+      if (isCye) continue;
       totalEquityFromAccounts += balance;
       equityItems.push(item);
     }
   }
 
-  // Current period net income (Revenue - Expense) added under equity.
-  // Permanent equity accounts (capital, prior RE, etc.) already include historical closings.
+  // Current period net income (Revenue − Expense) under equity — IAS 1 presentation.
+  // Permanent equity (capital, prior RE, drawings) already in equityItems.
   const retainedEarnings = totalRevenue - totalExpense;
   let addedCurrentEarnings = 0;
 

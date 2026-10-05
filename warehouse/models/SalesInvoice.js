@@ -124,10 +124,16 @@ class SalesInvoiceModel {
 
       if (!order) throw new Error('Order not found');
 
-      const existingInvoice = await tx.salesInvoice.findFirst({
-        where: { orderId, isActive: true, isDeleted: false }
-      });
-      if (existingInvoice) throw new Error('Invoice already exists for this order');
+      const {
+        getOrderInvoiceRemaining,
+      } = require('../services/salesQuantityService');
+
+      const remainingInfo = await getOrderInvoiceRemaining(order, { tx });
+      if (!remainingInfo.hasRemaining) {
+        throw new Error(
+          'No remaining quantities to invoice for this order. Already fully invoiced or nothing delivered yet.'
+        );
+      }
 
       const companyId = order.companyId;
       const { customerId, customer } = await findOrCreateCustomer(
@@ -147,30 +153,12 @@ class SalesInvoiceModel {
         ? new Date(dueDate)
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-      // ─── Determine quantities to invoice ─────────────────────────────────
-      // If confirmed deliveries exist → bill only delivered quantities (prevent overbilling).
-      // If no deliveries → bill full ordered quantities (direct SO → Invoice flow).
-      const hasConfirmedDeliveries = order.deliveries && order.deliveries.length > 0;
-      const deliveredQtyByProduct = {};
-      if (hasConfirmedDeliveries) {
-        for (const delivery of order.deliveries) {
-          for (const dItem of delivery.items || []) {
-            deliveredQtyByProduct[dItem.productId] =
-              (deliveredQtyByProduct[dItem.productId] || 0) +
-              (Number(dItem.deliveredQuantity) || 0);
-          }
-        }
-      }
-
+      // Bill only remaining (delivered − already invoiced, or ordered − invoiced)
       let subtotal = 0, totalDiscount = 0, totalTax = 0;
 
-      const invoiceItems = order.items.map(item => {
-        // Use delivered quantity if deliveries exist; otherwise use ordered quantity
-        const qty = hasConfirmedDeliveries
-          ? (deliveredQtyByProduct[item.productId] || 0)
-          : item.quantity;
-
-        if (qty <= 0) return null; // skip products not yet delivered
+      const invoiceItems = remainingInfo.items.map((item) => {
+        const qty = item.remainingQuantity;
+        if (qty <= 0) return null;
 
         const lineTotal = qty * item.unitPrice;
         const discountAmount = (lineTotal * (item.discount || 0)) / 100;
@@ -196,7 +184,7 @@ class SalesInvoiceModel {
 
       if (invoiceItems.length === 0) {
         throw new Error(
-          'No delivered quantities to invoice. Confirm a delivery first, or use manual invoice for advance billing.'
+          'No remaining quantities to invoice. Confirm a delivery first, or use multi-source invoice for partial billing.'
         );
       }
 
@@ -275,10 +263,14 @@ class SalesInvoiceModel {
 
       if (!delivery) throw new Error('Delivery not found');
 
-      const existingInvoice = await tx.salesInvoice.findFirst({
-        where: { deliveryId, isActive: true, isDeleted: false }
-      });
-      if (existingInvoice) throw new Error('Invoice already exists for this delivery');
+      const {
+        getDeliveryInvoiceRemaining,
+      } = require('../services/salesQuantityService');
+
+      const remainingInfo = await getDeliveryInvoiceRemaining(delivery, { tx });
+      if (!remainingInfo.hasRemaining) {
+        throw new Error('No remaining quantities to invoice for this delivery (already fully invoiced).');
+      }
 
       const companyId = delivery.companyId;
       const customerId = delivery.customerId;
@@ -292,13 +284,13 @@ class SalesInvoiceModel {
 
       let subtotal = 0, totalDiscount = 0, totalTax = 0;
 
-      const invoiceItems = delivery.items.map(item => {
+      const invoiceItems = remainingInfo.items.map(item => {
         const orderItem = delivery.salesOrder?.items?.find(oi => oi.productId === item.productId);
-        const unitPrice = orderItem?.unitPrice || item.product?.sellingPrice || item.unitPrice || 0;
-        const discount = orderItem?.discount || 0;
-        const taxRate = orderItem?.taxRate || 0;
+        const unitPrice = item.unitPrice || orderItem?.unitPrice || item.product?.sellingPrice || 0;
+        const discount = item.discount ?? orderItem?.discount ?? 0;
+        const taxRate = item.taxRate ?? orderItem?.taxRate ?? 0;
+        const qty = item.remainingQuantity;
 
-        const qty = item.deliveredQuantity || 0;
         const lineTotal = qty * unitPrice;
         const discountAmount = (lineTotal * discount) / 100;
         const taxableAmount = lineTotal - discountAmount;
@@ -459,6 +451,89 @@ class SalesInvoiceModel {
         userId,
         companyId || firstSource.companyId
       );
+
+      // ── 2b. Validate partial quantities against remaining to invoice ──
+      const {
+        getOrderInvoiceRemaining,
+        getDeliveryInvoiceRemaining,
+      } = require('../services/salesQuantityService');
+
+      // Precompute remaining per order / delivery
+      const orderRemainingCache = {};
+      for (const order of salesOrders) {
+        orderRemainingCache[order.id] = await getOrderInvoiceRemaining(order, {
+          tx,
+          allowUndelivered: true,
+        });
+      }
+      const deliveryRemainingCache = {};
+      for (const dlv of salesDeliveries) {
+        deliveryRemainingCache[dlv.id] = await getDeliveryInvoiceRemaining(dlv, { tx });
+      }
+
+      // Track qty being billed in this request (same product across lines)
+      const billingNowByOrderProduct = {}; // `${orderId}:${productId}` → qty
+      const billingNowByDeliveryProduct = {};
+
+      for (const item of items) {
+        const qty = Number(item.quantity) || 0;
+        if (qty <= 0) {
+          throw new Error(`Invoice quantity must be > 0 for ${item.productName || item.productId}`);
+        }
+
+        if (item.deliveryId) {
+          const rem = deliveryRemainingCache[item.deliveryId];
+          if (!rem) throw new Error(`Delivery ${item.deliveryId} not found in selection`);
+          const line = rem.items.find((i) => i.productId === item.productId);
+          const key = `${item.deliveryId}:${item.productId}`;
+          const alreadyInPayload = billingNowByDeliveryProduct[key] || 0;
+          const maxRem = line ? line.remainingQuantity : 0;
+          if (qty + alreadyInPayload > maxRem) {
+            throw new Error(
+              `Quantity ${qty} for ${item.productName || item.productId} exceeds remaining to invoice (${maxRem - alreadyInPayload}) on delivery`
+            );
+          }
+          billingNowByDeliveryProduct[key] = alreadyInPayload + qty;
+          continue;
+        }
+
+        const orderId =
+          item.orderId ||
+          (salesOrders.length === 1 ? salesOrders[0].id : null);
+        if (!orderId) {
+          throw new Error(`orderId is required on invoice line for ${item.productName || item.productId}`);
+        }
+
+        let rem = orderRemainingCache[orderId];
+        if (!rem) {
+          // Order may only be linked via delivery — compute on the fly
+          const order = await tx.order.findUnique({
+            where: { id: orderId },
+            include: { items: true },
+          });
+          if (!order) throw new Error(`Order ${orderId} not found`);
+          rem = await getOrderInvoiceRemaining(order, { tx });
+          orderRemainingCache[orderId] = rem;
+        }
+
+        const line = rem.items.find((i) => i.productId === item.productId);
+        // Multi-source may auto-create deliveries for undelivered qty — allow up to ordered − invoiced
+        const order = salesOrders.find((o) => o.id === orderId);
+        const orderItem = order?.items?.find((oi) => oi.productId === item.productId);
+        const ordered = orderItem ? Number(orderItem.quantity) || 0 : qty;
+        const invoicedMap = rem.invoicedMap || {};
+        const maxByOrdered = Math.max(0, ordered - (invoicedMap[item.productId] || 0));
+        const effectiveMax = Math.max(line?.remainingQuantity || 0, maxByOrdered);
+
+        const key = `${orderId}:${item.productId}`;
+        const alreadyInPayload = billingNowByOrderProduct[key] || 0;
+        if (qty + alreadyInPayload > effectiveMax) {
+          throw new Error(
+            `Quantity ${qty} for ${item.productName || item.productId} exceeds remaining to invoice (${Math.max(0, effectiveMax - alreadyInPayload)}) on order`
+          );
+        }
+        billingNowByOrderProduct[key] = alreadyInPayload + qty;
+      }
 
       // ── 3. Auto-Create and Confirm Deliveries for Orders ──
       const createdDeliveryIds = [];

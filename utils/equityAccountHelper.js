@@ -66,6 +66,40 @@ async function syncCompanyEquityAccounts(companyId, userId, client) {
   const db = client || prisma;
   if (!companyId) return [];
 
+  // Ensure Owner's Drawings exists (IAS 1 contra-equity for sole prop / SME)
+  const drawings = await db.chartOfAccount.findFirst({
+    where: {
+      companyId,
+      type: 'Equity',
+      OR: [
+        { code: '3300' },
+        { name: { contains: 'drawing', mode: 'insensitive' } },
+      ],
+    },
+  });
+  if (!drawings) {
+    try {
+      await db.chartOfAccount.create({
+        data: {
+          code: '3300',
+          name: "Owner's Drawings",
+          type: 'Equity',
+          parentAccount: 'Equity',
+          openingBalance: 0,
+          currentBalance: 0,
+          description: 'Owner withdrawals (contra-equity)',
+          taxCode: 'N/A',
+          balanceType: 'Debit',
+          isActive: true,
+          createdBy: userId || 'SYSTEM',
+          companyId,
+        },
+      });
+    } catch (_) {
+      // race / unique — ignore
+    }
+  }
+
   const equityCharts = await db.chartOfAccount.findMany({
     where: { companyId, type: 'Equity', isActive: true },
   });

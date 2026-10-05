@@ -1,7 +1,9 @@
 const prisma = require('../prisma/client');
-const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
+const { getCompanyFiscalYear, resolveFiscalYearId } = require('../utils/fiscalYearHelper');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
 const { getOrCreateApAccount } = require('../utils/apAccountHelper');
+const PurchasePaymentMake = require('../warehouse/models/PurchasePaymentMake');
 const {
   normalizeLocationId,
   purchaseInvoiceLocationWhere
@@ -180,11 +182,17 @@ function purchaseInvoiceToBillShape(inv) {
   else if (paidAmount > 0) status = 'Partial';
   else if (inv.dueDate && new Date(inv.dueDate) < new Date()) status = 'Overdue';
 
+  const supplierName =
+    inv.supplierName || inv.supplier?.name || '';
+
   return {
     id: inv.id,
     billNumber: inv.invoiceNumber,
     vendorId: inv.supplierId,
-    vendorName: inv.supplierName || '',
+    vendorName: supplierName,
+    // Frontend AP screens expect supplier* fields (same as billToResponseShape)
+    supplierId: inv.supplierId,
+    supplierName,
     vendor: inv.supplier
       ? {
           id: inv.supplier.id,
@@ -194,7 +202,7 @@ function purchaseInvoiceToBillShape(inv) {
         }
       : {
           id: inv.supplierId,
-          name: inv.supplierName || ''
+          name: supplierName
         },
     date: inv.invoiceDate,
     dueDate: inv.dueDate,
@@ -1123,7 +1131,7 @@ res.status(200).json({
 // PAYMENT FUNCTIONS
 // ============================================================
 
-// @desc    Record payment against bill
+// @desc    Record payment against bill OR purchase invoice (shown in AP)
 // @route   POST /api/accounts-payable/payments
 // @access  Private
 exports.recordPayment = async (req, res) => {
@@ -1136,11 +1144,19 @@ exports.recordPayment = async (req, res) => {
       paymentDate,
       paymentMethod,
       reference,
-      bankAccountId
+      bankAccountId,
+      notes
     } = req.body;
 
     const userId = req.user.id;
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
+
+    if (!billId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bill ID is required'
+      });
+    }
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -1149,16 +1165,135 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const bill = await tx.bill.findFirst({
-        where: { id: billId, companyId: companyId },
-        include: { vendor: true }
+    // Prefer accounting Bill; fall back to warehouse Purchase Invoice (AP list merges both)
+    const bill = await prisma.bill.findFirst({
+      where: { id: billId, companyId },
+      include: { vendor: true }
+    });
+
+    if (!bill) {
+      const purchaseInvoice = await prisma.purchaseInvoice.findFirst({
+        where: {
+          id: billId,
+          companyId,
+          isActive: true,
+          isDeleted: false
+        },
+        include: {
+          supplier: true,
+          purchasePayments: {
+            where: {
+              payment: {
+                isActive: true,
+                isDeleted: false,
+                status: 'Completed'
+              }
+            },
+            select: { amountPaid: true }
+          }
+        }
       });
 
-      if (!bill) {
-        throw new Error('Bill not found');
+      if (!purchaseInvoice) {
+        return res.status(404).json({
+          success: false,
+          message: 'Bill not found'
+        });
       }
 
+      const { grandTotal, paidAmount, outstanding } =
+        computePurchaseOpenBalance(purchaseInvoice);
+
+      if (outstanding <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invoice is already fully paid'
+        });
+      }
+
+      if (amount > outstanding + 0.01) {
+        return res.status(400).json({
+          success: false,
+          message: `Payment amount cannot exceed outstanding balance of ${outstanding}`
+        });
+      }
+
+      const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+      try {
+        await fiscalYearGuard(userId, postingDate);
+      } catch (err) {
+        if (err.code === 'FISCAL_YEAR_CLOSED') {
+          return res.status(400).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+
+      const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+      const method = paymentMethod || 'Bank Transfer';
+      let bankAccountName = '';
+
+      if (bankAccountId && String(method).toLowerCase() !== 'cash') {
+        const bankAccount = await validateBankAccount(bankAccountId, companyId);
+        bankAccountName = bankAccount?.accountName || '';
+      }
+
+      const payment = await PurchasePaymentMake.makePayment({
+        supplierId: purchaseInvoice.supplierId,
+        supplierName:
+          purchaseInvoice.supplierName || purchaseInvoice.supplier?.name || '',
+        amount,
+        paymentMethod: method,
+        bankAccountId:
+          String(method).toLowerCase() === 'cash' ? null : bankAccountId || null,
+        bankAccountName,
+        reference: reference || '',
+        notes: notes || '',
+        invoicePayments: [
+          {
+            invoiceId: purchaseInvoice.id,
+            invoiceNumber: purchaseInvoice.invoiceNumber,
+            amountPaid: amount
+          }
+        ],
+        userId,
+        createdBy: userId,
+        companyId,
+        fiscalYearId,
+        currencyId: purchaseInvoice.currencyId || null,
+        exchangeRate: purchaseInvoice.exchangeRate ?? null,
+        exchangeRateDate: purchaseInvoice.exchangeRateDate || null
+      });
+
+      const newPaidAmount = paidAmount + amount;
+      const newOutstanding = Math.max(0, grandTotal - newPaidAmount);
+      const newStatus =
+        newOutstanding <= 0 ? 'Paid' : newPaidAmount > 0 ? 'Partial' : 'Unpaid';
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          bill: {
+            id: purchaseInvoice.id,
+            billNumber: purchaseInvoice.invoiceNumber,
+            paidAmount: newPaidAmount,
+            outstanding: newOutstanding,
+            status: newStatus,
+            source: 'purchaseInvoice'
+          },
+          payment: {
+            id: payment.id,
+            paymentNumber: payment.paymentNumber,
+            amount: payment.amount,
+            date: payment.paymentDate,
+            method: payment.paymentMethod,
+            reference: payment.reference
+          }
+        },
+        message: 'Payment recorded successfully. AP balance updated.'
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
       const outstanding = bill.totalAmount - bill.paidAmount;
       if (amount > outstanding) {
         throw new Error(`Payment amount cannot exceed outstanding balance of ${outstanding}`);
@@ -1254,7 +1389,7 @@ exports.recordPayment = async (req, res) => {
           reference: reference || '',
           bankAccountId: bankAccountData?.id || null,
           bankAccountName: bankAccountData?.accountName || '',
-          notes: '',
+          notes: notes || '',
           status: 'Cleared',
           createdBy: userId,
           companyId: companyId
@@ -1264,7 +1399,7 @@ exports.recordPayment = async (req, res) => {
       return { updatedBill, paymentRecord };
     });
 
-res.status(200).json({
+    res.status(200).json({
       success: true,
       data: {
         bill: {
@@ -1288,7 +1423,8 @@ res.status(200).json({
 
   } catch (error) {
     console.error('❌ [AP] Record payment error:', error);
-    res.status(500).json({
+    const status = /not found/i.test(error.message || '') ? 404 : 500;
+    res.status(status).json({
       success: false,
       message: error.message
     });

@@ -214,6 +214,11 @@ exports.createBankAccount = async (req, res) => {
 // ============================================================
 exports.getBankAccounts = async (req, res) => {
   try {
+    console.log('🏦 [Bank] getBankAccounts called', {
+      companyId: (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user?.companyId) : req.user?.companyId,
+      status: req.query.status,
+      limit: req.query.limit
+    });
     const { status, search, page = 1, limit = 10 } = req.query;
     const userId = req.user.id;
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;

@@ -19,10 +19,11 @@ const DEFAULT_ACCOUNTS = [
   { code: '2300', name: 'Loan Payable', type: 'Liability', parentAccount: 'Non-Current Liabilities', balanceType: 'Credit' },
   { code: '2400', name: 'Other Current Liabilities', type: 'Liability', parentAccount: 'Current Liabilities', balanceType: 'Credit' },
 
-  // EQUITY
+  // EQUITY (IAS 1 / SME owner equity)
   { code: '3001', name: "Owner's Capital", type: 'Equity', parentAccount: 'Equity', balanceType: 'Credit' },
   { code: '3100', name: 'Retained Earnings', type: 'Equity', parentAccount: 'Equity', balanceType: 'Credit' },
   { code: '3200', name: 'Current Year Earnings', type: 'Equity', parentAccount: 'Equity', balanceType: 'Credit' },
+  { code: '3300', name: "Owner's Drawings", type: 'Equity', parentAccount: 'Equity', balanceType: 'Debit' },
 
   // INCOME
   { code: '4001', name: 'Sales Revenue', type: 'Revenue', parentAccount: 'Revenue', balanceType: 'Credit' },

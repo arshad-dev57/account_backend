@@ -231,6 +231,15 @@ const getAllUsers = async (req, res) => {
             description: true
           }
         },
+        hrEmployee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            designation: true,
+            department: true,
+            status: true,
+          }
+        },
         permissions: {
           select: {
             id: true,

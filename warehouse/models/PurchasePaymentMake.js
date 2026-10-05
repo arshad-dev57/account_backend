@@ -170,8 +170,7 @@ class PurchasePaymentMakeModel {
       const supplier = await tx.supplier.findFirst({
         where: {
           id: supplierId,
-          companyId: companyId,
-          status: 'active'
+          companyId: companyId
         }
       });
 
@@ -180,7 +179,9 @@ class PurchasePaymentMakeModel {
       }
 
       // ─── Validate Bank Account ──────────────────────────────
-      if (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque') {
+      const methodNeedsBank = ['Bank Transfer', 'Cheque', 'Online Payment', 'Credit Card']
+        .includes(paymentMethod);
+      if (methodNeedsBank) {
         if (!bankAccountId) {
           throw new Error('Bank account is required for this payment method');
         }
@@ -204,7 +205,7 @@ class PurchasePaymentMakeModel {
             isActive: true,
             isDeleted: false,
             invoiceStatus: {
-              in: ['Posted', 'Partially Paid']
+              notIn: ['Draft', 'Cancelled']
             }
           },
           include: {
@@ -305,7 +306,7 @@ class PurchasePaymentMakeModel {
       // ─── Resolve credit account (Cash / Bank) — never AP ──────
       let creditAccount = null;
 
-      if (bankAccountId && (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online Payment')) {
+      if (bankAccountId && (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online Payment' || paymentMethod === 'Credit Card')) {
         const bankAccount = await findBankAccount(tx, companyId, bankAccountId);
         if (bankAccount?.chartOfAccountId) {
           creditAccount = await tx.chartOfAccount.findUnique({

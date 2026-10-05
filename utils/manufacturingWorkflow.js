@@ -291,10 +291,56 @@ function operationCost(op, plannedQty) {
 function orderCostBreakdown(order) {
   const planned = Number(order.plannedQuantity || 1);
   const produced = Number(order.producedQuantity || 0) || planned;
-  const materialCost = (order.bom?.components || []).reduce((sum, c) => {
-    const line = Number(c.estimatedCost || 0);
-    return sum + line * planned;
+
+  const unitCostByProduct = new Map();
+  for (const r of order.materialReservations || []) {
+    if (r.componentId) {
+      unitCostByProduct.set(r.componentId, Number(r.component?.costPrice || 0));
+    }
+  }
+  for (const c of order.bom?.components || []) {
+    if (!c.componentId) continue;
+    if (!unitCostByProduct.has(c.componentId)) {
+      unitCostByProduct.set(
+        c.componentId,
+        Number(c.component?.costPrice || c.costPrice || 0)
+      );
+    }
+  }
+  for (const iss of order.materialIssues || []) {
+    if (!iss.componentId || unitCostByProduct.has(iss.componentId)) continue;
+    unitCostByProduct.set(iss.componentId, Number(iss.component?.costPrice || 0));
+  }
+
+  // Prefer actual issued qty × product cost price (MaterialIssue has no unitCost column).
+  const issues = order.materialIssues?.length
+    ? order.materialIssues
+    : (order.materialReservations || []).flatMap((r) =>
+        (r.materialIssues || []).map((iss) => ({
+          ...iss,
+          componentId: iss.componentId || r.componentId
+        }))
+      );
+
+  let materialCost = issues.reduce((sum, iss) => {
+    const qty = Number(iss.issuedQuantity || 0);
+    if (qty <= 0) return sum;
+    const unit = Number(unitCostByProduct.get(iss.componentId) || 0);
+    return sum + qty * unit;
   }, 0);
+
+  // Fallback: BOM estimated cost per FG unit, or BOM qty × component costPrice.
+  if (!materialCost) {
+    materialCost = (order.bom?.components || []).reduce((sum, c) => {
+      const est = Number(c.estimatedCost || 0);
+      if (est > 0) return sum + est * planned;
+      const unit = Number(
+        c.component?.costPrice || c.costPrice || unitCostByProduct.get(c.componentId) || 0
+      );
+      return sum + unit * Number(c.quantity || 0) * planned;
+    }, 0);
+  }
+
   const ops = order.routing?.operations || [];
   const laborCost = ops.reduce((sum, op) => sum + operationCost(op, planned).laborCost, 0);
   const machineCost = ops.reduce((sum, op) => sum + operationCost(op, planned).machineCost, 0);

@@ -23,10 +23,33 @@ class RefundModel {
   // CREATE REFUND (Sales or Purchase)
   // ============================================================
   static async create(data) {
+    const {
+      getRefundedAmountForReturn,
+      getRefundedAmountForOrder,
+    } = require('../services/salesQuantityService');
+
+    const amount = Number(data.amount) || 0;
+    if (amount <= 0) {
+      throw new Error('Refund amount must be greater than 0');
+    }
+
+    // Cap refund against return remaining or order paid/refundable context
+    if (data.returnId) {
+      const ret = await prisma.return.findUnique({ where: { id: data.returnId } });
+      if (!ret) throw new Error('Return not found');
+      const alreadyRefunded = await getRefundedAmountForReturn(data.returnId);
+      const maxRefundable = Math.max(0, (Number(ret.totalRefund) || 0) - alreadyRefunded);
+      if (amount > maxRefundable + 0.0001) {
+        throw new Error(
+          `Refund amount ${amount} exceeds remaining refundable ${maxRefundable} for return ${ret.returnNumber}`
+        );
+      }
+    }
+
     // ✅ FIXED: Generate refund number before creating
     const refundNumber = generateRefundNumber(data.refundType || 'Sales Refund');
     
-    return await prisma.refund.create({
+    const refund = await prisma.refund.create({
       data: {
         refundNumber,  // ✅ Added missing refundNumber
         refundDate: new Date(),
@@ -81,6 +104,27 @@ class RefundModel {
         }
       }
     });
+
+    // Sync order payment status based on cumulative refunds vs order total
+    if (data.orderId && (data.refundType || 'Sales Refund') === 'Sales Refund') {
+      const order = await prisma.order.findUnique({ where: { id: data.orderId } });
+      if (order) {
+        const totalRefunded = await getRefundedAmountForOrder(data.orderId);
+        const orderTotal = Number(order.grandTotal) || 0;
+        let paymentStatus = 'Partial Refund';
+        if (totalRefunded >= orderTotal - 0.01) {
+          paymentStatus = 'Refunded';
+        } else if (totalRefunded <= 0) {
+          paymentStatus = order.paymentStatus;
+        }
+        await prisma.order.update({
+          where: { id: data.orderId },
+          data: { paymentStatus },
+        });
+      }
+    }
+
+    return refund;
   }
 
   // ============================================================

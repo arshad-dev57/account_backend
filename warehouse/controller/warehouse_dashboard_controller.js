@@ -233,6 +233,61 @@ const getDashboardMetrics = async (req, res) => {
       }),
     ]);
 
+    // Per-warehouse snapshot (company-wide view for multi-warehouse KPIs)
+    let warehouseBreakdown = [];
+    if (!locationId) {
+      const locations = await prisma.location.findMany({
+        where: { companyId, isDeleted: false, isActive: true },
+        select: { id: true, name: true, code: true },
+        orderBy: { name: 'asc' },
+      });
+      const allStocks = await prisma.productStock.findMany({
+        where: {
+          companyId,
+          locationId: { in: locations.map((l) => l.id) },
+          product: { isActive: true },
+        },
+        select: {
+          locationId: true,
+          currentStock: true,
+          product: {
+            select: {
+              costPrice: true,
+              minimumStock: true,
+              maximumStock: true,
+            },
+          },
+        },
+      });
+      const byLoc = new Map();
+      for (const loc of locations) {
+        byLoc.set(loc.id, {
+          locationId: loc.id,
+          name: loc.name,
+          code: loc.code,
+          productCount: 0,
+          stockValue: 0,
+          lowStockCount: 0,
+          outOfStockCount: 0,
+          quantityOnHand: 0,
+        });
+      }
+      for (const row of allStocks) {
+        const bucket = byLoc.get(row.locationId);
+        if (!bucket) continue;
+        const qty = row.currentStock || 0;
+        const min = row.product?.minimumStock || 0;
+        bucket.productCount += 1;
+        bucket.quantityOnHand += qty;
+        bucket.stockValue += (row.product?.costPrice || 0) * qty;
+        if (qty === 0) bucket.outOfStockCount += 1;
+        else if (min > 0 && qty <= min) bucket.lowStockCount += 1;
+      }
+      warehouseBreakdown = Array.from(byLoc.values()).sort(
+        (a, b) => b.stockValue - a.stockValue
+      );
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -242,12 +297,25 @@ const getDashboardMetrics = async (req, res) => {
         outOfStockCount,
         overstockCount,
         expiringCount,
+        inStockCount: Math.max(0, totalProducts - outOfStockCount),
         todayStockIn,
         todayStockOut,
         periodStockIn,
         periodStockOut,
         pendingOrders: 0,
         todayRevenue: 0,
+        // ASCM-style health: deduct for service-risk conditions
+        inventoryHealthScore: (() => {
+          if (!totalProducts) return 100;
+          const risk =
+            (lowStockCount + outOfStockCount * 1.5 + expiringCount + overstockCount * 0.5) /
+            totalProducts;
+          return Math.max(0, Math.min(100, Math.round(100 - risk * 100)));
+        })(),
+        stockAvailabilityRate: totalProducts
+          ? Math.round(((totalProducts - outOfStockCount) / totalProducts) * 1000) / 10
+          : 100,
+        warehouseBreakdown,
         locationId: locationId || null,
       }
     });

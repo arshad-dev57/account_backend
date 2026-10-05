@@ -129,7 +129,29 @@ exports.getEquityAccounts = async (req, res) => {
       currentBalance: chart.currentBalance || 0,
       lastUpdated: chart.updatedAt,
       notes: chart.description || '',
+      additions: 0,
+      withdrawals: 0,
     }));
+
+    // Enrich additions/withdrawals from EquityAccount shadow rows
+    const shadows = await prisma.equityAccount.findMany({
+      where: { companyId },
+      select: {
+        accountCode: true,
+        additions: true,
+        withdrawals: true,
+      },
+    });
+    const byCode = new Map(shadows.map((s) => [s.accountCode, s]));
+    accounts = accounts.map((a) => {
+      const sh = byCode.get(a.accountCode);
+      if (!sh) return a;
+      return {
+        ...a,
+        additions: Number(sh.additions) || 0,
+        withdrawals: Number(sh.withdrawals) || 0,
+      };
+    });
 
     const {
       isCurrentYearEarningsAccount,
@@ -523,7 +545,8 @@ exports.recordDrawings = async (req, res) => {
 
     await prisma.chartOfAccount.update({
       where: { id: account.id },
-      data: { currentBalance: { increment: amount } }
+      // Drawings is contra-equity: debit reduces credit-normal equity balance (IAS 1)
+      data: { currentBalance: { decrement: amount } }
     });
     await applyFundingBalance(fundingAccount, bankAccount, amount, 'out');
 
@@ -648,10 +671,14 @@ exports.transferToRetainedEarnings = async (req, res) => {
       }
     });
 
-    // Update ChartOfAccount balance — THIS makes it appear on Flutter screen
+    // Update ChartOfAccount balances — RE increases, CYE placeholder decreases
     await prisma.chartOfAccount.update({
       where: { id: retainedChartAccount.id },
       data: { currentBalance: { increment: amount } }
+    });
+    await prisma.chartOfAccount.update({
+      where: { id: pnlAccount.id },
+      data: { currentBalance: { decrement: amount } }
     });
 
     // Create EquityTransaction for history
@@ -708,16 +735,21 @@ exports.getSummary = async (req, res) => {
     let totalRetainedEarnings = 0;
     let totalReserves = 0;
     let totalDrawings = 0;
+    let signedEquityFromCoa = 0;
 
     for (const account of accounts) {
       const isCye = isCurrentYearEarningsAccount(account);
-      const balance = isCye ? currentYearEarnings : (account.currentBalance || 0);
+      // CYE uses live P&L; Drawings is contra-equity (debit balance → negative equity)
+      const balance = isCye ? currentYearEarnings : Number(account.currentBalance || 0);
       const type = deriveAccountType(account.name);
       if (type === 'Capital' || type === 'Share Capital') totalCapital += balance;
       else if (type === 'Retained Earnings') totalRetainedEarnings += balance;
       else if (type === 'Reserves') totalReserves += balance;
-      else if (type === 'Drawings') totalDrawings += balance;
+      else if (type === 'Drawings') totalDrawings += Math.abs(balance);
+      // Signed sum: drawings already negative after proper posting
+      if (!isCye) signedEquityFromCoa += balance;
     }
+    signedEquityFromCoa += currentYearEarnings;
 
     const owners = bs.equity?.owners || [];
     const ownerCapital = owners
@@ -733,20 +765,26 @@ exports.getSummary = async (req, res) => {
     const periodEarnings = currentYearEarnings;
     const changeOnCapital = equityNow - ownerCapital;
 
-    const totalEquity = totalCapital + totalRetainedEarnings + totalReserves - totalDrawings;
+    // Prefer balance-sheet total; fallback is signed COA equity (drawings reduce, not double-subtracted)
+    const totalEquity =
+      equityNow ||
+      signedEquityFromCoa ||
+      totalCapital + totalRetainedEarnings + totalReserves - totalDrawings;
 
     const summaryData = {
       totalCapital: ownerCapital || totalCapital,
       totalRetainedEarnings,
       totalReserves,
       totalDrawings,
-      totalEquity: equityNow || totalEquity,
+      totalEquity,
       currentYearEarnings,
       ownerCapital,
       periodEarnings,
-      equityNow,
+      equityNow: totalEquity,
       changeOnCapital,
-      isIncrease: periodEarnings >= 0
+      isIncrease: periodEarnings >= 0,
+      formula:
+        "Owner's capital + reserves + retained earnings + current year earnings − drawings (IAS 1)",
     };
 
     res.status(200).json({ success: true, data: summaryData });

@@ -160,8 +160,8 @@ const getProducts = async (req, res) => {
       stockStatus,
       minPrice,
       maxPrice,
-      sortBy = 'name',
-      sortOrder = 'asc',
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
       page = 1,
       limit = 20,
       locationId,
@@ -662,30 +662,32 @@ const createProduct = async (req, res) => {
       }
     }
 
-    // Assign product to selected location (0 stock) so it appears in that warehouse catalog
-    try {
-      const locationId = await resolveLocationId(
-        prisma,
-        companyId,
-        locationIdInput,
-        userId
-      );
-      await getOrCreateProductStock(prisma, {
-        companyId,
-        productId: product.id,
-        locationId,
-      });
-      console.log(
-        '✅ [createProduct] Assigned to location',
-        locationId,
-        'product',
-        product.id
-      );
-    } catch (locErr) {
-      console.error(
-        '⚠️ [createProduct] Location assign failed (non-fatal):',
-        locErr.message
-      );
+    // Assign product to selected warehouse only when locationId is provided (optional)
+    if (locationIdInput) {
+      try {
+        const locationId = await resolveLocationId(
+          prisma,
+          companyId,
+          locationIdInput,
+          userId
+        );
+        await getOrCreateProductStock(prisma, {
+          companyId,
+          productId: product.id,
+          locationId,
+        });
+        console.log(
+          '✅ [createProduct] Assigned to location',
+          locationId,
+          'product',
+          product.id
+        );
+      } catch (locErr) {
+        console.error(
+          '⚠️ [createProduct] Location assign failed (non-fatal):',
+          locErr.message
+        );
+      }
     }
 
     res.status(201).json({
@@ -779,6 +781,9 @@ const updateProduct = async (req, res) => {
 
     data = normalizeIncomingProduct(data);
 
+    const locationIdInput = data.locationId || null;
+    delete data.locationId;
+
     // ─── Check duplicate SKU ──────────────────────────────
     if (data.sku && String(data.sku).toUpperCase() !== String(existing.sku || '').toUpperCase()) {
       const duplicateSku = await ProductModel.checkSkuExists(data.sku, companyId, id);
@@ -870,6 +875,34 @@ const updateProduct = async (req, res) => {
 
     // ─── Update product ─────────────────────────────────────
     const product = await ProductModel.update(id, productData);
+
+    // Optional: assign product to warehouse catalog (0 stock if new row)
+    if (locationIdInput) {
+      try {
+        const locationId = await resolveLocationId(
+          prisma,
+          companyId,
+          locationIdInput,
+          userId
+        );
+        await getOrCreateProductStock(prisma, {
+          companyId,
+          productId: product.id,
+          locationId,
+        });
+        console.log(
+          '✅ [updateProduct] Assigned to location',
+          locationId,
+          'product',
+          product.id
+        );
+      } catch (locErr) {
+        console.error(
+          '⚠️ [updateProduct] Location assign failed (non-fatal):',
+          locErr.message
+        );
+      }
+    }
 
     console.log('✅ [updateProduct] Product updated successfully:', product.id);
 

@@ -1036,58 +1036,63 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
         },
         customer: {
           select: { id: true, name: true, email: true, phone: true }
-        },
-        salesInvoices: {
-          where: { isActive: true, isDeleted: false },
-          select: { id: true }
         }
       },
       skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit),
+      take: parseInt(limit) * 3, // over-fetch then filter by remaining
       orderBy: { orderDate: 'desc' }
     });
 
-    const availableOrders = orders
-      .filter((order) => order.salesInvoices.length === 0)
-      .map((order) => {
-        const items = order.items || [];
-        const itemCount = items.length || order.totalItems || 0;
-        const itemsQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
+    const {
+      getOrderInvoiceRemaining,
+    } = require('../services/salesQuantityService');
 
-        return {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          orderDate: order.orderDate,
-          expectedDeliveryDate: order.expectedDeliveryDate,
-          customerId: order.customerId || order.customer?.id || null,
-          customerName: order.customerName || order.customer?.name || '',
-          customerEmail: order.customerEmail || order.customer?.email || '',
-          customerPhone: order.customerPhone || order.customer?.phone || '',
-          customerType: order.customerType,
-          customerCompany: order.customerCompany,
-          orderStatus: order.orderStatus,
-          paymentStatus: order.paymentStatus,
-          paymentMethod: order.paymentMethod,
-          orderType: order.orderType,
-          priority: order.priority,
-          source: order.source,
-          salesPerson: order.salesPerson,
-          shippingMethod: order.shippingMethod,
-          shippingCarrier: order.shippingCarrier,
-          shippingAddress: order.shippingAddress,
-          billingAddress: order.billingAddress,
-          subtotal: order.subtotal || 0,
-          taxTotal: order.taxTotal || 0,
-          discountTotal: order.discountTotal || 0,
-          shippingCost: order.shippingCost || 0,
-          grandTotal: order.grandTotal || 0,
-          totalItems: itemCount,
-          totalQuantity: itemsQty,
-          customerNotes: order.customerNotes,
-          locationId: order.locationId,
-          items
-        };
+    const availableOrders = [];
+    for (const order of orders) {
+      const rem = await getOrderInvoiceRemaining(order, { allowUndelivered: true });
+      if (!rem.hasRemaining) continue;
+
+      const items = rem.items;
+      const itemCount = items.length;
+      const itemsQty = items.reduce((s, i) => s + (i.remainingQuantity || 0), 0);
+
+      availableOrders.push({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderDate: order.orderDate,
+        expectedDeliveryDate: order.expectedDeliveryDate,
+        customerId: order.customerId || order.customer?.id || null,
+        customerName: order.customerName || order.customer?.name || '',
+        customerEmail: order.customerEmail || order.customer?.email || '',
+        customerPhone: order.customerPhone || order.customer?.phone || '',
+        customerType: order.customerType,
+        customerCompany: order.customerCompany,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        paymentMethod: order.paymentMethod,
+        orderType: order.orderType,
+        priority: order.priority,
+        source: order.source,
+        salesPerson: order.salesPerson,
+        shippingMethod: order.shippingMethod,
+        shippingCarrier: order.shippingCarrier,
+        shippingAddress: order.shippingAddress,
+        billingAddress: order.billingAddress,
+        subtotal: order.subtotal || 0,
+        taxTotal: order.taxTotal || 0,
+        discountTotal: order.discountTotal || 0,
+        shippingCost: order.shippingCost || 0,
+        grandTotal: order.grandTotal || 0,
+        totalItems: itemCount,
+        totalQuantity: itemsQty,
+        customerNotes: order.customerNotes,
+        locationId: order.locationId,
+        items,
+        hasPartialInvoice: Object.values(rem.invoicedMap || {}).some((q) => q > 0),
       });
+
+      if (availableOrders.length >= parseInt(limit)) break;
+    }
 
     const total = availableOrders.length;
 
@@ -1161,62 +1166,41 @@ const getAvailableDeliveriesForInvoicing = async (req, res) => {
           }
         },
         customer: { select: { id: true, name: true, email: true, phone: true } },
-        salesInvoices: {
-          where: { isActive: true, isDeleted: false },
-          select: { id: true }
-        }
       },
       skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit),
+      take: parseInt(limit) * 3,
       orderBy: { deliveryDate: 'desc' }
     });
 
-    const availableDeliveries = deliveries
-      .filter((dlv) => dlv.salesInvoices.length === 0)
-      .map((dlv) => {
-        const mappedItems = (dlv.items || []).map((item) => {
-          const orderItem = dlv.salesOrder?.items?.find((oi) => oi.productId === item.productId);
-          const unitPrice = orderItem?.unitPrice != null
-            ? Number(orderItem.unitPrice)
-            : (item.product?.sellingPrice != null
-                ? Number(item.product.sellingPrice)
-                : 0);
+    const {
+      getDeliveryInvoiceRemaining,
+    } = require('../services/salesQuantityService');
 
-          const discount = orderItem?.discount != null ? Number(orderItem.discount) : 0;
-          const taxRate = orderItem?.taxRate != null ? Number(orderItem.taxRate) : 0;
+    const availableDeliveries = [];
+    for (const dlv of deliveries) {
+      const rem = await getDeliveryInvoiceRemaining(dlv);
+      if (!rem.hasRemaining) continue;
 
-          return {
-            id: item.id,
-            productId: item.productId,
-            productName: item.productName || item.product?.name || 'Product',
-            sku: item.sku || item.product?.sku || '',
-            unit: item.unit || 'Pcs',
-            orderedQuantity: item.orderedQuantity || 0,
-            deliveredQuantity: item.deliveredQuantity || 0,
-            quantity: item.deliveredQuantity || 0,
-            unitPrice: unitPrice,
-            discount: discount,
-            taxRate: taxRate,
-            notes: item.notes,
-          };
-        });
-
-        const totalQty = mappedItems.reduce((sum, item) => sum + (item.deliveredQuantity || 0), 0);
-        return {
-          id: dlv.id,
-          deliveryNumber: dlv.deliveryNumber,
-          salesOrderId: dlv.salesOrderId,
-          salesOrderNumber: dlv.salesOrderNumber,
-          customerId: dlv.customerId || dlv.customer?.id,
-          customerName: dlv.customerName || dlv.customer?.name || '',
-          deliveryDate: dlv.deliveryDate,
-          deliveryStatus: dlv.deliveryStatus,
-          locationId: dlv.locationId,
-          totalQuantity: totalQty,
-          itemCount: mappedItems.length,
-          items: mappedItems
-        };
+      const mappedItems = rem.items;
+      const totalQty = mappedItems.reduce((sum, item) => sum + (item.remainingQuantity || 0), 0);
+      availableDeliveries.push({
+        id: dlv.id,
+        deliveryNumber: dlv.deliveryNumber,
+        salesOrderId: dlv.salesOrderId,
+        salesOrderNumber: dlv.salesOrderNumber,
+        customerId: dlv.customerId || dlv.customer?.id,
+        customerName: dlv.customerName || dlv.customer?.name || '',
+        deliveryDate: dlv.deliveryDate,
+        deliveryStatus: dlv.deliveryStatus,
+        locationId: dlv.locationId,
+        totalQuantity: totalQty,
+        itemCount: mappedItems.length,
+        items: mappedItems,
+        hasPartialInvoice: Object.values(rem.invoicedMap || {}).some((q) => q > 0),
       });
+
+      if (availableDeliveries.length >= parseInt(limit)) break;
+    }
 
     const total = availableDeliveries.length;
 

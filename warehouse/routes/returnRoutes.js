@@ -20,7 +20,8 @@ const {
   cancelReturn,
   deleteReturn,
   getReturnStats,
-  getReturnsByOrder
+  getReturnsByOrder,
+  getReturnableForOrder,
 } = require('../controller/returnController');
 
 // ─── All routes protected ──────────────────────────────────────
@@ -32,6 +33,9 @@ router.use(protect);
 
 // Get return stats
 router.get('/stats', getReturnStats);
+
+// Remaining returnable qty for an order (must be before /order/:orderId if overlapping)
+router.get('/order/:orderId/returnable', getReturnableForOrder);
 
 // Get returns by order
 router.get('/order/:orderId', getReturnsByOrder);

@@ -16,6 +16,8 @@ router.get('/employees', hr.listEmployees);
 router.post('/employees', hr.createEmployee);
 router.get('/employees/:id', hr.getEmployee);
 router.put('/employees/:id', hr.updateEmployee);
+router.post('/employees/:id/grant-access', hr.grantApplicationAccess);
+router.post('/employees/:id/revoke-access', hr.revokeApplicationAccess);
 router.delete('/employees/:id', hr.deleteEmployee);
 
 router.get('/attendance', hr.listAttendance);

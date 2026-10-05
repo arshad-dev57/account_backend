@@ -49,23 +49,31 @@ const EMPLOYEE_INCLUDE = {
   location: true
 };
 
-function fullName(user) {
-  return [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'Employee';
+function fullName(user, profile) {
+  const fromUser = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+  if (fromUser) return fromUser;
+  const fromProfile = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+  if (fromProfile) return fromProfile;
+  if (profile?.name) return String(profile.name).trim();
+  return 'Employee';
 }
 
 function serializeEmployee(emp, extras = {}) {
   if (!emp) return null;
   const { hideSalary, ...rest } = extras;
+  const profile = emp.profile && typeof emp.profile === 'object' ? emp.profile : {};
+  const hasAppAccess = Boolean(emp.userId && emp.user);
   return {
     id: emp.id,
-    userId: emp.userId,
+    userId: emp.userId || null,
+    hasApplicationAccess: hasAppAccess,
     employeeId: emp.employeeCode,
     employeeCode: emp.employeeCode,
-    name: fullName(emp.user),
-    firstName: emp.user?.firstName || '',
-    lastName: emp.user?.lastName || '',
-    email: emp.user?.email || '',
-    phone: emp.phone || emp.user?.phone || '',
+    name: fullName(emp.user, profile),
+    firstName: emp.user?.firstName || profile.firstName || '',
+    lastName: emp.user?.lastName || profile.lastName || '',
+    email: emp.user?.email || profile.email || '',
+    phone: emp.phone || emp.user?.phone || profile.phone || '',
     department: emp.department,
     designation: emp.designation,
     office: emp.office?.name || '',
@@ -75,9 +83,9 @@ function serializeEmployee(emp, extras = {}) {
     employeeType: emp.employeeType,
     shift: emp.shiftLabel,
     salary: hideSalary ? undefined : emp.salary,
-    payBasis: (emp.profile && typeof emp.profile === 'object' && emp.profile.payBasis) || 'monthly',
-    probationEndDate: emp.profile?.probationEndDate || null,
-    confirmationDate: emp.profile?.confirmationDate || null,
+    payBasis: profile.payBasis || 'monthly',
+    probationEndDate: profile.probationEndDate || null,
+    confirmationDate: profile.confirmationDate || null,
     contractEndDate: emp.profile?.contractEndDate || null,
     terminationDate: emp.profile?.terminationDate || null,
     bankName: emp.profile?.bankName || '',
@@ -483,51 +491,67 @@ exports.createEmployee = async (req, res) => {
       bankBranch,
       emergencyContact,
       emergencyPhone,
-      payGrade
+      payGrade,
+      createLogin,
+      grantApplicationAccess
     } = req.body;
 
     const { firstName, lastName } = rawFirst
       ? { firstName: rawFirst, lastName: rawLast || rawFirst }
       : splitName(name);
 
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    if (!normalizedEmail || !firstName) {
+    if (!firstName) {
       return res.status(400).json({
         success: false,
-        message: 'Name and email are required'
+        message: 'Name is required'
+      });
+    }
+
+    // Default: HR-only employee (no ERP login). Opt-in for application access.
+    const withLogin = createLogin === true || grantApplicationAccess === true
+      || String(createLogin).toLowerCase() === 'true'
+      || String(grantApplicationAccess).toLowerCase() === 'true';
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (withLogin && !normalizedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required when granting application access'
       });
     }
 
     const providedPassword = String(password || '').trim();
-    if (providedPassword && providedPassword.length < 6) {
+    if (withLogin && providedPassword && providedPassword.length < 6) {
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 6 characters'
       });
     }
 
-    const capacity = await getCompanyCapacity(prisma, companyId);
-    if (!capacity.canAddUser) {
-      const upgrade = buildUpgradeQuote(capacity, { addUsers: 1 });
-      return res.status(402).json({
-        success: false,
-        code: 'SUBSCRIPTION_UPGRADE_REQUIRED',
-        reason: 'user_seat',
-        message: `User seat limit reached (${capacity.usedUsers}/${capacity.licensedUsers}). Upgrade to add another employee.`,
-        data: { capacity, upgrade }
-      });
-    }
+    if (withLogin) {
+      const capacity = await getCompanyCapacity(prisma, companyId);
+      if (!capacity.canAddUser) {
+        const upgrade = buildUpgradeQuote(capacity, { addUsers: 1 });
+        return res.status(402).json({
+          success: false,
+          code: 'SUBSCRIPTION_UPGRADE_REQUIRED',
+          reason: 'user_seat',
+          message: `User seat limit reached (${capacity.usedUsers}/${capacity.licensedUsers}). Upgrade to add another employee login.`,
+          data: { capacity, upgrade }
+        });
+      }
 
-    const existingUser = await prisma.user.findFirst({
-      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
-      select: { id: true, email: true }
-    });
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        code: 'EMAIL_EXISTS',
-        message: `A user already exists with this email (${normalizedEmail}).`
+      const existingUser = await prisma.user.findFirst({
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+        select: { id: true, email: true }
       });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          code: 'EMAIL_EXISTS',
+          message: `A user already exists with this email (${normalizedEmail}).`
+        });
+      }
     }
 
     if (officeId) {
@@ -552,8 +576,6 @@ exports.createEmployee = async (req, res) => {
       }
     });
 
-    const loginPassword = providedPassword || generateTempPassword();
-    const hashedPassword = await bcrypt.hash(loginPassword, 10);
     const employeeCode = await nextEmployeeCode(companyId);
     const currentUserId = req.user.id || req.user._id;
 
@@ -566,8 +588,13 @@ exports.createEmployee = async (req, res) => {
     const profile = {
       payBasis: ['monthly', 'hourly', 'daily'].includes(String(payBasis || '').toLowerCase())
         ? String(payBasis).toLowerCase()
-        : 'monthly'
+        : 'monthly',
+      firstName,
+      lastName,
+      name: [firstName, lastName].filter(Boolean).join(' ').trim()
     };
+    if (normalizedEmail) profile.email = normalizedEmail;
+    if (phone) profile.phone = String(phone).trim();
     const profileDateFields = { probationEndDate, confirmationDate, contractEndDate, terminationDate };
     const profileStrFields = { bankName, bankAccount, bankBranch, emergencyContact, emergencyPhone, payGrade };
     Object.entries(profileDateFields).forEach(([k, v]) => {
@@ -577,31 +604,42 @@ exports.createEmployee = async (req, res) => {
       if (v != null && String(v).trim() !== '') profile[k] = String(v).trim();
     });
 
-    const created = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          firstName,
-          lastName,
-          email: normalizedEmail,
-          password: hashedPassword,
-          phone: String(phone || '').trim(),
-          role: 'employee',
-          createdBy: currentUserId,
-          companyId,
-          subscriptionPlan: company?.subscriptionPlan || 'trial',
-          subscriptionStatus: company?.subscriptionStatus || 'active',
-          subscriptionStartDate: company?.subscriptionStartDate || new Date(),
-          subscriptionEndDate: company?.subscriptionEndDate || null,
-          trialStartDate: company?.trialStartDate || null,
-          trialEndDate: company?.trialEndDate || null,
-          isActive: statusKey(status) !== 'terminated' && statusKey(status) !== 'inactive'
-        }
-      });
+    let emailSent = false;
+    let loginPassword;
+    let createdUserId = null;
 
-      const employee = await tx.hrEmployee.create({
+    const employee = await prisma.$transaction(async (tx) => {
+      let userId = null;
+      if (withLogin) {
+        loginPassword = providedPassword || generateTempPassword();
+        const hashedPassword = await bcrypt.hash(loginPassword, 10);
+        const user = await tx.user.create({
+          data: {
+            firstName,
+            lastName,
+            email: normalizedEmail,
+            password: hashedPassword,
+            phone: String(phone || '').trim(),
+            role: 'employee',
+            createdBy: currentUserId,
+            companyId,
+            subscriptionPlan: company?.subscriptionPlan || 'trial',
+            subscriptionStatus: company?.subscriptionStatus || 'active',
+            subscriptionStartDate: company?.subscriptionStartDate || new Date(),
+            subscriptionEndDate: company?.subscriptionEndDate || null,
+            trialStartDate: company?.trialStartDate || null,
+            trialEndDate: company?.trialEndDate || null,
+            isActive: statusKey(status) !== 'terminated' && statusKey(status) !== 'inactive'
+          }
+        });
+        userId = user.id;
+        createdUserId = user.id;
+      }
+
+      return tx.hrEmployee.create({
         data: {
           companyId,
-          userId: user.id,
+          userId,
           employeeCode,
           department: String(department || '').trim(),
           designation: String(designation || '').trim(),
@@ -621,47 +659,282 @@ exports.createEmployee = async (req, res) => {
         },
         include: EMPLOYEE_INCLUDE
       });
-
-      return { user, employee };
     });
 
-    let emailSent = false;
-    try {
-      const invitedBy = [req.user.firstName, req.user.lastName]
-        .filter(Boolean)
-        .join(' ')
-        .trim() || req.user.email;
-      await emailService.sendTeamInviteEmail({
-        to: normalizedEmail,
-        firstName,
-        lastName,
-        loginEmail: normalizedEmail,
-        password: loginPassword,
-        roleLabel: 'Employee',
-        companyName: company?.name || 'BisonsTechs',
-        invitedBy
-      });
-      emailSent = true;
-    } catch (emailError) {
-      console.error('[hr] invite email failed:', emailError.message);
+    if (withLogin && createdUserId) {
+      try {
+        const { ensureMembershipForUserCompany } = require('../utils/companyAccess');
+        await ensureMembershipForUserCompany(createdUserId, companyId, { role: 'employee', isOwner: false });
+      } catch (memErr) {
+        console.warn('[hr] membership ensure failed:', memErr.message);
+      }
+    }
+
+    if (withLogin && normalizedEmail) {
+      try {
+        const invitedBy = [req.user.firstName, req.user.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || req.user.email;
+        await emailService.sendTeamInviteEmail({
+          to: normalizedEmail,
+          firstName,
+          lastName,
+          loginEmail: normalizedEmail,
+          password: loginPassword,
+          roleLabel: 'Employee',
+          companyName: company?.name || 'BisonsTechs',
+          invitedBy
+        });
+        emailSent = true;
+      } catch (emailError) {
+        console.error('[hr] invite email failed:', emailError.message);
+      }
     }
 
     res.status(201).json({
       success: true,
       emailSent,
-      passwordSetByHr: Boolean(providedPassword),
-      temporaryPassword: providedPassword || emailSent ? undefined : loginPassword,
-      message: providedPassword
-        ? emailSent
-          ? 'Employee created. Share the password you set, or they can use the login email we sent.'
-          : 'Employee created. Share the email and password you set — they will open the employee dashboard only.'
-        : emailSent
-          ? 'Employee created as a user. Login details sent to their email. They will open the employee dashboard only.'
-          : 'Employee created, but the invite email could not be sent. Share the temporary password manually.',
-      data: serializeEmployee(created.employee)
+      hasApplicationAccess: withLogin,
+      passwordSetByHr: withLogin ? Boolean(providedPassword) : undefined,
+      temporaryPassword: withLogin && !providedPassword && !emailSent ? loginPassword : undefined,
+      message: withLogin
+        ? (emailSent
+          ? 'Employee created with application access. Login details sent to email.'
+          : 'Employee created with application access.')
+        : 'HR employee created without application login. Use Grant Application Access when ERP login is needed.',
+      data: serializeEmployee(employee)
     });
   } catch (error) {
     console.error('[hr] createEmployee', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+exports.grantApplicationAccess = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+    if (!requireHrManager(req, res)) return;
+
+    const employee = await prisma.hrEmployee.findFirst({
+      where: { id: req.params.id, companyId },
+      include: EMPLOYEE_INCLUDE
+    });
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+    if (employee.userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'This employee already has an application user account'
+      });
+    }
+
+    const profile = employee.profile && typeof employee.profile === 'object' ? employee.profile : {};
+    const email = String(req.body?.email || profile.email || '').trim().toLowerCase();
+    const firstName = String(req.body?.firstName || profile.firstName || '').trim() || 'Employee';
+    const lastName = String(req.body?.lastName || profile.lastName || firstName).trim();
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required to grant application access' });
+    }
+
+    const providedPassword = String(req.body?.password || '').trim();
+    if (providedPassword && providedPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+
+    const capacity = await getCompanyCapacity(prisma, companyId);
+    if (!capacity.canAddUser) {
+      const upgrade = buildUpgradeQuote(capacity, { addUsers: 1 });
+      return res.status(402).json({
+        success: false,
+        code: 'SUBSCRIPTION_UPGRADE_REQUIRED',
+        reason: 'user_seat',
+        message: `User seat limit reached (${capacity.usedUsers}/${capacity.licensedUsers}).`,
+        data: { capacity, upgrade }
+      });
+    }
+
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      include: { hrEmployee: { select: { id: true, companyId: true } } }
+    });
+    if (existingUser?.hrEmployee) {
+      return res.status(400).json({
+        success: false,
+        message: 'This email is already linked to another HR employee'
+      });
+    }
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        name: true,
+        subscriptionPlan: true,
+        subscriptionStatus: true,
+        trialStartDate: true,
+        trialEndDate: true,
+        subscriptionStartDate: true,
+        subscriptionEndDate: true
+      }
+    });
+
+    const loginPassword = providedPassword || generateTempPassword();
+    const hashedPassword = await bcrypt.hash(loginPassword, 10);
+    const currentUserId = req.user.id || req.user._id;
+    const role = String(req.body?.role || 'employee').trim() || 'employee';
+
+    let userId;
+    if (existingUser) {
+      if (existingUser.companyId && existingUser.companyId !== companyId) {
+        const membership = await prisma.companyMembership.findFirst({
+          where: { userId: existingUser.id, companyId, isActive: true }
+        }).catch(() => null);
+        if (!membership) {
+          return res.status(400).json({
+            success: false,
+            message: 'This email belongs to a user in another company'
+          });
+        }
+      }
+      userId = existingUser.id;
+      await prisma.hrEmployee.update({
+        where: { id: employee.id },
+        data: { userId }
+      });
+    } else {
+      const updated = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            firstName,
+            lastName,
+            email,
+            password: hashedPassword,
+            phone: employee.phone || '',
+            role,
+            createdBy: currentUserId,
+            companyId,
+            subscriptionPlan: company?.subscriptionPlan || 'trial',
+            subscriptionStatus: company?.subscriptionStatus || 'active',
+            subscriptionStartDate: company?.subscriptionStartDate || new Date(),
+            subscriptionEndDate: company?.subscriptionEndDate || null,
+            trialStartDate: company?.trialStartDate || null,
+            trialEndDate: company?.trialEndDate || null,
+            isActive: true
+          }
+        });
+        await tx.hrEmployee.update({
+          where: { id: employee.id },
+          data: {
+            userId: user.id,
+            profile: {
+              ...profile,
+              email,
+              firstName,
+              lastName
+            }
+          }
+        });
+        return user;
+      });
+      userId = updated.id;
+    }
+
+    try {
+      const { ensureMembershipForUserCompany } = require('../utils/companyAccess');
+      await ensureMembershipForUserCompany(userId, companyId, { role, isOwner: false });
+    } catch (e) {
+      console.warn('[hr] grantAccess membership:', e.message);
+    }
+
+    let emailSent = false;
+    if (!existingUser) {
+      try {
+        await emailService.sendTeamInviteEmail({
+          to: email,
+          firstName,
+          lastName,
+          loginEmail: email,
+          password: loginPassword,
+          roleLabel: role,
+          companyName: company?.name || 'BisonsTechs',
+          invitedBy: req.user.email
+        });
+        emailSent = true;
+      } catch (e) {
+        console.error('[hr] grantAccess email failed:', e.message);
+      }
+    }
+
+    const refreshed = await prisma.hrEmployee.findFirst({
+      where: { id: employee.id },
+      include: EMPLOYEE_INCLUDE
+    });
+
+    res.json({
+      success: true,
+      emailSent,
+      temporaryPassword: !existingUser && !providedPassword && !emailSent ? loginPassword : undefined,
+      message: existingUser
+        ? 'Existing user account linked to this employee'
+        : 'Application access granted. User account created and linked.',
+      data: serializeEmployee(refreshed)
+    });
+  } catch (error) {
+    console.error('[hr] grantApplicationAccess', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.revokeApplicationAccess = async (req, res) => {
+  try {
+    const companyId = requireCompany(req, res);
+    if (!companyId) return;
+    if (!requireHrManager(req, res)) return;
+
+    const employee = await prisma.hrEmployee.findFirst({
+      where: { id: req.params.id, companyId },
+      include: EMPLOYEE_INCLUDE
+    });
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+    if (!employee.userId) {
+      return res.status(400).json({ success: false, message: 'Employee has no application access' });
+    }
+
+    const deactivateUser = req.body?.deactivateUser === true;
+    const userId = employee.userId;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.hrEmployee.update({
+        where: { id: employee.id },
+        data: { userId: null }
+      });
+      if (deactivateUser) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { isActive: false }
+        });
+      }
+    });
+
+    const refreshed = await prisma.hrEmployee.findFirst({
+      where: { id: employee.id },
+      include: EMPLOYEE_INCLUDE
+    });
+
+    res.json({
+      success: true,
+      message: deactivateUser
+        ? 'Application access revoked and user deactivated. HR employee record kept.'
+        : 'Application access unlinked. User account kept; HR employee record kept.',
+      data: serializeEmployee(refreshed)
+    });
+  } catch (error) {
+    console.error('[hr] revokeApplicationAccess', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

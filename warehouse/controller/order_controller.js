@@ -927,12 +927,14 @@ const updateOrderStatus = async (req, res) => {
 
     const validTransitions = {
       Draft: ['Pending', 'Cancelled'],
-      Pending: ['Processing', 'Cancelled'],
-      Processing: ['Packed', 'Cancelled'],
-      Packed: ['Shipped', 'Cancelled'],
-      Shipped: ['In Transit', 'Delivered', 'Cancelled'],
-      'In Transit': ['Delivered', 'Cancelled'],
-      Delivered: ['Returned'],
+      Pending: ['Processing', 'Partially Delivered', 'Delivered', 'Cancelled', 'On Hold'],
+      Processing: ['Packed', 'Partially Delivered', 'Delivered', 'Cancelled', 'On Hold'],
+      Packed: ['Shipped', 'Partially Delivered', 'Delivered', 'Cancelled'],
+      Shipped: ['In Transit', 'Partially Delivered', 'Delivered', 'Cancelled'],
+      'In Transit': ['Partially Delivered', 'Delivered', 'Cancelled'],
+      'Partially Delivered': ['Delivered', 'Partially Returned', 'Returned', 'Cancelled'],
+      Delivered: ['Partially Returned', 'Returned'],
+      'Partially Returned': ['Returned', 'Partially Delivered', 'Delivered'],
       Cancelled: [],
       Returned: [],
       'On Hold': ['Pending', 'Processing', 'Cancelled']

@@ -1,9 +1,3 @@
-// middleware/fiscalYearMiddleware.js
-// Provides fiscalYearGuard — a shared protection function that prevents any
-// write operation from landing in a Closed fiscal year.
-//
-// NEVER reads fiscalYearId from req.body or req.query — always resolves the
-// fiscal year internally using only userId + date (Req 10.7).
 
 const prisma = require('../prisma/client');
 
@@ -76,16 +70,13 @@ async function fiscalYearGuard(userId, postingDate, existingDate) {
     const err = new Error(
       `Cannot post to a closed fiscal year: ${fy.name}. This period has been locked.`
     );
-    err.code       = 'FISCAL_YEAR_CLOSED';
+    err.code = 'FISCAL_YEAR_CLOSED';
     err.statusCode = 400;
     throw err;
   }
 
-  // ── 2. Check the existing record's date (edit / delete only) ─────────────
-  //    Only check when existingDate is supplied AND differs from postingDate
-  //    (comparing as Date objects to avoid string-format false-positives).
   if (existingDate != null) {
-    const newD      = new Date(postingDate).getTime();
+    const newD = new Date(postingDate).getTime();
     const existingD = new Date(existingDate).getTime();
 
     if (existingD !== newD) {
@@ -95,14 +86,13 @@ async function fiscalYearGuard(userId, postingDate, existingDate) {
         const err = new Error(
           `Cannot post to a closed fiscal year: ${existingFy.name}. This period has been locked.`
         );
-        err.code       = 'FISCAL_YEAR_CLOSED';
+        err.code = 'FISCAL_YEAR_CLOSED';
         err.statusCode = 400;
         throw err;
       }
     }
   }
 
-  // No closed fiscal year found for either date — allow the operation.
 }
 
 module.exports = { fiscalYearGuard };

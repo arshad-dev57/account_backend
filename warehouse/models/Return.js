@@ -29,6 +29,51 @@ class ReturnModel {
     const returnNumber = generateReturnNumber(data.returnType || 'Sales Return');
     
     return await prisma.$transaction(async (tx) => {
+      const {
+        getReturnedQtyByProduct,
+        getDeliveredQtyByProduct,
+        syncOrderFulfillmentStatus,
+      } = require('../services/salesQuantityService');
+
+      // ─── Validate partial return quantities against delivered / prior returns ──
+      if (data.orderId && (data.returnType || 'Sales Return') === 'Sales Return') {
+        const order = await tx.order.findUnique({
+          where: { id: data.orderId },
+          include: { items: true },
+        });
+        if (!order) throw new Error('Sales order not found');
+
+        const returnedMap = await getReturnedQtyByProduct(data.orderId, { tx });
+        const deliveredMap = await getDeliveredQtyByProduct(data.orderId, {
+          tx,
+          includePending: false,
+        });
+
+        for (const item of data.items || []) {
+          const orderItem = order.items.find((oi) => oi.productId === item.productId);
+          if (!orderItem) {
+            throw new Error(`Product ${item.productName || item.productId} not found on order`);
+          }
+          const ordered = Number(orderItem.quantity) || 0;
+          const delivered = deliveredMap[item.productId] || 0;
+          // Returnable = min(ordered, delivered || ordered) − alreadyReturned
+          // If nothing delivered yet, allow return against ordered (direct SO without delivery)
+          const maxReturnableBase = delivered > 0 ? Math.min(ordered, delivered) : ordered;
+          const alreadyReturned = returnedMap[item.productId] || 0;
+          const maxAvailable = Math.max(0, maxReturnableBase - alreadyReturned);
+          const returnQty = Number(item.returnQuantity) || 0;
+
+          if (returnQty <= 0) {
+            throw new Error(`Return quantity must be > 0 for ${item.productName || item.productId}`);
+          }
+          if (returnQty > maxAvailable) {
+            throw new Error(
+              `Return quantity ${returnQty} exceeds remaining returnable quantity ${maxAvailable} for ${item.productName || item.productId}`
+            );
+          }
+        }
+      }
+
       // ─── Calculate Totals from Items ──────────────────────
       let calculatedTotalRefund = 0;
       let calculatedSubtotal = 0;
@@ -44,7 +89,6 @@ class ReturnModel {
       const finalTotalRefund = Math.max(0, calculatedTotalRefund - restockingFee - shippingCost);
       
       // ─── Create Return ──────────────────────────────────────
-      // ✅ REMOVED: totalReturnQty (not in schema)
       const returnData = await tx.return.create({
         data: {
           returnNumber,
@@ -60,7 +104,6 @@ class ReturnModel {
           restockingFee: restockingFee,
           shippingCost: shippingCost,
           totalRefund: finalTotalRefund,
-          // totalReturnQty: calculatedTotalReturnQty, // ❌ REMOVED - not in schema
           returnType: data.returnType || 'Sales Return',
           reason: data.reason,
           notes: data.notes || '',
@@ -118,17 +161,15 @@ class ReturnModel {
             replacementProductName: item.replacementProductName || null
           }
         });
-
-        // Stock + GL applied on approve/complete — not at create
       }
 
-      // ─── Update Order Status ──────────────────────────────
-      await tx.order.update({
-        where: { id: data.orderId },
-        data: {
-          orderStatus: 'Returned'
-        }
-      });
+      // ─── Sync order status (Partially Returned / Returned) ──
+      if (data.orderId && (data.returnType || 'Sales Return') === 'Sales Return') {
+        await syncOrderFulfillmentStatus(data.orderId, {
+          tx,
+          userId: data.createdBy || data.userId,
+        });
+      }
 
       // ─── Return Complete Return with Items ─────────────────
       return await tx.return.findUnique({

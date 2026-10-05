@@ -103,7 +103,18 @@ async function mapBomComponents(companyId, list) {
       substituteMaterial: emptyToNull(item.substituteMaterial || item.substitute),
       operationSequence: item.operationSequence != null && item.operationSequence !== '' ? toNum(item.operationSequence) : null,
       workCenterId,
-      estimatedCost: toNum(item.estimatedCost, Number(product.costPrice || 0) * quantity),
+      estimatedCost: (() => {
+        const raw = item.estimatedCost;
+        if (raw === undefined || raw === null || raw === '') {
+          return Number(product.costPrice || 0) * quantity;
+        }
+        const n = Number(raw);
+        // Form often sends 0 when Est. cost left blank — fall back to product cost.
+        if (!Number.isFinite(n) || n <= 0) {
+          return Number(product.costPrice || 0) * quantity;
+        }
+        return n;
+      })(),
       sequence: toNum(item.sequence, i + 1),
       notes: emptyToNull(item.notes)
     });
@@ -365,6 +376,7 @@ const RESOURCES = {
     numberField: 'orderNumber',
     prefix: 'MO',
     hasLocation: true,
+    locationSoft: true,
     async toCreate(body, ctx) {
       const product = await requireProduct(ctx.companyId, body.productId);
       const planned = toNum(body.plannedQuantity, 1);
@@ -669,19 +681,61 @@ const RESOURCES = {
     search: ['inspectionNumber', 'productName'],
     include: {
       productionOrder: { select: { id: true, orderNumber: true } },
-      inspector: { select: { id: true, employeeCode: true } },
+      inspector: { select: { id: true, employeeCode: true, designation: true, department: true, userId: true } },
+      inspectorUser: { select: { id: true, firstName: true, lastName: true, email: true } },
       qualityParameters: true
     },
     numberField: 'inspectionNumber',
     prefix: 'QI',
     async toCreate(body, ctx) {
       const product = await requireProduct(ctx.companyId, body.productId);
-      const inspectorId = emptyToNull(body.inspectorId) || emptyToNull(body.inspector) || (await firstEmployeeId(ctx.companyId));
-      if (!inspectorId) {
-        const err = new Error('An HR employee is required as inspector. Create an employee first.');
+      const inspectorUserId =
+        emptyToNull(body.inspectorUserId) ||
+        emptyToNull(body.userId) ||
+        emptyToNull(ctx.userId);
+      if (!inspectorUserId) {
+        const err = new Error('An application user is required as inspector. Sign in and try again.');
         err.status = 400;
         throw err;
       }
+      // Ensure inspector user belongs to this company (tenant safety)
+      const inspectorUser = await prisma.user.findFirst({
+        where: {
+          id: inspectorUserId,
+          OR: [
+            { companyId: ctx.companyId },
+            { memberships: { some: { companyId: ctx.companyId, isActive: true } } }
+          ]
+        },
+        select: { id: true }
+      });
+      if (!inspectorUser) {
+        const err = new Error('Inspector user is not a member of this company');
+        err.status = 400;
+        throw err;
+      }
+
+      let inspectorId =
+        emptyToNull(body.inspectorId) || emptyToNull(body.inspectorEmployeeId) || null;
+      if (inspectorId) {
+        const emp = await prisma.hrEmployee.findFirst({
+          where: { id: inspectorId, companyId: ctx.companyId },
+          select: { id: true }
+        });
+        if (!emp) {
+          const err = new Error('Inspector employee was not found in this company');
+          err.status = 400;
+          throw err;
+        }
+      } else {
+        // Optional: link HR employee when the inspector user has one
+        const linked = await prisma.hrEmployee.findFirst({
+          where: { companyId: ctx.companyId, userId: inspectorUserId },
+          select: { id: true }
+        });
+        inspectorId = linked?.id || null;
+      }
+
       const mappedParams = workflow.mapQualityParameters(
         body.qualityParameters || (Array.isArray(body.parameters) ? body.parameters : [])
       );
@@ -693,6 +747,7 @@ const RESOURCES = {
         productName: product.name,
         operationName: emptyToNull(body.operationName),
         inspectorId,
+        inspectorUserId,
         inspectionDate: toDate(body.inspectionDate, new Date()),
         inspectionType: body.inspectionType === 'In-Process' ? 'InProcess' : (body.inspectionType || 'Final'),
         result: body.result || 'Pending',
@@ -888,7 +943,22 @@ function serializeRow(resourceKey, row) {
   if (row.completedQuantity != null) extra.completedQty = row.completedQuantity;
   if (row.plannedQuantity != null) extra.plannedQty = row.plannedQuantity;
   if (row.quantity != null && resourceKey === 'rework') extra.reworkQty = row.quantity;
-  if (row.inspector) extra.inspector = row.inspector.employeeCode || row.inspector.id;
+  if (row.inspector) {
+    extra.inspector = row.inspector.employeeCode || row.inspector.id;
+    extra.inspectorEmployeeId = row.inspector.id;
+    extra.inspectorEmployeeCode = row.inspector.employeeCode;
+    extra.inspectorDesignation = row.inspector.designation;
+  }
+  if (row.inspectorUser) {
+    const uname = [row.inspectorUser.firstName, row.inspectorUser.lastName].filter(Boolean).join(' ').trim();
+    extra.inspectorUserId = row.inspectorUser.id;
+    extra.inspectorUserName = uname || row.inspectorUser.email;
+    extra.inspectorName = row.inspector
+      ? `${row.inspector.employeeCode || ''} ${uname}`.trim() + (row.inspector.designation ? ` — ${row.inspector.designation}` : '')
+      : (uname || row.inspectorUser.email);
+  } else if (row.inspectorUserId) {
+    extra.inspectorUserId = row.inspectorUserId;
+  }
   if (row.overheadCost != null) extra.overhead = row.overheadCost;
   if (row.hourlyOperatingCost != null) extra.hourlyCost = row.hourlyOperatingCost;
   if (row.components) {
@@ -935,11 +1005,25 @@ const listResource = wrap(async (req, res) => {
   if (searchClause.OR) clauses.push(searchClause);
   if (req.query.status && req.query.status !== 'All') {
     if (key === 'machines') where.currentStatus = req.query.status;
-    else where.status = req.query.status;
+    else if (key === 'production-orders' && String(req.query.status) === 'Pending') {
+      where.status = { in: ['Draft', 'Planned', 'Released'] };
+    } else if (key === 'production-orders' && String(req.query.status) === 'Completed') {
+      where.status = { in: ['Completed', 'Closed'] };
+    } else if (key === 'production-orders' && String(req.query.status) === 'In Progress') {
+      where.status = { in: ['In Progress', 'Paused', 'Partially Completed'] };
+    } else where.status = req.query.status;
   }
   const locationId = locationScope(req, spec);
   if (locationId && spec.hasLocation) {
-    if (spec.locationSoft) {
+    if (key === 'production-orders') {
+      clauses.push({
+        OR: [
+          { locationId },
+          { locationId: null },
+          { sourceWarehouseId: locationId },
+        ],
+      });
+    } else if (spec.locationSoft) {
       clauses.push({ OR: [{ locationId }, { locationId: null }] });
     } else {
       where.locationId = locationId;
@@ -1165,16 +1249,21 @@ async function loadOrder(companyId, id) {
   const order = await prisma.manufacturingProductionOrder.findFirst({
     where: { id, companyId },
     include: {
-      bom: { include: { components: true } },
+      bom: { include: { components: { include: { component: { select: { id: true, costPrice: true, name: true, sku: true } } } } } },
       routing: { include: { operations: { include: { workCenter: true, machine: true } } } },
       workOrders: { include: { workCenter: true, machine: true } },
-      materialReservations: { include: { materialIssues: true, component: { select: { id: true, name: true, sku: true, stockUnitName: true } } } },
-      materialIssues: true,
+      materialReservations: {
+        include: {
+          materialIssues: true,
+          component: { select: { id: true, name: true, sku: true, stockUnitName: true, costPrice: true } }
+        }
+      },
+      materialIssues: { include: { component: { select: { id: true, costPrice: true, name: true } } } },
       scraps: true,
       reworks: true,
       byProducts: true,
       qualityInspections: { include: { qualityParameters: true } },
-      product: { select: { id: true, name: true, sku: true, stockUnitName: true } },
+      product: { select: { id: true, name: true, sku: true, stockUnitName: true, costPrice: true } },
       sourceWarehouse: { select: { id: true, name: true } },
       wipWarehouse: { select: { id: true, name: true } },
       finishedGoodsWarehouse: { select: { id: true, name: true } },
@@ -2260,25 +2349,37 @@ const productCost = wrap(async (req, res) => {
   if (!product) return fail(res, 404, 'Product not found');
   const bom = await prisma.manufacturingBOM.findFirst({
     where: { companyId: req.mfg.companyId, productId: product.id },
-    include: { components: true },
+    include: { components: { include: { component: { select: { id: true, costPrice: true } } } } },
     orderBy: { updatedAt: 'desc' }
   });
   const routing = await prisma.manufacturingRouting.findFirst({
     where: { companyId: req.mfg.companyId, productId: product.id },
-    include: { operations: true },
+    include: { operations: { include: { workCenter: true, machine: true } } },
     orderBy: { updatedAt: 'desc' }
   });
-  const materialCost = (bom?.components || []).reduce((s, c) => s + Number(c.estimatedCost || 0), 0);
-  const laborCost = (routing?.operations || []).reduce((s, o) => s + Number(o.estimatedCost || 0), 0);
+  const materialCost = (bom?.components || []).reduce((s, c) => {
+    const est = Number(c.estimatedCost || 0);
+    if (est > 0) return s + est;
+    return s + Number(c.component?.costPrice || 0) * Number(c.quantity || 0);
+  }, 0);
+  const laborCost = (routing?.operations || []).reduce(
+    (s, o) => s + workflow.operationCost(o, 1).laborCost,
+    0
+  );
+  const machineCost = (routing?.operations || []).reduce(
+    (s, o) => s + workflow.operationCost(o, 1).machineCost,
+    0
+  );
+  const overhead = laborCost * 0.1;
   return ok(res, {
     productId: product.id,
     productName: product.name,
     materialCost,
     laborCost,
-    machineCost: 0,
-    overhead: 0,
+    machineCost,
+    overhead,
     subcontractingCost: 0,
-    totalCost: materialCost + laborCost
+    totalCost: materialCost + laborCost + machineCost + overhead
   });
 });
 
@@ -2291,20 +2392,32 @@ const costList = (costType) =>
     if (rows.length) return ok(res, rows.map((r) => ({ ...r, overhead: r.overheadCost })));
     const boms = await prisma.manufacturingBOM.findMany({
       where: { companyId: req.mfg.companyId },
-      include: { components: true },
-      take: 50
+      include: {
+        components: { include: { component: { select: { id: true, costPrice: true } } } },
+        product: { select: { id: true, name: true } }
+      },
+      take: 50,
+      orderBy: { updatedAt: 'desc' }
     });
     return ok(
       res,
-      boms.map((b) => ({
-        productId: b.productId,
-        productName: b.productName,
-        materialCost: b.totalEstimatedCost,
-        laborCost: 0,
-        machineCost: 0,
-        overhead: 0,
-        totalCost: b.totalEstimatedCost
-      }))
+      boms.map((b) => {
+        const materialCost = (b.components || []).reduce((s, c) => {
+          const est = Number(c.estimatedCost || 0);
+          if (est > 0) return s + est;
+          return s + Number(c.component?.costPrice || 0) * Number(c.quantity || 0);
+        }, 0);
+        return {
+          productId: b.productId,
+          productName: b.productName || b.product?.name,
+          bomNumber: b.bomNumber,
+          materialCost,
+          laborCost: 0,
+          machineCost: 0,
+          overhead: 0,
+          totalCost: materialCost || Number(b.totalEstimatedCost || 0)
+        };
+      })
     );
   });
 
@@ -2314,22 +2427,44 @@ const actualCost = wrap(async (req, res) => {
   });
   if (rows.length) return ok(res, rows.map((r) => ({ ...r, overhead: r.overheadCost })));
   const orders = await prisma.manufacturingProductionOrder.findMany({
-    where: { companyId: req.mfg.companyId, status: { in: ['Completed', 'Closed'] } },
-    include: { bom: { include: { components: true } } },
+    where: { companyId: req.mfg.companyId, status: { in: ['Completed', 'Closed', 'Partially Completed', 'Closed Short'] } },
+    include: {
+      bom: {
+        include: {
+          components: { include: { component: { select: { id: true, costPrice: true } } } }
+        }
+      },
+      routing: { include: { operations: { include: { workCenter: true, machine: true } } } },
+      workOrders: { include: { workCenter: true, machine: true } },
+      materialReservations: {
+        include: {
+          materialIssues: true,
+          component: { select: { id: true, costPrice: true } }
+        }
+      },
+      materialIssues: { include: { component: { select: { id: true, costPrice: true } } } },
+      scraps: true
+    },
+    orderBy: { updatedAt: 'desc' },
     take: 50
   });
   return ok(
     res,
-    orders.map((o) => ({
-      productionOrderId: o.id,
-      productionOrderNumber: o.orderNumber,
-      productName: o.productName,
-      materialCost: o.bom?.totalEstimatedCost || 0,
-      laborCost: 0,
-      machineCost: 0,
-      overhead: 0,
-      totalCost: o.bom?.totalEstimatedCost || 0
-    }))
+    orders.map((o) => {
+      const breakdown = workflow.orderCostBreakdown(o);
+      return {
+        productionOrderId: o.id,
+        productionOrderNumber: o.orderNumber,
+        productName: o.productName,
+        status: o.status,
+        materialCost: breakdown.materialCost,
+        laborCost: breakdown.laborCost,
+        machineCost: breakdown.machineCost,
+        overhead: breakdown.overhead,
+        totalCost: breakdown.totalCost,
+        unitCost: breakdown.unitCost
+      };
+    })
   );
 });
 

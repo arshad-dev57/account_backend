@@ -20,6 +20,7 @@ const createQuotation = async (req, res) => {
       customerEmail,
       customerPhone,
       customerCompany,
+      customers,
       quotationDate,
       validUntil,
       salesPerson,
@@ -31,7 +32,8 @@ const createQuotation = async (req, res) => {
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
-    if (!customerId && !customerName) {
+    const hasMultipleCustomers = Array.isArray(customers) && customers.length > 0;
+    if (!hasMultipleCustomers && !customerId && !customerName) {
       return res.status(400).json({
         success: false,
         message: 'Customer is required'
@@ -43,36 +45,6 @@ const createQuotation = async (req, res) => {
         success: false,
         message: 'Quotation must have at least one item'
       });
-    }
-
-    // ─── Get Customer Details ────────────────────────────
-    let customer = null;
-    let finalCustomerName = customerName;
-    let finalCustomerEmail = customerEmail;
-    let finalCustomerPhone = customerPhone;
-    let finalCustomerCompany = customerCompany;
-
-    if (customerId) {
-      customer = await prisma.customer.findFirst({
-        where: {
-          id: customerId,
-          companyId: companyId,
-          isActive: true,
-          isDeleted: false
-        }
-      });
-
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: 'Customer not found'
-        });
-      }
-
-      finalCustomerName = customer.name;
-      finalCustomerEmail = customer.email || '';
-      finalCustomerPhone = customer.phone || '';
-      finalCustomerCompany = customer.company || '';
     }
 
     // ─── Process Items ──────────────────────────────────
@@ -117,7 +89,6 @@ const createQuotation = async (req, res) => {
       });
     }
 
-    // ─── Create Quotation ──────────────────────────────
     const { resolveLocationId } = require('../services/locationService');
     let resolvedLocationId = null;
     try {
@@ -134,6 +105,87 @@ const createQuotation = async (req, res) => {
       });
     }
 
+    // ─── If Multiple Customers Provided ─────────────────
+    if (hasMultipleCustomers) {
+      const createdQuotations = [];
+      for (const cust of customers) {
+        let custId = cust.id || cust.customerId || '';
+        let cName = cust.name || cust.customerName || '';
+        let cEmail = cust.email || cust.customerEmail || '';
+        let cPhone = cust.phone || cust.customerPhone || '';
+        let cCompany = cust.company || cust.customerCompany || '';
+
+        if (custId) {
+          const dbCust = await prisma.customer.findFirst({
+            where: { id: custId, companyId: companyId, isActive: true, isDeleted: false }
+          });
+          if (dbCust) {
+            cName = dbCust.name;
+            cEmail = dbCust.email || '';
+            cPhone = dbCust.phone || '';
+            cCompany = dbCust.company || '';
+          }
+        }
+
+        const qData = {
+          customerId: custId,
+          customerName: cName,
+          customerEmail: cEmail,
+          customerPhone: cPhone,
+          customerCompany: cCompany,
+          quotationDate: quotationDate || new Date(),
+          validUntil: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          salesPerson: salesPerson || '',
+          items: quotationItems,
+          notes: notes || '',
+          termsConditions: termsConditions || '',
+          status: status || 'Draft',
+          createdBy: userId,
+          companyId: companyId,
+          locationId: resolvedLocationId,
+        };
+
+        const created = await Quotation.create(qData);
+        createdQuotations.push(created);
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: `${createdQuotations.length} Quotation(s) created successfully`,
+        data: createdQuotations
+      });
+    }
+
+    // ─── Single Customer Fallback ────────────────────────
+    let customer = null;
+    let finalCustomerName = customerName;
+    let finalCustomerEmail = customerEmail;
+    let finalCustomerPhone = customerPhone;
+    let finalCustomerCompany = customerCompany;
+
+    if (customerId) {
+      customer = await prisma.customer.findFirst({
+        where: {
+          id: customerId,
+          companyId: companyId,
+          isActive: true,
+          isDeleted: false
+        }
+      });
+
+      if (!customer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Customer not found'
+        });
+      }
+
+      finalCustomerName = customer.name;
+      finalCustomerEmail = customer.email || '';
+      finalCustomerPhone = customer.phone || '';
+      finalCustomerCompany = customer.company || '';
+    }
+
     const quotationData = {
       customerId: customerId || '',
       customerName: finalCustomerName,
@@ -141,7 +193,7 @@ const createQuotation = async (req, res) => {
       customerPhone: finalCustomerPhone,
       customerCompany: finalCustomerCompany,
       quotationDate: quotationDate || new Date(),
-      validUntil: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
+      validUntil: validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       salesPerson: salesPerson || '',
       items: quotationItems,
       notes: notes || '',
@@ -542,11 +594,14 @@ const updateQuotationStatus = async (req, res) => {
 
     // ─── Validate status transition ──────────────────────
     const validTransitions = {
-      'Draft': ['Sent', 'Expired', 'Cancelled'],
-      'Sent': ['Accepted', 'Rejected', 'Expired'],
-      'Accepted': ['Converted', 'Expired'],
-      'Rejected': [],
+      'Draft': ['Pending Approval', 'Approved', 'Sent', 'Expired', 'Cancelled'],
+      'Pending Approval': ['Approved', 'Rejected', 'Cancelled', 'Draft'],
+      'Approved': ['Converted', 'Expired', 'Cancelled', 'Sent'],
+      'Sent': ['Approved', 'Accepted', 'Rejected', 'Expired', 'Cancelled'],
+      'Accepted': ['Converted', 'Expired', 'Cancelled'],
+      'Rejected': ['Draft'],
       'Expired': [],
+      'Cancelled': [],
       'Converted': []
     };
 
@@ -606,26 +661,33 @@ const convertQuotationToOrder = async (req, res) => {
     if (quotation.status === 'Converted') {
       return res.status(400).json({
         success: false,
-        message: 'Quotation already converted to order'
+        message: 'Quotation already fully converted to order'
       });
     }
 
-    if (quotation.status === 'Rejected' || quotation.status === 'Expired') {
+    if (quotation.status === 'Rejected' || quotation.status === 'Expired' || quotation.status === 'Cancelled') {
       return res.status(400).json({
         success: false,
         message: `Cannot convert ${quotation.status} quotation`
       });
     }
 
+    // Optional partial conversion: { items: [{ productId, quantity }] }
+    const selectedItems = Array.isArray(req.body?.items) ? req.body.items : null;
+
     // ─── Convert to Order ──────────────────────────────────
-    const result = await Quotation.convertToOrder(id, userId);
+    const result = await Quotation.convertToOrder(id, userId, selectedItems);
 
     res.status(200).json({
       success: true,
-      message: 'Quotation converted to sales order successfully',
+      message:
+        result.quotation.status === 'Partially Converted'
+          ? 'Quotation partially converted to sales order'
+          : 'Quotation converted to sales order successfully',
       data: {
         quotation: result.quotation,
-        order: result.order
+        order: result.order,
+        remainingLines: result.remainingLines || [],
       }
     });
   } catch (error) {

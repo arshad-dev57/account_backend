@@ -23,13 +23,7 @@ const createSalesRefund = async (req, res) => {
     
     const refund = await Refund.create(refundData);
     
-    // Update order payment status
-    if (refundData.orderId) {
-      await prisma.order.update({
-        where: { id: refundData.orderId },
-        data: { paymentStatus: 'Refunded' }
-      });
-    }
+    // Order payment status is synced inside Refund.create (Partial Refund / Refunded)
     
     res.status(201).json({
       success: true,

@@ -16,6 +16,7 @@ const {
   isDemoLoginEmail,
   getDemoLoginOtp,
   getDemoOtpExpiry,
+  ensureDemoSubscription,
 } = require('../utils/demoAccount');
 const { isEmployeeRole } = require('../utils/hrAccess');
 const { TRIAL_DAYS } = require('../utils/subscriptionPricing');
@@ -526,6 +527,7 @@ exports.login = async (req, res) => {
         });
       }
 
+      await ensureDemoSubscription(user._id || user.id, user.companyId);
       user.loginOtp = demoOtp;
       user.loginOtpExpiry = getDemoOtpExpiry();
       user.requiresLoginOtp = true;
@@ -627,6 +629,7 @@ exports.verifyLoginOTP = async (req, res) => {
 
     if (isDemoOtp) {
       console.log('🧪 [verifyLoginOTP] Demo reusable OTP accepted');
+      await ensureDemoSubscription(user._id || user.id, user.companyId);
     } else if (!user.loginOtp || user.loginOtp !== otp) {
       console.log('❌ [verifyLoginOTP] Invalid OTP - Provided:', otp, 'Stored:', user.loginOtp);
       return res.status(400).json({

@@ -688,7 +688,7 @@ const getAvailableOrdersForDelivery = async (req, res) => {
       { isActive: true },
       { isDeleted: false },
       { orderType: { notIn: ['Purchase Order', 'Purchase'] } },
-      { orderStatus: { notIn: ['Delivered', 'Cancelled', 'Completed'] } },
+      { orderStatus: { notIn: ['Delivered', 'Cancelled', 'Completed', 'Returned'] } },
     ];
 
     if (locId) {

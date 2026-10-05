@@ -729,6 +729,7 @@ class DeliveryModel {
           data: {
             deliveryDate: new Date(),
             orderStatus: allDelivered ? 'Delivered' : 'Partially Delivered',
+            fulfillmentStatus: allDelivered ? 'Delivered' : 'Partial',
           },
         });
       }
@@ -1209,7 +1210,7 @@ class DeliveryModel {
       isDeleted: false,
       orderType: 'Sales Order',
       orderStatus: {
-        notIn: ['Delivered', 'Cancelled']
+        notIn: ['Delivered', 'Cancelled', 'Returned']
       },
       ...(locationId ? { locationId: String(locationId) } : {}),
     };

@@ -8,38 +8,38 @@ const prisma = require('../../prisma/client');
 // ============================================================
 const autoCreateRefund = async (returnData, userId, companyId) => {
   try {
-    const refundNumber = (() => {
-      const date = new Date();
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
-      const rand = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-      return `REF-${y}${m}${d}-${rand}`;
-    })();
+    const {
+      getRefundedAmountForReturn,
+    } = require('../services/salesQuantityService');
 
-    const refund = await prisma.refund.create({
-      data: {
-        refundNumber,
-        refundDate: new Date(),
-        orderId: returnData.orderId,
-        orderNumber: returnData.orderNumber,
-        returnId: returnData.id,
-        returnNumber: returnData.returnNumber,
-        customerName: returnData.customerName,
-        customerEmail: returnData.customerEmail || '',
-        customerPhone: returnData.customerPhone || '',
-        amount: returnData.totalRefund,
-        refundStatus: 'Pending',
-        refundMethod: returnData.returnMethod || 'Original Payment',
-        reason: `Auto-generated from Return: ${returnData.returnNumber}`,
-        notes: '',
-        createdBy: userId,
-        updatedBy: userId,
-        companyId: companyId
-      }
+    const alreadyRefunded = await getRefundedAmountForReturn(returnData.id);
+    const remaining = Math.max(0, (Number(returnData.totalRefund) || 0) - alreadyRefunded);
+    if (remaining <= 0) {
+      console.log(`ℹ️ Return ${returnData.returnNumber} already fully refunded — skip auto refund`);
+      return null;
+    }
+
+    const Refund = require('../models/Refunds');
+    const refund = await Refund.create({
+      refundType: 'Sales Refund',
+      orderId: returnData.orderId,
+      orderNumber: returnData.orderNumber,
+      returnId: returnData.id,
+      returnNumber: returnData.returnNumber,
+      customerId: returnData.customerId || null,
+      customerName: returnData.customerName,
+      customerEmail: returnData.customerEmail || '',
+      customerPhone: returnData.customerPhone || '',
+      amount: remaining,
+      refundStatus: 'Pending',
+      refundMethod: returnData.returnMethod || 'Original Payment',
+      reason: `Auto-generated from Return: ${returnData.returnNumber}`,
+      notes: alreadyRefunded > 0 ? `Remaining after prior refunds of ${alreadyRefunded}` : '',
+      createdBy: userId,
+      companyId: companyId,
     });
 
-    console.log(`✅ Refund auto-created: ${refundNumber} from Return: ${returnData.returnNumber}`);
+    console.log(`✅ Refund auto-created: ${refund.refundNumber} from Return: ${returnData.returnNumber}`);
     return refund;
   } catch (error) {
     console.error('Auto-create refund error:', error);
@@ -583,6 +583,86 @@ const getReturnsByOrder = async (req, res) => {
   }
 };
 
+// @desc    Get remaining returnable quantities for an order
+// @route   GET /api/returns/order/:orderId/returnable
+// @access  Private
+const getReturnableForOrder = async (req, res) => {
+  try {
+    const companyId = (req.method === 'GET' || req.method === 'HEAD')
+      ? (req.companyIdFilter ?? req.user.companyId)
+      : req.user.companyId;
+    const { orderId } = req.params;
+
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        companyId,
+        isActive: true,
+        isDeleted: false,
+      },
+      include: { items: true, customer: true },
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const {
+      getReturnedQtyByProduct,
+      getDeliveredQtyByProduct,
+    } = require('../services/salesQuantityService');
+
+    const returnedMap = await getReturnedQtyByProduct(orderId);
+    const deliveredMap = await getDeliveredQtyByProduct(orderId, { includePending: false });
+
+    const items = (order.items || [])
+      .map((item) => {
+        const ordered = Number(item.quantity) || 0;
+        const delivered = deliveredMap[item.productId] || 0;
+        const alreadyReturned = returnedMap[item.productId] || 0;
+        const maxReturnableBase = delivered > 0 ? Math.min(ordered, delivered) : ordered;
+        const remainingQuantity = Math.max(0, maxReturnableBase - alreadyReturned);
+        return {
+          id: item.id,
+          productId: item.productId,
+          productName: item.productName,
+          sku: item.sku,
+          quantity: ordered,
+          orderedQuantity: ordered,
+          deliveredQuantity: delivered,
+          returnedQuantity: alreadyReturned,
+          remainingQuantity,
+          unitPrice: Number(item.unitPrice) || 0,
+          discount: Number(item.discount) || 0,
+          taxRate: Number(item.taxRate) || 0,
+        };
+      })
+      .filter((i) => i.remainingQuantity > 0);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          customerId: order.customerId,
+          customerName: order.customerName,
+          customerEmail: order.customerEmail,
+          customerPhone: order.customerPhone,
+          orderStatus: order.orderStatus,
+          grandTotal: order.grandTotal,
+          items: order.items,
+        },
+        items,
+        hasReturnable: items.length > 0,
+      },
+    });
+  } catch (error) {
+    console.error('Get returnable for order error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   // Sales Returns
   createSalesReturn,
@@ -600,5 +680,6 @@ module.exports = {
   cancelReturn,
   deleteReturn,
   getReturnStats,
-  getReturnsByOrder
+  getReturnsByOrder,
+  getReturnableForOrder,
 };

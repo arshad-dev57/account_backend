@@ -38,11 +38,16 @@ const formatResponse = (setting) => {
   return result;
 };
 
+function resolveCompanyId(req) {
+  return (req.method === 'GET' || req.method === 'HEAD')
+    ? (req.companyIdFilter ?? req.user.companyId)
+    : req.user.companyId;
+}
+
 // ─── GET SETTINGS - ✅ FIXED
 const getSettings = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const companyId = req.user.companyId;  // ✅ Get companyId from user
+    const companyId = resolveCompanyId(req);
     const { category } = req.query;
     
     if (!category) {
@@ -79,8 +84,7 @@ const getSettings = async (req, res) => {
 // ─── GET ALL SETTINGS (Admin) - ✅ FIXED
 const getAllSettings = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const companyId = req.user.companyId;  // ✅ Get companyId
+    const companyId = resolveCompanyId(req);
     const { category, isActive, page = 1, limit = 50 } = req.query;
     
     // ✅ FIXED: Use companyId instead of userId
@@ -152,7 +156,7 @@ const getSettingById = async (req, res) => {
 const createSetting = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;  // ✅ Get companyId
+    const companyId = resolveCompanyId(req);
     const { category, name, isDefault, displayOrder, ...rest } = req.body;
 
     console.log('🔵 [createSetting] Called');
@@ -370,8 +374,7 @@ const hardDeleteSetting = async (req, res) => {
 // ─── GET CATEGORIES - ✅ FIXED
 const getCategories = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const companyId = req.user.companyId;  // ✅ Get companyId
+    const companyId = resolveCompanyId(req);
     
     // ✅ FIXED: Pass companyId instead of userId
     const categories = await Setting.getCategories(companyId);
@@ -394,7 +397,7 @@ const getCategories = async (req, res) => {
 const seedDefaultSettings = async (req, res) => {
   try {
     const userId = req.user.id;
-    const companyId = req.user.companyId;  // ✅ Get companyId
+    const companyId = resolveCompanyId(req);
     
     const defaultSettings = [
       // Product Settings
