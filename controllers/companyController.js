@@ -119,7 +119,10 @@ exports.listMyCompanies = async (req, res) => {
       success: true,
       data: {
         companies,
+        // Header-resolved company for this request
         activeCompanyId: req.companyMode === 'all' ? ALL_COMPANIES_VALUE : req.user.companyId,
+        // DB preferred / primary — what POS and other clients should follow after ERP switch
+        preferredCompanyId: req.user.primaryCompanyId || req.user.companyId || null,
         companyMode: req.companyMode || 'single',
         allCompaniesValue: ALL_COMPANIES_VALUE,
       },
@@ -144,6 +147,64 @@ exports.createCompany = async (req, res) => {
     const trialEnd = new Date(now);
     trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
 
+    // Prefer copying the account owner's current company subscription (paid/trial)
+    // so a child company is usable immediately after create + switch.
+    let subFields = {
+      subscriptionPlan: 'trial',
+      subscriptionStatus: 'active',
+      productTier: 'erp_pos',
+      licensedUsers: 999,
+      licensedBranches: 999,
+      trialStartDate: now,
+      trialEndDate: trialEnd,
+      subscriptionStartDate: null,
+      subscriptionEndDate: null,
+      billingCycle: null,
+    };
+    try {
+      const {
+        companyHasActiveSubscription,
+        userRecordHasAccess,
+      } = require('../utils/companySubscription');
+      const sourceCompanyId = req.user.companyId || req.user.primaryCompanyId;
+      const [sourceCompany, userRow] = await Promise.all([
+        sourceCompanyId
+          ? prisma.company.findUnique({ where: { id: sourceCompanyId } })
+          : null,
+        prisma.user.findUnique({ where: { id: userId } }),
+      ]);
+      if (sourceCompany && companyHasActiveSubscription(sourceCompany)) {
+        subFields = {
+          subscriptionPlan: sourceCompany.subscriptionPlan,
+          subscriptionStatus: sourceCompany.subscriptionStatus || 'active',
+          productTier: sourceCompany.productTier || 'erp_pos',
+          licensedUsers: sourceCompany.licensedUsers || 999,
+          licensedBranches: sourceCompany.licensedBranches || 999,
+          trialStartDate: sourceCompany.trialStartDate,
+          trialEndDate: sourceCompany.trialEndDate,
+          subscriptionStartDate: sourceCompany.subscriptionStartDate,
+          subscriptionEndDate: sourceCompany.subscriptionEndDate,
+          billingCycle: sourceCompany.billingCycle || null,
+        };
+      } else if (userRow && userRecordHasAccess(userRow)) {
+        const plan = userRow.subscriptionPlan;
+        subFields = {
+          subscriptionPlan: plan,
+          subscriptionStatus: userRow.subscriptionStatus || 'active',
+          productTier: 'erp_pos',
+          licensedUsers: plan === 'trial' ? 999 : sourceCompany?.licensedUsers || 999,
+          licensedBranches: plan === 'trial' ? 999 : sourceCompany?.licensedBranches || 999,
+          trialStartDate: userRow.trialStartDate,
+          trialEndDate: userRow.trialEndDate,
+          subscriptionStartDate: userRow.subscriptionStartDate,
+          subscriptionEndDate: userRow.subscriptionEndDate,
+          billingCycle: plan === 'monthly' || plan === 'yearly' ? plan : null,
+        };
+      }
+    } catch (subErr) {
+      console.warn('[createCompany] subscription copy skipped:', subErr.message);
+    }
+
     const company = await prisma.company.create({
       data: {
         name,
@@ -156,13 +217,7 @@ exports.createCompany = async (req, res) => {
           : '',
         logo: body.logo || '',
         website: body.website || body.websiteLink || '',
-        subscriptionPlan: 'trial',
-        subscriptionStatus: 'active',
-        productTier: 'erp_pos',
-        licensedUsers: 999,
-        licensedBranches: 999,
-        trialStartDate: now,
-        trialEndDate: trialEnd,
+        ...subFields,
         posMode: 'retail',
         posModeConfigured: false,
       },
@@ -273,6 +328,24 @@ exports.setPrimaryCompany = async (req, res) => {
       data: { companyId },
     });
     invalidateAuthUser(userId);
+
+    // If this company has no active plan, inherit the account owner's subscription
+    try {
+      const {
+        accessFromRecords,
+        scheduleReverseSubscriptionHeal,
+      } = require('../utils/companySubscription');
+      const [userRow, company] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userId } }),
+        prisma.company.findUnique({ where: { id: companyId } }),
+      ]);
+      const evaluated = accessFromRecords(userRow, company);
+      if (evaluated.needsReverseHeal) {
+        scheduleReverseSubscriptionHeal(userRow, company);
+      }
+    } catch (healErr) {
+      console.warn('[setPrimaryCompany] subscription inherit skipped:', healErr.message);
+    }
 
     res.json({
       success: true,

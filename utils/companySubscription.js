@@ -150,6 +150,16 @@ function companyPlanUnset(company) {
   return !plan || plan === 'none';
 }
 
+/** Child / secondary companies may inherit the account owner's active subscription. */
+function companyCanInheritFromUser(company) {
+  if (!company) return true;
+  if (companyPlanUnset(company)) return true;
+  // Never upgraded past trial (including expired trial) — sync from owner's paid/trial row
+  if (company.subscriptionPlan === 'trial') return true;
+  // Paid plan that ended — do not silently re-open
+  return false;
+}
+
 function accessFromRecords(user, company) {
   if (company) {
     const companyAccess = companyHasActiveSubscription(company);
@@ -166,9 +176,9 @@ function accessFromRecords(user, company) {
       };
     }
 
-    // Company has no plan set, but user still has a valid subscription — restore company.
-    // Do NOT reverse-heal when company is intentionally expired / paid-ended.
-    if (userAccess && companyPlanUnset(company)) {
+    // Company missing/expired trial but account user still has a valid subscription —
+    // allow ERP access and push user plan onto this company (multi-company switch).
+    if (userAccess && companyCanInheritFromUser(company)) {
       return {
         hasAccess: true,
         needsHeal: false,
@@ -199,6 +209,7 @@ function accessFromRecords(user, company) {
 }
 
 const healInflight = new Set();
+const reverseHealInflight = new Set();
 
 /** Stale user rows: sync in the background so request auth is not blocked. */
 function scheduleSubscriptionHeal(user, company) {
@@ -209,6 +220,19 @@ function scheduleSubscriptionHeal(user, company) {
   applyCompanySubscription(company.id, healPayloadFromCompany(company))
     .catch((err) => console.error('[subscription heal]', err.message))
     .finally(() => healInflight.delete(company.id));
+}
+
+/** Push account-owner subscription onto a company that has no active plan (e.g. child company). */
+function scheduleReverseSubscriptionHeal(user, company) {
+  if (!user || !company?.id) return;
+  if (!userRecordHasAccess(user)) return;
+  if (companyHasActiveSubscription(company)) return;
+  if (!companyCanInheritFromUser(company)) return;
+  if (reverseHealInflight.has(company.id)) return;
+  reverseHealInflight.add(company.id);
+  applyCompanySubscription(company.id, healPayloadFromUser(user))
+    .catch((err) => console.error('[subscription reverse-heal]', err.message))
+    .finally(() => reverseHealInflight.delete(company.id));
 }
 
 async function resolveAndSyncSubscriptionAccess(userId, companyId, preloaded = {}) {
@@ -272,5 +296,8 @@ module.exports = {
   userRecordHasAccess,
   accessFromRecords,
   scheduleSubscriptionHeal,
+  scheduleReverseSubscriptionHeal,
   resolveAndSyncSubscriptionAccess,
+  healPayloadFromCompany,
+  healPayloadFromUser,
 };

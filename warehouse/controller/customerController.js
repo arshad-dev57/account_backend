@@ -48,12 +48,33 @@ async function generateUniqueCustomerNumber(maxAttempts = 5) {
 
 const getCustomers = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const companyId = req.user.companyId;
+    const companyId = (req.method === 'GET' || req.method === 'HEAD')
+      ? (req.companyIdFilter ?? req.user.companyId)
+      : req.user.companyId;
+
+    if (companyId == null || companyId === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context required to list customers',
+      });
+    }
+
     const {
       page = 1, limit = 10, search, type, status,
       fromDate, toDate, sortBy = 'createdAt', sortOrder = 'desc'
     } = req.query;
+
+    const allowedSort = new Set([
+      'createdAt',
+      'updatedAt',
+      'name',
+      'customerNumber',
+      'totalSpent',
+      'totalOrders',
+      'status',
+      'customerType',
+    ]);
+    const sortField = allowedSort.has(String(sortBy)) ? String(sortBy) : 'createdAt';
 
     const where = { companyId, isActive: true, isDeleted: false };
 
@@ -78,8 +99,8 @@ const getCustomers = async (req, res) => {
       }
     }
 
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
     const skip = (pageNum - 1) * limitNum;
 
     const [customers, total] = await Promise.all([
@@ -87,12 +108,14 @@ const getCustomers = async (req, res) => {
         where,
         skip,
         take: limitNum,
-        orderBy: { [sortBy]: sortOrder === 'desc' ? 'desc' : 'asc' }
+        orderBy: { [sortField]: sortOrder === 'desc' ? 'desc' : 'asc' }
       }),
       prisma.customer.count({ where })
     ]);
 
-    const allActive = await prisma.customer.count({ where: { companyId, isActive: true, isDeleted: false } });
+    const allActive = await prisma.customer.count({
+      where: { companyId, isActive: true, isDeleted: false },
+    });
     const stats = { total: allActive };
 
     res.status(200).json({
@@ -101,14 +124,18 @@ const getCustomers = async (req, res) => {
       stats,
       pagination: {
         page: pageNum, limit: limitNum, total,
-        pages: Math.ceil(total / limitNum),
+        pages: Math.ceil(total / limitNum) || 0,
         hasNext: pageNum < Math.ceil(total / limitNum),
         hasPrev: pageNum > 1
       }
     });
   } catch (error) {
     console.error('Get customers error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch customers', error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch customers',
+      error: error.message,
+    });
   }
 };
 

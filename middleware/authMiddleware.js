@@ -5,6 +5,7 @@ const { attachLocationScope } = require('../utils/locationAccessHelper');
 const {
   accessFromRecords,
   scheduleSubscriptionHeal,
+  scheduleReverseSubscriptionHeal,
   companyHasActiveSubscription,
 } = require('../utils/companySubscription');
 const { resolveActiveCompanyContext } = require('../utils/companyAccess');
@@ -154,8 +155,40 @@ async function runProtect(req, res, next, { requireSubscription }) {
       companyCtx.mode === 'single'
         ? activeCompany
         : row.company;
-    const evaluated = accessFromRecords(row, subCompany);
+    let evaluated = accessFromRecords(row, subCompany);
     scheduleSubscriptionHeal(row, subCompany);
+    if (evaluated.needsReverseHeal) {
+      scheduleReverseSubscriptionHeal(row, subCompany);
+    }
+
+    // Multi-company: if active child has no plan, inherit from another membership that is subscribed
+    if (
+      requireSubscription &&
+      companyCtx.mode === 'single' &&
+      !evaluated.hasAccess &&
+      subCompany?.id
+    ) {
+      try {
+        const { listMembershipsForUser } = require('../utils/companyAccess');
+        const {
+          companyHasActiveSubscription: companyActive,
+          applyCompanySubscription,
+          healPayloadFromCompany,
+        } = require('../utils/companySubscription');
+        const memberships = await listMembershipsForUser(row.id);
+        const donor = (memberships || [])
+          .map((m) => m.company)
+          .find((c) => c && c.id !== subCompany.id && companyActive(c));
+        if (donor) {
+          evaluated = { ...evaluated, hasAccess: true, needsReverseHeal: false };
+          applyCompanySubscription(subCompany.id, healPayloadFromCompany(donor)).catch((err) =>
+            console.error('[subscription sibling-inherit]', err.message)
+          );
+        }
+      } catch (inheritErr) {
+        console.warn('[auth] sibling subscription inherit failed:', inheritErr.message);
+      }
+    }
 
     if (requireSubscription && companyCtx.mode !== 'all' && !evaluated.hasAccess) {
       const now = new Date();

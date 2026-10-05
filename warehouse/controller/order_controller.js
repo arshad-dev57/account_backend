@@ -925,25 +925,33 @@ const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    // Manual status changes are only for pre-fulfillment workflow.
+    // Partially Delivered / Delivered / Returned come from Delivery confirm & Returns — never from this dropdown.
     const validTransitions = {
       Draft: ['Pending', 'Cancelled'],
-      Pending: ['Processing', 'Partially Delivered', 'Delivered', 'Cancelled', 'On Hold'],
-      Processing: ['Packed', 'Partially Delivered', 'Delivered', 'Cancelled', 'On Hold'],
-      Packed: ['Shipped', 'Partially Delivered', 'Delivered', 'Cancelled'],
-      Shipped: ['In Transit', 'Partially Delivered', 'Delivered', 'Cancelled'],
-      'In Transit': ['Partially Delivered', 'Delivered', 'Cancelled'],
-      'Partially Delivered': ['Delivered', 'Partially Returned', 'Returned', 'Cancelled'],
-      Delivered: ['Partially Returned', 'Returned'],
-      'Partially Returned': ['Returned', 'Partially Delivered', 'Delivered'],
-      Cancelled: [],
+      Pending: ['Processing', 'On Hold', 'Cancelled'],
+      Processing: ['Packed', 'On Hold', 'Cancelled'],
+      Packed: ['Shipped', 'On Hold', 'Cancelled'],
+      Shipped: ['In Transit', 'Cancelled'],
+      'In Transit': ['Cancelled'],
+      'Partially Delivered': [],
+      Delivered: [],
+      'Partially Returned': [],
       Returned: [],
-      'On Hold': ['Pending', 'Processing', 'Cancelled']
+      Cancelled: [],
+      'On Hold': ['Pending', 'Processing', 'Cancelled'],
     };
 
     if (!validTransitions[order.orderStatus]?.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `Cannot transition from ${order.orderStatus} to ${status}`
+        message:
+          status === 'Delivered' ||
+          status === 'Partially Delivered' ||
+          status === 'Returned' ||
+          status === 'Partially Returned'
+            ? `Cannot set "${status}" manually. Confirm a Delivery (or Sales Return) to update fulfillment status.`
+            : `Cannot transition from ${order.orderStatus} to ${status}`,
       });
     }
 
@@ -1003,7 +1011,7 @@ const cancelOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    if (!['Draft', 'Pending', 'Processing'].includes(order.orderStatus)) {
+    if (!['Draft', 'Pending', 'Processing', 'On Hold', 'Packed', 'Shipped', 'In Transit'].includes(order.orderStatus)) {
       return res.status(400).json({
         success: false,
         message: 'Order cannot be cancelled in current status'
