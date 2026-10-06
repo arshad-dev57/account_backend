@@ -469,6 +469,26 @@ const startTrial = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
 
+    if (companyId) {
+      const { resolveBillingCompany } = require('../utils/companySubscription');
+      const company = await prisma.company.findUnique({ where: { id: companyId } });
+      if (company?.parentCompanyId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'This company shares the parent company subscription. Start or manage the trial from the parent company.',
+        });
+      }
+      const billing = company ? await resolveBillingCompany(company.id, company) : null;
+      if (billing && billing.id !== companyId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'This company shares the parent company subscription. Start or manage the trial from the parent company.',
+        });
+      }
+    }
+
     const eligibility = await getTrialEligibility(userId, companyId);
     if (!eligibility.eligible) {
       return res.status(400).json({

@@ -78,6 +78,203 @@ const checkAndExpireSubscription = async (userId) => {
   }
 };
 
+/**
+ * Full login session payload (token + user) shared by OTP verify and web direct login.
+ * Mobile keeps OTP; web can skip OTP via login({ directLogin: true }).
+ */
+async function buildAuthenticatedLoginPayload(userId) {
+  await checkAndExpireSubscription(userId);
+
+  const updatedUserData = await User.findById(userId);
+  if (!updatedUserData) {
+    const err = new Error('User not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const updatedUser = new User(updatedUserData);
+
+  let userPermissions = [];
+  const permissionUserId = updatedUser._id.toString();
+  try {
+    const permDelegate = prisma.userPermission;
+    if (permDelegate?.findMany) {
+      userPermissions = await permDelegate.findMany({
+        where: { userId: permissionUserId },
+        select: {
+          id: true,
+          page: true,
+          canView: true,
+          canCreate: true,
+          canEdit: true,
+          canDelete: true,
+        },
+      });
+    } else {
+      userPermissions = await prisma.$queryRaw`
+        SELECT id, page,
+               can_view AS "canView",
+               can_create AS "canCreate",
+               can_edit AS "canEdit",
+               can_delete AS "canDelete"
+        FROM user_permissions
+        WHERE user_id = ${permissionUserId}
+      `;
+    }
+  } catch (permErr) {
+    console.error('⚠️ [loginPayload] Permissions fetch failed:', permErr.message);
+    userPermissions = [];
+  }
+
+  let pdfReportSettings = null;
+  try {
+    pdfReportSettings = await getPdfReportSettingsForUserId(updatedUser._id);
+  } catch (pdfErr) {
+    console.error('⚠️ [loginPayload] PDF settings load failed:', pdfErr.message);
+    pdfReportSettings = null;
+  }
+
+  const token = generateToken(updatedUser._id);
+  const refreshToken = generateRefreshToken(updatedUser._id);
+
+  const responseUser = {
+    id: updatedUser._id,
+    firstName: updatedUser.firstName,
+    lastName: updatedUser.lastName,
+    email: updatedUser.email,
+    country: updatedUser.country,
+    phone: updatedUser.phone,
+    address: updatedUser.address,
+    organizationName: updatedUser.organizationName,
+    websiteLink: updatedUser.websiteLink,
+    contactNo: updatedUser.contactNo,
+    businessDetails: updatedUser.businessDetails || {},
+    pdfReportSettings,
+    role: updatedUser.role,
+    permissions: userPermissions.map((p) => ({
+      id: p.id,
+      page: p.page,
+      canView: p.canView,
+      canCreate: p.canCreate,
+      canEdit: p.canEdit,
+      canDelete: p.canDelete,
+    })),
+    subscription: {
+      plan: updatedUser.subscription.plan,
+      status: updatedUser.subscription.status,
+      trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
+      subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
+      endDate: updatedUser.subscription.endDate,
+      trialEndDate: updatedUser.subscription.trialEndDate,
+    },
+    locations: [],
+    locationIds: [],
+    assignedTerminalId: null,
+    isLocationAdmin: false,
+  };
+
+  try {
+    const {
+      isLocationAdminRole,
+      formatUserLocations,
+    } = require('../utils/locationAccessHelper');
+    const prismaUser = await prisma.user.findUnique({
+      where: { id: String(updatedUser._id || updatedUser.id) },
+      select: {
+        companyId: true,
+        role: true,
+        assignedTerminalId: true,
+        assignedTerminal: {
+          select: { id: true, name: true, code: true, locationId: true },
+        },
+        userLocations: {
+          include: {
+            location: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                type: true,
+                isDefault: true,
+                isActive: true,
+                isDeleted: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    responseUser.isLocationAdmin = isLocationAdminRole(updatedUser.role);
+    responseUser.assignedTerminalId = prismaUser?.assignedTerminalId || null;
+    if (responseUser.isLocationAdmin && prismaUser?.companyId) {
+      const allLocs = await prisma.location.findMany({
+        where: { companyId: prismaUser.companyId, isDeleted: false },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          type: true,
+          isDefault: true,
+          isActive: true,
+        },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+      });
+      responseUser.locations = allLocs;
+      responseUser.locationIds = allLocs.map((l) => l.id);
+    } else {
+      const assigned = formatUserLocations(prismaUser);
+      responseUser.locations = assigned.locations;
+      responseUser.locationIds = assigned.locationIds;
+    }
+    if (isEmployeeRole(updatedUser.role) || prismaUser?.role === 'employee') {
+      try {
+        const { attachEmployeeToLoginUser } = require('./hrController');
+        responseUser.employee = await attachEmployeeToLoginUser(updatedUser._id);
+        responseUser.isEmployee = true;
+      } catch (hrErr) {
+        console.error('⚠️ [loginPayload] Employee profile load failed:', hrErr.message);
+        responseUser.isEmployee = true;
+      }
+    }
+
+    if (prismaUser?.companyId) {
+      responseUser.companyId = prismaUser.companyId;
+      const companyRow = await prisma.company.findUnique({
+        where: { id: prismaUser.companyId },
+        select: { posMode: true, posModeConfigured: true, name: true, productTier: true },
+      });
+      responseUser.posMode = companyRow?.posMode || 'retail';
+      responseUser.posModeConfigured = Boolean(companyRow?.posModeConfigured);
+      responseUser.company = {
+        id: prismaUser.companyId,
+        posMode: companyRow?.posMode || 'retail',
+        posModeConfigured: Boolean(companyRow?.posModeConfigured),
+        name: companyRow?.name || '',
+        productTier: companyRow?.productTier || 'erp_pos',
+      };
+    }
+  } catch (locErr) {
+    console.error('⚠️ [loginPayload] Location load failed:', locErr.message);
+  }
+
+  return {
+    success: true,
+    message: 'Login successful',
+    token,
+    refreshToken,
+    user: responseUser,
+    pdfReportSettings,
+  };
+}
+
+function wantsWebDirectLogin(body = {}) {
+  // Explicit opt-in only — mobile apps keep OTP (default login path unchanged).
+  return (
+    body.directLogin === true ||
+    body.skipOtp === true ||
+    String(body.client || '').toLowerCase() === 'web'
+  );
+}
+
 function isPlatformOwnerEmail(email) {
   const emails = (process.env.PLATFORM_OWNER_EMAILS || 'mfaisalakhan@gmail.com,kashif@gmail.com')
     .split(',')
@@ -517,6 +714,21 @@ exports.login = async (req, res) => {
     user.failedLoginAttempts = 0;
     user.lockUntil = null;
 
+    // Web ERP: password-only login (no OTP). Mobile keeps OTP unless it opts in.
+    if (wantsWebDirectLogin(req.body)) {
+      if (isDemoLoginEmail(email)) {
+        await ensureDemoSubscription(user._id || user.id, user.companyId);
+      }
+      user.requiresLoginOtp = false;
+      user.loginOtp = null;
+      user.loginOtpExpiry = null;
+      await user.save();
+
+      console.log('🌐 [login] Direct login (no OTP) for web client');
+      const payload = await buildAuthenticatedLoginPayload(user._id || user.id);
+      return res.status(200).json(payload);
+    }
+
     if (isDemoLoginEmail(email)) {
       const demoOtp = getDemoLoginOtp();
       if (!demoOtp) {
@@ -668,205 +880,9 @@ exports.verifyLoginOTP = async (req, res) => {
     user.loginOtpExpiry = null;
     await user.save();
 
-    console.log('🔄 [verifyLoginOTP] Checking subscription expiry...');
-    await checkAndExpireSubscription(user._id);
-
-    console.log('🔄 [verifyLoginOTP] Fetching updated user data...');
-    const updatedUserData = await User.findById(user._id);
-    const updatedUser = new User(updatedUserData);
-
-    console.log('📦 [verifyLoginOTP] Updated User Business Details:', JSON.stringify(updatedUser.businessDetails, null, 2));
-
-    // Fetch user permissions (never block login if Prisma client is stale on deploy)
-    console.log('🔄 [verifyLoginOTP] Fetching user permissions...');
-    let userPermissions = [];
-    const permissionUserId = updatedUser._id.toString();
-    try {
-      const permDelegate = prisma.userPermission;
-      if (permDelegate?.findMany) {
-        userPermissions = await permDelegate.findMany({
-          where: { userId: permissionUserId },
-          select: {
-            id: true,
-            page: true,
-            canView: true,
-            canCreate: true,
-            canEdit: true,
-            canDelete: true
-          }
-        });
-      } else {
-        console.error(
-          '⚠️ [verifyLoginOTP] prisma.userPermission missing — falling back to raw SQL'
-        );
-        userPermissions = await prisma.$queryRaw`
-          SELECT id, page,
-                 can_view AS "canView",
-                 can_create AS "canCreate",
-                 can_edit AS "canEdit",
-                 can_delete AS "canDelete"
-          FROM user_permissions
-          WHERE user_id = ${permissionUserId}
-        `;
-      }
-    } catch (permErr) {
-      console.error(
-        '⚠️ [verifyLoginOTP] Permissions fetch failed:',
-        permErr.message
-      );
-      userPermissions = [];
-    }
-    console.log('📊 [verifyLoginOTP] User permissions count:', userPermissions.length);
-    console.log('📊 [verifyLoginOTP] User permissions:', userPermissions);
-
-    let pdfReportSettings = null;
-    try {
-      pdfReportSettings = await getPdfReportSettingsForUserId(updatedUser._id);
-      console.log('📄 [verifyLoginOTP] PDF report settings loaded');
-    } catch (pdfErr) {
-      console.error('⚠️ [verifyLoginOTP] PDF settings load failed:', pdfErr.message);
-      pdfReportSettings = null;
-    }
-
-    const token = generateToken(updatedUser._id);
-    const refreshToken = generateRefreshToken(updatedUser._id);
-
-    const responseUser = {
-      id: updatedUser._id,
-      firstName: updatedUser.firstName,
-      lastName: updatedUser.lastName,
-      email: updatedUser.email,
-      country: updatedUser.country,
-      phone: updatedUser.phone,
-      address: updatedUser.address,
-      organizationName: updatedUser.organizationName,
-      websiteLink: updatedUser.websiteLink,
-      contactNo: updatedUser.contactNo,
-      businessDetails: updatedUser.businessDetails || {},
-      pdfReportSettings,
-      role: updatedUser.role,
-      permissions: userPermissions.map(p => ({
-        id: p.id,
-        page: p.page,
-        canView: p.canView,
-        canCreate: p.canCreate,
-        canEdit: p.canEdit,
-        canDelete: p.canDelete
-      })),
-      subscription: {
-        plan: updatedUser.subscription.plan,
-        status: updatedUser.subscription.status,
-        trialDaysRemaining: updatedUser.getTrialDaysRemaining(),
-        subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
-        endDate: updatedUser.subscription.endDate,
-        trialEndDate: updatedUser.subscription.trialEndDate
-      },
-      locations: [],
-      locationIds: [],
-      assignedTerminalId: null,
-      isLocationAdmin: false,
-    };
-
-    try {
-      const {
-        isLocationAdminRole,
-        formatUserLocations,
-      } = require('../utils/locationAccessHelper');
-      const prismaUser = await prisma.user.findUnique({
-        where: { id: String(updatedUser._id || updatedUser.id) },
-        select: {
-          companyId: true,
-          role: true,
-          assignedTerminalId: true,
-          assignedTerminal: {
-            select: { id: true, name: true, code: true, locationId: true },
-          },
-          userLocations: {
-            include: {
-              location: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  type: true,
-                  isDefault: true,
-                  isActive: true,
-                  isDeleted: true,
-                },
-              },
-            },
-          },
-        },
-      });
-      responseUser.isLocationAdmin = isLocationAdminRole(updatedUser.role);
-      responseUser.assignedTerminalId = prismaUser?.assignedTerminalId || null;
-      if (responseUser.isLocationAdmin && prismaUser?.companyId) {
-        const allLocs = await prisma.location.findMany({
-          where: { companyId: prismaUser.companyId, isDeleted: false },
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            type: true,
-            isDefault: true,
-            isActive: true,
-          },
-          orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
-        });
-        responseUser.locations = allLocs;
-        responseUser.locationIds = allLocs.map((l) => l.id);
-      } else {
-        const assigned = formatUserLocations(prismaUser);
-        responseUser.locations = assigned.locations;
-        responseUser.locationIds = assigned.locationIds;
-      }
-      if (isEmployeeRole(updatedUser.role) || prismaUser?.role === 'employee') {
-        try {
-          const { attachEmployeeToLoginUser } = require('./hrController');
-          responseUser.employee = await attachEmployeeToLoginUser(updatedUser._id);
-          responseUser.isEmployee = true;
-        } catch (hrErr) {
-          console.error('⚠️ [verifyLoginOTP] Employee profile load failed:', hrErr.message);
-          responseUser.isEmployee = true;
-        }
-      }
-
-      if (prismaUser?.companyId) {
-        responseUser.companyId = prismaUser.companyId;
-        const companyRow = await prisma.company.findUnique({
-          where: { id: prismaUser.companyId },
-          select: { posMode: true, posModeConfigured: true, name: true, productTier: true },
-        });
-        responseUser.posMode = companyRow?.posMode || 'retail';
-        responseUser.posModeConfigured = Boolean(companyRow?.posModeConfigured);
-        responseUser.company = {
-          id: prismaUser.companyId,
-          posMode: companyRow?.posMode || 'retail',
-          posModeConfigured: Boolean(companyRow?.posModeConfigured),
-          name: companyRow?.name || '',
-          productTier: companyRow?.productTier || 'erp_pos',
-        };
-      }
-    } catch (locErr) {
-      console.error('⚠️ [verifyLoginOTP] Location load failed:', locErr.message);
-    }
-
-    console.log('📤 [verifyLoginOTP] Response User Object:');
-    console.log('   - ID:', responseUser.id);
-    console.log('   - Email:', responseUser.email);
-    console.log('   - Business Details:', JSON.stringify(responseUser.businessDetails, null, 2));
-    console.log('   - Currency Code:', responseUser.businessDetails?.currencyCode || 'Not Set');
-    console.log('   - Currency Symbol:', responseUser.businessDetails?.currencySymbol || 'Not Set');
-    console.log('═══════════════════════════════════════════════════');
-
-    res.status(200).json({
-      success: true,
-      message: 'Login successful',
-      token,
-      refreshToken,
-      user: responseUser,
-      pdfReportSettings
-    });
+    const payload = await buildAuthenticatedLoginPayload(user._id || user.id);
+    console.log('📤 [verifyLoginOTP] Login payload ready for', payload.user?.email);
+    return res.status(200).json(payload);
   } catch (error) {
     console.error('❌ [verifyLoginOTP] Error:', error);
     res.status(500).json({

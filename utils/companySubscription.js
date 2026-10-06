@@ -10,6 +10,70 @@ const {
   normalizeToUsd,
 } = require('../utils/subscriptionPricing');
 
+const BILLING_SELECT = {
+  id: true,
+  parentCompanyId: true,
+  subscriptionPlan: true,
+  subscriptionStatus: true,
+  productTier: true,
+  licensedUsers: true,
+  licensedBranches: true,
+  billingCycle: true,
+  trialStartDate: true,
+  trialEndDate: true,
+  subscriptionStartDate: true,
+  subscriptionEndDate: true,
+  isActive: true,
+  name: true,
+};
+
+/**
+ * Walk parentCompanyId to the billing root. Child companies never own their own trial/plan.
+ */
+async function resolveBillingCompany(companyOrId, preloaded) {
+  let company =
+    preloaded ||
+    (companyOrId && typeof companyOrId === 'object'
+      ? companyOrId
+      : companyOrId
+        ? await prisma.company.findUnique({
+            where: { id: companyOrId },
+            select: BILLING_SELECT,
+          })
+        : null);
+
+  if (!company) return null;
+
+  const seen = new Set();
+  while (company.parentCompanyId) {
+    if (seen.has(company.id)) break;
+    seen.add(company.id);
+    const parent = await prisma.company.findUnique({
+      where: { id: company.parentCompanyId },
+      select: BILLING_SELECT,
+    });
+    if (!parent) break;
+    company = parent;
+  }
+  return company;
+}
+
+function subscriptionFieldsFromCompany(company) {
+  if (!company) return null;
+  return {
+    subscriptionPlan: company.subscriptionPlan,
+    subscriptionStatus: company.subscriptionStatus || 'active',
+    productTier: company.productTier || 'erp_pos',
+    licensedUsers: company.licensedUsers || 999,
+    licensedBranches: company.licensedBranches || 999,
+    trialStartDate: company.trialStartDate ?? null,
+    trialEndDate: company.trialEndDate ?? null,
+    subscriptionStartDate: company.subscriptionStartDate ?? null,
+    subscriptionEndDate: company.subscriptionEndDate ?? null,
+    billingCycle: company.billingCycle || null,
+  };
+}
+
 async function syncCompanySubscriptionToUsers(companyId, data) {
   if (!companyId) return;
   await prisma.user.updateMany({
@@ -30,6 +94,10 @@ async function applyCompanySubscription(companyId, {
   subscriptionStartDate,
   subscriptionEndDate,
 } = {}) {
+  // Always write billing fields on the root parent — children share that plan.
+  const billing = await resolveBillingCompany(companyId);
+  const targetId = billing?.id || companyId;
+
   const companyUpdate = {};
   if (subscriptionPlan) companyUpdate.subscriptionPlan = subscriptionPlan;
   if (subscriptionStatus) companyUpdate.subscriptionStatus = subscriptionStatus;
@@ -43,9 +111,17 @@ async function applyCompanySubscription(companyId, {
   if (subscriptionEndDate !== undefined) companyUpdate.subscriptionEndDate = subscriptionEndDate;
 
   await prisma.company.update({
-    where: { id: companyId },
+    where: { id: targetId },
     data: companyUpdate,
   });
+
+  // Mirror display fields onto direct children so list APIs stay consistent
+  if (Object.keys(companyUpdate).length > 0) {
+    await prisma.company.updateMany({
+      where: { parentCompanyId: targetId },
+      data: companyUpdate,
+    });
+  }
 
   const userUpdate = {};
   if (subscriptionPlan) userUpdate.subscriptionPlan = subscriptionPlan;
@@ -61,7 +137,17 @@ async function applyCompanySubscription(companyId, {
   }
 
   if (Object.keys(userUpdate).length > 0) {
-    await syncCompanySubscriptionToUsers(companyId, userUpdate);
+    const childIds = (
+      await prisma.company.findMany({
+        where: { parentCompanyId: targetId },
+        select: { id: true },
+      })
+    ).map((c) => c.id);
+    const orgIds = [targetId, ...childIds];
+    await prisma.user.updateMany({
+      where: { companyId: { in: orgIds } },
+      data: userUpdate,
+    });
   }
 }
 
@@ -214,18 +300,27 @@ const reverseHealInflight = new Set();
 /** Stale user rows: sync in the background so request auth is not blocked. */
 function scheduleSubscriptionHeal(user, company) {
   if (!user || !company?.id) return;
+  // Resolve happens async; heal targets billing root via applyCompanySubscription
   if (!companyHasActiveSubscription(company) || userRecordHasAccess(user)) return;
   if (healInflight.has(company.id)) return;
   healInflight.add(company.id);
-  applyCompanySubscription(company.id, healPayloadFromCompany(company))
+  Promise.resolve()
+    .then(async () => {
+      const billing = await resolveBillingCompany(company.id, company);
+      if (!billing || !companyHasActiveSubscription(billing)) return;
+      if (userRecordHasAccess(user)) return;
+      await applyCompanySubscription(billing.id, healPayloadFromCompany(billing));
+    })
     .catch((err) => console.error('[subscription heal]', err.message))
     .finally(() => healInflight.delete(company.id));
 }
 
-/** Push account-owner subscription onto a company that has no active plan (e.g. child company). */
+/** Push account-owner subscription onto a company that has no active plan (e.g. legacy child). */
 function scheduleReverseSubscriptionHeal(user, company) {
   if (!user || !company?.id) return;
   if (!userRecordHasAccess(user)) return;
+  // Children with parentCompanyId never get their own plan written — parent is source of truth
+  if (company.parentCompanyId) return;
   if (companyHasActiveSubscription(company)) return;
   if (!companyCanInheritFromUser(company)) return;
   if (reverseHealInflight.has(company.id)) return;
@@ -249,19 +344,23 @@ async function resolveAndSyncSubscriptionAccess(userId, companyId, preloaded = {
         : null,
   ]);
 
-  const evaluated = accessFromRecords(user, company);
+  const billingCompany = company
+    ? await resolveBillingCompany(company.id, company)
+    : null;
 
-  if (evaluated.needsHeal) {
-    await applyCompanySubscription(companyId, healPayloadFromCompany(company));
+  const evaluated = accessFromRecords(user, billingCompany || company);
+
+  if (evaluated.needsHeal && billingCompany) {
+    await applyCompanySubscription(billingCompany.id, healPayloadFromCompany(billingCompany));
     const refreshed = await prisma.user.findUnique({ where: { id: userId } });
-    return { hasAccess: true, user: refreshed, company, healed: true };
+    return { hasAccess: true, user: refreshed, company: billingCompany, healed: true };
   }
 
-  if (evaluated.needsReverseHeal && user) {
-    await applyCompanySubscription(companyId, healPayloadFromUser(user));
+  if (evaluated.needsReverseHeal && user && billingCompany) {
+    await applyCompanySubscription(billingCompany.id, healPayloadFromUser(user));
     const [refreshedUser, refreshedCompany] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
-      prisma.company.findUnique({ where: { id: companyId } }),
+      prisma.company.findUnique({ where: { id: billingCompany.id } }),
     ]);
     return {
       hasAccess: true,
@@ -271,7 +370,7 @@ async function resolveAndSyncSubscriptionAccess(userId, companyId, preloaded = {
     };
   }
 
-  return evaluated;
+  return { ...evaluated, company: billingCompany || company };
 }
 
 function paidEndDate(plan, from = new Date()) {
@@ -298,6 +397,8 @@ module.exports = {
   scheduleSubscriptionHeal,
   scheduleReverseSubscriptionHeal,
   resolveAndSyncSubscriptionAccess,
+  resolveBillingCompany,
+  subscriptionFieldsFromCompany,
   healPayloadFromCompany,
   healPayloadFromUser,
 };

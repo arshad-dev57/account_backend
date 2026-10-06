@@ -1,9 +1,24 @@
-const { accessFromRecords, scheduleSubscriptionHeal } = require('../utils/companySubscription');
+const {
+  accessFromRecords,
+  scheduleSubscriptionHeal,
+  resolveBillingCompany,
+} = require('../utils/companySubscription');
 
 exports.checkActiveSubscription = async (req, res, next) => {
   try {
     const row = req.authUserRow;
-    const resolved = accessFromRecords(row || req.user, row?.company || req.user?.company);
+    const activeCompany = row?.company || req.user?.company || null;
+    let billingCompany = activeCompany;
+    if (activeCompany?.id) {
+      try {
+        billingCompany =
+          (await resolveBillingCompany(activeCompany.id, activeCompany)) || activeCompany;
+      } catch {
+        billingCompany = activeCompany;
+      }
+    }
+
+    const resolved = accessFromRecords(row || req.user, billingCompany);
 
     if (!resolved.user && !req.user) {
       return res.status(404).json({
@@ -12,7 +27,7 @@ exports.checkActiveSubscription = async (req, res, next) => {
       });
     }
 
-    scheduleSubscriptionHeal(row || req.user, row?.company || req.user?.company);
+    scheduleSubscriptionHeal(row || req.user, billingCompany);
 
     if (!resolved.hasAccess) {
       return res.status(403).json({

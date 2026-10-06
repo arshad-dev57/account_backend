@@ -155,35 +155,59 @@ async function runProtect(req, res, next, { requireSubscription }) {
       companyCtx.mode === 'single'
         ? activeCompany
         : row.company;
-    let evaluated = accessFromRecords(row, subCompany);
-    scheduleSubscriptionHeal(row, subCompany);
-    if (evaluated.needsReverseHeal) {
-      scheduleReverseSubscriptionHeal(row, subCompany);
+
+    // Child companies share the root parent's trial/subscription.
+    let billingCompany = subCompany;
+    if (subCompany?.parentCompanyId || subCompany?.id) {
+      try {
+        const { resolveBillingCompany } = require('../utils/companySubscription');
+        billingCompany = (await resolveBillingCompany(subCompany.id, subCompany)) || subCompany;
+      } catch (billingErr) {
+        console.warn('[auth] billing company resolve failed:', billingErr.message);
+        billingCompany = subCompany;
+      }
     }
 
-    // Multi-company: if active child has no plan, inherit from another membership that is subscribed
+    let evaluated = accessFromRecords(row, billingCompany);
+    scheduleSubscriptionHeal(row, billingCompany);
+    if (evaluated.needsReverseHeal && !billingCompany?.parentCompanyId) {
+      scheduleReverseSubscriptionHeal(row, billingCompany);
+    }
+
+    // Multi-company: if active child has no parent link and no plan, inherit from a subscribed sibling
     if (
       requireSubscription &&
       companyCtx.mode === 'single' &&
       !evaluated.hasAccess &&
-      subCompany?.id
+      subCompany?.id &&
+      !subCompany.parentCompanyId
     ) {
       try {
         const { listMembershipsForUser } = require('../utils/companyAccess');
         const {
           companyHasActiveSubscription: companyActive,
-          applyCompanySubscription,
           healPayloadFromCompany,
+          resolveBillingCompany: resolveBilling,
         } = require('../utils/companySubscription');
         const memberships = await listMembershipsForUser(row.id);
         const donor = (memberships || [])
           .map((m) => m.company)
           .find((c) => c && c.id !== subCompany.id && companyActive(c));
         if (donor) {
+          const donorBilling = (await resolveBilling(donor.id, donor)) || donor;
           evaluated = { ...evaluated, hasAccess: true, needsReverseHeal: false };
-          applyCompanySubscription(subCompany.id, healPayloadFromCompany(donor)).catch((err) =>
-            console.error('[subscription sibling-inherit]', err.message)
-          );
+          // Link legacy sibling under the donor's billing root and mirror plan
+          prisma.company
+            .update({
+              where: { id: subCompany.id },
+              data: {
+                parentCompanyId: donorBilling.id === subCompany.id ? null : donorBilling.id,
+                ...healPayloadFromCompany(donorBilling),
+              },
+            })
+            .catch((err) =>
+              console.error('[subscription sibling-inherit]', err.message)
+            );
         }
       } catch (inheritErr) {
         console.warn('[auth] sibling subscription inherit failed:', inheritErr.message);
@@ -200,7 +224,7 @@ async function runProtect(req, res, next, { requireSubscription }) {
         status === 'active' &&
         row.subscriptionEndDate &&
         now > new Date(row.subscriptionEndDate);
-      if (status === 'active' && (trialGone || paidGone) && !companyHasActiveSubscription(subCompany)) {
+      if (status === 'active' && (trialGone || paidGone) && !companyHasActiveSubscription(billingCompany)) {
         prisma.user
           .update({
             where: { id: row.id },

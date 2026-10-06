@@ -44,6 +44,10 @@ async function getTrialEligibility(userId, companyId) {
   if (companyId) {
     const company = await prisma.company.findUnique({ where: { id: companyId } });
     if (company) {
+      // Child companies never get their own trial — they use the parent plan.
+      if (company.parentCompanyId) {
+        return { eligible: false, reason: 'had_paid' };
+      }
       if (PAID_PLANS.includes(company.subscriptionPlan)) {
         return { eligible: false, reason: 'had_paid' };
       }

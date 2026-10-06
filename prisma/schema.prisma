@@ -102,9 +102,13 @@ model Company {
   posMode               String    @default("retail") @map("pos_mode") // retail | restaurant
   posModeConfigured     Boolean   @default(false) @map("pos_mode_configured")
   baseCurrencyId        String?   @map("base_currency_id")
+  // Child companies share the root parent's trial/subscription — never their own.
+  parentCompanyId       String?   @map("parent_company_id")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
+  parentCompany      Company?              @relation("CompanyParent", fields: [parentCompanyId], references: [id], onDelete: SetNull)
+  childCompanies     Company[]             @relation("CompanyParent")
   baseCurrency       Currency?             @relation("CompanyBaseCurrency", fields: [baseCurrencyId], references: [id])
   exchangeRates      ExchangeRate[]        @relation("CompanyExchangeRates")
   users              User[]
@@ -232,6 +236,7 @@ model Company {
 
   @@index([email])
   @@index([isActive])
+  @@index([parentCompanyId])
   @@map("companies")
 }
 

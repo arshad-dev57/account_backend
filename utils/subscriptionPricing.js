@@ -109,19 +109,23 @@ function companyHasActiveSubscription(company) {
   return isCompanyTrialActive(company) || isCompanyPaidActive(company);
 }
 
-async function getCompanyUsage(prisma, companyId) {
+async function getCompanyUsage(prisma, companyIds) {
+  const ids = Array.isArray(companyIds) ? companyIds : [companyIds];
+  const scoped = ids.filter(Boolean);
+  if (!scoped.length) return { usedUsers: 0, usedBranches: 0 };
   const [usedUsers, usedBranches] = await Promise.all([
-    prisma.user.count({ where: { companyId, isActive: true } }),
-    prisma.location.count({ where: { companyId, isDeleted: false } }),
+    prisma.user.count({ where: { companyId: { in: scoped }, isActive: true } }),
+    prisma.location.count({ where: { companyId: { in: scoped }, isDeleted: false } }),
   ]);
   return { usedUsers, usedBranches };
 }
 
-async function getCompanyCapacity(prisma, companyId) {
-  const company = await prisma.company.findUnique({
+async function resolveBillingCompanyRecord(prisma, companyId) {
+  let company = await prisma.company.findUnique({
     where: { id: companyId },
     select: {
       id: true,
+      parentCompanyId: true,
       subscriptionPlan: true,
       subscriptionStatus: true,
       trialStartDate: true,
@@ -134,14 +138,60 @@ async function getCompanyCapacity(prisma, companyId) {
       billingCycle: true,
     },
   });
+  if (!company) return null;
 
+  const seen = new Set();
+  while (company.parentCompanyId) {
+    if (seen.has(company.id)) break;
+    seen.add(company.id);
+    const parent = await prisma.company.findUnique({
+      where: { id: company.parentCompanyId },
+      select: {
+        id: true,
+        parentCompanyId: true,
+        subscriptionPlan: true,
+        subscriptionStatus: true,
+        trialStartDate: true,
+        trialEndDate: true,
+        subscriptionStartDate: true,
+        subscriptionEndDate: true,
+        productTier: true,
+        licensedUsers: true,
+        licensedBranches: true,
+        billingCycle: true,
+      },
+    });
+    if (!parent) break;
+    company = parent;
+  }
+  return company;
+}
+
+async function getCompanyCapacity(prisma, companyId) {
+  const requested = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { id: true, parentCompanyId: true },
+  });
+
+  if (!requested) {
+    const err = new Error('Company not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const company = await resolveBillingCompanyRecord(prisma, companyId);
   if (!company) {
     const err = new Error('Company not found');
     err.statusCode = 404;
     throw err;
   }
 
-  const { usedUsers, usedBranches } = await getCompanyUsage(prisma, companyId);
+  const children = await prisma.company.findMany({
+    where: { parentCompanyId: company.id },
+    select: { id: true },
+  });
+  const orgIds = [company.id, ...children.map((c) => c.id)];
+  const { usedUsers, usedBranches } = await getCompanyUsage(prisma, orgIds);
   const isTrial = isCompanyTrialActive(company);
   const isPaid = isCompanyPaidActive(company);
   const productTier = company.productTier === 'pos' ? 'pos' : 'erp_pos';
@@ -159,7 +209,8 @@ async function getCompanyCapacity(prisma, companyId) {
   const hasAccess = companyHasActiveSubscription(company);
 
   return {
-    companyId: company.id,
+    companyId: requested.id,
+    billingCompanyId: company.id,
     productTier,
     billingCycle: billingCycle === 'yearly' ? 'yearly' : 'monthly',
     subscriptionPlan: company.subscriptionPlan,
@@ -222,6 +273,7 @@ module.exports = {
   isCompanyPaidActive,
   companyHasActiveSubscription,
   getCompanyUsage,
+  resolveBillingCompanyRecord,
   getCompanyCapacity,
   buildUpgradeQuote,
 };
