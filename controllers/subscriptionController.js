@@ -517,6 +517,15 @@ const verifyApplePurchase = async (req, res) => {
     const already = await prisma.subscription.findFirst({
       where: { transactionId: dedupeId },
     });
+    const paymentDetails = {
+      method: 'apple_app_store',
+      productId: verified.productId,
+      transactionId: verified.transactionId,
+      originalTransactionId: verified.originalTransactionId,
+      productTier: verified.productTier,
+      licensedUsers: pricing.licensedUsers,
+      licensedBranches: pricing.licensedBranches,
+    };
     if (!already) {
       await Subscription.create({
         userId,
@@ -527,14 +536,22 @@ const verifyApplePurchase = async (req, res) => {
         currency: 'USD',
         paymentMethod: 'apple_app_store',
         transactionId: dedupeId,
-        paymentDetails: {
-          method: 'apple_app_store',
-          productId: verified.productId,
-          transactionId: verified.transactionId,
-          originalTransactionId: verified.originalTransactionId,
-          productTier: verified.productTier,
-          licensedUsers: pricing.licensedUsers,
-          licensedBranches: pricing.licensedBranches,
+        paymentDetails,
+      });
+    } else {
+      await prisma.subscription.update({
+        where: { id: already.id },
+        data: {
+          plan: verified.billingCycle,
+          startDate,
+          endDate,
+          amount: pricing.amount,
+          paymentDetails: {
+            ...(already.paymentDetails && typeof already.paymentDetails === 'object'
+              ? already.paymentDetails
+              : {}),
+            ...paymentDetails,
+          },
         },
       });
     }

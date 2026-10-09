@@ -13,6 +13,9 @@ const PRODUCT_MAP = {
 const PRODUCTION_API = 'https://api.storekit.itunes.apple.com';
 const SANDBOX_API = 'https://api.storekit-sandbox.itunes.apple.com';
 
+/** Subscription statuses that still grant access (App Store Server API). */
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set([1, 3, 4]); // active, billing retry, grace period
+
 function mapProduct(productId) {
   return PRODUCT_MAP[productId] || null;
 }
@@ -77,9 +80,80 @@ function decodeJwsPayload(jws) {
   }
 }
 
-async function fetchTransactionInfo(transactionId, bundleId = APPLE_BUNDLE_ID) {
+/**
+ * Apple StoreKit timestamps are milliseconds; legacy fields may be seconds (~1e9).
+ */
+function normalizeAppleTimestamp(raw) {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n < 1_000_000_000_000) return n * 1000;
+  return n;
+}
+
+function extractExpiresMs(payload) {
+  if (!payload) return 0;
+  const fields = [
+    payload.expiresDate,
+    payload.expires_date_ms,
+    payload.expires_date,
+  ];
+  for (const raw of fields) {
+    const ms = normalizeAppleTimestamp(raw);
+    if (ms) return ms;
+  }
+  return 0;
+}
+
+function extractPurchaseMs(payload) {
+  if (!payload) return null;
+  const fields = [
+    payload.purchaseDate,
+    payload.purchase_date_ms,
+    payload.purchase_date,
+    payload.originalPurchaseDate,
+    payload.original_purchase_date_ms,
+  ];
+  for (const raw of fields) {
+    const ms = normalizeAppleTimestamp(raw);
+    if (ms) return ms;
+  }
+  return null;
+}
+
+function payloadProductId(payload) {
+  return payload?.productId || payload?.product_id || null;
+}
+
+/**
+ * Pick the transaction payload with the latest expiry for the expected product.
+ * Used when Get Transaction Info and Get All Subscription Statuses disagree.
+ */
+function chooseAuthoritativeTransactionPayload(
+  primaryPayload,
+  additionalPayloads,
+  expectedProductId
+) {
+  const candidates = [primaryPayload, ...(additionalPayloads || [])].filter(Boolean);
+  let best = null;
+  let bestExpires = 0;
+
+  for (const p of candidates) {
+    const pid = payloadProductId(p);
+    if (expectedProductId && pid && pid !== expectedProductId) continue;
+    const expires = extractExpiresMs(p);
+    if (!expires) continue;
+    if (!best || expires > bestExpires) {
+      best = p;
+      bestExpires = expires;
+    }
+  }
+
+  return best || primaryPayload;
+}
+
+async function appleApiGet(path, bundleId = APPLE_BUNDLE_ID) {
   const token = createAppStoreApiToken(bundleId);
-  const path = `/inApps/v1/transactions/${encodeURIComponent(transactionId)}`;
   const headers = { Authorization: `Bearer ${token}` };
 
   const tryHost = async (host) => {
@@ -87,7 +161,7 @@ async function fetchTransactionInfo(transactionId, bundleId = APPLE_BUNDLE_ID) {
       headers,
       validateStatus: () => true,
     });
-    return { data, status };
+    return { data, status, host };
   };
 
   let result = await tryHost(PRODUCTION_API);
@@ -101,13 +175,19 @@ async function fetchTransactionInfo(transactionId, bundleId = APPLE_BUNDLE_ID) {
   if (result.status < 200 || result.status >= 300) {
     const err = new Error(
       result.data?.errorMessage ||
-        `Apple transaction lookup failed (${result.status}).`
+        `Apple API request failed (${result.status}).`
     );
     err.statusCode = result.status === 404 ? 400 : 502;
     throw err;
   }
 
-  const payload = decodeJwsPayload(result.data.signedTransactionInfo);
+  return result.data;
+}
+
+async function fetchTransactionInfo(transactionId, bundleId = APPLE_BUNDLE_ID) {
+  const path = `/inApps/v1/transactions/${encodeURIComponent(transactionId)}`;
+  const data = await appleApiGet(path, bundleId);
+  const payload = decodeJwsPayload(data.signedTransactionInfo);
   if (!payload) {
     const err = new Error('Invalid signed transaction from Apple.');
     err.statusCode = 502;
@@ -116,9 +196,37 @@ async function fetchTransactionInfo(transactionId, bundleId = APPLE_BUNDLE_ID) {
   return payload;
 }
 
+/**
+ * Latest subscription-period transactions from Get All Subscription Statuses.
+ * @see https://developer.apple.com/documentation/appstoreserverapi/get_all_subscription_statuses
+ */
+async function fetchSubscriptionStatusPayloads(anyTransactionId, bundleId = APPLE_BUNDLE_ID) {
+  const query = '?status=1&status=3&status=4';
+  const path =
+    `/inApps/v1/subscriptions/${encodeURIComponent(anyTransactionId)}${query}`;
+  const data = await appleApiGet(path, bundleId);
+  const groups = Array.isArray(data?.data) ? data.data : [];
+  const payloads = [];
+
+  for (const group of groups) {
+    const items = Array.isArray(group?.lastTransactions) ? group.lastTransactions : [];
+    for (const item of items) {
+      const status = item?.status;
+      if (status != null && !ACTIVE_SUBSCRIPTION_STATUSES.has(Number(status))) {
+        continue;
+      }
+      const decoded = decodeJwsPayload(item?.signedTransactionInfo);
+      if (decoded) payloads.push(decoded);
+    }
+  }
+
+  return payloads;
+}
+
 function assertActiveSubscription(payload, expectedProductId, bundleId) {
-  const productId = payload.productId || payload.product_id;
-  const expiresMs = Number(payload.expiresDate || payload.expires_date_ms || 0);
+  const productId = payloadProductId(payload);
+  const expiresMs = extractExpiresMs(payload);
+  const purchaseMs = extractPurchaseMs(payload);
   const revocationDate = payload.revocationDate || payload.revocation_date;
 
   if (bundleId && payload.bundleId && payload.bundleId !== bundleId) {
@@ -159,12 +267,33 @@ function assertActiveSubscription(payload, expectedProductId, bundleId) {
       payload.originalTransactionId || payload.original_transaction_id || ''
     ),
     expiry: expiresMs ? new Date(expiresMs) : null,
-    startTime: payload.purchaseDate
-      ? new Date(Number(payload.purchaseDate))
-      : new Date(),
+    startTime: purchaseMs ? new Date(purchaseMs) : new Date(),
     raw: payload,
     ...mapped,
   };
+}
+
+async function resolvePayloadViaAppStoreApi(transactionId, productId, bundleId) {
+  const txnPayload = await fetchTransactionInfo(transactionId, bundleId);
+  const lookupId =
+    txnPayload.originalTransactionId ||
+    txnPayload.original_transaction_id ||
+    transactionId;
+
+  let statusPayloads = [];
+  try {
+    statusPayloads = await fetchSubscriptionStatusPayloads(lookupId, bundleId);
+  } catch (err) {
+    if (err.statusCode !== 400 && err.statusCode !== 404) {
+      throw err;
+    }
+  }
+
+  return chooseAuthoritativeTransactionPayload(
+    txnPayload,
+    statusPayloads,
+    productId
+  );
 }
 
 /**
@@ -181,7 +310,7 @@ async function verifyAppleSubscription({
   let payload = null;
 
   if (hasAppleApiCredentials() && transactionId) {
-    payload = await fetchTransactionInfo(transactionId, bundleId);
+    payload = await resolvePayloadViaAppStoreApi(transactionId, productId, bundleId);
   } else if (
     process.env.APPLE_IAP_TRUST_CLIENT_JWS === 'true' &&
     serverVerificationData
@@ -199,11 +328,10 @@ async function verifyAppleSubscription({
     err.statusCode = 503;
     throw err;
   } else if (serverVerificationData) {
-    // Credentials exist but no transactionId — decode JWS then re-check via API if possible.
     payload = decodeJwsPayload(serverVerificationData);
     const tid = payload?.transactionId || payload?.transaction_id;
     if (tid) {
-      payload = await fetchTransactionInfo(String(tid), bundleId);
+      payload = await resolvePayloadViaAppStoreApi(String(tid), productId, bundleId);
     }
   }
 
@@ -221,4 +349,8 @@ module.exports = {
   mapProduct,
   verifyAppleSubscription,
   hasAppleApiCredentials,
+  normalizeAppleTimestamp,
+  extractExpiresMs,
+  extractPurchaseMs,
+  chooseAuthoritativeTransactionPayload,
 };
