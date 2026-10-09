@@ -1,5 +1,7 @@
 const prisma = require('../prisma/client');
-const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const { getOrCreateCashAccount, ensureCashBankAccount } = require('../utils/cashAccountHelper');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
+const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 const {
   deriveAccountType,
   ensureEquityAccountForChart,
@@ -14,16 +16,48 @@ function cleanId(value) {
   return raw;
 }
 
+function parseAmount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) {
+    const err = new Error('Amount must be greater than zero');
+    err.statusCode = 400;
+    throw err;
+  }
+  return n;
+}
+
+function parseTxnDate(value) {
+  if (!value) return new Date();
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    const err = new Error('Invalid transaction date');
+    err.statusCode = 400;
+    throw err;
+  }
+  return d;
+}
+
+async function assertOpenFiscalYear(userId, date) {
+  try {
+    await fiscalYearGuard(userId, date);
+  } catch (err) {
+    if (err.code === 'FISCAL_YEAR_CLOSED') {
+      err.statusCode = 400;
+    }
+    throw err;
+  }
+}
+
 /**
- * Cash → Cash in Hand (1001). Bank Transfer/Cheque/etc → selected bank COA.
+ * Cash → Cash in Hand. Bank Transfer/Cheque/etc → selected bank COA.
  */
-async function resolveFundingAccount(userId, companyId, paymentMethod, bankAccountId) {
+async function resolveFundingAccount(userId, companyId, paymentMethod, bankAccountId, tx = prisma) {
   const method = paymentMethod || 'Cash';
   const bankId = cleanId(bankAccountId);
   const useBank = method !== 'Cash' && !!bankId;
 
   if (useBank) {
-    const bankAccount = await prisma.bankAccount.findFirst({
+    const bankAccount = await tx.bankAccount.findFirst({
       where: { id: bankId, companyId },
       include: { chartOfAccount: true },
     });
@@ -35,38 +69,67 @@ async function resolveFundingAccount(userId, companyId, paymentMethod, bankAccou
     return { fundingAccount: bankAccount.chartOfAccount, bankAccount };
   }
 
-  const cash = await getOrCreateCashAccount(userId, companyId);
-  return { fundingAccount: cash, bankAccount: null };
+  // Cash posts to COA Cash in Hand AND the Cash ledger row on Cash & Bank page
+  const cashLedger = await ensureCashBankAccount(userId, companyId, tx);
+  const fundingAccount =
+    cashLedger.chartOfAccount ||
+    (await getOrCreateCashAccount(userId, companyId, tx));
+  return { fundingAccount, bankAccount: cashLedger };
 }
 
-/** direction 'in' = owner injects (capital), 'out' = owner withdraws (drawings) */
-async function applyFundingBalance(fundingAccount, bankAccount, amount, direction) {
+/** direction 'in' = capital injection, 'out' = drawings/dividend */
+async function applyFundingBalance(fundingAccount, bankAccount, amount, direction, tx = prisma) {
   const delta = direction === 'in' ? amount : -amount;
-  await prisma.chartOfAccount.update({
+  await tx.chartOfAccount.update({
     where: { id: fundingAccount.id },
     data: { currentBalance: { increment: delta } },
   });
   if (bankAccount) {
-    await prisma.bankAccount.update({
+    await tx.bankAccount.update({
       where: { id: bankAccount.id },
       data: { currentBalance: { increment: delta } },
     });
   }
 }
 
-// ── HELPER: create EquityTransaction record ───────────────────
-async function createEquityTransaction(accountId, type, amount, description, reference, userId, companyId) {
-  const chartAccount = await prisma.chartOfAccount.findUnique({ where: { id: accountId } });
-  if (!chartAccount) return;
+function isEquityReserveLike(account) {
+  if (!account || account.type !== 'Equity') return false;
+  const t = deriveAccountType(account.name);
+  return ['Reserves', 'Retained Earnings', 'Capital', 'Share Capital'].includes(t);
+}
+
+function isContraEquityType(type) {
+  return type === 'Drawings' || type === 'Dividends' || type === 'Dividend' || type === 'Distribution';
+}
+
+async function createEquityTransaction(
+  accountId,
+  type,
+  amount,
+  description,
+  reference,
+  userId,
+  companyId,
+  {
+    journalEntryId = null,
+    date = null,
+    client = prisma,
+    /** 'in' increases equity shadow, 'out' decreases, 'none' history only */
+    balanceEffect = null,
+  } = {}
+) {
+  const chartAccount = await client.chartOfAccount.findUnique({ where: { id: accountId } });
+  if (!chartAccount) return null;
 
   const equityAccount = await ensureEquityAccountForChart(
     chartAccount,
     userId,
-    companyId
+    companyId,
+    client
   );
-  if (!equityAccount) return;
+  if (!equityAccount) return null;
 
-  await prisma.equityTransaction.create({
+  const txn = await client.equityTransaction.create({
     data: {
       accountId: equityAccount.id,
       type,
@@ -74,24 +137,125 @@ async function createEquityTransaction(accountId, type, amount, description, ref
       description,
       reference: reference || '',
       status: 'Posted',
+      date: date || new Date(),
+      journalEntryId: journalEntryId || null,
       createdBy: userId,
-      companyId
-    }
+      updatedBy: userId,
+      companyId,
+    },
   });
 
-  // Update EquityAccount additions/withdrawals
-  const isWithdrawal = type === 'Drawings';
-  await prisma.equityAccount.update({
-    where: { id: equityAccount.id },
-    data: {
-      currentBalance: isWithdrawal
-        ? { decrement: amount }
-        : { increment: amount },
-      additions: isWithdrawal ? undefined : { increment: amount },
-      withdrawals: isWithdrawal ? { increment: amount } : undefined,
-      lastUpdated: new Date()
-    }
+  let effect = balanceEffect;
+  if (!effect) {
+    if (isContraEquityType(type)) effect = 'out';
+    else if (type === 'Reserve Transfer') effect = 'none';
+    else effect = 'in';
+  }
+
+  if (effect === 'out') {
+    await client.equityAccount.update({
+      where: { id: equityAccount.id },
+      data: {
+        currentBalance: { decrement: amount },
+        withdrawals: { increment: amount },
+        lastUpdated: new Date(),
+      },
+    });
+  } else if (effect === 'in') {
+    await client.equityAccount.update({
+      where: { id: equityAccount.id },
+      data: {
+        currentBalance: { increment: amount },
+        additions: { increment: amount },
+        lastUpdated: new Date(),
+      },
+    });
+  } else {
+    await client.equityAccount.update({
+      where: { id: equityAccount.id },
+      data: { lastUpdated: new Date() },
+    });
+  }
+
+  return txn;
+}
+
+async function ensureDividendEquityAccount(userId, companyId, preferredId, tx = prisma) {
+  if (preferredId) {
+    const linked = await findLinkedChartAccount(preferredId, companyId);
+    if (linked && linked.type === 'Equity') return linked;
+  }
+
+  let account = await tx.chartOfAccount.findFirst({
+    where: {
+      companyId,
+      type: 'Equity',
+      isActive: true,
+      OR: [
+        { code: '3400' },
+        { name: { contains: 'dividend', mode: 'insensitive' } },
+        { name: { contains: 'distribution', mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { code: 'asc' },
   });
+
+  if (!account) {
+    account = await tx.chartOfAccount.create({
+      data: {
+        code: '3400',
+        name: 'Dividends / Distributions',
+        type: 'Equity',
+        parentAccount: 'Equity',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Owner/shareholder distributions (contra-equity)',
+        taxCode: 'N/A',
+        balanceType: 'Debit',
+        isActive: true,
+        createdBy: userId,
+        companyId,
+      },
+    });
+  }
+
+  await ensureEquityAccountForChart(account, userId, companyId, tx);
+  return account;
+}
+
+async function ensureDividendPayableLiability(userId, companyId, tx = prisma) {
+  let account = await tx.chartOfAccount.findFirst({
+    where: {
+      companyId,
+      type: 'Liability',
+      isActive: true,
+      OR: [
+        { code: '2150' },
+        { name: { contains: 'dividend payable', mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { code: 'asc' },
+  });
+
+  if (!account) {
+    account = await tx.chartOfAccount.create({
+      data: {
+        code: '2150',
+        name: 'Dividend Payable',
+        type: 'Liability',
+        parentAccount: 'Current Liabilities',
+        openingBalance: 0,
+        currentBalance: 0,
+        description: 'Declared dividends awaiting payment',
+        taxCode: 'N/A',
+        balanceType: 'Credit',
+        isActive: true,
+        createdBy: userId,
+        companyId,
+      },
+    });
+  }
+  return account;
 }
 
 // ==================== GET ALL EQUITY ACCOUNTS ====================
@@ -133,7 +297,6 @@ exports.getEquityAccounts = async (req, res) => {
       withdrawals: 0,
     }));
 
-    // Enrich additions/withdrawals from EquityAccount shadow rows
     const shadows = await prisma.equityAccount.findMany({
       where: { companyId },
       select: {
@@ -173,8 +336,7 @@ exports.getEquityAccounts = async (req, res) => {
       accounts = accounts.filter((a) => a.accountType === accountType);
     }
 
-    const responseData = { count: accounts.length, data: accounts };
-    res.status(200).json({ success: true, ...responseData });
+    res.status(200).json({ success: true, count: accounts.length, data: accounts });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
@@ -264,14 +426,16 @@ exports.createEquityAccount = async (req, res) => {
       companyId
     );
 
-    // Journal entry for opening balance
     if (openingBalance > 0) {
       const cashAccount = await getOrCreateCashAccount(userId, companyId);
+      const postingDate = new Date();
+      await assertOpenFiscalYear(userId, postingDate);
+      const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
       await prisma.journalEntry.create({
         data: {
           entryNumber: `JE-${Date.now()}`,
-          date: new Date(),
+          date: postingDate,
           description: `Opening balance for ${accountName}`,
           reference: accountCode,
           status: 'Posted',
@@ -279,6 +443,7 @@ exports.createEquityAccount = async (req, res) => {
           postedBy: userId,
           postedAt: new Date(),
           companyId,
+          fiscalYearId,
           lines: {
             create: [
               {
@@ -306,24 +471,25 @@ exports.createEquityAccount = async (req, res) => {
       data: equityAccount,
       message: 'Equity account created successfully'
     });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET SINGLE EQUITY ACCOUNT ====================
 exports.getEquityAccount = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
     const companyId = req.user.companyId;
-
 
     const account = await prisma.equityAccount.findFirst({
       where: { id, companyId },
-      include: { transactions: { orderBy: { date: 'desc' } } }
+      include: {
+        transactions: {
+          orderBy: { date: 'desc' },
+          include: { journalEntry: { select: { id: true, entryNumber: true, date: true } } },
+        },
+      },
     });
 
     if (!account) {
@@ -337,12 +503,10 @@ exports.getEquityAccount = async (req, res) => {
   }
 };
 
-// ==================== UPDATE EQUITY ACCOUNT ====================
 exports.updateEquityAccount = async (req, res) => {
   try {
     const { notes, accountName } = req.body;
     const companyId = req.user.companyId;
-    const userId = req.user.id;
 
     const account = await prisma.equityAccount.findFirst({
       where: { id: req.params.id, companyId }
@@ -371,7 +535,6 @@ exports.updateEquityAccount = async (req, res) => {
 exports.deleteEquityAccount = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const userId = req.user.id;
 
     const account = await prisma.equityAccount.findFirst({
       where: { id: req.params.id, companyId },
@@ -400,12 +563,25 @@ exports.deleteEquityAccount = async (req, res) => {
 
 exports.addCapital = async (req, res) => {
   try {
-    const { accountId, amount, description, reference, paymentMethod, bankAccountId } = req.body;
+    const {
+      accountId,
+      amount: rawAmount,
+      description,
+      reference,
+      paymentMethod,
+      bankAccountId,
+      date,
+    } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.id;
+    const amount = parseAmount(rawAmount);
+    const postingDate = parseTxnDate(date);
+
+    if (!cleanId(accountId)) {
+      return res.status(400).json({ success: false, message: 'Equity account is required' });
+    }
 
     const account = await findLinkedChartAccount(accountId, companyId);
-
     if (!account) {
       return res.status(404).json({ success: false, message: 'Equity account not found in Chart of Accounts' });
     }
@@ -418,79 +594,104 @@ exports.addCapital = async (req, res) => {
       });
     }
 
-    const { fundingAccount, bankAccount } = await resolveFundingAccount(
-      userId,
-      companyId,
-      method,
-      bankAccountId
-    );
+    await assertOpenFiscalYear(userId, postingDate);
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
-    // Journal: Cash/Bank Dr / Equity Cr
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: `JE-${Date.now()}`,
-        date: new Date(),
-        description: description || `Additional capital to ${account.name}`,
-        reference: reference || `CAP-${Date.now()}`,
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        postedAt: new Date(),
+    const result = await prisma.$transaction(async (tx) => {
+      const { fundingAccount, bankAccount } = await resolveFundingAccount(
+        userId,
         companyId,
-        lines: {
-          create: [
-            {
-              accountId: fundingAccount.id,
-              accountName: fundingAccount.name,
-              accountCode: fundingAccount.code,
-              debit: amount,
-              credit: 0
-            },
-            {
-              accountId: account.id,
-              accountName: account.name,
-              accountCode: account.code,
-              debit: 0,
-              credit: amount
-            },
-          ]
-        }
-      }
-    });
+        method,
+        bankAccountId,
+        tx
+      );
 
-    await prisma.chartOfAccount.update({
-      where: { id: account.id },
-      data: { currentBalance: { increment: amount } }
-    });
-    await applyFundingBalance(fundingAccount, bankAccount, amount, 'in');
+      const journal = await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-CAP-${Date.now()}`,
+          date: postingDate,
+          description: description || `Additional capital to ${account.name}`,
+          reference: reference || `CAP-${Date.now()}`,
+          status: 'Posted',
+          type: 'EquityCapital',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
+          companyId,
+          fiscalYearId,
+          lines: {
+            create: [
+              {
+                accountId: fundingAccount.id,
+                accountName: fundingAccount.name,
+                accountCode: fundingAccount.code,
+                debit: amount,
+                credit: 0,
+              },
+              {
+                accountId: account.id,
+                accountName: account.name,
+                accountCode: account.code,
+                debit: 0,
+                credit: amount,
+              },
+            ],
+          },
+        },
+      });
 
-    await createEquityTransaction(
-      account.id, 'Additional Capital', amount,
-      description || `Additional capital to ${account.name}`,
-      reference || '', userId, companyId
-    );
+      await tx.chartOfAccount.update({
+        where: { id: account.id },
+        data: { currentBalance: { increment: amount } },
+      });
+      await applyFundingBalance(fundingAccount, bankAccount, amount, 'in', tx);
+
+      const txn = await createEquityTransaction(
+        account.id,
+        'Additional Capital',
+        amount,
+        description || `Additional capital to ${account.name}`,
+        reference || '',
+        userId,
+        companyId,
+        { journalEntryId: journal.id, date: postingDate, client: tx }
+      );
+
+      return { account, amount, journalEntryId: journal.id, entryNumber: journal.entryNumber, transaction: txn };
+    });
 
     res.status(200).json({
       success: true,
-      data: { account, amount },
-      message: 'Capital added successfully'
+      data: result,
+      message: 'Capital added successfully',
     });
-
   } catch (error) {
     console.error('addCapital error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== RECORD DRAWINGS ====================
 exports.recordDrawings = async (req, res) => {
   try {
-    const { accountId, amount, description, reference, paymentMethod, bankAccountId } = req.body;
+    const {
+      accountId,
+      amount: rawAmount,
+      description,
+      reference,
+      paymentMethod,
+      bankAccountId,
+      date,
+    } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.id;
+    const amount = parseAmount(rawAmount);
+    const postingDate = parseTxnDate(date);
+
+    if (!cleanId(accountId)) {
+      return res.status(400).json({ success: false, message: 'Drawings account is required' });
+    }
 
     const account = await findLinkedChartAccount(accountId, companyId);
-
     if (!account) {
       return res.status(404).json({ success: false, message: 'Equity account not found in Chart of Accounts' });
     }
@@ -503,79 +704,469 @@ exports.recordDrawings = async (req, res) => {
       });
     }
 
-    const { fundingAccount, bankAccount } = await resolveFundingAccount(
-      userId,
-      companyId,
-      method,
-      bankAccountId
-    );
+    await assertOpenFiscalYear(userId, postingDate);
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
-    // Journal: Drawings Dr / Cash or Bank Cr
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: `JE-${Date.now()}`,
-        date: new Date(),
-        description: description || `Owner drawings from ${account.name}`,
-        reference: reference || `DRW-${Date.now()}`,
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        postedAt: new Date(),
+    const result = await prisma.$transaction(async (tx) => {
+      const { fundingAccount, bankAccount } = await resolveFundingAccount(
+        userId,
         companyId,
-        lines: {
-          create: [
-            {
-              accountId: account.id,
-              accountName: account.name,
-              accountCode: account.code,
-              debit: amount,
-              credit: 0
-            },
-            {
-              accountId: fundingAccount.id,
-              accountName: fundingAccount.name,
-              accountCode: fundingAccount.code,
-              debit: 0,
-              credit: amount
-            },
-          ]
-        }
-      }
-    });
+        method,
+        bankAccountId,
+        tx
+      );
 
-    await prisma.chartOfAccount.update({
-      where: { id: account.id },
-      // Drawings is contra-equity: debit reduces credit-normal equity balance (IAS 1)
-      data: { currentBalance: { decrement: amount } }
-    });
-    await applyFundingBalance(fundingAccount, bankAccount, amount, 'out');
+      const journal = await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-DRW-${Date.now()}`,
+          date: postingDate,
+          description: description || `Owner drawings from ${account.name}`,
+          reference: reference || `DRW-${Date.now()}`,
+          status: 'Posted',
+          type: 'EquityDrawings',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
+          companyId,
+          fiscalYearId,
+          lines: {
+            create: [
+              {
+                accountId: account.id,
+                accountName: account.name,
+                accountCode: account.code,
+                debit: amount,
+                credit: 0,
+              },
+              {
+                accountId: fundingAccount.id,
+                accountName: fundingAccount.name,
+                accountCode: fundingAccount.code,
+                debit: 0,
+                credit: amount,
+              },
+            ],
+          },
+        },
+      });
 
-    await createEquityTransaction(
-      account.id, 'Drawings', amount,
-      description || `Owner drawings from ${account.name}`,
-      reference || '', userId, companyId
-    );
+      await tx.chartOfAccount.update({
+        where: { id: account.id },
+        data: { currentBalance: { decrement: amount } },
+      });
+      await applyFundingBalance(fundingAccount, bankAccount, amount, 'out', tx);
+
+      const txn = await createEquityTransaction(
+        account.id,
+        'Drawings',
+        amount,
+        description || `Owner drawings from ${account.name}`,
+        reference || '',
+        userId,
+        companyId,
+        { journalEntryId: journal.id, date: postingDate, client: tx }
+      );
+
+      return { account, amount, journalEntryId: journal.id, entryNumber: journal.entryNumber, transaction: txn };
+    });
 
     res.status(200).json({
       success: true,
-      data: { account, amount },
-      message: `Drawings of ${amount} recorded successfully`
+      data: result,
+      message: `Drawings of ${amount} recorded successfully`,
     });
-
   } catch (error) {
     console.error('recordDrawings error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== TRANSFER TO RETAINED EARNINGS ====================
-exports.transferToRetainedEarnings = async (req, res) => {
+/**
+ * True reserve transfer: Dr Source Reserve / Cr Destination Reserve
+ * (keeps legacy /transfer-retained-earnings for CYE → RE)
+ */
+exports.transferReserve = async (req, res) => {
   try {
-    const { amount, description, reference } = req.body;
+    const {
+      fromAccountId,
+      toAccountId,
+      amount: rawAmount,
+      description,
+      reference,
+      date,
+    } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.id;
+    const amount = parseAmount(rawAmount);
+    const postingDate = parseTxnDate(date);
 
-    // Find or create Retained Earnings in ChartOfAccount
+    if (!cleanId(fromAccountId) || !cleanId(toAccountId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Source and destination reserve accounts are required',
+      });
+    }
+    if (String(fromAccountId) === String(toAccountId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Source and destination accounts must be different',
+      });
+    }
+
+    const fromAccount = await findLinkedChartAccount(fromAccountId, companyId);
+    const toAccount = await findLinkedChartAccount(toAccountId, companyId);
+
+    if (!fromAccount || !toAccount) {
+      return res.status(404).json({
+        success: false,
+        message: 'One or both reserve accounts were not found in Chart of Accounts',
+      });
+    }
+    if (!isEquityReserveLike(fromAccount) || !isEquityReserveLike(toAccount)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reserve transfer is only allowed between equity/reserve accounts',
+      });
+    }
+
+    await assertOpenFiscalYear(userId, postingDate);
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const journal = await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-RSV-${Date.now()}`,
+          date: postingDate,
+          description: description || `Reserve transfer ${fromAccount.name} → ${toAccount.name}`,
+          reference: reference || `RSV-${Date.now()}`,
+          status: 'Posted',
+          type: 'EquityReserveTransfer',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
+          companyId,
+          fiscalYearId,
+          lines: {
+            create: [
+              {
+                accountId: fromAccount.id,
+                accountName: fromAccount.name,
+                accountCode: fromAccount.code,
+                debit: amount,
+                credit: 0,
+              },
+              {
+                accountId: toAccount.id,
+                accountName: toAccount.name,
+                accountCode: toAccount.code,
+                debit: 0,
+                credit: amount,
+              },
+            ],
+          },
+        },
+      });
+
+      await tx.chartOfAccount.update({
+        where: { id: fromAccount.id },
+        data: { currentBalance: { decrement: amount } },
+      });
+      await tx.chartOfAccount.update({
+        where: { id: toAccount.id },
+        data: { currentBalance: { increment: amount } },
+      });
+
+      await createEquityTransaction(
+        fromAccount.id,
+        'Reserve Transfer',
+        amount,
+        description || `Transfer out to ${toAccount.name}`,
+        reference || '',
+        userId,
+        companyId,
+        { journalEntryId: journal.id, date: postingDate, client: tx, balanceEffect: 'out' }
+      );
+      // Second history row without duplicate JE link (unique journalEntryId)
+      await createEquityTransaction(
+        toAccount.id,
+        'Reserve Transfer',
+        amount,
+        description || `Transfer in from ${fromAccount.name}`,
+        reference || journal.entryNumber,
+        userId,
+        companyId,
+        { journalEntryId: null, date: postingDate, client: tx, balanceEffect: 'in' }
+      );
+
+      return {
+        fromAccount,
+        toAccount,
+        amount,
+        journalEntryId: journal.id,
+        entryNumber: journal.entryNumber,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Reserve transfer posted successfully',
+    });
+  } catch (error) {
+    console.error('transferReserve error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Dividend / Distribution payment (or declare+pay).
+ * mode: 'paid' (default) | 'declared' | 'settled'
+ */
+exports.recordDividend = async (req, res) => {
+  try {
+    const {
+      accountId,
+      amount: rawAmount,
+      description,
+      reference,
+      paymentMethod,
+      bankAccountId,
+      date,
+      mode: rawMode,
+    } = req.body;
+    const companyId = req.user.companyId;
+    const userId = req.user.id;
+    const amount = parseAmount(rawAmount);
+    const postingDate = parseTxnDate(date);
+    const mode = String(rawMode || 'paid').toLowerCase();
+
+    await assertOpenFiscalYear(userId, postingDate);
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const dividendAccount = await ensureDividendEquityAccount(
+        userId,
+        companyId,
+        accountId,
+        tx
+      );
+
+      if (mode === 'declared') {
+        const payable = await ensureDividendPayableLiability(userId, companyId, tx);
+        const journal = await tx.journalEntry.create({
+          data: {
+            entryNumber: `JE-DIV-DEC-${Date.now()}`,
+            date: postingDate,
+            description: description || `Dividend declared — ${dividendAccount.name}`,
+            reference: reference || `DIV-DEC-${Date.now()}`,
+            status: 'Posted',
+            type: 'EquityDividendDeclared',
+            createdBy: userId,
+            postedBy: userId,
+            postedAt: new Date(),
+            companyId,
+            fiscalYearId,
+            lines: {
+              create: [
+                {
+                  accountId: dividendAccount.id,
+                  accountName: dividendAccount.name,
+                  accountCode: dividendAccount.code,
+                  debit: amount,
+                  credit: 0,
+                },
+                {
+                  accountId: payable.id,
+                  accountName: payable.name,
+                  accountCode: payable.code,
+                  debit: 0,
+                  credit: amount,
+                },
+              ],
+            },
+          },
+        });
+
+        await tx.chartOfAccount.update({
+          where: { id: dividendAccount.id },
+          data: { currentBalance: { decrement: amount } },
+        });
+        await tx.chartOfAccount.update({
+          where: { id: payable.id },
+          data: { currentBalance: { increment: amount } },
+        });
+
+        const txn = await createEquityTransaction(
+          dividendAccount.id,
+          'Dividend Declared',
+          amount,
+          description || `Dividend declared`,
+          reference || '',
+          userId,
+          companyId,
+          { journalEntryId: journal.id, date: postingDate, client: tx }
+        );
+
+        return {
+          mode: 'declared',
+          account: dividendAccount,
+          amount,
+          journalEntryId: journal.id,
+          entryNumber: journal.entryNumber,
+          transaction: txn,
+        };
+      }
+
+      const method = paymentMethod || 'Cash';
+      if (mode !== 'declared' && method !== 'Cash' && !cleanId(bankAccountId)) {
+        const err = new Error('Please select a bank account for this payment method');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      const { fundingAccount, bankAccount } = await resolveFundingAccount(
+        userId,
+        companyId,
+        method,
+        bankAccountId,
+        tx
+      );
+
+      if (mode === 'settled') {
+        const payable = await ensureDividendPayableLiability(userId, companyId, tx);
+        const journal = await tx.journalEntry.create({
+          data: {
+            entryNumber: `JE-DIV-PAY-${Date.now()}`,
+            date: postingDate,
+            description: description || `Dividend paid`,
+            reference: reference || `DIV-PAY-${Date.now()}`,
+            status: 'Posted',
+            type: 'EquityDividendPaid',
+            createdBy: userId,
+            postedBy: userId,
+            postedAt: new Date(),
+            companyId,
+            fiscalYearId,
+            lines: {
+              create: [
+                {
+                  accountId: payable.id,
+                  accountName: payable.name,
+                  accountCode: payable.code,
+                  debit: amount,
+                  credit: 0,
+                },
+                {
+                  accountId: fundingAccount.id,
+                  accountName: fundingAccount.name,
+                  accountCode: fundingAccount.code,
+                  debit: 0,
+                  credit: amount,
+                },
+              ],
+            },
+          },
+        });
+
+        await tx.chartOfAccount.update({
+          where: { id: payable.id },
+          data: { currentBalance: { decrement: amount } },
+        });
+        await applyFundingBalance(fundingAccount, bankAccount, amount, 'out', tx);
+
+        return {
+          mode: 'settled',
+          amount,
+          journalEntryId: journal.id,
+          entryNumber: journal.entryNumber,
+        };
+      }
+
+      // Default: paid distribution (Dr Dividends / Cr Cash|Bank)
+      const journal = await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-DIV-${Date.now()}`,
+          date: postingDate,
+          description: description || `Dividend / distribution — ${dividendAccount.name}`,
+          reference: reference || `DIV-${Date.now()}`,
+          status: 'Posted',
+          type: 'EquityDividend',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
+          companyId,
+          fiscalYearId,
+          lines: {
+            create: [
+              {
+                accountId: dividendAccount.id,
+                accountName: dividendAccount.name,
+                accountCode: dividendAccount.code,
+                debit: amount,
+                credit: 0,
+              },
+              {
+                accountId: fundingAccount.id,
+                accountName: fundingAccount.name,
+                accountCode: fundingAccount.code,
+                debit: 0,
+                credit: amount,
+              },
+            ],
+          },
+        },
+      });
+
+      await tx.chartOfAccount.update({
+        where: { id: dividendAccount.id },
+        data: { currentBalance: { decrement: amount } },
+      });
+      await applyFundingBalance(fundingAccount, bankAccount, amount, 'out', tx);
+
+      const txn = await createEquityTransaction(
+        dividendAccount.id,
+        'Dividend',
+        amount,
+        description || `Dividend / distribution`,
+        reference || '',
+        userId,
+        companyId,
+        { journalEntryId: journal.id, date: postingDate, client: tx }
+      );
+
+      return {
+        mode: 'paid',
+        account: dividendAccount,
+        amount,
+        journalEntryId: journal.id,
+        entryNumber: journal.entryNumber,
+        transaction: txn,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Dividend / distribution recorded successfully',
+    });
+  } catch (error) {
+    console.error('recordDividend error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+// Legacy: Current Year Earnings → Retained Earnings (manual)
+exports.transferToRetainedEarnings = async (req, res) => {
+  try {
+    const { amount: rawAmount, description, reference, date } = req.body;
+    const companyId = req.user.companyId;
+    const userId = req.user.id;
+    const amount = parseAmount(rawAmount);
+    const postingDate = parseTxnDate(date);
+
+    await assertOpenFiscalYear(userId, postingDate);
+    const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
+
     let retainedChartAccount = await prisma.chartOfAccount.findFirst({
       where: {
         companyId,
@@ -583,8 +1174,8 @@ exports.transferToRetainedEarnings = async (req, res) => {
         OR: [
           { code: '3100' },
           { name: { contains: 'retained', mode: 'insensitive' } },
-        ]
-      }
+        ],
+      },
     });
 
     if (!retainedChartAccount) {
@@ -601,12 +1192,11 @@ exports.transferToRetainedEarnings = async (req, res) => {
           balanceType: 'Credit',
           isActive: true,
           createdBy: userId,
-          companyId
-        }
+          companyId,
+        },
       });
     }
 
-    // Find or create P&L account
     let pnlAccount = await prisma.chartOfAccount.findFirst({
       where: {
         companyId,
@@ -615,8 +1205,8 @@ exports.transferToRetainedEarnings = async (req, res) => {
           { code: '3200' },
           { name: { contains: 'current year', mode: 'insensitive' } },
           { name: { contains: 'profit', mode: 'insensitive' } },
-        ]
-      }
+        ],
+      },
     });
 
     if (!pnlAccount) {
@@ -633,90 +1223,95 @@ exports.transferToRetainedEarnings = async (req, res) => {
           balanceType: 'Credit',
           isActive: true,
           createdBy: userId,
-          companyId
-        }
+          companyId,
+        },
       });
     }
 
-    // Journal Entry: P&L Dr / Retained Earnings Cr
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: `JE-${Date.now()}`,
-        date: new Date(),
-        description: description || 'Transfer to retained earnings',
-        reference: reference || `RE-${Date.now()}`,
-        status: 'Posted',
-        createdBy: userId,
-        postedBy: userId,
-        postedAt: new Date(),
+    const result = await prisma.$transaction(async (tx) => {
+      const journal = await tx.journalEntry.create({
+        data: {
+          entryNumber: `JE-RE-${Date.now()}`,
+          date: postingDate,
+          description: description || 'Transfer to retained earnings',
+          reference: reference || `RE-${Date.now()}`,
+          status: 'Posted',
+          type: 'EquityRetainedTransfer',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
+          companyId,
+          fiscalYearId,
+          lines: {
+            create: [
+              {
+                accountId: pnlAccount.id,
+                accountName: pnlAccount.name,
+                accountCode: pnlAccount.code,
+                debit: amount,
+                credit: 0,
+              },
+              {
+                accountId: retainedChartAccount.id,
+                accountName: retainedChartAccount.name,
+                accountCode: retainedChartAccount.code,
+                debit: 0,
+                credit: amount,
+              },
+            ],
+          },
+        },
+      });
+
+      await tx.chartOfAccount.update({
+        where: { id: retainedChartAccount.id },
+        data: { currentBalance: { increment: amount } },
+      });
+      await tx.chartOfAccount.update({
+        where: { id: pnlAccount.id },
+        data: { currentBalance: { decrement: amount } },
+      });
+
+      const txn = await createEquityTransaction(
+        retainedChartAccount.id,
+        'Retained Earnings',
+        amount,
+        description || 'Transfer to retained earnings',
+        reference || '',
+        userId,
         companyId,
-        lines: {
-          create: [
-            {
-              accountId: pnlAccount.id,
-              accountName: pnlAccount.name,
-              accountCode: pnlAccount.code,
-              debit: amount,
-              credit: 0
-            },
-            {
-              accountId: retainedChartAccount.id,
-              accountName: retainedChartAccount.name,
-              accountCode: retainedChartAccount.code,
-              debit: 0,
-              credit: amount
-            },
-          ]
-        }
-      }
-    });
+        { journalEntryId: journal.id, date: postingDate, client: tx }
+      );
 
-    // Update ChartOfAccount balances — RE increases, CYE placeholder decreases
-    await prisma.chartOfAccount.update({
-      where: { id: retainedChartAccount.id },
-      data: { currentBalance: { increment: amount } }
+      return { retainedChartAccount, amount, journalEntryId: journal.id, transaction: txn };
     });
-    await prisma.chartOfAccount.update({
-      where: { id: pnlAccount.id },
-      data: { currentBalance: { decrement: amount } }
-    });
-
-    // Create EquityTransaction for history
-    await createEquityTransaction(
-      retainedChartAccount.id, 'Retained Earnings', amount,
-      description || 'Transfer to retained earnings',
-      reference || '', userId, companyId
-    );
 
     res.status(200).json({
       success: true,
-      data: { retainedChartAccount, amount },
-      message: `${amount} transferred to retained earnings successfully`
+      data: result,
+      message: `${amount} transferred to retained earnings successfully`,
     });
-
   } catch (error) {
     console.error('transferToRetainedEarnings error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET SUMMARY ====================
 exports.getSummary = async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const userId = req.user.id;
 
-
     await syncCompanyEquityAccounts(companyId, userId);
 
     const accounts = await prisma.chartOfAccount.findMany({
-      where: { type: 'Equity', companyId, isActive: true }
+      where: { type: 'Equity', companyId, isActive: true },
     });
 
     const {
       isCurrentYearEarningsAccount,
       liveCurrentYearEarnings,
-      earningsWindowForCompany
+      earningsWindowForCompany,
     } = require('../utils/profitLossHelper');
     const { buildBalanceSheetFromLedger } = require('../utils/balanceSheetHelper');
     const window = await earningsWindowForCompany(companyId, req.query.fiscalYearId);
@@ -728,25 +1323,25 @@ exports.getSummary = async (req, res) => {
         'All Time',
         window.end,
         req.query.fiscalYearId
-      )
+      ),
     ]);
 
     let totalCapital = 0;
     let totalRetainedEarnings = 0;
     let totalReserves = 0;
     let totalDrawings = 0;
+    let totalDividends = 0;
     let signedEquityFromCoa = 0;
 
     for (const account of accounts) {
       const isCye = isCurrentYearEarningsAccount(account);
-      // CYE uses live P&L; Drawings is contra-equity (debit balance → negative equity)
       const balance = isCye ? currentYearEarnings : Number(account.currentBalance || 0);
       const type = deriveAccountType(account.name);
       if (type === 'Capital' || type === 'Share Capital') totalCapital += balance;
       else if (type === 'Retained Earnings') totalRetainedEarnings += balance;
       else if (type === 'Reserves') totalReserves += balance;
       else if (type === 'Drawings') totalDrawings += Math.abs(balance);
-      // Signed sum: drawings already negative after proper posting
+      else if (type === 'Dividends') totalDividends += Math.abs(balance);
       if (!isCye) signedEquityFromCoa += balance;
     }
     signedEquityFromCoa += currentYearEarnings;
@@ -758,6 +1353,7 @@ exports.getSummary = async (req, res) => {
         if (/current year earnings/i.test(item.name || '')) return false;
         if (name.includes('retained')) return false;
         if (name.includes('drawing')) return false;
+        if (name.includes('dividend') || name.includes('distribution')) return false;
         return true;
       })
       .reduce((sum, item) => sum + Number(item.balance || 0), 0);
@@ -765,64 +1361,91 @@ exports.getSummary = async (req, res) => {
     const periodEarnings = currentYearEarnings;
     const changeOnCapital = equityNow - ownerCapital;
 
-    // Prefer balance-sheet total; fallback is signed COA equity (drawings reduce, not double-subtracted)
     const totalEquity =
       equityNow ||
       signedEquityFromCoa ||
-      totalCapital + totalRetainedEarnings + totalReserves - totalDrawings;
+      totalCapital + totalRetainedEarnings + totalReserves - totalDrawings - totalDividends;
 
-    const summaryData = {
-      totalCapital: ownerCapital || totalCapital,
-      totalRetainedEarnings,
-      totalReserves,
-      totalDrawings,
-      totalEquity,
-      currentYearEarnings,
-      ownerCapital,
-      periodEarnings,
-      equityNow: totalEquity,
-      changeOnCapital,
-      isIncrease: periodEarnings >= 0,
-      formula:
-        "Owner's capital + reserves + retained earnings + current year earnings − drawings (IAS 1)",
-    };
-
-    res.status(200).json({ success: true, data: summaryData });
+    res.status(200).json({
+      success: true,
+      data: {
+        totalCapital: ownerCapital || totalCapital,
+        totalRetainedEarnings,
+        totalReserves,
+        totalDrawings,
+        totalDividends,
+        totalEquity,
+        currentYearEarnings,
+        ownerCapital,
+        periodEarnings,
+        equityNow: totalEquity,
+        changeOnCapital,
+        isIncrease: periodEarnings >= 0,
+        formula:
+          "Owner's capital + reserves + retained earnings + current year earnings − drawings − dividends (IAS 1)",
+      },
+    });
   } catch (error) {
     console.error('getSummary error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==================== GET ALL TRANSACTIONS ====================
 exports.getAllTransactions = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const userId = req.user.id;
+    const { from, to, type, fiscalYearId } = req.query;
 
+    const where = { companyId };
+    if (type) where.type = String(type);
+    if (from || to) {
+      where.date = {};
+      if (from) where.date.gte = new Date(from);
+      if (to) where.date.lte = new Date(to);
+    }
+    if (fiscalYearId) {
+      const fy = await prisma.fiscalYear.findFirst({
+        where: { id: String(fiscalYearId), companyId },
+      });
+      if (fy) {
+        where.date = {
+          ...(where.date || {}),
+          gte: fy.startDate,
+          lte: fy.endDate,
+        };
+      }
+    }
 
     const transactions = await prisma.equityTransaction.findMany({
-      where: { companyId },
-      include: { account: true },
+      where,
+      include: {
+        account: true,
+        journalEntry: { select: { id: true, entryNumber: true, date: true, status: true } },
+      },
       orderBy: { date: 'desc' },
-      take: 100
+      take: 200,
     });
 
-    const data = transactions.map(txn => ({
+    const data = transactions.map((txn) => ({
       id: txn.id,
+      accountId: txn.accountId,
       accountName: txn.account?.accountName || '',
       type: txn.type,
       date: txn.date,
       amount: txn.amount,
       description: txn.description,
-      reference: txn.reference
+      reference: txn.reference,
+      status: txn.status,
+      journalEntryId: txn.journalEntryId,
+      journalEntryNumber: txn.journalEntry?.entryNumber || null,
+      createdBy: txn.createdBy,
+      createdAt: txn.createdAt,
+      updatedAt: txn.updatedAt,
     }));
 
-    const responseData = { count: data.length, data };
-    res.status(200).json({ success: true, ...responseData });
+    res.status(200).json({ success: true, count: data.length, data });
   } catch (error) {
     console.error('getAllTransactions error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
-

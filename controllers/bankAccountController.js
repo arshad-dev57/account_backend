@@ -7,6 +7,7 @@ const {
   createBankDeposit,
   repairCompanyBankOpeningBalances
 } = require('../services/bankAccountingService');
+const { ensureCashBankAccount } = require('../utils/cashAccountHelper');
 
 // ─── HELPER: Generate unique account code ─────────────────────────
 async function generateUniqueAccountCode(companyId) {
@@ -242,6 +243,13 @@ exports.getBankAccounts = async (req, res) => {
       }
     } catch (repairErr) {
       console.log('⚠️ [Bank] Opening balance auto-repair skipped:', repairErr.message);
+    }
+
+    // Ensure Cash in Hand ledger exists so Cash & Bank page always shows cash
+    try {
+      await ensureCashBankAccount(userId, companyId);
+    } catch (cashErr) {
+      console.log('⚠️ [Bank] Cash ledger ensure skipped:', cashErr.message);
     }
 
     // FIXED: Search using companyId
@@ -706,8 +714,7 @@ exports.reconcileBankAccount = async (req, res) => {
 exports.getBankAccountTransactions = async (req, res) => {
   try {
     const { id } = req.params;
-    const { startDate, endDate, limit = 20, page = 1 } = req.query;
-    const userId = req.user.id;
+    const { startDate, endDate, limit = 20, page = 1, search = '' } = req.query;
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
 
     const bankAccount = await prisma.bankAccount.findFirst({
@@ -725,12 +732,13 @@ exports.getBankAccountTransactions = async (req, res) => {
     }
 
     const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 20;
+    const limitNum = Math.min(100, parseInt(limit) || 20);
     const skip = (pageNum - 1) * limitNum;
 
     const { transactions, total } = await BankAccountModel.getTransactions(id, {
       startDate,
       endDate,
+      search,
       skip,
       take: limitNum
     });
@@ -948,6 +956,13 @@ exports.depositToBankAccount = async (req, res) => {
 exports.getBankAccountsStats = async (req, res) => {
   try {
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
+    const userId = req.user.id;
+
+    try {
+      await ensureCashBankAccount(userId, companyId);
+    } catch (_) {
+      /* non-fatal */
+    }
 
     const accounts = await prisma.bankAccount.findMany({
       where: { companyId },

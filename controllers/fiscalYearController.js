@@ -365,6 +365,23 @@ exports.closeFiscalYear = async (req, res) => {
     // ── TRANSACTION: steps e–n ─────────────────────────────────────────────
     const txResult = await prisma.$transaction(async (tx) => {
 
+      // Idempotent: never create a second closing entry for the same FY
+      const existingClosing = await tx.journalEntry.findFirst({
+        where: {
+          companyId,
+          fiscalYearId: fy.id,
+          type: 'ClosingEntry',
+          status: 'Posted',
+        },
+      });
+      if (existingClosing) {
+        const err = new Error(
+          'Year-end closing entry already exists for this fiscal year. Closing is idempotent.'
+        );
+        err.statusCode = 409;
+        throw err;
+      }
+
       // ── e. Aggregate Revenue net balances ───────────────────────────────
       const revenueAccounts = await tx.chartOfAccount.findMany({
         where: { companyId, type: 'Revenue', isActive: true }
@@ -469,6 +486,14 @@ exports.closeFiscalYear = async (req, res) => {
       const closingEntryNumber = `JE-CLOSE-${Date.now()}`;
 
       // ── j. Create Closing Entry ─────────────────────────────────────────
+      if (closingLines.length === 0) {
+        const err = new Error(
+          'Nothing to close: no revenue or expense balances found for this fiscal year.'
+        );
+        err.statusCode = 400;
+        throw err;
+      }
+
       const closingEntry = await tx.journalEntry.create({
         data: {
           entryNumber: closingEntryNumber,
@@ -486,6 +511,26 @@ exports.closeFiscalYear = async (req, res) => {
         },
         include: { lines: true }
       });
+
+      // Sync COA balances so opening balances reflect closed P&L → Retained Earnings
+      for (const acct of revenueWithBalance) {
+        await tx.chartOfAccount.update({
+          where: { id: acct.id },
+          data:  { currentBalance: { decrement: acct.netBalance.toNumber() } },
+        });
+      }
+      for (const acct of expenseWithBalance) {
+        await tx.chartOfAccount.update({
+          where: { id: acct.id },
+          data:  { currentBalance: { decrement: acct.netBalance.toNumber() } },
+        });
+      }
+      if (!netIncome.isZero()) {
+        await tx.chartOfAccount.update({
+          where: { id: retainedEarnings.id },
+          data:  { currentBalance: { increment: netIncome.toNumber() } },
+        });
+      }
 
       // ── k. Find next fiscal year ─────────────────────────────────────────
       const nextFY = await tx.fiscalYear.findFirst({
@@ -533,7 +578,7 @@ exports.closeFiscalYear = async (req, res) => {
               obSkipped    = true;
               obSkipReason = 'opening balance entry already exists (description-based)';
             } else {
-              // Collect Asset, Liability, Equity accounts
+              // Collect Asset, Liability, Equity accounts (balances already closed)
               const balanceAccounts = await tx.chartOfAccount.findMany({
                 where: {
                   companyId,
@@ -549,22 +594,43 @@ exports.closeFiscalYear = async (req, res) => {
                 if (balance === 0) continue;
 
                 if (acct.type === 'Asset') {
-                  obLines.push({
-                    accountId:   acct.id,
-                    accountName: acct.name,
-                    accountCode: acct.code || '',
-                    debit:       balance,
-                    credit:      0
-                  });
+                  // Debit-normal: positive = debit, negative = credit
+                  if (balance > 0) {
+                    obLines.push({
+                      accountId:   acct.id,
+                      accountName: acct.name,
+                      accountCode: acct.code || '',
+                      debit:       balance,
+                      credit:      0
+                    });
+                  } else {
+                    obLines.push({
+                      accountId:   acct.id,
+                      accountName: acct.name,
+                      accountCode: acct.code || '',
+                      debit:       0,
+                      credit:      Math.abs(balance)
+                    });
+                  }
                 } else {
-                  // Liability or Equity
-                  obLines.push({
-                    accountId:   acct.id,
-                    accountName: acct.name,
-                    accountCode: acct.code || '',
-                    debit:       0,
-                    credit:      balance
-                  });
+                  // Liability / Equity (credit-normal; drawings may be negative)
+                  if (balance > 0) {
+                    obLines.push({
+                      accountId:   acct.id,
+                      accountName: acct.name,
+                      accountCode: acct.code || '',
+                      debit:       0,
+                      credit:      balance
+                    });
+                  } else {
+                    obLines.push({
+                      accountId:   acct.id,
+                      accountName: acct.name,
+                      accountCode: acct.code || '',
+                      debit:       Math.abs(balance),
+                      credit:      0
+                    });
+                  }
                 }
               }
 
@@ -637,7 +703,8 @@ return res.status(200).json({
       msg.includes('Unknown argument') || msg.includes('Invalid `')
         ? 'Year-end close failed while creating journal entries. Please try again.'
         : msg || 'Internal server error';
-    return res.status(500).json({ success: false, message: clean });
+    const status = err.statusCode || (err.code === 'FISCAL_YEAR_CLOSED' ? 400 : 500);
+    return res.status(status).json({ success: false, message: clean });
   }
 };
 

@@ -3,9 +3,20 @@ const prisma = require('../../prisma/client');
 const { randomUUID } = require('crypto');
 const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
 const {
-  resolveLocationId,
   adjustLocationStock,
 } = require('../../warehouse/services/locationService');
+
+/** Use terminal warehouse only when explicitly set — never force a default warehouse. */
+async function resolveSaleLocationId(tx, { companyId, terminalId, locationIdInput }) {
+  const explicit = String(locationIdInput || '').trim() || null;
+  if (explicit) return explicit;
+  if (!terminalId) return null;
+  const terminal = await tx.pOSTerminal.findFirst({
+    where: { id: terminalId, companyId },
+    select: { locationId: true },
+  });
+  return terminal?.locationId || null;
+}
 function generatePOSInvoiceNumber() {
   const d = new Date();
   const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -172,20 +183,11 @@ class POSSaleModel {
     const invoiceNumber = generatePOSInvoiceNumber();
 
     return await prisma.$transaction(async (tx) => {
-      let resolvedLocationId = locationIdInput || null;
-      if (!resolvedLocationId && terminalId) {
-        const terminal = await tx.pOSTerminal.findFirst({
-          where: { id: terminalId, companyId },
-          select: { locationId: true },
-        });
-        resolvedLocationId = terminal?.locationId || null;
-      }
-      const locationId = await resolveLocationId(
-        tx,
+      const locationId = await resolveSaleLocationId(tx, {
         companyId,
-        resolvedLocationId,
-        createdBy
-      );
+        terminalId,
+        locationIdInput,
+      });
       let totalCOGS = 0;
       for (const item of processedItems) {
         if (item.isCustom || !item.productId) continue;
@@ -219,7 +221,7 @@ class POSSaleModel {
             notes: `POS Sale — ${invoiceNumber}`,
             createdBy,
             companyId,
-            locationId,
+            locationId: locationId || null,
           }
         });
 
@@ -398,20 +400,11 @@ class POSSaleModel {
         const product = await tx.product.findFirst({ where: { id: ri.productId, companyId } });
 
         if (product) {
-          let returnLocationId = null;
-          if (originalSale.terminalId) {
-            const terminal = await tx.pOSTerminal.findFirst({
-              where: { id: originalSale.terminalId, companyId },
-              select: { locationId: true },
-            });
-            returnLocationId = terminal?.locationId || null;
-          }
-          const locationId = await resolveLocationId(
-            tx,
+          const locationId = await resolveSaleLocationId(tx, {
             companyId,
-            returnLocationId,
-            createdBy
-          );
+            terminalId: originalSale.terminalId,
+            locationIdInput: null,
+          });
           const adj = await adjustLocationStock(tx, {
             companyId,
             productId: product.id,
@@ -428,7 +421,7 @@ class POSSaleModel {
               newStock: adj.newLocationStock,
               reason: 'POS Return', reference: originalSale.invoiceNumber,
               notes: `POS Return from ${originalSale.invoiceNumber}`, createdBy, companyId,
-              locationId,
+              locationId: locationId || null,
             }
           });
         }
@@ -506,20 +499,11 @@ class POSSaleModel {
         const product = await tx.product.findFirst({ where: { id: item.productId, companyId } });
         if (!product) continue;
 
-        let voidLocationId = null;
-        if (sale.terminalId) {
-          const terminal = await tx.pOSTerminal.findFirst({
-            where: { id: sale.terminalId, companyId },
-            select: { locationId: true },
-          });
-          voidLocationId = terminal?.locationId || null;
-        }
-        const locationId = await resolveLocationId(
-          tx,
+        const locationId = await resolveSaleLocationId(tx, {
           companyId,
-          voidLocationId,
-          createdBy
-        );
+          terminalId: sale.terminalId,
+          locationIdInput: null,
+        });
         const adj = await adjustLocationStock(tx, {
           companyId,
           productId: product.id,
@@ -540,7 +524,7 @@ class POSSaleModel {
             notes: `Void ${sale.invoiceNumber}: ${reason || ''}`,
             createdBy,
             companyId,
-            locationId,
+            locationId: locationId || null,
           }
         });
       }
@@ -693,22 +677,20 @@ class POSSaleModel {
         }
         let shiftId = tx.shiftId;
         let terminalId = tx.terminalId;
-        if (!terminalId || terminalId === 'default-terminal') {
+        if (!terminalId || terminalId === 'default-terminal' || String(terminalId).startsWith('local-term-')) {
           const existingTerminal = await prisma.pOSTerminal.findFirst({
-            where: { companyId }
+            where: { companyId, isDeleted: false, isActive: true },
+            orderBy: { createdAt: 'asc' },
           });
           if (existingTerminal) {
             terminalId = existingTerminal.id;
           } else {
-            const newTerminal = await prisma.pOSTerminal.create({
-              data: {
-                companyId,
-                name: 'Default Terminal',
-                locationId: null,
-                isActive: true
-              }
+            results.push({
+              id: tx.id,
+              status: 'failed',
+              reason: 'No POS terminal configured. Create a terminal in Management before syncing sales.',
             });
-            terminalId = newTerminal.id;
+            continue;
           }
         }
         

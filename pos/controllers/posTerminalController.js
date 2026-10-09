@@ -1,65 +1,6 @@
 // pos/controllers/posTerminalController.js
 const prisma = require('../../prisma/client');
 
-/**
- * Ensure each location has at least one active POS terminal.
- * Used so cashiers assigned to a warehouse can open a shift without
- * waiting for an admin to manually create a terminal.
- */
-async function ensureTerminalsForLocations(companyId, createdBy, locationIds) {
-  const ids = [...new Set((locationIds || []).map(String).filter(Boolean))];
-  if (!ids.length) return [];
-
-  const locations = await prisma.location.findMany({
-    where: { companyId, isDeleted: false, id: { in: ids } },
-    select: { id: true, name: true, code: true, type: true },
-  });
-
-  const created = [];
-  for (const loc of locations) {
-    const existing = await prisma.pOSTerminal.findFirst({
-      where: { companyId, locationId: loc.id, isDeleted: false },
-      select: { id: true },
-    });
-    if (existing) continue;
-
-    const baseCode = String(loc.code || loc.name || 'POS')
-      .replace(/[^a-zA-Z0-9]/g, '')
-      .toUpperCase()
-      .slice(0, 8) || 'POS';
-    let code = `${baseCode}-T1`;
-    let n = 1;
-    while (await prisma.pOSTerminal.findFirst({ where: { companyId, code } })) {
-      n += 1;
-      code = `${baseCode}-T${n}`;
-      if (n > 50) {
-        code = `T-${loc.id.slice(0, 8).toUpperCase()}`;
-        break;
-      }
-    }
-
-    const terminal = await prisma.pOSTerminal.create({
-      data: {
-        name: `${loc.name} Counter`,
-        code,
-        companyId,
-        createdBy,
-        locationId: loc.id,
-        isActive: true,
-        status: 'Active',
-      },
-      include: {
-        location: { select: { id: true, name: true, code: true, type: true } },
-        creator: { select: { id: true, firstName: true, lastName: true } },
-        _count: { select: { shifts: true } },
-      },
-    });
-    created.push(terminal);
-    console.log(`[terminals] auto-created ${code} for location ${loc.name} (${loc.id})`);
-  }
-  return created;
-}
-
 // @desc  Create terminal
 // @route POST /api/pos/terminals
 const createTerminal = async (req, res) => {
@@ -68,23 +9,20 @@ const createTerminal = async (req, res) => {
     const createdBy = req.user.id;
     const { name, code, deviceInfo, locationId } = req.body;
     const { normalizeLocationId } = require('../../utils/accountingLocationHelper');
-    const locId = normalizeLocationId(locationId);
+    const locId = normalizeLocationId(locationId) || null;
 
     if (!name || !code) return res.status(400).json({ success: false, message: 'Terminal name and code are required' });
     if (req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only admins can create terminals' });
-    if (!locId) {
-      return res.status(400).json({
-        success: false,
-        message: 'locationId (warehouse/shop) is required for terminal',
-      });
-    }
 
-    const location = await prisma.location.findFirst({
-      where: { id: locId, companyId, isDeleted: false, isActive: true },
-      select: { id: true },
-    });
-    if (!location) {
-      return res.status(400).json({ success: false, message: 'Location not found' });
+    // Warehouse/location is optional — when unset, POS shows company-wide inventory.
+    if (locId) {
+      const location = await prisma.location.findFirst({
+        where: { id: locId, companyId, isDeleted: false, isActive: true },
+        select: { id: true },
+      });
+      if (!location) {
+        return res.status(400).json({ success: false, message: 'Location not found' });
+      }
     }
 
     const existing = await prisma.pOSTerminal.findFirst({ where: { code, companyId } });
@@ -142,26 +80,28 @@ const listTerminals = async (req, res) => {
     if (locId) filter.locationId = locId;
 
     // Non-admin users only see terminals at their assigned locations
+    // plus company-wide terminals (no warehouse assigned).
     const scope = req.locationScope;
-    let allowedLocationIds = null;
 
     const meAssignedTerminalId = await getUserAssignedTerminalId(req.user.id);
     if (meAssignedTerminalId && scope && !scope.isAdmin) {
       filter.id = meAssignedTerminalId;
     } else if (scope && !scope.isAdmin) {
       const allowed = Array.isArray(scope.ids) ? scope.ids : [];
-      if (allowed.length === 0) {
-        return res.json({ success: true, data: [] });
-      }
-      if (locId && !allowed.includes(locId)) {
+      if (locId && allowed.length && !allowed.includes(locId)) {
         return res.status(403).json({ success: false, message: 'You do not have access to this location' });
       }
       if (!locId) {
-        filter.locationId = { in: allowed };
+        if (allowed.length) {
+          filter.OR = [
+            { locationId: { in: allowed } },
+            { locationId: null },
+          ];
+        } else {
+          // No warehouse assignment — only company-wide terminals
+          filter.locationId = null;
+        }
       }
-      allowedLocationIds = locId ? [locId] : allowed;
-    } else if (locId) {
-      allowedLocationIds = [locId];
     }
 
     let terminals = await prisma.pOSTerminal.findMany({
@@ -175,33 +115,10 @@ const listTerminals = async (req, res) => {
     });
 
     // Extra safety: drop any terminal whose location is outside user scope
+    // (company-wide / null location always allowed)
     let visible = scope && !scope.isAdmin && !meAssignedTerminalId
-      ? terminals.filter((t) => t.locationId && (scope.ids || []).includes(t.locationId))
+      ? terminals.filter((t) => !t.locationId || (scope.ids || []).includes(t.locationId))
       : terminals;
-
-    // Auto-create a default terminal when a location has none yet
-    // (skip when user has a fixed terminal assignment)
-    if (!meAssignedTerminalId) {
-      let ensureIds = allowedLocationIds;
-      // Admins list all terminals — still ensure every active location has one
-      if ((!ensureIds || !ensureIds.length) && (scope?.isAdmin || req.user.role === 'admin')) {
-        const locs = await prisma.location.findMany({
-          where: { companyId, isDeleted: false, isActive: true },
-          select: { id: true },
-        });
-        ensureIds = locs.map((l) => l.id);
-      }
-      if (ensureIds?.length) {
-        const covered = new Set(visible.map((t) => t.locationId).filter(Boolean));
-        const missing = ensureIds.filter((id) => !covered.has(id));
-        if (missing.length) {
-          const created = await ensureTerminalsForLocations(companyId, req.user.id, missing);
-          if (created.length) {
-            visible = [...created, ...visible];
-          }
-        }
-      }
-    }
 
     res.json({ success: true, data: visible });
   } catch (err) {
@@ -230,16 +147,16 @@ const updateTerminal = async (req, res) => {
     };
 
     if (locationId !== undefined) {
-      const locId = normalizeLocationId(locationId);
-      if (!locId) {
-        return res.status(400).json({ success: false, message: 'Valid locationId is required' });
-      }
-      const location = await prisma.location.findFirst({
-        where: { id: locId, companyId, isDeleted: false },
-        select: { id: true },
-      });
-      if (!location) {
-        return res.status(400).json({ success: false, message: 'Location not found' });
+      // Empty / null clears warehouse — terminal becomes company-wide
+      const locId = normalizeLocationId(locationId) || null;
+      if (locId) {
+        const location = await prisma.location.findFirst({
+          where: { id: locId, companyId, isDeleted: false },
+          select: { id: true },
+        });
+        if (!location) {
+          return res.status(400).json({ success: false, message: 'Location not found' });
+        }
       }
       data.locationId = locId;
     }

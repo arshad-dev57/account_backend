@@ -79,8 +79,8 @@ const checkAndExpireSubscription = async (userId) => {
 };
 
 /**
- * Full login session payload (token + user) shared by OTP verify and web direct login.
- * Mobile keeps OTP; web can skip OTP via login({ directLogin: true }).
+ * Full login session payload (token + user) shared by OTP verify and web/desktop direct login.
+ * Mobile keeps OTP; web/desktop can skip OTP via login({ directLogin: true }) or client: 'web'|'desktop'.
  */
 async function buildAuthenticatedLoginPayload(userId) {
   await checkAndExpireSubscription(userId);
@@ -268,10 +268,12 @@ async function buildAuthenticatedLoginPayload(userId) {
 
 function wantsWebDirectLogin(body = {}) {
   // Explicit opt-in only — mobile apps keep OTP (default login path unchanged).
+  const client = String(body.client || '').toLowerCase();
   return (
     body.directLogin === true ||
     body.skipOtp === true ||
-    String(body.client || '').toLowerCase() === 'web'
+    client === 'web' ||
+    client === 'desktop'
   );
 }
 
@@ -714,7 +716,7 @@ exports.login = async (req, res) => {
     user.failedLoginAttempts = 0;
     user.lockUntil = null;
 
-    // Web ERP: password-only login (no OTP). Mobile keeps OTP unless it opts in.
+    // Web ERP + desktop POS: password-only login (no OTP). Mobile keeps OTP unless it opts in.
     if (wantsWebDirectLogin(req.body)) {
       if (isDemoLoginEmail(email)) {
         await ensureDemoSubscription(user._id || user.id, user.companyId);

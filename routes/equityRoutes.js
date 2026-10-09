@@ -7,29 +7,27 @@ const {
   deleteEquityAccount,
   addCapital,
   recordDrawings,
+  transferReserve,
+  recordDividend,
   transferToRetainedEarnings,
   getSummary,
-  getAllTransactions
+  getAllTransactions,
 } = require('../controllers/equityController');
 const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// Protect all routes
 router.use(protect);
 
-// Summary route
 router.get('/summary', getSummary);
-
-// Transactions route
 router.get('/transactions', getAllTransactions);
 
-// Capital and Drawings routes
 router.post('/add-capital', addCapital);
 router.post('/record-drawings', recordDrawings);
+router.post('/transfer-reserve', transferReserve);
+router.post('/record-dividend', recordDividend);
 router.post('/transfer-retained-earnings', transferToRetainedEarnings);
 
-// Main CRUD routes
 router.route('/')
   .get(getEquityAccounts)
   .post(createEquityAccount);

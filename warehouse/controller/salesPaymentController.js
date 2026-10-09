@@ -258,46 +258,24 @@ const getPaymentById = async (req, res) => {
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { id } = req.params;
 
-    const payment = await prisma.salesPaymentReceived.findFirst({
+    const existing = await prisma.salesPaymentReceived.findFirst({
       where: {
         id: id,
         companyId: companyId,
         isActive: true,
         isDeleted: false
       },
-      include: {
-        invoicePayments: {
-          include: {
-            invoice: {
-              include: {
-                items: true
-              }
-            }
-          }
-        },
-        customer: true,
-        bankAccount: true,
-        journalEntry: {
-          include: {
-            lines: {
-              include: {
-                account: true
-              }
-            }
-          }
-        },
-        creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        }
-      }
+      select: { id: true },
     });
 
-    if (!payment) {
+    if (!existing) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found'
       });
     }
+
+    const payment = await SalesPaymentReceived.findById(id);
 
     res.status(200).json({
       success: true,

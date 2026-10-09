@@ -7,6 +7,7 @@ const {
   replaceUserLocations,
 } = require('../utils/locationAccessHelper');
 const { getCompanyCapacity, buildUpgradeQuote } = require('../utils/companySubscription');
+const { ensureMembershipForUserCompany } = require('../utils/companyAccess');
 const { TRIAL_DAYS } = require('../utils/subscriptionPricing');
 
 const USER_LOCATION_SELECT = {
@@ -91,6 +92,8 @@ const AVAILABLE_PERMISSION_MODULES = [
       { page: 'accounting-dashboard', displayName: 'Dashboard' },
       { page: 'accounting-credit-notes', displayName: 'Credit Notes' },
       { page: 'accounting-accounts-receivable', displayName: 'Accounts Receivable' },
+      { page: 'accounting-bank-accounts', displayName: 'Bank Accounts' },
+      { page: 'accounting-bank-reconciliation', displayName: 'Bank Reconciliation' },
     ]
   },
   {
@@ -159,7 +162,7 @@ function normalizePermissionPage(page) {
 const getAllUsers = async (req, res) => {
   try {
     const currentUserId = req.user.id;
-        const currentUser = await prisma.user.findUnique({
+    const currentUser = await prisma.user.findUnique({
       where: { id: currentUserId },
       select: { 
         id: true,
@@ -171,11 +174,14 @@ const getAllUsers = async (req, res) => {
 
     const hasRoleAccess = currentUser.role === 'admin' || currentUser.role === 'manager';
     
+    // Active company from auth middleware (X-Company-Id) — company-scoped team list
+    const companyId = req.user.companyId || currentUser.companyId;
+
     let hasPermissionAccess = false;
     if (!hasRoleAccess) {
       const userPermission = await prisma.userPermission.findFirst({
         where: {
-          companyId: currentUser.companyId,
+          companyId: companyId || currentUser.companyId,
           page: '/admin/users',
           canView: true
         }
@@ -190,13 +196,31 @@ const getAllUsers = async (req, res) => {
       });
     }
 
-    let userFilter = {};
-    userFilter = { companyId: currentUser.companyId };
+    if (!companyId) {
+      return res.status(200).json({ success: true, data: [] });
+    }
 
-    if (currentUser.role === 'admin') {
-      userFilter = { companyId: currentUser.companyId };
-    } else if (currentUser.role === 'manager') {
-      userFilter = { companyId: currentUser.companyId, managerId: currentUserId };
+    // Company team only — never include the logged-in admin/self
+    const companyScope = {
+      OR: [
+        { companyId },
+        { memberships: { some: { companyId, isActive: true } } },
+      ],
+    };
+
+    let userFilter = {
+      id: { not: currentUserId },
+      AND: [companyScope],
+    };
+
+    if (currentUser.role === 'manager') {
+      userFilter = {
+        id: { not: currentUserId },
+        AND: [
+          companyScope,
+          { OR: [{ managerId: currentUserId }, { createdBy: currentUserId }] },
+        ],
+      };
     }
 
     const users = await prisma.user.findMany({
@@ -461,26 +485,28 @@ const createUser = async (req, res) => {
 
     console.log('✅ [createUser] Authorization passed');
 
-    if (currentUser.companyId) {
-      const capacity = await getCompanyCapacity(prisma, currentUser.companyId);
-      if (!capacity.canAddUser) {
-        const upgrade = buildUpgradeQuote(capacity, { addUsers: 1 });
-        return res.status(402).json({
-          success: false,
-          code: 'SUBSCRIPTION_UPGRADE_REQUIRED',
-          reason: 'user_seat',
-          message: `User seat limit reached (${capacity.usedUsers}/${capacity.licensedUsers}). Upgrade your subscription to add another user.`,
-          data: { capacity, upgrade },
-        });
-      }
-    }
-
-    if (!isLocationAdminRole(role || 'user') && locationIds.length === 0) {
+    // Scope new users to the currently selected company (X-Company-Id)
+    const targetCompanyId = req.user.companyId || currentUser.companyId;
+    if (!targetCompanyId) {
       return res.status(400).json({
         success: false,
-        message: 'Assign at least one store / location to this user',
+        message: 'Select a company before creating users.',
       });
     }
+
+    const capacity = await getCompanyCapacity(prisma, targetCompanyId);
+    if (!capacity.canAddUser) {
+      const upgrade = buildUpgradeQuote(capacity, { addUsers: 1 });
+      return res.status(402).json({
+        success: false,
+        code: 'SUBSCRIPTION_UPGRADE_REQUIRED',
+        reason: 'user_seat',
+        message: `User seat limit reached (${capacity.usedUsers}/${capacity.licensedUsers}). Upgrade your subscription to add another user.`,
+        data: { capacity, upgrade },
+      });
+    }
+
+    // Users are company-scoped. Warehouse/location assignment is optional.
 
     const normalizedEmail = String(email).trim().toLowerCase();
     const normalizedPhone = phone != null ? String(phone).trim() : '';
@@ -511,10 +537,10 @@ const createUser = async (req, res) => {
       });
     }
 
-    if (normalizedPhone && currentUser.companyId) {
+    if (normalizedPhone) {
       const existingPhone = await prisma.user.findFirst({
         where: {
-          companyId: currentUser.companyId,
+          companyId: targetCompanyId,
           phone: normalizedPhone
         },
         select: { id: true, email: true, phone: true }
@@ -554,21 +580,19 @@ const createUser = async (req, res) => {
     console.log('   - Role:', role || 'user');
     console.log('   - Role ID:', roleId || 'Not provided');
     console.log('   - Manager ID:', finalManagerId || 'Not provided');
+    console.log('   - Company ID:', targetCompanyId);
 
-    let companySub = null;
-    if (currentUser.companyId) {
-      companySub = await prisma.company.findUnique({
-        where: { id: currentUser.companyId },
-        select: {
-          subscriptionPlan: true,
-          subscriptionStatus: true,
-          trialStartDate: true,
-          trialEndDate: true,
-          subscriptionStartDate: true,
-          subscriptionEndDate: true,
-        },
-      });
-    }
+    const companySub = await prisma.company.findUnique({
+      where: { id: targetCompanyId },
+      select: {
+        subscriptionPlan: true,
+        subscriptionStatus: true,
+        trialStartDate: true,
+        trialEndDate: true,
+        subscriptionStartDate: true,
+        subscriptionEndDate: true,
+      },
+    });
 
     const subPlan = companySub?.subscriptionPlan || 'trial';
     const subStatus = companySub?.subscriptionStatus || 'active';
@@ -586,7 +610,7 @@ const createUser = async (req, res) => {
         roleId: roleId || null,
         managerId: finalManagerId,
         createdBy: currentUserId,
-        companyId: currentUser.companyId,
+        companyId: targetCompanyId,
         subscriptionPlan: subPlan,
         subscriptionStatus: subStatus,
         subscriptionStartDate: companySub?.subscriptionStartDate || new Date(),
@@ -656,7 +680,17 @@ const createUser = async (req, res) => {
     }
 
     try {
-      await replaceUserLocations(newUser.id, currentUser.companyId, locationIds);
+      await ensureMembershipForUserCompany(newUser.id, targetCompanyId, {
+        role: role || 'user',
+        isOwner: false,
+        forceRole: true,
+      });
+    } catch (memError) {
+      console.error('⚠️ [createUser] Failed to create company membership:', memError.message);
+    }
+
+    try {
+      await replaceUserLocations(newUser.id, targetCompanyId, locationIds);
     } catch (locError) {
       console.error('⚠️ [createUser] Failed to assign locations:', locError.message);
       return res.status(locError.statusCode || 400).json({
@@ -668,7 +702,7 @@ const createUser = async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(req.body, 'assignedTerminalId')) {
       try {
         const terminalId = await validateAssignedTerminal(
-          currentUser.companyId,
+          targetCompanyId,
           req.body.assignedTerminalId,
           locationIds
         );
@@ -687,13 +721,11 @@ const createUser = async (req, res) => {
     let emailSent = false;
     try {
       let companyName = 'BisonsTechs';
-      if (currentUser.companyId) {
-        const company = await prisma.company.findUnique({
-          where: { id: currentUser.companyId },
-          select: { name: true }
-        });
-        if (company?.name) companyName = company.name;
-      }
+      const company = await prisma.company.findUnique({
+        where: { id: targetCompanyId },
+        select: { name: true }
+      });
+      if (company?.name) companyName = company.name;
 
       let customRoleName = '';
       if (roleId) {
@@ -898,16 +930,9 @@ const updateUser = async (req, res) => {
       }
     });
 
-    if (Object.prototype.hasOwnProperty.call(req.body, 'locationIds') ||
-        Object.prototype.hasOwnProperty.call(req.body, 'locationIds')) {
+    if (Object.prototype.hasOwnProperty.call(req.body, 'locationIds')) {
+      // Optional — empty list means company-wide user (no warehouse restriction)
       const nextLocationIds = parseLocationIds(req.body);
-      const nextRole = role || existingUser.role;
-      if (!isLocationAdminRole(nextRole) && nextLocationIds.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Assign at least one store / location to this user',
-        });
-      }
       await replaceUserLocations(id, currentUser.companyId, nextLocationIds);
     }
 

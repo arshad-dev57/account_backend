@@ -11,6 +11,7 @@ const {
   getSubscriptionHistory,
   subscribeDirect,
   verifyGooglePlayPurchase,
+  verifyApplePurchase,
   startTrial,
   validateAccess,
   getSubscriptionDetails,
@@ -45,6 +46,7 @@ router.post('/trial/start', protectOnly, startTrial);
 router.post('/subscribe', protectOnly, subscribeDirect);
 router.post('/create', protectOnly, createSubscription);
 router.post('/google-play/verify', protectOnly, verifyGooglePlayPurchase);
+router.post('/apple/verify', protectOnly, verifyApplePurchase);
 router.post('/upgrade', protectOnly, upgradeSubscription);
 
 // ─── Cancel ───────────────────────────────────────────────

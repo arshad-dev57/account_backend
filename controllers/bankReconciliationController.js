@@ -1,372 +1,692 @@
-const BankAccount = require('../models/BankAccount');
-const JournalEntry = require('../models/JournalEntry');
-const ChartOfAccount = require('../models/ChartOfAccount');
+/**
+ * Bank Reconciliation API — Prisma rewrite.
+ * Company scoping via req.user.companyId / req.companyIdFilter.
+ */
 
-// Helper: Get or create default accounts for reconciliation adjustments
-async function getOrCreateAdjustmentAccounts(userId) {
-  // Get or create Bank Charges Expense account
-  let bankChargesAccount = await ChartOfAccount.findOne({ code: '5060' });
-  if (!bankChargesAccount) {
-    bankChargesAccount = await ChartOfAccount.create({
-      code: '5060',
-      name: 'Bank Charges Expense',
-      type: 'Expenses',
-      parentAccount: 'Operating Expenses',
-      openingBalance: 0,
-      description: 'Bank service charges and fees',
-      taxCode: 'N/A',
-      createdBy: userId
-    });
-  }
-  
-  // Get or create Interest Income account
-  let interestIncomeAccount = await ChartOfAccount.findOne({ code: '4030' });
-  if (!interestIncomeAccount) {
-    interestIncomeAccount = await ChartOfAccount.create({
-      code: '4030',
-      name: 'Interest Income',
-      type: 'Income',
-      parentAccount: 'Other Income',
-      openingBalance: 0,
-      description: 'Interest earned on bank deposits',
-      taxCode: 'N/A',
-      createdBy: userId
-    });
-  }
-  
-  return { bankChargesAccount, interestIncomeAccount };
+const multer = require('multer');
+const prisma = require('../prisma/client');
+const {
+  previewStatementImport,
+  confirmStatementImportWithRows,
+  getBookTransactions,
+  getStatementTransactions,
+  autoMatch,
+  applyMatch,
+  unmatch,
+  ignoreStatementTxn,
+  refreshReconciliationTotals,
+  createReconciliation,
+  completeReconciliation,
+  reopenReconciliation,
+  resolveCompanyBank,
+} = require('../services/bankReconciliationService');
+const { createBankAdjustment } = require('../services/bankAccountingService');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const name = String(file.originalname || '').toLowerCase();
+    const ok =
+      name.endsWith('.xlsx') ||
+      name.endsWith('.xls') ||
+      name.endsWith('.csv') ||
+      [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'text/csv',
+        'application/csv',
+      ].includes(file.mimetype);
+    if (!ok) return cb(new Error('Only .xlsx, .xls, or .csv files are allowed'));
+    cb(null, true);
+  },
+});
+
+function companyIdOf(req) {
+  return req.user?.companyId;
 }
 
-// @desc    Get bank account details with transactions for reconciliation
-// @route   GET /api/bank-reconciliation/:accountId
-// @access  Private
-exports.getReconciliationData = async (req, res) => {
+function companyFilterOf(req) {
+  return req.companyIdFilter ?? req.user?.companyId;
+}
+
+function isAdminUser(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  return ['admin', 'owner', 'superadmin', 'company_admin'].includes(role);
+}
+
+function sendError(res, error, fallback = 'Server error') {
+  const status = error.statusCode || 500;
+  return res.status(status).json({
+    success: false,
+    message: error.message || fallback,
+    data: error.data || undefined,
+  });
+}
+
+// ─── List reconciliations / history ─────────────────────────────
+exports.listReconciliations = async (req, res) => {
   try {
-    const { accountId } = req.params;
-    const { startDate, endDate } = req.query;
-    
-    // 1. Get bank account details
-    const bankAccount = await BankAccount.findById(accountId)
-      .populate('chartOfAccountId', 'code name currentBalance');
-    
-    if (!bankAccount) {
-      return res.status(404).json({
-        success: false,
-        message: 'Bank account not found'
-      });
-    }
-    
-    // 2. Build date filter for transactions
-    let dateFilter = {};
-    if (startDate && endDate) {
-      dateFilter = {
-        date: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate)
+    const companyId = companyFilterOf(req);
+    const { bankAccountId, status, page = 1, limit = 20 } = req.query;
+    const where = { companyId };
+    if (bankAccountId) where.bankAccountId = String(bankAccountId);
+    if (status && status !== 'all') where.status = String(status);
+
+    const take = Math.min(100, Math.max(1, Number(limit) || 20));
+    const skip = (Math.max(1, Number(page) || 1) - 1) * take;
+
+    const [total, items] = await Promise.all([
+      prisma.bankReconciliation.count({ where }),
+      prisma.bankReconciliation.findMany({
+        where,
+        orderBy: [{ statementEndDate: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take,
+        include: {
+          bankAccount: {
+            select: { id: true, accountName: true, accountNumber: true, bankName: true },
+          },
+          completer: { select: { id: true, firstName: true, lastName: true, email: true } },
+          creator: { select: { id: true, firstName: true, lastName: true, email: true } },
         },
-        status: 'Posted'
-      };
-    } else if (bankAccount.lastReconciled) {
-      // Get transactions since last reconciliation
-      dateFilter = {
-        date: { $gte: bankAccount.lastReconciled },
-        status: 'Posted'
-      };
-    } else {
-      dateFilter = { status: 'Posted' };
-    }
-    
-    // 3. Get journal entries for this bank account
-    const journalEntries = await JournalEntry.find(dateFilter);
-    
-    // 4. Filter entries that have this bank account in lines
-    const transactions = [];
-    journalEntries.forEach(entry => {
-      entry.lines.forEach(line => {
-        if (line.accountId.toString() === bankAccount.chartOfAccountId._id.toString()) {
-          transactions.push({
-            id: entry._id,
-            entryNumber: entry.entryNumber,
-            date: entry.date,
-            description: entry.description,
-            reference: entry.reference,
-            amount: line.debit || line.credit,
-            type: line.debit > 0 ? 'Deposit' : 'Payment',
-            isCleared: entry.isReconciled || false
-          });
-        }
-      });
-    });
-    
-    // 5. Sort by date
-    transactions.sort((a, b) => a.date - b.date);
-    
-    // 6. Calculate book balance
-    let bookBalance = bankAccount.openingBalance;
-    transactions.forEach(t => {
-      if (t.type === 'Deposit') {
-        bookBalance += t.amount;
-      } else {
-        bookBalance -= t.amount;
-      }
-    });
-    
-    res.status(200).json({
+      }),
+    ]);
+
+    res.json({
       success: true,
-      data: {
-        account: {
-          id: bankAccount._id,
-          name: bankAccount.accountName,
-          number: bankAccount.accountNumber,
-          openingBalance: bankAccount.openingBalance,
-          currentBalance: bankAccount.currentBalance,
-          lastReconciled: bankAccount.lastReconciled
-        },
-        transactions,
-        bookBalance
-      }
+      data: items,
+      meta: { total, page: Number(page) || 1, limit: take, pages: Math.ceil(total / take) || 1 },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    console.error('listReconciliations', error);
+    sendError(res, error);
   }
 };
 
-// @desc    Complete bank reconciliation
-// @route   POST /api/bank-reconciliation/:accountId/complete
-// @access  Private
-exports.completeReconciliation = async (req, res) => {
+exports.getReconciliation = async (req, res) => {
   try {
-    const { accountId } = req.params;
-    const { 
-      statementBalance, 
-      serviceCharge, 
-      interestEarned, 
-      clearedTransactionIds,
-      statementDate 
-    } = req.body;
-    
-    // 1. Get bank account
-    const bankAccount = await BankAccount.findById(accountId);
-    if (!bankAccount) {
-      return res.status(404).json({
-        success: false,
-        message: 'Bank account not found'
-      });
-    }
-    
-    // 2. Get all transactions for this account since last reconciliation
-    let dateFilter = {};
-    if (bankAccount.lastReconciled) {
-      dateFilter = { date: { $gte: bankAccount.lastReconciled }, status: 'Posted' };
-    } else {
-      dateFilter = { status: 'Posted' };
-    }
-    
-    const journalEntries = await JournalEntry.find(dateFilter);
-    
-    // 3. Calculate uncleared amounts
-    let unclearedDeposits = 0;
-    let unclearedPayments = 0;
-    let clearedTransactions = [];
-    
-    journalEntries.forEach(entry => {
-      entry.lines.forEach(line => {
-        if (line.accountId.toString() === bankAccount.chartOfAccountId.toString()) {
-          const isCleared = clearedTransactionIds.includes(entry._id.toString());
-          const amount = line.debit || line.credit;
-          
-          if (isCleared) {
-            clearedTransactions.push(entry._id);
-          } else {
-            if (line.debit > 0) {
-              unclearedDeposits += amount;
-            } else {
-              unclearedPayments += amount;
-            }
-          }
-        }
-      });
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    let recon = await prisma.bankReconciliation.findFirst({
+      where: { id, companyId },
+      include: {
+        bankAccount: {
+          select: {
+            id: true,
+            accountName: true,
+            accountNumber: true,
+            bankName: true,
+            currentBalance: true,
+            chartOfAccountId: true,
+            statementColumnMapping: true,
+          },
+        },
+        import: true,
+        completer: { select: { id: true, firstName: true, lastName: true, email: true } },
+        creator: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
     });
-    
-    // 4. Calculate adjusted balances
-    const bookBalance = bankAccount.currentBalance;
-    const adjustedBookBalance = bookBalance - (serviceCharge || 0) + (interestEarned || 0);
-    const reconciledBalance = statementBalance - unclearedDeposits + unclearedPayments;
-    const difference = Math.abs(adjustedBookBalance - reconciledBalance);
-    
-    // 5. Validate reconciliation
-    if (difference > 0.01) {
+    if (!recon) {
+      return res.status(404).json({ success: false, message: 'Reconciliation not found' });
+    }
+    if (recon.status !== 'Completed') {
+      recon = await refreshReconciliationTotals(recon.id);
+      recon = await prisma.bankReconciliation.findFirst({
+        where: { id: recon.id },
+        include: {
+          bankAccount: {
+            select: {
+              id: true,
+              accountName: true,
+              accountNumber: true,
+              bankName: true,
+              currentBalance: true,
+              chartOfAccountId: true,
+              statementColumnMapping: true,
+            },
+          },
+          import: true,
+          completer: { select: { id: true, firstName: true, lastName: true, email: true } },
+          creator: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      });
+    }
+
+    const statementTransactionCount = await prisma.bankStatementTransaction.count({
+      where: { reconciliationId: recon.id, companyId },
+    });
+    const statementImported = statementTransactionCount > 0;
+
+    const adjustedBankBalance = statementImported
+      ? Number(recon.statementClosingBalance || 0) +
+        Number(recon.outstandingDeposits || 0) -
+        Number(recon.outstandingPayments || 0)
+      : Number(recon.statementClosingBalance || 0);
+
+    res.json({
+      success: true,
+      data: {
+        ...recon,
+        statementImported,
+        statementTransactionCount,
+        adjustedBankBalance,
+        summary: {
+          bankBalance: recon.statementClosingBalance,
+          bookBalance: recon.bookClosingBalance,
+          outstandingDeposits: statementImported ? recon.outstandingDeposits : 0,
+          outstandingPayments: statementImported ? recon.outstandingPayments : 0,
+          bankCharges: recon.bankChargesTotal,
+          bankInterest: recon.bankInterestTotal,
+          otherAdjustments: recon.otherAdjustments,
+          difference: recon.difference,
+          matchedCount: statementImported ? recon.matchedCount : 0,
+          unmatchedBankCount: statementImported ? recon.unmatchedBankCount : 0,
+          unmatchedBookCount: statementImported ? recon.unmatchedBookCount : 0,
+          reconciledAmount: statementImported ? recon.reconciledAmount : 0,
+          unreconciledAmount: statementImported ? recon.unreconciledAmount : 0,
+          statementImported,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('getReconciliation', error);
+    sendError(res, error);
+  }
+};
+
+exports.createReconciliation = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
+    const {
+      bankAccountId,
+      statementStartDate,
+      statementEndDate,
+      statementOpeningBalance,
+      statementClosingBalance,
+      importId,
+    } = req.body || {};
+
+    const recon = await createReconciliation({
+      companyId,
+      userId: req.user.id,
+      bankAccountId,
+      statementStartDate,
+      statementEndDate,
+      statementOpeningBalance,
+      statementClosingBalance,
+      importId,
+    });
+
+    res.status(201).json({ success: true, data: recon, message: 'Reconciliation created' });
+  } catch (error) {
+    console.error('createReconciliation', error);
+    sendError(res, error);
+  }
+};
+
+exports.uploadMiddleware = upload.single('file');
+
+exports.previewImport = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
+    if (!req.file?.buffer) {
+      return res.status(400).json({ success: false, message: 'File is required' });
+    }
+
+    let columnMapping = null;
+    if (req.body.columnMapping) {
+      try {
+        columnMapping =
+          typeof req.body.columnMapping === 'string'
+            ? JSON.parse(req.body.columnMapping)
+            : req.body.columnMapping;
+      } catch {
+        columnMapping = null;
+      }
+    }
+
+    const data = await previewStatementImport({
+      companyId,
+      userId: req.user.id,
+      bankAccountId: req.body.bankAccountId,
+      buffer: req.file.buffer,
+      fileName: req.file.originalname,
+      columnMapping,
+      openingBalance: req.body.openingBalance,
+      closingBalance: req.body.closingBalance,
+    });
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('previewImport', error);
+    sendError(res, error);
+  }
+};
+
+exports.confirmImport = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const {
+      importId,
+      rows,
+      columnMapping,
+      openingBalance,
+      closingBalance,
+      skipDuplicates = true,
+      rememberMapping = true,
+      reconciliationId = null,
+    } = req.body || {};
+
+    if (!importId || !Array.isArray(rows)) {
       return res.status(400).json({
         success: false,
-        message: 'Reconciliation is not balanced',
-        data: {
-          bookBalance,
-          adjustedBookBalance,
-          statementBalance,
-          reconciledBalance,
-          difference,
-          unclearedDeposits,
-          unclearedPayments
-        }
+        message: 'importId and rows are required',
       });
     }
-    
-    // 6. Create journal entries for adjustments
-    const adjustmentEntries = [];
-    const adjustmentDate = new Date();
-    const { bankChargesAccount, interestIncomeAccount } = await getOrCreateAdjustmentAccounts(req.user.id);
-    
-    // Service charge adjustment
-    if (serviceCharge && serviceCharge > 0) {
-      const serviceChargeEntry = await JournalEntry.create({
-        date: adjustmentDate,
-        description: `Bank reconciliation adjustment - Service charge for ${bankAccount.accountName}`,
-        reference: `REC-${Date.now()}`,
-        lines: [
-          {
-            accountId: bankChargesAccount._id,
-            accountName: bankChargesAccount.name,
-            accountCode: bankChargesAccount.code,
-            debit: serviceCharge,
-            credit: 0
-          },
-          {
-            accountId: bankAccount.chartOfAccountId,
-            accountName: bankAccount.accountName,
-            accountCode: bankAccount.accountCode || '1020',
-            debit: 0,
-            credit: serviceCharge
-          },
-        ],
-        status: 'Posted',
-        createdBy: req.user.id,
-        postedBy: req.user.id,
-        postedAt: adjustmentDate
-      });
-      adjustmentEntries.push(serviceChargeEntry);
-      
-      // Update bank account balance
-      bankAccount.currentBalance -= serviceCharge;
-    }
-    
-    // Interest earned adjustment
-    if (interestEarned && interestEarned > 0) {
-      const interestEntry = await JournalEntry.create({
-        date: adjustmentDate,
-        description: `Bank reconciliation adjustment - Interest earned on ${bankAccount.accountName}`,
-        reference: `REC-${Date.now()}`,
-        lines: [
-          {
-            accountId: bankAccount.chartOfAccountId,
-            accountName: bankAccount.accountName,
-            accountCode: bankAccount.accountCode || '1020',
-            debit: interestEarned,
-            credit: 0
-          },
-          {
-            accountId: interestIncomeAccount._id,
-            accountName: interestIncomeAccount.name,
-            accountCode: interestIncomeAccount.code,
-            debit: 0,
-            credit: interestEarned
-          },
-        ],
-        status: 'Posted',
-        createdBy: req.user.id,
-        postedBy: req.user.id,
-        postedAt: adjustmentDate
-      });
-      adjustmentEntries.push(interestEntry);
-      
-      // Update bank account balance
-      bankAccount.currentBalance += interestEarned;
-    }
-    
-    // 7. Update bank account
-    bankAccount.lastReconciled = statementDate ? new Date(statementDate) : new Date();
-    await bankAccount.save();
-    
-    // 8. Update Chart of Accounts balance
-    await ChartOfAccount.findByIdAndUpdate(bankAccount.chartOfAccountId, {
-      currentBalance: bankAccount.currentBalance
+
+    const data = await confirmStatementImportWithRows({
+      companyId,
+      userId: req.user.id,
+      importId,
+      rows,
+      columnMapping,
+      openingBalance,
+      closingBalance,
+      skipDuplicates,
+      rememberMapping,
+      reconciliationId,
     });
-    
-    // 9. Mark transactions as reconciled
-    for (const entryId of clearedTransactions) {
-      await JournalEntry.findByIdAndUpdate(entryId, { isReconciled: true });
-    }
-    
-    res.status(200).json({
+
+    res.json({
       success: true,
-      message: 'Bank reconciliation completed successfully',
-      data: {
-        account: {
-          id: bankAccount._id,
-          name: bankAccount.accountName,
-          currentBalance: bankAccount.currentBalance,
-          lastReconciled: bankAccount.lastReconciled
-        },
-        adjustments: adjustmentEntries.length,
-        clearedTransactions: clearedTransactions.length
-      }
+      data,
+      message: `Imported ${data.imported} transaction(s); skipped ${data.skippedDuplicates} duplicate(s)`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    console.error('confirmImport', error);
+    sendError(res, error);
   }
 };
 
-// @desc    Get reconciliation history for an account
-// @route   GET /api/bank-reconciliation/:accountId/history
-// @access  Private
-exports.getReconciliationHistory = async (req, res) => {
+exports.listStatementTransactions = async (req, res) => {
   try {
-    const { accountId } = req.params;
-    
-    const bankAccount = await BankAccount.findById(accountId);
-    if (!bankAccount) {
-      return res.status(404).json({
-        success: false,
-        message: 'Bank account not found'
-      });
-    }
-    
-    // Get all reconciliation-related journal entries
-    const reconciliationEntries = await JournalEntry.find({
-      description: { $regex: 'Bank reconciliation adjustment', $options: 'i' },
-      'lines.accountId': bankAccount.chartOfAccountId,
-      status: 'Posted'
-    }).sort({ date: -1 });
-    
-    const history = reconciliationEntries.map(entry => ({
-      id: entry._id,
-      date: entry.date,
-      description: entry.description,
-      reference: entry.reference,
-      serviceCharge: entry.lines.find(l => l.accountName?.includes('Bank Charges'))?.debit || 0,
-      interestEarned: entry.lines.find(l => l.accountName?.includes('Interest'))?.credit || 0
-    }));
-    
-    res.status(200).json({
+    const companyId = companyIdOf(req);
+    const data = await getStatementTransactions({
+      companyId,
+      bankAccountId: req.query.bankAccountId,
+      reconciliationId: req.query.reconciliationId,
+      importId: req.query.importId,
+      status: req.query.status,
+      search: req.query.search || '',
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      minAmount: req.query.minAmount,
+      maxAmount: req.query.maxAmount,
+      page: Number(req.query.page) || 1,
+      limit: Math.min(200, Number(req.query.limit) || 50),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('listStatementTransactions', error);
+    sendError(res, error);
+  }
+};
+
+exports.listBookTransactions = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const data = await getBookTransactions({
+      companyId,
+      bankAccountId: req.query.bankAccountId,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      unmatchedOnly: String(req.query.unmatchedOnly || '') === 'true',
+      search: req.query.search || '',
+      page: Number(req.query.page) || 1,
+      limit: Math.min(200, Number(req.query.limit) || 50),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('listBookTransactions', error);
+    sendError(res, error);
+  }
+};
+
+exports.runAutoMatch = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    const data = await autoMatch({
+      companyId,
+      userId: req.user.id,
+      reconciliationId: id,
+      dateWindowDays: Number(req.body?.dateWindowDays) || 7,
+    });
+    const recon = await refreshReconciliationTotals(id);
+    res.json({
       success: true,
-      count: history.length,
-      data: history
+      data: { ...data, reconciliation: recon },
+      message: `Auto-matched ${data.matched} transaction(s)`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
+    console.error('runAutoMatch', error);
+    sendError(res, error);
   }
+};
+
+exports.manualMatch = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    const { statementTransactionId, journalLineId } = req.body || {};
+    if (!statementTransactionId || !journalLineId) {
+      return res.status(400).json({
+        success: false,
+        message: 'statementTransactionId and journalLineId are required',
+      });
+    }
+    const match = await applyMatch({
+      companyId,
+      userId: req.user.id,
+      reconciliationId: id,
+      statementTransactionId,
+      journalLineId,
+      matchType: 'manual',
+      matchReason: 'manual selection',
+    });
+    const recon = await refreshReconciliationTotals(id);
+    res.json({ success: true, data: { match, reconciliation: recon }, message: 'Matched' });
+  } catch (error) {
+    console.error('manualMatch', error);
+    sendError(res, error);
+  }
+};
+
+exports.unmatchPair = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    await unmatch({
+      companyId,
+      userId: req.user.id,
+      reconciliationId: id,
+      matchId: req.body?.matchId,
+      statementTransactionId: req.body?.statementTransactionId,
+    });
+    const recon = await refreshReconciliationTotals(id);
+    res.json({ success: true, data: recon, message: 'Unmatched' });
+  } catch (error) {
+    console.error('unmatchPair', error);
+    sendError(res, error);
+  }
+};
+
+exports.ignoreTransaction = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    await ignoreStatementTxn({
+      companyId,
+      reconciliationId: id,
+      statementTransactionId: req.body?.statementTransactionId,
+      notes: req.body?.notes,
+    });
+    const recon = await refreshReconciliationTotals(id);
+    res.json({ success: true, data: recon, message: 'Marked as ignored' });
+  } catch (error) {
+    console.error('ignoreTransaction', error);
+    sendError(res, error);
+  }
+};
+
+exports.createAdjustment = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    const recon = await prisma.bankReconciliation.findFirst({
+      where: { id, companyId },
+    });
+    if (!recon) {
+      return res.status(404).json({ success: false, message: 'Reconciliation not found' });
+    }
+    if (recon.status === 'Completed') {
+      return res.status(400).json({ success: false, message: 'Completed reconciliation is locked' });
+    }
+
+    const {
+      type = 'charge',
+      amount,
+      offsetAccountId,
+      description,
+      reference,
+      postingDate,
+      statementTransactionId,
+      autoMatchAfter = true,
+    } = req.body || {};
+
+    const result = await createBankAdjustment({
+      userId: req.user.id,
+      companyId,
+      bankAccountId: recon.bankAccountId,
+      amount,
+      offsetAccountId,
+      type,
+      description,
+      reference,
+      postingDate: postingDate || recon.statementEndDate,
+    });
+
+    let match = null;
+    if (autoMatchAfter && statementTransactionId && result.journalEntry?.lines) {
+      const bank = await resolveCompanyBank(companyId, recon.bankAccountId);
+      const bankLine = result.journalEntry.lines.find((l) => l.accountId === bank.chartOfAccountId);
+      if (bankLine) {
+        try {
+          match = await applyMatch({
+            companyId,
+            userId: req.user.id,
+            reconciliationId: id,
+            statementTransactionId,
+            journalLineId: bankLine.id,
+            matchType: 'manual',
+            matchReason: 'created from reconciliation',
+          });
+        } catch (e) {
+          console.warn('auto-match after adjustment failed', e.message);
+        }
+      }
+    }
+
+    // Track charges/interest totals
+    if (type === 'charge' || type === 'interest') {
+      await prisma.bankReconciliation.update({
+        where: { id },
+        data:
+          type === 'charge'
+            ? { bankChargesTotal: { increment: Number(amount) || 0 } }
+            : { bankInterestTotal: { increment: Number(amount) || 0 } },
+      });
+    } else {
+      await prisma.bankReconciliation.update({
+        where: { id },
+        data: { otherAdjustments: { increment: Number(amount) || 0 } },
+      });
+    }
+
+    const refreshed = await refreshReconciliationTotals(id);
+    res.status(201).json({
+      success: true,
+      data: { journalEntry: result.journalEntry, match, reconciliation: refreshed },
+      message: result.duplicate ? 'Existing journal reused' : 'Accounting entry created',
+    });
+  } catch (error) {
+    console.error('createAdjustment', error);
+    sendError(res, error);
+  }
+};
+
+exports.complete = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    const { exceptionAllowed, exceptionNote } = req.body || {};
+    const recon = await completeReconciliation({
+      companyId,
+      userId: req.user.id,
+      reconciliationId: id,
+      exceptionAllowed: !!exceptionAllowed,
+      exceptionNote,
+      isAdmin: isAdminUser(req),
+    });
+    res.json({ success: true, data: recon, message: 'Reconciliation completed' });
+  } catch (error) {
+    console.error('complete', error);
+    sendError(res, error);
+  }
+};
+
+exports.reopen = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    const recon = await reopenReconciliation({
+      companyId,
+      userId: req.user.id,
+      reconciliationId: id,
+      isAdmin: isAdminUser(req),
+    });
+    res.json({ success: true, data: recon, message: 'Reconciliation reopened' });
+  } catch (error) {
+    console.error('reopen', error);
+    sendError(res, error);
+  }
+};
+
+exports.refresh = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    const existing = await prisma.bankReconciliation.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Reconciliation not found' });
+    }
+    const recon = await refreshReconciliationTotals(id);
+    res.json({ success: true, data: recon });
+  } catch (error) {
+    console.error('refresh', error);
+    sendError(res, error);
+  }
+};
+
+/** Dashboard helpers — bank accounts with open recon status */
+exports.dashboard = async (req, res) => {
+  try {
+    const companyId = companyFilterOf(req);
+    const banks = await prisma.bankAccount.findMany({
+      where: { companyId, status: 'Active' },
+      select: {
+        id: true,
+        accountName: true,
+        accountNumber: true,
+        bankName: true,
+        currentBalance: true,
+        lastReconciled: true,
+        currency: true,
+      },
+      orderBy: { accountName: 'asc' },
+    });
+
+    const open = await prisma.bankReconciliation.findMany({
+      where: {
+        companyId,
+        status: { in: ['Draft', 'InProgress', 'Reconciled'] },
+      },
+      select: { id: true, bankAccountId: true, status: true, difference: true, statementEndDate: true },
+    });
+    const openByBank = Object.fromEntries(open.map((r) => [r.bankAccountId, r]));
+
+    const recent = await prisma.bankReconciliation.findMany({
+      where: { companyId },
+      orderBy: { updatedAt: 'desc' },
+      take: 8,
+      include: {
+        bankAccount: { select: { accountName: true, accountNumber: true } },
+        completer: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        bankAccounts: banks.map((b) => ({
+          ...b,
+          openReconciliation: openByBank[b.id] || null,
+        })),
+        recent,
+        stats: {
+          activeBanks: banks.length,
+          openReconciliations: open.length,
+          completedThisMonth: await prisma.bankReconciliation.count({
+            where: {
+              companyId,
+              status: 'Completed',
+              completedAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
+            },
+          }),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('dashboard', error);
+    sendError(res, error);
+  }
+};
+
+// Legacy-compatible stubs (old Mongo routes)
+exports.getReconciliationData = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const bank = await resolveCompanyBank(companyId, req.params.accountId);
+    const startDate = req.query.startDate || bank.lastReconciled;
+    const endDate = req.query.endDate || new Date();
+    const book = await getBookTransactions({
+      companyId,
+      bankAccountId: bank.id,
+      startDate,
+      endDate,
+      page: 1,
+      limit: 500,
+    });
+    res.json({
+      success: true,
+      data: {
+        account: {
+          id: bank.id,
+          name: bank.accountName,
+          number: bank.accountNumber,
+          openingBalance: bank.openingBalance,
+          currentBalance: bank.currentBalance,
+          lastReconciled: bank.lastReconciled,
+        },
+        transactions: book.items,
+        bookBalance: bank.currentBalance,
+      },
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+exports.getReconciliationHistory = async (req, res) => {
+  req.query.bankAccountId = req.params.accountId;
+  return exports.listReconciliations(req, res);
 };

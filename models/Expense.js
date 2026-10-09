@@ -167,6 +167,15 @@ class ExpenseModel {
         connect: { id: data.expenseAccountId }
       };
     }
+    if (data.departmentId) {
+      createData.department = { connect: { id: data.departmentId } };
+    }
+    if (data.costCenterId) {
+      createData.costCenter = { connect: { id: data.costCenterId } };
+    }
+    if (data.receipt) {
+      createData.receipt = String(data.receipt);
+    }
     return await prisma.expense.create({
       data: createData,
       include: {
@@ -194,6 +203,9 @@ class ExpenseModel {
             type: true
           }
         },
+        department: { select: { id: true, name: true } },
+        costCenter: { select: { id: true, code: true, name: true } },
+        attachments: true,
         creator: {
           select: {
             id: true,
@@ -246,6 +258,9 @@ class ExpenseModel {
             type: true
           }
         },
+        department: { select: { id: true, name: true } },
+        costCenter: { select: { id: true, code: true, name: true } },
+        attachments: true,
         creator: {
           select: {
             id: true,

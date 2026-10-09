@@ -7,6 +7,9 @@ const prisma = require('../prisma/client');
 function deriveAccountType(name, explicitType) {
   const fromExplicit = String(explicitType || '').toLowerCase();
   if (fromExplicit.includes('drawing')) return 'Drawings';
+  if (fromExplicit.includes('dividend') || fromExplicit.includes('distribution')) {
+    return 'Dividends';
+  }
   if (fromExplicit.includes('retained') || fromExplicit.includes('retention')) {
     return 'Retained Earnings';
   }
@@ -16,6 +19,7 @@ function deriveAccountType(name, explicitType) {
 
   const n = (name || '').toLowerCase();
   if (n.includes('drawing')) return 'Drawings';
+  if (n.includes('dividend') || n.includes('distribution')) return 'Dividends';
   if (n.includes('retained') || n.includes('retention') || n.includes('current year')) {
     return 'Retained Earnings';
   }

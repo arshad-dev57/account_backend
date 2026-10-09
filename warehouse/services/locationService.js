@@ -208,6 +208,166 @@ async function getLocationAvailability(tx, { productId, locationId }) {
   };
 }
 
+/**
+ * Company-wide stock adjust when POS terminal has no warehouse.
+ * Draws from / returns to any ProductStock rows; falls back to Product.currentStock
+ * when no location rows exist. Never auto-creates a warehouse.
+ */
+async function adjustUnscopedStock(
+  tx,
+  {
+    companyId,
+    productId,
+    delta,
+    checkAvailable = false,
+    productName,
+    allowNegative = false,
+  }
+) {
+  const qtyDelta = Number(delta) || 0;
+  const product = await tx.product.findFirst({
+    where: { id: productId, companyId },
+    select: {
+      id: true,
+      name: true,
+      currentStock: true,
+      reservedStock: true,
+      availableStock: true,
+    },
+  });
+  if (!product) {
+    const err = new Error(`Product not found: ${productName || productId}`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const previousCompanyStock = product.currentStock || 0;
+  const label = productName ? ` for ${productName}` : '';
+
+  if (qtyDelta < 0) {
+    const need = Math.abs(qtyDelta);
+    const available =
+      product.availableStock != null
+        ? product.availableStock
+        : Math.max(0, previousCompanyStock - (product.reservedStock || 0));
+
+    if (checkAvailable && need > available && !allowNegative) {
+      const err = new Error(
+        `Insufficient available stock${label}. Available: ${available}, Required: ${need}`
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+
+    let remaining = need;
+    const rows = await tx.productStock.findMany({
+      where: { productId, currentStock: { gt: 0 } },
+      orderBy: { currentStock: 'desc' },
+    });
+
+    for (const row of rows) {
+      if (remaining <= 0) break;
+      const take = Math.min(row.currentStock, remaining);
+      const newLoc = row.currentStock - take;
+      await tx.productStock.update({
+        where: { id: row.id },
+        data: {
+          currentStock: newLoc,
+          availableStock: Math.max(0, newLoc - (row.reservedStock || 0)),
+        },
+      });
+      remaining -= take;
+    }
+
+    if (remaining > 0) {
+      if (!rows.length) {
+        // No location stock rows — adjust product-level only
+        let newStock = previousCompanyStock - remaining;
+        if (newStock < 0) {
+          if (!allowNegative) {
+            const err = new Error(
+              `Insufficient stock${label}. On hand: ${previousCompanyStock}, Required: ${need}`
+            );
+            err.statusCode = 400;
+            throw err;
+          }
+          newStock = 0;
+        }
+        const updated = await tx.product.update({
+          where: { id: productId },
+          data: {
+            currentStock: newStock,
+            availableStock: Math.max(0, newStock - (product.reservedStock || 0)),
+          },
+        });
+        return {
+          previousLocationStock: previousCompanyStock,
+          newLocationStock: updated.currentStock,
+          product: updated,
+        };
+      }
+      if (!allowNegative) {
+        const err = new Error(
+          `Insufficient stock${label}. On hand: ${previousCompanyStock}, Required: ${need}`
+        );
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+
+    const updated = await syncProductTotalStock(tx, productId);
+    return {
+      previousLocationStock: previousCompanyStock,
+      newLocationStock: updated.currentStock,
+      product: updated,
+    };
+  }
+
+  if (qtyDelta > 0) {
+    // Prefer default/first warehouse when returning stock without a terminal location
+    const def = await tx.location.findFirst({
+      where: { companyId, isDeleted: false, isActive: true, isDefault: true },
+      select: { id: true },
+    }) || await tx.location.findFirst({
+      where: { companyId, isDeleted: false, isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+
+    if (def?.id) {
+      return adjustLocationStock(tx, {
+        companyId,
+        productId,
+        locationId: def.id,
+        delta: qtyDelta,
+        checkAvailable: false,
+        allowNegative,
+        productName,
+      });
+    }
+
+    const newStock = previousCompanyStock + qtyDelta;
+    const updated = await tx.product.update({
+      where: { id: productId },
+      data: {
+        currentStock: newStock,
+        availableStock: Math.max(0, newStock - (product.reservedStock || 0)),
+      },
+    });
+    return {
+      previousLocationStock: previousCompanyStock,
+      newLocationStock: updated.currentStock,
+      product: updated,
+    };
+  }
+
+  return {
+    previousLocationStock: previousCompanyStock,
+    newLocationStock: previousCompanyStock,
+    product,
+  };
+}
+
 async function adjustLocationStock(
   tx,
   {
@@ -221,6 +381,17 @@ async function adjustLocationStock(
     allowNegative = false,
   }
 ) {
+  if (!locationId) {
+    return adjustUnscopedStock(tx, {
+      companyId,
+      productId,
+      delta,
+      checkAvailable,
+      productName,
+      allowNegative,
+    });
+  }
+
   await getOrCreateProductStock(tx, {
     companyId,
     productId,
@@ -415,6 +586,7 @@ module.exports = {
   getLocationAvailability,
   syncProductTotalStock,
   adjustLocationStock,
+  adjustUnscopedStock,
   reserveLocationStock,
   releaseLocationReservation,
   backfillCompanyLocationStock,

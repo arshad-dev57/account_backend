@@ -455,10 +455,25 @@ const getJournalEntries = async (req, res) => {
 
     const filter = { AND: andClauses };
 
+    // Standard register: newest activity first.
+    // Primary createdAt so same-day date-only posts (midnight) do not sink below older timestamps.
+    const sortByRaw = String(req.query.sortBy || 'createdAt').trim();
+    const sortOrderRaw = String(req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    const allowedSort = new Set(['createdAt', 'date', 'entryNumber', 'postedAt']);
+    const sortBy = allowedSort.has(sortByRaw) ? sortByRaw : 'createdAt';
+    const orderBy =
+      sortBy === 'date'
+        ? [{ date: sortOrderRaw }, { createdAt: 'desc' }, { entryNumber: 'desc' }]
+        : sortBy === 'entryNumber'
+          ? [{ entryNumber: sortOrderRaw }, { createdAt: 'desc' }]
+          : sortBy === 'postedAt'
+            ? [{ postedAt: sortOrderRaw }, { createdAt: 'desc' }, { date: 'desc' }]
+            : [{ createdAt: sortOrderRaw }, { date: 'desc' }, { entryNumber: 'desc' }];
+
     const [journalEntries, total, lineSums, statusCounts] = await Promise.all([
       prisma.journalEntry.findMany({
         where: filter,
-        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        orderBy,
         skip,
         take: limitNum,
         include: {
@@ -771,7 +786,7 @@ const getJournalEntriesByAccount = async (req, res) => {
           }
         }
       },
-      orderBy: { date: 'desc' }
+      orderBy: [{ createdAt: 'desc' }, { date: 'desc' }, { entryNumber: 'desc' }]
     });
 
     res.status(200).json({

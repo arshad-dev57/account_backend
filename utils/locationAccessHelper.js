@@ -123,9 +123,14 @@ async function buildLocationScope(user) {
     },
     select: { locationId: true },
   });
+  const ids = rows.map((r) => r.locationId);
+  // No warehouse assignment = company-wide access (same location visibility as admin)
+  if (!ids.length) {
+    return { isAdmin: true, ids: null, userId, companyId, companyWide: true };
+  }
   return {
     isAdmin: false,
-    ids: rows.map((r) => r.locationId),
+    ids,
     userId,
     companyId,
   };

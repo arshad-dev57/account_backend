@@ -684,9 +684,14 @@ const createProduct = async (req, res) => {
         );
       } catch (locErr) {
         console.error(
-          '⚠️ [createProduct] Location assign failed (non-fatal):',
+          '❌ [createProduct] Location assign failed:',
           locErr.message
         );
+        return res.status(locErr.statusCode || 400).json({
+          success: false,
+          message: locErr.message || 'Failed to assign product to warehouse',
+          data: product,
+        });
       }
     }
 
@@ -876,7 +881,7 @@ const updateProduct = async (req, res) => {
     // ─── Update product ─────────────────────────────────────
     const product = await ProductModel.update(id, productData);
 
-    // Optional: assign product to warehouse catalog (0 stock if new row)
+    // Assign product to warehouse catalog (0 stock if new row)
     if (locationIdInput) {
       try {
         const locationId = await resolveLocationId(
@@ -898,9 +903,13 @@ const updateProduct = async (req, res) => {
         );
       } catch (locErr) {
         console.error(
-          '⚠️ [updateProduct] Location assign failed (non-fatal):',
+          '❌ [updateProduct] Location assign failed:',
           locErr.message
         );
+        return res.status(locErr.statusCode || 400).json({
+          success: false,
+          message: locErr.message || 'Failed to assign product to warehouse',
+        });
       }
     }
 

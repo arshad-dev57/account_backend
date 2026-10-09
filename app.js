@@ -47,6 +47,7 @@ app.get('/api/health/prisma', (req, res) => {
 
 const userRoutes = require('./routes/userRoutes');
 const userManagementRoutes = require('./routes/userManagementRoutes');
+const roleRoutes = require('./routes/roleRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 
@@ -130,6 +131,7 @@ app.use('/api/sales/invoices', salesInvoiceRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin/users', userManagementRoutes);
+app.use('/api/admin/roles', roleRoutes);
 app.use('/api/deliveries', deliveryRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/pdf-report-settings', require('./routes/pdfReportSettingsRoutes'));
@@ -149,8 +151,10 @@ app.use('/api/payments-made', paymentMadeRoutes);
 app.use('/api/credit-notes', creditNoteRoutes);
 app.use('/api/fixed-assets', fixedAssetRoutes);
 app.use('/api/expenses', expenseRoutes);
+app.use('/api/budgets', require('./routes/budgetRoutes'));
 app.use('/api/income', incomeRoutes);
 app.use('/api/equity', equityRoutes);
+app.use('/api/cost-centers', require('./routes/costCenterRoutes'));
 app.use('/api/loans', loanRoutes);
 app.use('/api/fiscal-year', fiscalYearRoutes);
 app.use('/api/notifications', notificationRoutes);

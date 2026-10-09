@@ -635,12 +635,134 @@ async function repairCompanyBankOpeningBalances(userId, companyId) {
   return results;
 }
 
+/**
+ * Create a bank adjustment journal from reconciliation workspace.
+ * type: 'charge' | 'interest' | 'payment' | 'receipt' | 'other'
+ * - charge/payment: Dr offsetAccount, Cr bank
+ * - interest/receipt: Dr bank, Cr offsetAccount
+ */
+async function createBankAdjustment({
+  userId,
+  companyId,
+  bankAccountId,
+  amount,
+  offsetAccountId,
+  type = 'charge',
+  description,
+  reference,
+  postingDate = new Date(),
+}) {
+  const amt = toNum(amount);
+  if (amt <= 0) {
+    const err = new Error('Adjustment amount must be greater than zero');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!offsetAccountId) {
+    const err = new Error('Offset account is required');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  await assertFiscalYearOpen(userId, postingDate);
+  const fiscalYearId = await resolveFyId(userId, companyId, postingDate);
+  const ref =
+    (reference && String(reference).trim()) ||
+    `BR-ADJ-${bankAccountId.slice(0, 8)}-${Date.now()}`;
+
+  const existing = await prisma.journalEntry.findFirst({
+    where: { companyId, reference: ref },
+    include: { lines: true },
+  });
+  if (existing) {
+    return { journalEntry: existing, duplicate: true };
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const bank = await findBankOwned(bankAccountId, companyId, tx);
+    const offset = await findCoaOwned(offsetAccountId, companyId, tx);
+    const bankCoa = bank.chartOfAccount;
+
+    const moneyIn = type === 'interest' || type === 'receipt' || type === 'deposit';
+    const finalLines = moneyIn
+      ? [
+          {
+            accountId: bankCoa.id,
+            accountName: bankCoa.name,
+            accountCode: bankCoa.code,
+            debit: amt,
+            credit: 0,
+            isReconciled: false,
+          },
+          {
+            accountId: offset.id,
+            accountName: offset.name,
+            accountCode: offset.code,
+            debit: 0,
+            credit: amt,
+            isReconciled: false,
+          },
+        ]
+      : [
+          {
+            accountId: offset.id,
+            accountName: offset.name,
+            accountCode: offset.code,
+            debit: amt,
+            credit: 0,
+            isReconciled: false,
+          },
+          {
+            accountId: bankCoa.id,
+            accountName: bankCoa.name,
+            accountCode: bankCoa.code,
+            debit: 0,
+            credit: amt,
+            isReconciled: false,
+          },
+        ];
+
+    const entryNumber = await generateEntryNumber(tx);
+    const journalEntry = await tx.journalEntry.create({
+      data: {
+        entryNumber,
+        date: new Date(postingDate),
+        description:
+          description ||
+          (type === 'interest'
+            ? `Bank interest — ${bank.accountName}`
+            : type === 'charge'
+              ? `Bank charges — ${bank.accountName}`
+              : `Bank adjustment — ${bank.accountName}`),
+        reference: ref,
+        status: 'Posted',
+        type: 'BankReconciliation',
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        companyId,
+        fiscalYearId,
+        lines: { create: finalLines },
+      },
+      include: { lines: true },
+    });
+
+    await applyLineBalanceChanges(tx, finalLines, companyId, false);
+    await syncBankBalancesFromCoa(tx, [bankCoa.id], companyId);
+
+    const bankUpdated = await tx.bankAccount.findFirst({ where: { id: bank.id } });
+    return { journalEntry, bankAccount: bankUpdated, duplicate: false };
+  });
+}
+
 module.exports = {
   getOrCreateOwnerCapitalAccount,
   upsertBankOpeningBalance,
   createBankDeposit,
   createBankTransfer,
+  createBankAdjustment,
   repairCompanyBankOpeningBalances,
   openingBalanceReference,
-  calculateBalanceChange
+  calculateBalanceChange,
+  findBankOwned,
 };

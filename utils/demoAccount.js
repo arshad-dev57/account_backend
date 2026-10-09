@@ -37,6 +37,7 @@ const DEMO_PERMISSION_PAGES = [
   'accounting-dashboard',
   'accounting-chart-of-accounts',
   'accounting-bank-accounts',
+  'accounting-bank-reconciliation',
   'accounting-invoices',
   'accounting-payments',
   'accounting-payments-received',

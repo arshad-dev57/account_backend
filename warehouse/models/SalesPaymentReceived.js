@@ -429,21 +429,93 @@ class SalesPaymentReceivedModel {
     });
   }
 
+  static invoiceDetailSelect() {
+    return {
+      id: true,
+      invoiceNumber: true,
+      invoiceDate: true,
+      dueDate: true,
+      grandTotal: true,
+      paidAmount: true,
+      outstanding: true,
+      paymentStatus: true,
+      invoiceStatus: true,
+      paymentTerms: true,
+    };
+  }
+
+  static formatPayment(payment) {
+    if (!payment) return null;
+
+    const invoicePayments = (payment.invoicePayments || []).map((ip) => ({
+      id: ip.id,
+      paymentId: ip.paymentId,
+      invoiceId: ip.invoiceId,
+      invoiceNumber: ip.invoiceNumber || ip.invoice?.invoiceNumber || '',
+      amountPaid: Number(ip.amountPaid) || 0,
+      invoice: ip.invoice
+        ? {
+            id: ip.invoice.id,
+            invoiceNumber: ip.invoice.invoiceNumber,
+            invoiceDate: ip.invoice.invoiceDate,
+            dueDate: ip.invoice.dueDate,
+            grandTotal: Number(ip.invoice.grandTotal) || 0,
+            paidAmount: Number(ip.invoice.paidAmount) || 0,
+            outstanding: Number(ip.invoice.outstanding) || 0,
+            paymentStatus: ip.invoice.paymentStatus,
+            invoiceStatus: ip.invoice.invoiceStatus,
+            paymentTerms: ip.invoice.paymentTerms,
+          }
+        : null,
+    }));
+
+    const journalEntry = payment.journalEntry
+      ? {
+          ...payment.journalEntry,
+          lines: (payment.journalEntry.lines || []).map((line) => ({
+            ...line,
+            accountName:
+              line.accountName ||
+              line.account?.accountName ||
+              line.account?.name ||
+              '',
+            accountCode:
+              line.accountCode ||
+              line.account?.accountCode ||
+              line.account?.code ||
+              '',
+          })),
+        }
+      : payment.journalEntry;
+
+    return {
+      ...payment,
+      bankAccountName:
+        payment.bankAccountName ||
+        payment.bankAccount?.accountName ||
+        '',
+      invoicePayments,
+      journalEntry,
+      totalInvoices: invoicePayments.length,
+      canEdit: payment.status !== 'Cancelled',
+      canCancel: payment.status === 'Completed',
+      canDelete: payment.status === 'Cancelled',
+    };
+  }
+
   // ============================================================
   // GET PAYMENT BY ID
   // ============================================================
   static async findById(id) {
-    return await prisma.salesPaymentReceived.findUnique({
+    const payment = await prisma.salesPaymentReceived.findUnique({
       where: { id },
       include: {
         invoicePayments: {
           include: {
             invoice: {
-              include: {
-                items: true
-              }
-            }
-          }
+              select: this.invoiceDetailSelect(),
+            },
+          },
         },
         customer: true,
         bankAccount: true,
@@ -451,16 +523,17 @@ class SalesPaymentReceivedModel {
           include: {
             lines: {
               include: {
-                account: true
-              }
-            }
-          }
+                account: true,
+              },
+            },
+          },
         },
         creator: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        }
-      }
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
     });
+    return this.formatPayment(payment);
   }
 
   // ============================================================
@@ -496,7 +569,7 @@ class SalesPaymentReceivedModel {
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { paymentDate: 'desc' } } = options;
 
-    return await prisma.salesPaymentReceived.findMany({
+    const payments = await prisma.salesPaymentReceived.findMany({
       where: {
         ...filter,
         isActive: true,
@@ -509,7 +582,7 @@ class SalesPaymentReceivedModel {
         invoicePayments: {
           include: {
             invoice: {
-              select: { id: true, invoiceNumber: true, grandTotal: true, outstanding: true }
+              select: this.invoiceDetailSelect(),
             }
           }
         },
@@ -520,6 +593,8 @@ class SalesPaymentReceivedModel {
         }
       }
     });
+
+    return payments.map((p) => this.formatPayment(p));
   }
 
   // ============================================================
@@ -611,7 +686,7 @@ class SalesPaymentReceivedModel {
       throw new Error('Cannot edit cancelled payment');
     }
 
-    return await prisma.salesPaymentReceived.update({
+    const updated = await prisma.salesPaymentReceived.update({
       where: { id },
       data: {
         updatedBy: data.updatedBy,
@@ -624,20 +699,25 @@ class SalesPaymentReceivedModel {
         invoicePayments: {
           include: {
             invoice: {
-              select: { id: true, invoiceNumber: true, grandTotal: true, outstanding: true },
+              select: this.invoiceDetailSelect(),
             },
           },
         },
         customer: true,
         bankAccount: true,
+        journalEntry: {
+          include: {
+            lines: {
+              include: { account: true },
+            },
+          },
+        },
+        creator: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
       },
-    }).then((updated) => ({
-      ...updated,
-      totalInvoices: updated.invoicePayments?.length || 0,
-      canEdit: true,
-      canCancel: updated.status === 'Completed',
-      canDelete: false,
-    }));
+    });
+    return this.formatPayment(updated);
   }
 
   static async cancelPayment(id, userId, reason = '') {

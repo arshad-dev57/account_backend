@@ -2,7 +2,7 @@
 
 const prisma = require('../prisma/client');
 
-const VALID_ACCOUNT_TYPES = ['Current', 'Savings', 'Business', 'Islamic'];
+const VALID_ACCOUNT_TYPES = ['Current', 'Savings', 'Business', 'Islamic', 'Cash'];
 const VALID_STATUS = ['Active', 'Inactive'];
 
 class BankAccountModel {
@@ -491,52 +491,83 @@ class BankAccountModel {
   // ✅ GET BANK ACCOUNT TRANSACTIONS
   // ============================================================
   static async getTransactions(accountId, options = {}) {
-    const { startDate, endDate, skip, take } = options;
+    const { startDate, endDate, skip = 0, take = 20, search = '' } = options;
 
-    // Get chart of account ID
     const bankAccount = await prisma.bankAccount.findUnique({
-      where: { id: accountId }
+      where: { id: accountId },
     });
 
-    if (!bankAccount) return null;
+    if (!bankAccount) return { transactions: [], total: 0 };
+
+    const journalFilter = {
+      status: 'Posted',
+      ...(bankAccount.companyId ? { companyId: bankAccount.companyId } : {}),
+    };
+
+    if (startDate || endDate) {
+      journalFilter.date = {};
+      if (startDate) journalFilter.date.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        journalFilter.date.lte = end;
+      }
+    }
+
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
+      journalFilter.OR = [
+        { description: { contains: q, mode: 'insensitive' } },
+        { reference: { contains: q, mode: 'insensitive' } },
+        { entryNumber: { contains: q, mode: 'insensitive' } },
+      ];
+    }
 
     const whereClause = {
       accountId: bankAccount.chartOfAccountId,
-      journal: {
-        status: 'Posted'
-      }
+      journal: journalFilter,
     };
 
-    if (startDate && endDate) {
-      whereClause.journal.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate)
+    const [lines, total] = await Promise.all([
+      prisma.journalLine.findMany({
+        where: whereClause,
+        include: {
+          journal: {
+            select: {
+              id: true,
+              entryNumber: true,
+              date: true,
+              description: true,
+              reference: true,
+              type: true,
+              status: true,
+            },
+          },
+        },
+        orderBy: [{ journal: { date: 'desc' } }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      prisma.journalLine.count({ where: whereClause }),
+    ]);
+
+    const transactions = lines.map((line) => {
+      const debit = Number(line.debit) || 0;
+      const credit = Number(line.credit) || 0;
+      return {
+        id: line.id,
+        journalEntryId: line.journalId,
+        entryNumber: line.journal?.entryNumber || '',
+        date: line.journal?.date || null,
+        description: line.journal?.description || '',
+        reference: line.journal?.reference || '',
+        type: line.journal?.type || 'Normal',
+        debit,
+        credit,
+        amount: debit > 0 ? debit : credit,
+        direction: debit > 0 ? 'in' : 'out',
+        isReconciled: !!line.isReconciled,
       };
-    }
-
-    const transactions = await prisma.journalLine.findMany({
-      where: whereClause,
-      include: {
-        journal: {
-          select: {
-            entryNumber: true,
-            date: true,
-            description: true,
-            reference: true
-          }
-        }
-      },
-      orderBy: {
-        journal: {
-          date: 'desc'
-        }
-      },
-      skip,
-      take
-    });
-
-    const total = await prisma.journalLine.count({
-      where: whereClause
     });
 
     return { transactions, total };

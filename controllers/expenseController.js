@@ -311,6 +311,7 @@ async function reverseExpenseJournals(existing, userId, companyId) {
 
 async function createExpenseJournalEntry(userId, companyId, expense, expenseAccount, cashOrBankAccount) {
   const entryNumber = `JE-${Date.now()}`;
+  const costCenterId = expense.costCenterId || null;
 
   return await prisma.journalEntry.create({
     data: {
@@ -332,7 +333,8 @@ async function createExpenseJournalEntry(userId, companyId, expense, expenseAcco
             accountCode: expenseAccount.code,
             debit: expense.totalAmount,
             credit: 0,
-            isReconciled: false
+            isReconciled: false,
+            ...(costCenterId ? { costCenterId } : {}),
           },
           {
             accountId: cashOrBankAccount.id,
@@ -346,6 +348,31 @@ async function createExpenseJournalEntry(userId, companyId, expense, expenseAcco
       }
     }
   });
+}
+
+async function assertCompanyScopedRefs(companyId, { departmentId, costCenterId }) {
+  if (departmentId) {
+    const dept = await prisma.hrDepartment.findFirst({
+      where: { id: departmentId, companyId },
+      select: { id: true },
+    });
+    if (!dept) {
+      const err = new Error('Department not found for this company');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+  if (costCenterId) {
+    const cc = await prisma.costCenter.findFirst({
+      where: { id: costCenterId, companyId, status: 'active' },
+      select: { id: true },
+    });
+    if (!cc) {
+      const err = new Error('Cost center not found for this company');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
 }
 
 const getExpenseAccounts = async (req, res) => {
@@ -386,7 +413,11 @@ const createExpense = async (req, res) => {
       description,
       reference,
       paymentMethod,
-      bankAccountId
+      bankAccountId,
+      departmentId,
+      costCenterId,
+      receipt,
+      attachments,
     } = req.body;
 
     const userId = req.user.id;
@@ -403,6 +434,18 @@ const createExpense = async (req, res) => {
     }
 
     console.log("📦 Received expense data:", JSON.stringify(req.body, null, 2));
+
+    try {
+      await assertCompanyScopedRefs(companyId, {
+        departmentId: departmentId || null,
+        costCenterId: costCenterId || null,
+      });
+    } catch (refErr) {
+      return res.status(refErr.statusCode || 400).json({
+        success: false,
+        message: refErr.message,
+      });
+    }
 
     const resolvedLocationId = await resolveLocationId(
       prisma,
@@ -527,6 +570,13 @@ const createExpense = async (req, res) => {
     let finalPaymentMethod = paymentMethod || 'Cash';
     let finalBankAccountId = cleanBankAccountId;
 
+    if (!(totalAmount > 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Expense amount must be greater than zero',
+      });
+    }
+
     const fyId = await resolveFiscalYearId(userId, postingDate);
     const expense = await ExpenseModel.create({
       date: formattedDate,
@@ -541,6 +591,9 @@ const createExpense = async (req, res) => {
       reference: reference || '',
       paymentMethod: finalPaymentMethod,
       bankAccountId: finalBankAccountId,
+      departmentId: departmentId || null,
+      costCenterId: costCenterId || null,
+      receipt: receipt || null,
       fiscalYearId: fyId,
       status: 'Posted',
       postedBy: userId,
@@ -549,6 +602,23 @@ const createExpense = async (req, res) => {
       companyId: companyId,
       locationId: resolvedLocationId
     });
+
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      const rows = attachments
+        .filter((a) => a && a.fileUrl)
+        .map((a) => ({
+          expenseId: expense.id,
+          companyId,
+          fileUrl: String(a.fileUrl),
+          fileName: String(a.fileName || ''),
+          fileSize: Number(a.fileSize) || 0,
+          mimeType: String(a.mimeType || ''),
+          cloudinaryPublicId: String(a.cloudinaryPublicId || ''),
+        }));
+      if (rows.length) {
+        await prisma.expenseAttachment.createMany({ data: rows });
+      }
+    }
 
     console.log("✅ Expense created successfully!");
     console.log("   ID:", expense.id);
@@ -887,6 +957,9 @@ const getExpense = async (req, res) => {
             type: true
           }
         },
+        department: { select: { id: true, name: true } },
+        costCenter: { select: { id: true, code: true, name: true } },
+        attachments: true,
         creator: {
           select: {
             id: true,

@@ -127,10 +127,16 @@ model Company {
   products           Product[]              @relation("ProductCompany")
   fiscalYears        FiscalYear[]           @relation("FiscalYearCompany")
   bankAccounts       BankAccount[]          @relation("BankAccountCompany")
+  bankStatementImports BankStatementImport[] @relation("BankStatementImportCompany")
+  bankStatementTransactions BankStatementTransaction[] @relation("BankStatementTransactionCompany")
+  bankReconciliations BankReconciliation[]  @relation("BankReconciliationCompany")
+  bankReconciliationMatches BankReconciliationMatch[] @relation("BankReconciliationMatchCompany")
   journalEntries     JournalEntry[]         @relation("JournalEntryCompany")
   bills              Bill[]                 @relation("BillCompany")
   incomes            Income[]               @relation("IncomeCompany")
   expenses           Expense[]              @relation("ExpenseCompany")
+  expenseAttachments ExpenseAttachment[]
+  budgets            Budget[]
   trialBalanceViews  TrialBalanceView[]     @relation("TrialBalanceViewCompany")
   paymentsMade       PaymentMade[]          @relation("PaymentMadeCompany")
   purchasePayments   PurchasePaymentMake[]  @relation("PurchasePaymentMakeCompany")
@@ -191,6 +197,8 @@ model Company {
   hrLeaveTypes       HrLeaveType[]
   hrLeaveBalances    HrLeaveBalance[]
   hrRosters          HrRoster[]
+  customRoles        Role[]
+  securityAuditLogs  SecurityAuditLog[]
   hrAttendanceCorrections HrAttendanceCorrection[]
   hrLoans            HrLoan[]
   hrBonuses          HrBonus[]
@@ -544,6 +552,11 @@ model User {
   chartOfAccountCreators  ChartOfAccount[]  @relation("ChartOfAccountCreator")
   exchangeRateCreators    ExchangeRate[]    @relation("ExchangeRateCreator")
   bankAccountCreators     BankAccount[]     @relation("BankAccountCreator")
+  bankStatementImports    BankStatementImport[] @relation("BankStatementImportCreator")
+  bankReconciliationsCreated BankReconciliation[] @relation("BankReconciliationCreator")
+  bankReconciliationsCompleted BankReconciliation[] @relation("BankReconciliationCompleter")
+  bankReconciliationsReopened BankReconciliation[] @relation("BankReconciliationReopener")
+  bankReconciliationMatches BankReconciliationMatch[] @relation("BankReconciliationMatchCreator")
   journalEntryCreators    JournalEntry[]    @relation("JournalEntryCreator")
   journalEntryPosters     JournalEntry[]    @relation("JournalEntryPoster")
   billCreators            Bill[]            @relation("BillCreator")
@@ -551,6 +564,8 @@ model User {
   incomePosters           Income[]          @relation("IncomePoster")
   expenseCreators         Expense[]         @relation("ExpenseCreator")
   expensePosters          Expense[]         @relation("ExpensePoster")
+  budgetsCreated          Budget[]          @relation("BudgetCreator")
+  budgetsApproved         Budget[]          @relation("BudgetApprover")
   creditNoteCreators      CreditNote[]      @relation("CreditNoteCreator")
   paymentReceivedCreators PaymentReceived[] @relation("PaymentReceivedCreator")
   paymentMadeCreators     PaymentMade[]     @relation("PaymentMadeCreator")
@@ -595,6 +610,8 @@ model User {
   creator             User?                @relation("CreatedUsers", fields: [createdBy], references: [id])
   userRole            Role?                @relation(fields: [roleId], references: [id])
   permissions         UserPermission[]
+  permissionOverrides UserPermissionOverride[]
+  securityAuditLogs   SecurityAuditLog[]
   userLocations        UserLocation[]
   company             Company?             @relation(fields: [companyId], references: [id])
   memberships         CompanyMembership[]
@@ -707,6 +724,9 @@ model CostCenter {
   employees    HrEmployee[]
   payrollItems HrPayrollItem[]
   journalLines JournalLine[]
+  expenses     Expense[]
+  budgets      Budget[]
+  budgetLines  BudgetLine[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1071,6 +1091,9 @@ model HrDepartment {
   parent        HrDepartment? @relation("HrDeptTree", fields: [parentId], references: [id], onDelete: SetNull)
   children      HrDepartment[] @relation("HrDeptTree")
   costCenterRef CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  expenses      Expense[]
+  budgets       Budget[]
+  budgetLines   BudgetLine[]
 
   @@index([companyId])
   @@index([costCenterId])
@@ -1493,38 +1516,47 @@ model SupportTicket {
 }
 
 // ============================================================
-// ROLE & PERMISSION MODELS
+// ROLE & PERMISSION MODELS (Enterprise Granular RBAC)
 // ============================================================
 
 model Role {
   id          String   @id @default(uuid())
-  name        String   @unique // admin, manager, staff, viewer
+  name        String   // admin, manager, staff, viewer, or custom role name
   description String?
+  companyId   String?  @map("company_id")
+  isSystem    Boolean  @default(false) @map("is_system")
+  scope       String   @default("ALL")
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
+  company     Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users       User[]
   permissions RolePermission[]
 
+  @@unique([companyId, name])
+  @@index([companyId])
   @@index([name])
   @@map("roles")
 }
 
 model Permission {
   id          String   @id @default(uuid())
-  name        String   @unique // e.g., "dashboard.view", "products.create"
+  name        String   @unique // e.g., "sales.orders.view", "accounting.journal_entries.post"
   description String?
-  module      String // e.g., "dashboard", "products", "reports"
-  action      String // e.g., "view", "create", "edit", "delete"
+  module      String   // e.g., "sales", "accounting", "inventory", "purchases", "hr", "pos", "reports", "dashboard", "settings"
+  resource    String   @default("")
+  action      String   // e.g., "view", "create", "edit", "delete", "post", "approve", "cancel", "print", "export"
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
   rolePermissions RolePermission[]
+  userOverrides   UserPermissionOverride[]
 
   @@index([module])
+  @@index([resource])
   @@index([action])
   @@map("permissions")
 }
@@ -1533,6 +1565,7 @@ model RolePermission {
   id           String   @id @default(uuid())
   roleId       String   @map("role_id")
   permissionId String   @map("permission_id")
+  scope        String   @default("ALL") // ALL, OWN, TEAM, WAREHOUSE, BRANCH, DEPARTMENT
   createdAt    DateTime @default(now()) @map("created_at")
 
   // Relations
@@ -1543,6 +1576,45 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
   @@map("role_permissions")
+}
+
+model UserPermissionOverride {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  companyId    String?  @map("company_id")
+  permissionId String   @map("permission_id")
+  effect       String   @default("ALLOW") // ALLOW or DENY
+  scope        String?  @default("ALL")   // ALL, OWN, TEAM, WAREHOUSE, etc.
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@index([companyId])
+  @@map("user_permission_overrides")
+}
+
+model SecurityAuditLog {
+  id         String   @id @default(uuid())
+  companyId  String?  @map("company_id")
+  userId     String?  @map("user_id")
+  action     String   // ROLE_CREATED, ROLE_UPDATED, ROLE_DELETED, PERMISSION_OVERRIDE_CHANGED, USER_ROLE_ASSIGNED
+  targetType String   @map("target_type")
+  targetId   String?  @map("target_id")
+  details    Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([action])
+  @@map("security_audit_logs")
 }
 
 // ============================================================
@@ -1609,6 +1681,7 @@ model FiscalYear {
   posSales           POSSale[]              @relation("POSSaleFiscalYear")
   posReturns         POSReturn[]            @relation("POSReturnFiscalYear")
   stockWriteOffs     StockWriteOff[]
+  budgets            Budget[]
 
   @@unique([companyId, name])
   @@index([companyId, startDate, endDate])
@@ -2735,6 +2808,7 @@ model ChartOfAccount {
   journalLines         JournalLine[]
   taxLiabilityInvoices WarehouseInvoice[]   @relation("TaxLiabilityAccount")
   expenses             Expense[]            @relation("ExpenseToAccount")
+  budgetLines          BudgetLine[]         @relation("BudgetLineAccount")
   incomes              Income[]             @relation("IncomeToAccount")
   accountsReceivable   AccountsReceivable[] @relation("ARAccount")
   salesRevenue         SalesInvoice[]       @relation("SalesRevenueAccount")
@@ -3035,6 +3109,11 @@ model BankAccount {
   purchasePayments      PurchasePaymentMake[]
   transactions          Transaction[]          @relation("BankAccountTransactions")
   fixedAssets           FixedAsset[]
+  statementImports      BankStatementImport[]
+  statementTransactions BankStatementTransaction[]
+  reconciliations       BankReconciliation[]
+  /// Last CSV/XLSX column mapping remembered for statement imports
+  statementColumnMapping Json? @map("statement_column_mapping")
 
   @@unique([accountNumber, companyId])
   @@index([accountNumber])
@@ -3043,6 +3122,163 @@ model BankAccount {
   @@index([createdBy])
   @@index([companyId])
   @@map("bank_accounts")
+}
+
+// ============================================================
+// BANK RECONCILIATION MODELS (statement import + matching)
+// ============================================================
+
+model BankStatementImport {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  bankAccountId      String    @map("bank_account_id")
+  fileName           String?   @map("file_name")
+  fileType           String?   @map("file_type")
+  status             String    @default("preview") // preview | imported | cancelled
+  statementStartDate DateTime? @map("statement_start_date")
+  statementEndDate   DateTime? @map("statement_end_date")
+  openingBalance     Float?    @map("opening_balance")
+  closingBalance     Float?    @map("closing_balance")
+  rowCount           Int       @default(0) @map("row_count")
+  duplicateCount     Int       @default(0) @map("duplicate_count")
+  columnMapping      Json?     @map("column_mapping")
+  importedBy         String    @map("imported_by")
+  importedAt         DateTime? @map("imported_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company        Company                    @relation("BankStatementImportCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount    BankAccount                @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  importer       User                       @relation("BankStatementImportCreator", fields: [importedBy], references: [id])
+  transactions   BankStatementTransaction[]
+  reconciliations BankReconciliation[]
+
+  @@index([companyId])
+  @@index([bankAccountId])
+  @@index([status])
+  @@index([importedBy])
+  @@map("bank_statement_imports")
+}
+
+model BankStatementTransaction {
+  id                   String    @id @default(uuid())
+  companyId            String    @map("company_id")
+  bankAccountId        String    @map("bank_account_id")
+  importId             String    @map("import_id")
+  reconciliationId     String?   @map("reconciliation_id")
+  transactionDate      DateTime  @map("transaction_date")
+  valueDate            DateTime? @map("value_date")
+  description          String    @default("")
+  reference            String    @default("")
+  debit                Float     @default(0)
+  credit               Float     @default(0)
+  /// Signed amount: credit (inflow) positive, debit (outflow) negative
+  amount               Float     @default(0)
+  runningBalance       Float?    @map("running_balance")
+  fingerprint          String
+  status               String    @default("unmatched") // unmatched | matched | ignored | reviewed
+  matchedJournalLineId String?   @map("matched_journal_line_id")
+  notes                String?
+  importedAt           DateTime  @default(now()) @map("imported_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  company            Company                   @relation("BankStatementTransactionCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount        BankAccount               @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  import             BankStatementImport       @relation(fields: [importId], references: [id], onDelete: Cascade)
+  reconciliation     BankReconciliation?       @relation(fields: [reconciliationId], references: [id], onDelete: SetNull)
+  matchedJournalLine JournalLine?              @relation("MatchedJournalLine", fields: [matchedJournalLineId], references: [id], onDelete: SetNull)
+  matches            BankReconciliationMatch[]
+
+  @@unique([companyId, bankAccountId, fingerprint])
+  @@index([companyId])
+  @@index([bankAccountId])
+  @@index([importId])
+  @@index([reconciliationId])
+  @@index([status])
+  @@index([transactionDate])
+  @@index([matchedJournalLineId])
+  @@map("bank_statement_transactions")
+}
+
+model BankReconciliation {
+  id                        String    @id @default(uuid())
+  companyId                 String    @map("company_id")
+  bankAccountId             String    @map("bank_account_id")
+  importId                  String?   @map("import_id")
+  statementStartDate        DateTime  @map("statement_start_date")
+  statementEndDate          DateTime  @map("statement_end_date")
+  statementOpeningBalance   Float     @default(0) @map("statement_opening_balance")
+  statementClosingBalance   Float     @default(0) @map("statement_closing_balance")
+  bookOpeningBalance        Float     @default(0) @map("book_opening_balance")
+  bookClosingBalance        Float     @default(0) @map("book_closing_balance")
+  difference                Float     @default(0)
+  reconciledAmount          Float     @default(0) @map("reconciled_amount")
+  unreconciledAmount        Float     @default(0) @map("unreconciled_amount")
+  outstandingDeposits       Float     @default(0) @map("outstanding_deposits")
+  outstandingPayments       Float     @default(0) @map("outstanding_payments")
+  bankChargesTotal          Float     @default(0) @map("bank_charges_total")
+  bankInterestTotal         Float     @default(0) @map("bank_interest_total")
+  otherAdjustments          Float     @default(0) @map("other_adjustments")
+  matchedCount              Int       @default(0) @map("matched_count")
+  unmatchedBankCount        Int       @default(0) @map("unmatched_bank_count")
+  unmatchedBookCount        Int       @default(0) @map("unmatched_book_count")
+  status                    String    @default("Draft") // Draft | InProgress | Reconciled | Completed
+  exceptionAllowed          Boolean   @default(false) @map("exception_allowed")
+  exceptionNote             String?   @map("exception_note")
+  completedBy               String?   @map("completed_by")
+  completedAt               DateTime? @map("completed_at")
+  reopenedBy                String?   @map("reopened_by")
+  reopenedAt                DateTime? @map("reopened_at")
+  createdBy                 String    @map("created_by")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  company      Company                    @relation("BankReconciliationCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount  BankAccount                @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  import       BankStatementImport?       @relation(fields: [importId], references: [id], onDelete: SetNull)
+  creator      User                       @relation("BankReconciliationCreator", fields: [createdBy], references: [id])
+  completer    User?                      @relation("BankReconciliationCompleter", fields: [completedBy], references: [id])
+  reopener     User?                      @relation("BankReconciliationReopener", fields: [reopenedBy], references: [id])
+  matches      BankReconciliationMatch[]
+  statementTransactions BankStatementTransaction[]
+
+  @@index([companyId])
+  @@index([bankAccountId])
+  @@index([status])
+  @@index([statementStartDate, statementEndDate])
+  @@index([createdBy])
+  @@index([completedBy])
+  @@map("bank_reconciliations")
+}
+
+model BankReconciliationMatch {
+  id                     String    @id @default(uuid())
+  companyId              String    @map("company_id")
+  reconciliationId       String    @map("reconciliation_id")
+  statementTransactionId String    @map("statement_transaction_id")
+  journalLineId          String    @map("journal_line_id")
+  journalEntryId         String    @map("journal_entry_id")
+  matchType              String    @default("manual") @map("match_type") // auto | manual
+  matchScore             Float?    @map("match_score")
+  matchReason            String?   @map("match_reason")
+  isActive               Boolean   @default(true) @map("is_active")
+  matchedBy              String?   @map("matched_by")
+  matchedAt              DateTime  @default(now()) @map("matched_at")
+  unmatchedAt            DateTime? @map("unmatched_at")
+
+  company              Company                  @relation("BankReconciliationMatchCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  reconciliation       BankReconciliation       @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  statementTransaction BankStatementTransaction @relation(fields: [statementTransactionId], references: [id], onDelete: Cascade)
+  journalLine          JournalLine              @relation(fields: [journalLineId], references: [id], onDelete: Cascade)
+  matcher              User?                    @relation("BankReconciliationMatchCreator", fields: [matchedBy], references: [id])
+
+  @@index([companyId])
+  @@index([reconciliationId])
+  @@index([statementTransactionId])
+  @@index([journalLineId])
+  @@index([isActive])
+  @@map("bank_reconciliation_matches")
 }
 
 // ============================================================
@@ -3064,10 +3300,13 @@ model JournalLine {
   journal       JournalEntry   @relation(fields: [journalId], references: [id], onDelete: Cascade)
   account       ChartOfAccount @relation(fields: [accountId], references: [id])
   costCenterRef CostCenter?    @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  reconciliationMatches BankReconciliationMatch[]
+  matchedStatementTransactions BankStatementTransaction[] @relation("MatchedJournalLine")
 
   @@index([journalId])
   @@index([accountId])
   @@index([costCenterId])
+  @@index([isReconciled])
   @@map("journal_lines")
 }
 
@@ -3109,6 +3348,7 @@ model JournalEntry {
   transactionId     String?               @unique @map("transaction_id")
   posSale           POSSale?              @relation("POSSaleJournalEntry")
   posReturn         POSReturn?            @relation("POSReturnJournalEntry")
+  equityTransaction EquityTransaction?    @relation("EquityTransactionJournal")
 
   @@index([entryNumber])
   @@index([date])
@@ -3277,6 +3517,9 @@ model Expense {
 
   receipt String?
 
+  departmentId String? @map("department_id")
+  costCenterId String? @map("cost_center_id")
+
   status   String    @default("Draft")
   postedBy String?   @map("posted_by")
   postedAt DateTime? @map("posted_at")
@@ -3299,6 +3542,9 @@ model Expense {
   company        Company?        @relation("ExpenseCompany", fields: [companyId], references: [id])
   fiscalYear     FiscalYear?     @relation("ExpenseFiscalYear", fields: [fiscalYearId], references: [id])
   location       Location?       @relation(fields: [locationId], references: [id])
+  department     HrDepartment?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  costCenter     CostCenter?     @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  attachments    ExpenseAttachment[]
 
   @@index([expenseNumber])
   @@index([expenseType])
@@ -3311,7 +3557,102 @@ model Expense {
   @@index([companyId])
   @@index([fiscalYearId])
   @@index([locationId])
+  @@index([departmentId])
+  @@index([costCenterId])
   @@map("expenses")
+}
+
+model ExpenseAttachment {
+  id                 String   @id @default(uuid())
+  expenseId          String   @map("expense_id")
+  companyId          String   @map("company_id")
+  fileUrl            String   @map("file_url")
+  fileName           String   @default("") @map("file_name")
+  fileSize           Int      @default(0) @map("file_size")
+  mimeType           String   @default("") @map("mime_type")
+  cloudinaryPublicId String   @default("") @map("cloudinary_public_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@index([companyId])
+  @@map("expense_attachments")
+}
+
+// ============================================================
+// BUDGETING — analytical only (does NOT post to GL)
+// ============================================================
+
+model Budget {
+  id           String    @id @default(uuid())
+  companyId    String    @map("company_id")
+  fiscalYearId String    @map("fiscal_year_id")
+  name         String
+  departmentId String?   @map("department_id")
+  costCenterId String?   @map("cost_center_id")
+  startDate    DateTime  @map("start_date")
+  endDate      DateTime  @map("end_date")
+  notes        String    @default("")
+  status       String    @default("Draft") // Draft | Approved | Closed
+  createdBy    String    @map("created_by")
+  approvedBy   String?   @map("approved_by")
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fiscalYear FiscalYear    @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  department HrDepartment? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  costCenter CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  creator    User          @relation("BudgetCreator", fields: [createdBy], references: [id])
+  approver   User?         @relation("BudgetApprover", fields: [approvedBy], references: [id])
+  lines      BudgetLine[]
+
+  @@unique([companyId, fiscalYearId, name])
+  @@index([companyId])
+  @@index([fiscalYearId])
+  @@index([status])
+  @@index([departmentId])
+  @@index([costCenterId])
+  @@map("budgets")
+}
+
+model BudgetLine {
+  id           String  @id @default(uuid())
+  budgetId     String  @map("budget_id")
+  accountId    String  @map("account_id")
+  departmentId String? @map("department_id")
+  costCenterId String? @map("cost_center_id")
+  amount       Float   @default(0) // annual / total for this account line
+  notes        String  @default("")
+
+  budget       Budget                    @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount            @relation("BudgetLineAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  department   HrDepartment?             @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  costCenter   CostCenter?               @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  allocations  BudgetPeriodAllocation[]
+
+  @@index([budgetId])
+  @@index([accountId])
+  @@index([departmentId])
+  @@index([costCenterId])
+  @@map("budget_lines")
+}
+
+model BudgetPeriodAllocation {
+  id           String @id @default(uuid())
+  budgetLineId String @map("budget_line_id")
+  periodKey    String @map("period_key") // YYYY-MM
+  amount       Float  @default(0)
+
+  budgetLine BudgetLine @relation(fields: [budgetLineId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetLineId, periodKey])
+  @@index([budgetLineId])
+  @@index([periodKey])
+  @@map("budget_period_allocations")
 }
 
 // ============================================================
@@ -3830,25 +4171,29 @@ model Loan {
 // ============================================================
 
 model EquityTransaction {
-  id          String   @id @default(uuid())
-  accountId   String   @map("account_id")
-  date        DateTime @default(now())
-  type        String
-  amount      Float
-  description String
-  reference   String   @default("")
-  status      String   @default("Posted")
-  createdBy   String   @map("created_by")
-  companyId   String?  @map("company_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  accountId      String   @map("account_id")
+  date           DateTime @default(now())
+  type           String
+  amount         Float
+  description    String
+  reference      String   @default("")
+  status         String   @default("Posted")
+  journalEntryId String?  @unique @map("journal_entry_id")
+  createdBy      String   @map("created_by")
+  updatedBy      String?  @map("updated_by")
+  companyId      String?  @map("company_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  account EquityAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  company Company?      @relation("EquityTransactionCompany", fields: [companyId], references: [id])
+  account      EquityAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  company      Company?      @relation("EquityTransactionCompany", fields: [companyId], references: [id])
+  journalEntry JournalEntry? @relation("EquityTransactionJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
 
   @@index([accountId])
   @@index([type])
   @@index([companyId])
+  @@index([journalEntryId])
   @@map("equity_transactions")
 }
 

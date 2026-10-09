@@ -17,6 +17,7 @@ const {
 const { getTrialEligibility, trialIneligibleMessage } = require('../utils/trialEligibility');
 const { invalidateAuthUser } = require('../middleware/authMiddleware');
 const { verifyGooglePlaySubscription } = require('../utils/googlePlayBilling');
+const { verifyAppleSubscription } = require('../utils/appleAppStoreBilling');
 
 // ─── Subscription Plans (USD) ────────────────────────────────────
 const PLANS = [
@@ -455,6 +456,115 @@ const verifyGooglePlayPurchase = async (req, res) => {
     res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Failed to verify Google Play purchase',
+    });
+  }
+};
+
+const verifyApplePurchase = async (req, res) => {
+  try {
+    const {
+      transactionId,
+      productId,
+      serverVerificationData,
+      bundleId,
+    } = req.body;
+    const userId = req.user.id;
+    const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company not found' });
+    }
+    if (!transactionId && !serverVerificationData) {
+      return res.status(400).json({
+        success: false,
+        message: 'transactionId or serverVerificationData is required',
+      });
+    }
+
+    const verified = await verifyAppleSubscription({
+      transactionId,
+      productId,
+      serverVerificationData,
+      bundleId,
+    });
+
+    const pricing = calculatePrice(
+      verified.productTier,
+      verified.billingCycle,
+      verified.licensedUsers,
+      verified.licensedBranches
+    );
+    const endDate = verified.expiry || paidEndDate(verified.billingCycle, new Date());
+    const startDate = verified.startTime || new Date();
+    const dedupeId =
+      verified.originalTransactionId ||
+      verified.transactionId ||
+      transactionId;
+
+    await applyCompanySubscription(companyId, {
+      subscriptionPlan: verified.billingCycle,
+      subscriptionStatus: 'active',
+      productTier: verified.productTier,
+      licensedUsers: pricing.licensedUsers,
+      licensedBranches: pricing.licensedBranches,
+      billingCycle: verified.billingCycle,
+      trialStartDate: null,
+      trialEndDate: null,
+      subscriptionStartDate: startDate,
+      subscriptionEndDate: endDate,
+    });
+    invalidateAuthUser(userId);
+
+    const already = await prisma.subscription.findFirst({
+      where: { transactionId: dedupeId },
+    });
+    if (!already) {
+      await Subscription.create({
+        userId,
+        plan: verified.billingCycle,
+        startDate,
+        endDate,
+        amount: pricing.amount,
+        currency: 'USD',
+        paymentMethod: 'apple_app_store',
+        transactionId: dedupeId,
+        paymentDetails: {
+          method: 'apple_app_store',
+          productId: verified.productId,
+          transactionId: verified.transactionId,
+          originalTransactionId: verified.originalTransactionId,
+          productTier: verified.productTier,
+          licensedUsers: pricing.licensedUsers,
+          licensedBranches: pricing.licensedBranches,
+        },
+      });
+    }
+
+    const updatedUserData = await prisma.user.findUnique({ where: { id: userId } });
+    const updatedUser = new User(updatedUserData);
+    const capacity = await getCompanyCapacity(prisma, companyId);
+
+    res.status(already ? 200 : 201).json({
+      success: true,
+      message: 'App Store subscription activated',
+      data: {
+        subscriptionDaysRemaining: updatedUser.getSubscriptionDaysRemaining(),
+        endDate: updatedUser.subscription.endDate,
+        startDate: updatedUser.subscription.startDate,
+        plan: updatedUser.subscription.plan,
+        status: updatedUser.subscription.status,
+        productTier: verified.productTier,
+        licensedUsers: pricing.licensedUsers,
+        licensedBranches: pricing.licensedBranches,
+        amount: pricing.amount,
+        currency: 'USD',
+        capacity,
+      },
+    });
+  } catch (error) {
+    console.error('verifyApplePurchase error:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to verify App Store purchase',
     });
   }
 };
@@ -1175,6 +1285,7 @@ module.exports = {
   searchSubscriptions,
   subscribeDirect,
   verifyGooglePlayPurchase,
+  verifyApplePurchase,
   startTrial,
   validateAccess,
   getSubscriptionDetails,
