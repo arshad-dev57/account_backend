@@ -1874,6 +1874,15 @@ model Product {
   stockUnitName    String @default("Pcs") @map("stock_unit_name")
   conversionFactor Float  @default(1) @map("conversion_factor")
 
+  /// Purchase UOM: 1 purchase unit = purchaseConversionFactor stock units (e.g. 1 bag = 25 KG)
+  purchaseUnitName         String? @map("purchase_unit_name")
+  purchaseConversionFactor Float   @default(1) @map("purchase_conversion_factor")
+  /// Sales UOM: 1 sales unit = salesConversionFactor stock units (e.g. 1 G = 0.001 KG)
+  salesUnitName            String? @map("sales_unit_name")
+  salesConversionFactor    Float   @default(1) @map("sales_conversion_factor")
+  /// When true (or UOM is weight/volume), POS accepts decimal quantities
+  allowFractionalQty       Boolean @default(false) @map("allow_fractional_qty")
+
   isBoxBased  Boolean @default(false) @map("is_box_based")
   boxQuantity Int     @default(0) @map("box_quantity")
   boxUnitName String  @default("Box") @map("box_unit_name")
@@ -5173,6 +5182,12 @@ model POSSaleItem {
   productName String  @map("product_name")
   sku         String
   quantity    Float
+  /// Sales unit at transaction time (e.g. KG, G, Pcs)
+  unitName    String? @map("unit_name")
+  /// Quantity converted to product stock/base unit for inventory
+  baseQuantity Float? @map("base_quantity")
+  /// 1 sales unit = conversionFactor stock units (snapshot)
+  conversionFactor Float? @default(1) @map("conversion_factor")
   unitPrice   Float   @map("unit_price")
   discount    Float   @default(0) // line discount percentage or fixed
   taxRate     Float   @default(0) @map("tax_rate")
@@ -5329,6 +5344,9 @@ model POSReturnItem {
   posReturnId String @map("pos_return_id")
   productId   String @map("product_id")
   quantity    Float
+  unitName    String? @map("unit_name")
+  baseQuantity Float? @map("base_quantity")
+  conversionFactor Float? @default(1) @map("conversion_factor")
   unitPrice   Float  @map("unit_price")
   lineTotal   Float  @map("line_total")
 

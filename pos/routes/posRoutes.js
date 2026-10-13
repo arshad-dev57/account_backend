@@ -95,6 +95,7 @@ router.post('/send-receipt', protect, async (req, res) => {
       companyProfile?.company?.name ||
       'Bisonstechs';
     const companyLogo =
+      receiptMeta?.storeLogo ||
       companyProfile?.businessDetails?.logo ||
       companyProfile?.company?.logo ||
       companyProfile?.logo ||
@@ -120,7 +121,12 @@ router.post('/send-receipt', protect, async (req, res) => {
           <div style="font-weight:700;">${item.productName || 'Item'}</div>
           <div style="font-size:11px;color:#6b7280;margin-top:2px;">
             ${item.sku ? `SKU ${item.sku}` : ''}
-            ${item.quantity || 0} × ${money(item.unitPrice)}
+            ${(() => {
+              const q = Number(item.quantity) || 0;
+              const u = String(item.unitName || item.salesUnitName || 'Pcs').trim() || 'Pcs';
+              const qText = Number.isInteger(q) ? String(q) : String(Math.round(q * 1000) / 1000);
+              return `${qText} ${u}`;
+            })()} × ${money(item.unitPrice)}
             ${item.discount ? ` · Disc ${item.discount}%` : ''}
             ${item.taxRate ? ` · Tax ${item.taxRate}%` : ''}
           </div>

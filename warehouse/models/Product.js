@@ -247,6 +247,11 @@ class ProductModel {
       colors,
       sizes,
       stockUnitName,
+      purchaseUnitName,
+      salesUnitName,
+      purchaseConversionFactor,
+      salesConversionFactor,
+      allowFractionalQty,
       zoneName,
       zoneId,
       storageConditionName,
@@ -326,6 +331,17 @@ class ProductModel {
       colors: colors || [],
       sizes: sizes || [],
       stockUnitName: stockUnitName || 'Pcs',
+      purchaseUnitName: purchaseUnitName || stockUnitName || 'Pcs',
+      salesUnitName: salesUnitName || stockUnitName || 'Pcs',
+      purchaseConversionFactor:
+        purchaseConversionFactor != null && Number(purchaseConversionFactor) > 0
+          ? Number(purchaseConversionFactor)
+          : 1,
+      salesConversionFactor:
+        salesConversionFactor != null && Number(salesConversionFactor) > 0
+          ? Number(salesConversionFactor)
+          : 1,
+      allowFractionalQty: Boolean(allowFractionalQty),
       zoneName: zoneName || null,
       zoneId: zoneId || null,
       storageConditionName: storageConditionName || 'Normal',
@@ -471,8 +487,8 @@ class ProductModel {
       costPrice: asFloat(data.costPrice),
       sellingPrice: asFloat(data.sellingPrice),
       currentStock: asInt(data.currentStock),
-      minimumStock: asInt(data.minimumStock),
-      maximumStock: asInt(data.maximumStock),
+      minimumStock: asFloat(data.minimumStock),
+      maximumStock: asFloat(data.maximumStock),
       description: data.description !== undefined ? data.description : undefined,
       notes: data.notes !== undefined ? data.notes : undefined,
       rackLocationName: data.rackLocationName !== undefined ? data.rackLocationName : existing.rackLocationName,
@@ -503,6 +519,11 @@ class ProductModel {
       colors: data.colors !== undefined ? data.colors : undefined,
       sizes: data.sizes !== undefined ? data.sizes : undefined,
       stockUnitName: data.stockUnitName !== undefined ? data.stockUnitName : undefined,
+      purchaseUnitName: data.purchaseUnitName !== undefined ? data.purchaseUnitName : undefined,
+      salesUnitName: data.salesUnitName !== undefined ? data.salesUnitName : undefined,
+      purchaseConversionFactor: asFloat(data.purchaseConversionFactor),
+      salesConversionFactor: asFloat(data.salesConversionFactor),
+      allowFractionalQty: data.allowFractionalQty !== undefined ? Boolean(data.allowFractionalQty) : undefined,
       zoneName: data.zoneName !== undefined ? data.zoneName : undefined,
       zoneId: data.zoneId || undefined,
       storageConditionName: data.storageConditionName !== undefined ? data.storageConditionName : existing.storageConditionName,

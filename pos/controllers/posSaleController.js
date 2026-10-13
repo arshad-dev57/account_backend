@@ -49,7 +49,7 @@ const completeSale = async (req, res) => {
         items: (items || []).map((item) => ({
           productId: item.productId,
           categoryId: item.categoryId,
-          quantity: Math.round(Number(item.quantity) || 0),
+          quantity: Number(item.quantity) || 0,
           unitPrice: item.unitPrice,
           pricingModel: item.pricingModel || (String(item.taxType || '').toLowerCase().includes('inclusive') ? 'inclusive' : 'exclusive')
         })),
@@ -434,6 +434,11 @@ const searchProducts = async (req, res) => {
           categoryName: true,
           taxRate: true,
           stockUnitName: true,
+          purchaseUnitName: true,
+          salesUnitName: true,
+          purchaseConversionFactor: true,
+          salesConversionFactor: true,
+          allowFractionalQty: true,
           isVariant: true,
           parentProductId: true,
           variantType: true,
@@ -514,7 +519,10 @@ const getProductByBarcode = async (req, res) => {
         id: true, name: true, sku: true, barcodeNumber: true, qrCode: true,
         sellingPrice: true, costPrice: true, currentStock: true,
         availableStock: true, mainImage: true, categoryId: true, categoryName: true,
-        taxRate: true, stockUnitName: true
+        taxRate: true, stockUnitName: true,
+        purchaseUnitName: true, salesUnitName: true,
+        purchaseConversionFactor: true, salesConversionFactor: true,
+        allowFractionalQty: true,
       }
     });
 

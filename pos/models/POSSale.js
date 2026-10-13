@@ -5,6 +5,12 @@ const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
 const {
   adjustLocationStock,
 } = require('../../warehouse/services/locationService');
+const {
+  resolveProductUom,
+  normalizeSalesQty,
+  toBaseQty,
+} = require('../../warehouse/services/productUomService');
+const { toNumber, roundTo } = require('../../warehouse/services/inventoryMath');
 
 /** Use terminal warehouse only when explicitly set — never force a default warehouse. */
 async function resolveSaleLocationId(tx, { companyId, terminalId, locationIdInput }) {
@@ -136,11 +142,23 @@ class POSSaleModel {
     let subtotal = 0;
     const processedItems = [];
     for (const item of items) {
-      const quantity = Math.max(0, Math.round(Number(item.quantity) || 0));
       const isCustom = Boolean(item.isCustom) || !item.productId || String(item.productId).startsWith('custom-');
-      if (quantity <= 0) continue;
       if (!isCustom && !item.productId) continue;
       if (!String(item.productName || '').trim()) continue;
+
+      // Resolve UOM from payload overrides or product defaults (loaded later for stock)
+      const draftUom = resolveProductUom({
+        stockUnitName: item.stockUnitName || item.unitName || 'Pcs',
+        salesUnitName: item.unitName || item.salesUnitName || item.stockUnitName || 'Pcs',
+        salesConversionFactor: item.conversionFactor ?? item.salesConversionFactor ?? 1,
+        allowFractionalQty: item.allowFractionalQty,
+      });
+      const quantity = normalizeSalesQty(item.quantity, draftUom);
+      if (quantity <= 0) continue;
+      const conversionFactor = draftUom.salesFactor > 0 ? draftUom.salesFactor : 1;
+      const baseQuantity = roundTo(quantity * conversionFactor, 6);
+      const unitName = String(item.unitName || draftUom.salesUnit || 'Pcs').trim() || 'Pcs';
+
       const lineTotal = parseFloat((quantity * item.unitPrice).toFixed(2));
       const discountAmt = item.discount ? parseFloat((lineTotal * item.discount / 100).toFixed(2)) : 0;
       const taxableAmt = lineTotal - discountAmt;
@@ -162,6 +180,9 @@ class POSSaleModel {
       processedItems.push({
         ...item,
         quantity,
+        unitName,
+        baseQuantity,
+        conversionFactor,
         isCustom,
         productId: isCustom ? null : item.productId,
         sku: isCustom ? (item.sku || 'CUSTOM') : (item.sku || ''),
@@ -196,12 +217,23 @@ class POSSaleModel {
         });
         if (!product) throw new Error(`Product not found or inactive: ${item.productName || item.productId}`);
 
-        const qty = Math.max(0, Math.round(Number(item.quantity) || 0));
+        const uom = resolveProductUom(product);
+        // Prefer client-sent conversion when valid; otherwise product config
+        const factor = toNumber(item.conversionFactor, uom.salesFactor) > 0
+          ? toNumber(item.conversionFactor, uom.salesFactor)
+          : uom.salesFactor;
+        const salesQty = normalizeSalesQty(item.quantity, { ...uom, salesFactor: factor });
+        const baseQty = roundTo(salesQty * factor, 6);
+        item.quantity = salesQty;
+        item.baseQuantity = baseQty;
+        item.conversionFactor = factor;
+        item.unitName = String(item.unitName || uom.salesUnit || product.stockUnitName || 'Pcs').trim();
+
         const adj = await adjustLocationStock(tx, {
           companyId,
           productId: product.id,
           locationId,
-          delta: -qty,
+          delta: -baseQty,
           checkAvailable: !skipStockChecks,
           allowNegative: skipStockChecks,
           productName: product.name,
@@ -212,21 +244,28 @@ class POSSaleModel {
             productId: product.id,
             productName: product.name,
             type: 'stock_out',
-            quantity: qty,
+            movementType: 'SALES_DELIVERY',
+            quantity: salesQty,
+            baseQuantity: baseQty,
+            uom: item.unitName,
             previousStock: adj.previousLocationStock,
             newStock: adj.newLocationStock,
+            unitCost: product.costPrice,
+            totalValue: roundTo(product.costPrice * baseQty, 4),
             reason: 'POS Sale',
             customerName: customerName || 'Walk-in',
             reference: invoiceNumber,
-            notes: `POS Sale — ${invoiceNumber}`,
+            notes: `POS Sale — ${invoiceNumber} (${salesQty} ${item.unitName} = ${baseQty} ${uom.stockUnit})`,
             createdBy,
             companyId,
             locationId: locationId || null,
           }
         });
 
-        totalCOGS += product.costPrice * qty;
+        // COGS uses cost per stock/base unit × base qty
+        totalCOGS += toNumber(product.averageCost ?? product.costPrice) * baseQty;
       }
+      totalCOGS = roundTo(totalCOGS, 2);
       const revenueAcc = await findOrCreateSalesRevenueAccount(tx, companyId, createdBy);
       const cogsAcc = await findOrCreateCOGSAccount(tx, companyId, createdBy);
       const inventoryAcc = await findOrCreateInventoryAccount(tx, companyId, createdBy);
@@ -295,6 +334,9 @@ class POSSaleModel {
               productName: item.productName,
               sku: item.sku || (item.isCustom ? 'CUSTOM' : ''),
               quantity: item.quantity,
+              unitName: item.unitName || 'Pcs',
+              baseQuantity: item.baseQuantity != null ? item.baseQuantity : item.quantity,
+              conversionFactor: item.conversionFactor != null ? item.conversionFactor : 1,
               unitPrice: item.unitPrice,
               discount: item.discount || 0,
               taxRate: item.taxRate || 0,
@@ -391,11 +433,26 @@ class POSSaleModel {
       for (const ri of returnItems) {
         const origItem = originalSale.items.find(i => i.productId === ri.productId);
         if (!origItem) throw new Error(`Product ${ri.productId} not in original sale`);
-        if (ri.quantity > origItem.quantity) throw new Error(`Return qty exceeds sold qty for product ${origItem.productName}`);
 
-        const lineTotal = parseFloat((ri.quantity * origItem.unitPrice).toFixed(2));
+        // Use original sale unit / conversion so historical returns stay correct
+        const factor = toNumber(origItem.conversionFactor, 1) > 0 ? toNumber(origItem.conversionFactor, 1) : 1;
+        const unitName = String(origItem.unitName || 'Pcs').trim() || 'Pcs';
+        const returnQty = normalizeSalesQty(ri.quantity, {
+          salesUnit: unitName,
+          salesFactor: factor,
+          allowFractional: true,
+          decimalPlaces: 3,
+        });
+        if (returnQty <= 0) continue;
+        if (returnQty > toNumber(origItem.quantity) + 1e-9) {
+          throw new Error(`Return qty exceeds sold qty for product ${origItem.productName}`);
+        }
+
+        // Refund at original transaction unit price (not current product price)
+        const lineTotal = parseFloat((returnQty * origItem.unitPrice).toFixed(2));
         subtotal += lineTotal;
         grandTotal += lineTotal;
+        const baseQty = roundTo(returnQty * factor, 6);
 
         const product = await tx.product.findFirst({ where: { id: ri.productId, companyId } });
 
@@ -409,24 +466,40 @@ class POSSaleModel {
             companyId,
             productId: product.id,
             locationId,
-            delta: ri.quantity,
+            delta: baseQty,
           });
-          totalCOGS += product.costPrice * ri.quantity;
+          totalCOGS += toNumber(product.averageCost ?? product.costPrice) * baseQty;
 
           await tx.stockMovement.create({
             data: {
               productId: product.id, productName: product.name,
-              type: 'stock_in', quantity: ri.quantity,
+              type: 'stock_in',
+              movementType: 'SALES_RETURN',
+              quantity: returnQty,
+              baseQuantity: baseQty,
+              uom: unitName,
               previousStock: adj.previousLocationStock,
               newStock: adj.newLocationStock,
+              unitCost: product.costPrice,
+              totalValue: roundTo(product.costPrice * baseQty, 4),
               reason: 'POS Return', reference: originalSale.invoiceNumber,
-              notes: `POS Return from ${originalSale.invoiceNumber}`, createdBy, companyId,
+              notes: `POS Return from ${originalSale.invoiceNumber} (${returnQty} ${unitName})`,
+              createdBy, companyId,
               locationId: locationId || null,
             }
           });
         }
-        returnItemsData.push({ productId: ri.productId, quantity: ri.quantity, unitPrice: origItem.unitPrice, lineTotal });
+        returnItemsData.push({
+          productId: ri.productId,
+          quantity: returnQty,
+          unitName,
+          baseQuantity: baseQty,
+          conversionFactor: factor,
+          unitPrice: origItem.unitPrice,
+          lineTotal,
+        });
       }
+      totalCOGS = roundTo(totalCOGS, 2);
 
       const returnNumber = generateReturnNumber();
       const revenueAcc = await findOrCreateSalesRevenueAccount(tx, companyId, createdBy);
@@ -504,19 +577,26 @@ class POSSaleModel {
           terminalId: sale.terminalId,
           locationIdInput: null,
         });
+        const factor = toNumber(item.conversionFactor, 1) > 0 ? toNumber(item.conversionFactor, 1) : 1;
+        const baseQty = item.baseQuantity != null
+          ? toNumber(item.baseQuantity)
+          : roundTo(toNumber(item.quantity) * factor, 6);
         const adj = await adjustLocationStock(tx, {
           companyId,
           productId: product.id,
           locationId,
-          delta: item.quantity,
+          delta: baseQty,
         });
-        totalCOGS += product.costPrice * item.quantity;
+        totalCOGS += toNumber(product.averageCost ?? product.costPrice) * baseQty;
         await tx.stockMovement.create({
           data: {
             productId: product.id,
             productName: product.name,
             type: 'stock_in',
+            movementType: 'SALES_RETURN',
             quantity: item.quantity,
+            baseQuantity: baseQty,
+            uom: item.unitName || product.stockUnitName || 'Pcs',
             previousStock: adj.previousLocationStock,
             newStock: adj.newLocationStock,
             reason: 'POS Void',
@@ -528,6 +608,7 @@ class POSSaleModel {
           }
         });
       }
+      totalCOGS = roundTo(totalCOGS, 2);
 
       const revenueAcc = await findOrCreateSalesRevenueAccount(tx, companyId, createdBy);
       const cogsAcc = await findOrCreateCOGSAccount(tx, companyId, createdBy);

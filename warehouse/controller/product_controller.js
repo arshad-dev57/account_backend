@@ -21,6 +21,8 @@ const FIELD_ALIASES = {
   storageCondition: 'storageConditionName',
   countryOfOrigin: 'countryOfOriginName',
   stockUnit: 'stockUnitName',
+  purchaseUnit: 'purchaseUnitName',
+  salesUnit: 'salesUnitName',
   weightUnit: 'weightUnitName',
   dimensionUnitName: 'dimensionUnit',
   taxTypeName: 'taxType',
@@ -29,19 +31,23 @@ const FIELD_ALIASES = {
 };
 
 const INT_FIELDS = [
-  'currentStock', 'minimumStock', 'maximumStock',
   'warrantyPeriod', 'returnDays', 'shelfLifeDays',
   'defaultQuantityPerBatch', 'leadTimeDays', 'reorderPoint', 'stackingLimit'
 ];
 
 const FLOAT_FIELDS = [
   'costPrice', 'sellingPrice', 'weight', 'length', 'width', 'height',
-  'taxRate', 'temperatureMin', 'temperatureMax', 'landingCost'
+  'taxRate', 'temperatureMin', 'temperatureMax', 'landingCost',
+  'currentStock', 'minimumStock', 'maximumStock', 'openingStock',
+  'reservedStock', 'availableStock', 'conversionFactor',
+  'purchaseConversionFactor', 'salesConversionFactor',
+  'averageCost', 'lastPurchasePrice', 'standardCost', 'retailPrice', 'wholesalePrice',
 ];
 
 const BOOLEAN_FIELDS = [
   'hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
-  'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods'
+  'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods',
+  'allowFractionalQty', 'isBoxBased',
 ];
 
 const ARRAY_FIELDS = ['tags', 'colors', 'sizes'];
@@ -633,6 +639,17 @@ const createProduct = async (req, res) => {
       warrantyUnit: data.warrantyUnit || 'Months',
       bulkUnit: data.bulkUnit || 'Bale',
       stockUnitName: data.stockUnitName || 'Pcs',
+      purchaseUnitName: data.purchaseUnitName || data.stockUnitName || 'Pcs',
+      salesUnitName: data.salesUnitName || data.stockUnitName || 'Pcs',
+      purchaseConversionFactor:
+        data.purchaseConversionFactor != null && Number(data.purchaseConversionFactor) > 0
+          ? Number(data.purchaseConversionFactor)
+          : 1,
+      salesConversionFactor:
+        data.salesConversionFactor != null && Number(data.salesConversionFactor) > 0
+          ? Number(data.salesConversionFactor)
+          : 1,
+      allowFractionalQty: Boolean(data.allowFractionalQty),
       dimensionUnit: data.dimensionUnit || 'cm',
       weightUnitName: data.weightUnitName || 'KG',
       taxType: data.taxType || 'Exclusive',
@@ -646,6 +663,15 @@ const createProduct = async (req, res) => {
       createdBy: userId,
       companyId: companyId
     };
+
+    // Auto-enable fractional qty for weight/volume sales units
+    const { isFractionalUnit } = require('../services/productUomService');
+    if (
+      !productData.allowFractionalQty &&
+      (isFractionalUnit(productData.stockUnitName) || isFractionalUnit(productData.salesUnitName))
+    ) {
+      productData.allowFractionalQty = true;
+    }
 
     console.log('🔵 [createProduct] Final product data:', JSON.stringify(productData, null, 2));
 
@@ -864,6 +890,20 @@ const updateProduct = async (req, res) => {
       warrantyUnit: data.warrantyUnit || existing.warrantyUnit || 'Months',
       bulkUnit: data.bulkUnit || existing.bulkUnit || 'Bale',
       stockUnitName: data.stockUnitName || existing.stockUnitName || 'Pcs',
+      purchaseUnitName: data.purchaseUnitName || existing.purchaseUnitName || data.stockUnitName || existing.stockUnitName || 'Pcs',
+      salesUnitName: data.salesUnitName || existing.salesUnitName || data.stockUnitName || existing.stockUnitName || 'Pcs',
+      purchaseConversionFactor:
+        data.purchaseConversionFactor != null && Number(data.purchaseConversionFactor) > 0
+          ? Number(data.purchaseConversionFactor)
+          : (existing.purchaseConversionFactor || 1),
+      salesConversionFactor:
+        data.salesConversionFactor != null && Number(data.salesConversionFactor) > 0
+          ? Number(data.salesConversionFactor)
+          : (existing.salesConversionFactor || 1),
+      allowFractionalQty:
+        data.allowFractionalQty !== undefined
+          ? Boolean(data.allowFractionalQty)
+          : Boolean(existing.allowFractionalQty),
       dimensionUnit: data.dimensionUnit || existing.dimensionUnit || 'cm',
       weightUnitName: data.weightUnitName || existing.weightUnitName || 'KG',
       taxType: data.taxType || existing.taxType || 'Exclusive',
@@ -871,10 +911,28 @@ const updateProduct = async (req, res) => {
       productType: data.productType || existing.productType || 'Physical',
       isReturnable: data.isReturnable !== undefined ? data.isReturnable : (existing.isReturnable || true),
       returnDays: data.returnDays || existing.returnDays || 7,
-      totalValue: (data.costPrice || existing.costPrice || 0) * (data.currentStock || existing.currentStock || 0),
-      availableStock: data.availableStock || data.currentStock || existing.currentStock || 0,
+      // Preserve stock — never overwrite from ordinary product edit
+      totalValue: (data.costPrice || existing.costPrice || 0) * (existing.currentStock || 0),
       updatedBy: userId
     };
+    delete productData.currentStock;
+    delete productData.availableStock;
+    delete productData.reservedStock;
+
+    const { isFractionalUnit } = require('../services/productUomService');
+    if (
+      !productData.allowFractionalQty &&
+      (isFractionalUnit(productData.stockUnitName) || isFractionalUnit(productData.salesUnitName))
+    ) {
+      productData.allowFractionalQty = true;
+    }
+
+    if (!(Number(productData.purchaseConversionFactor) > 0)) {
+      return res.status(400).json({ success: false, message: 'Purchase conversion factor must be greater than zero' });
+    }
+    if (!(Number(productData.salesConversionFactor) > 0)) {
+      return res.status(400).json({ success: false, message: 'Sales conversion factor must be greater than zero' });
+    }
 
     console.log('🔵 [updateProduct] Final product data:', JSON.stringify(productData, null, 2));
 

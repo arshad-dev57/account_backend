@@ -9,6 +9,7 @@ const DEFAULTS = {
   phone: '',
   email: '',
   website: '',
+  storeLogo: '',
   taxId: '',
   showLogo: true,
   showAddress: true,

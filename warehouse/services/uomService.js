@@ -5,9 +5,14 @@ const { toNumber, roundTo } = require('./inventoryMath');
 const DEFAULT_UOMS = [
   { code: 'PCS', name: 'Pieces', symbol: 'Pcs', decimalPlaces: 0, isBase: true },
   { code: 'KG', name: 'Kilogram', symbol: 'KG', decimalPlaces: 3, isBase: true },
+  { code: 'G', name: 'Gram', symbol: 'G', decimalPlaces: 3, isBase: false },
   { code: 'LTR', name: 'Litre', symbol: 'LTR', decimalPlaces: 3, isBase: true },
+  { code: 'ML', name: 'Millilitre', symbol: 'ML', decimalPlaces: 3, isBase: false },
   { code: 'MTR', name: 'Meter', symbol: 'MTR', decimalPlaces: 3, isBase: true },
   { code: 'BOX', name: 'Box', symbol: 'Box', decimalPlaces: 0, isBase: false },
+  { code: 'PKT', name: 'Packet', symbol: 'Pkt', decimalPlaces: 0, isBase: false },
+  { code: 'BTL', name: 'Bottle', symbol: 'Btl', decimalPlaces: 0, isBase: false },
+  { code: 'DOZ', name: 'Dozen', symbol: 'Doz', decimalPlaces: 0, isBase: false },
   { code: 'CTN', name: 'Carton', symbol: 'Ctn', decimalPlaces: 0, isBase: false },
   { code: 'TON', name: 'Ton', symbol: 'Ton', decimalPlaces: 3, isBase: false },
   { code: 'DRM', name: 'Drum', symbol: 'Drum', decimalPlaces: 0, isBase: false },
@@ -43,7 +48,12 @@ async function ensureDefaultUoms(companyId) {
   const pairs = [
     ['BOX', 'PCS', 100],
     ['CTN', 'PCS', 24],
+    ['DOZ', 'PCS', 12],
     ['TON', 'KG', 1000],
+    ['KG', 'G', 1000],
+    ['G', 'KG', 0.001],
+    ['LTR', 'ML', 1000],
+    ['ML', 'LTR', 0.001],
     ['DRM', 'LTR', 200],
   ];
   for (const [from, to, factor] of pairs) {
