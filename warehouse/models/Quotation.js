@@ -99,10 +99,11 @@ class QuotationModel {
   // ============================================================
   // CONVERT QUOTATION TO SALES ORDER (supports partial line/qty conversion)
   // ============================================================
-  static async convertToOrder(id, userId, selectedItems = null) {
+  static async convertToOrder(id, userId, selectedItems = null, options = {}) {
     const {
       resolveLocationId,
       reserveLocationStock,
+      getLocationAvailability,
     } = require('../services/locationService');
     const {
       getConvertedQtyFromQuotation,
@@ -140,11 +141,13 @@ class QuotationModel {
         throw new Error('Quotation has no company');
       }
 
+      // Warehouse optional (same as sales order create). Prefer convert body → quotation.
       const locationId = await resolveLocationId(
         tx,
         companyId,
-        quotation.locationId,
-        userId
+        options.locationId || quotation.locationId || null,
+        userId,
+        { required: false }
       );
 
       const convertedMap = await getConvertedQtyFromQuotation(id, { tx });
@@ -181,21 +184,17 @@ class QuotationModel {
         throw new Error('Select at least one line to convert');
       }
 
-      // Validate + reserve stock at warehouse
+      // Stock check: warehouse-scoped when location known; else company-wide product stock
       for (const item of plan) {
-        const stock = await tx.productStock.findUnique({
-          where: {
-            productId_locationId: {
-              productId: item.productId,
-              locationId,
-            },
-          },
+        const avail = await getLocationAvailability(tx, {
+          productId: item.productId,
+          locationId,
         });
-        const available =
-          (stock?.currentStock || 0) - (stock?.reservedStock || 0);
-        if (item.convertQty > available) {
+        if (item.convertQty > avail.available) {
           throw new Error(
-            `Insufficient stock at warehouse for ${item.productName}. Available: ${Math.max(0, available)}`
+            locationId
+              ? `Insufficient stock at warehouse for ${item.productName}. Available: ${Math.max(0, avail.available)}`
+              : `Insufficient stock for ${item.productName}. Available: ${Math.max(0, avail.available)}`
           );
         }
       }
@@ -275,13 +274,16 @@ class QuotationModel {
         },
       });
 
-      for (const item of plan) {
-        await reserveLocationStock(tx, {
-          companyId,
-          productId: item.productId,
-          locationId,
-          qty: item.convertQty,
-        });
+      // Reserve only when a warehouse is assigned (matches sales-order create)
+      if (locationId) {
+        for (const item of plan) {
+          await reserveLocationStock(tx, {
+            companyId,
+            productId: item.productId,
+            locationId,
+            qty: item.convertQty,
+          });
+        }
       }
 
       // Recompute remaining after this conversion

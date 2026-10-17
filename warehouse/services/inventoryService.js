@@ -79,12 +79,13 @@ async function applySalesInvoiceStockOut(tx, { invoice, userId }) {
     tx,
     invoice.companyId,
     invoice.locationId || orderLocationId,
-    userId
+    userId,
+    { required: false }
   );
 
   for (const item of invoice.items || []) {
     if (!item.productId) continue;
-    const invoicedQty = Math.round(Number(item.quantity) || 0);
+    const invoicedQty = Number(item.quantity) || 0;
     if (invoicedQty <= 0) continue;
 
     const deliveredQty = invoice.orderId
@@ -127,8 +128,71 @@ async function applySalesInvoiceStockOut(tx, { invoice, userId }) {
   }
 }
 
+/**
+ * Reverse invoice stock-out movements exactly once (idempotent).
+ * Restores on-hand qty for movements still tagged to this invoice reference.
+ */
+async function reverseSalesInvoiceStockOut(tx, { invoice, userId }) {
+  const revMarker = `${invoice.invoiceNumber}-REV`;
+  const already = await tx.stockMovement.count({
+    where: {
+      companyId: invoice.companyId,
+      reference: revMarker,
+      type: { in: ['stock_in', 'Sales Invoice Reversal'] },
+    },
+  });
+  if (already > 0) return { reversed: 0, skipped: true };
+
+  const outs = await tx.stockMovement.findMany({
+    where: {
+      companyId: invoice.companyId,
+      reference: invoice.invoiceNumber,
+      type: { in: ['stock_out', 'Sales Invoice'] },
+      status: 'Completed',
+    },
+  });
+  if (!outs.length) return { reversed: 0, skipped: false };
+
+  let reversed = 0;
+  for (const mov of outs) {
+    const qty = Math.abs(Number(mov.quantity) || 0);
+    if (!(qty > 0) || !mov.productId) continue;
+
+    const adj = await adjustLocationStock(tx, {
+      companyId: invoice.companyId,
+      productId: mov.productId,
+      locationId: mov.locationId || null,
+      delta: qty,
+      reservedDelta: 0,
+      checkAvailable: false,
+      productName: mov.productName,
+    });
+
+    await tx.stockMovement.create({
+      data: {
+        productId: mov.productId,
+        productName: mov.productName,
+        type: 'stock_in',
+        quantity: qty,
+        previousStock: adj.previousLocationStock,
+        newStock: adj.newLocationStock,
+        reason: `Reversal of Sales Invoice #${invoice.invoiceNumber}`,
+        reference: revMarker,
+        status: 'Completed',
+        createdBy: userId || invoice.createdBy || 'SYSTEM',
+        companyId: invoice.companyId,
+        locationId: mov.locationId || null,
+        customerName: invoice.customerName || null,
+      },
+    });
+    reversed += 1;
+  }
+  return { reversed, skipped: false };
+}
+
 module.exports = {
   getConfirmedDeliveredQty,
   getIssuedByInvoiceQty,
   applySalesInvoiceStockOut,
+  reverseSalesInvoiceStockOut,
 };

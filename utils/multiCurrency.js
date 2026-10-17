@@ -178,6 +178,8 @@ async function resolveTransactionCurrency({
   supplierId,
   asOfDate = new Date(),
   client = prisma,
+  /** When true and no FX rate exists, use company base currency instead of failing */
+  fallbackToBaseIfNoRate = false,
 }) {
   const baseCurrency = await getCompanyBaseCurrency(companyId, client);
   if (!baseCurrency) {
@@ -224,11 +226,18 @@ async function resolveTransactionCurrency({
       client,
     });
     if (!found) {
-      throw new Error(
-        `No exchange rate found for ${txnCurrency.code} → ${baseCurrency.code} on or before ${rateDate.toISOString().slice(0, 10)}. Please set a rate or enter one on the document.`
-      );
+      if (fallbackToBaseIfNoRate && !requestedCurrencyId) {
+        // Supplier default currency has no rate — create doc in company base currency
+        txnCurrency = baseCurrency;
+        rate = ONE;
+      } else {
+        throw new Error(
+          `No exchange rate found for ${txnCurrency.code} → ${baseCurrency.code} on or before ${rateDate.toISOString().slice(0, 10)}. Please set a rate or enter one on the document.`
+        );
+      }
+    } else {
+      rate = toDecimal(found.rate);
     }
-    rate = toDecimal(found.rate);
   }
 
   const foreign = foreignAmount !== null && foreignAmount !== undefined

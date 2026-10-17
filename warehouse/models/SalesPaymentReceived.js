@@ -1,5 +1,6 @@
 // warehouse/models/SalesPaymentReceived.js - COMPLETE WITH AUTO-CREATE
 
+const crypto = require('crypto');
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
 const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
@@ -14,6 +15,24 @@ function generatePaymentNumber() {
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   return `SP-${year}${month}${day}-${random}`;
 }
+
+function paymentFingerprint({ companyId, customerId, amount, invoicePayments }) {
+  const parts = (invoicePayments || [])
+    .map((ip) => `${ip.invoiceId}:${Number(ip.amountPaid) || 0}`)
+    .sort()
+    .join('|');
+  const raw = `${companyId}|${customerId}|${Number(amount) || 0}|${parts}`;
+  return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 24);
+}
+
+const PAYMENT_INCLUDE = {
+  invoicePayments: { include: { invoice: true } },
+  customer: true,
+  bankAccount: true,
+  journalEntry: {
+    include: { lines: { include: { account: true } } },
+  },
+};
 
 class SalesPaymentReceivedModel {
   static async getCustomerInvoices(customerId, companyId, locationId) {
@@ -79,7 +98,8 @@ class SalesPaymentReceivedModel {
         invoicePayments,
         userId,
         createdBy,
-        companyId
+        companyId,
+        idempotencyKey,
       } = data;
 
       // ─── Validation ──────────────────────────────────────
@@ -94,6 +114,61 @@ class SalesPaymentReceivedModel {
       if (!amount || amount <= 0) {
         throw new Error('Payment amount must be greater than 0');
       }
+
+      // ─── Idempotency (client key and/or allocation fingerprint) ─
+      const fp = paymentFingerprint({
+        companyId,
+        customerId,
+        amount,
+        invoicePayments,
+      });
+      const idemTag = idempotencyKey
+        ? `[idem:${String(idempotencyKey).slice(0, 64)}]`
+        : null;
+      const fpTag = `[fp:${fp}]`;
+
+      if (idemTag) {
+        const byKey = await tx.salesPaymentReceived.findFirst({
+          where: {
+            companyId,
+            isDeleted: false,
+            status: 'Completed',
+            notes: { contains: idemTag },
+          },
+          include: PAYMENT_INCLUDE,
+        });
+        if (byKey) return byKey;
+
+        const jeByKey = await tx.journalEntry.findFirst({
+          where: {
+            companyId,
+            reference: `SP-IDEM:${idempotencyKey}`,
+            status: 'Posted',
+          },
+        });
+        if (jeByKey) {
+          const pay = await tx.salesPaymentReceived.findFirst({
+            where: { journalEntryId: jeByKey.id },
+            include: PAYMENT_INCLUDE,
+          });
+          if (pay) return pay;
+        }
+      }
+
+      // Short-window duplicate guard for double-clicks without client key
+      const recentDup = await tx.salesPaymentReceived.findFirst({
+        where: {
+          companyId,
+          customerId,
+          amount: Number(amount),
+          isDeleted: false,
+          status: 'Completed',
+          notes: { contains: fpTag },
+          createdAt: { gte: new Date(Date.now() - 2 * 60 * 1000) },
+        },
+        include: PAYMENT_INCLUDE,
+      });
+      if (recentDup) return recentDup;
 
       // ─── Validate Customer ──────────────────────────────
       const customer = await tx.customer.findFirst({
@@ -247,15 +322,30 @@ class SalesPaymentReceivedModel {
         }
       }
 
-      // ─── Create Journal Entry ────────────────────────────
+      // ─── Create Journal Entry (idempotent reference when keyed) ─
       const entryNumber = `JE-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      const jeReference = idempotencyKey
+        ? `SP-IDEM:${idempotencyKey}`
+        : paymentNumber;
 
-      const journalEntry = await tx.journalEntry.create({
+      const existingJe = await tx.journalEntry.findFirst({
+        where: { companyId, reference: jeReference, status: 'Posted' },
+        include: { lines: { include: { account: true } } },
+      });
+      if (existingJe) {
+        const existingPay = await tx.salesPaymentReceived.findFirst({
+          where: { journalEntryId: existingJe.id },
+          include: PAYMENT_INCLUDE,
+        });
+        if (existingPay) return existingPay;
+      }
+
+      const journalEntry = existingJe || await tx.journalEntry.create({
         data: {
           entryNumber,
           date: new Date(),
           description: `Sales payment received from ${customer.name} (${paymentNumber})`,
-          reference: paymentNumber,
+          reference: jeReference,
           status: 'Posted',
           createdBy: createdBy,
           postedBy: createdBy,
@@ -291,7 +381,9 @@ class SalesPaymentReceivedModel {
       });
 
       // Keep Chart of Accounts balances in sync with the JE
-      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
+      if (!existingJe) {
+        await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
+      }
 
       // ─── Get AR Record for first invoice ─────────────────
       const firstInvoice = validatedInvoices[0].invoice;
@@ -300,6 +392,10 @@ class SalesPaymentReceivedModel {
           invoiceId: firstInvoice.id
         }
       });
+
+      const noteParts = [notes || '', fpTag];
+      if (idemTag) noteParts.push(idemTag);
+      const mergedNotes = noteParts.filter(Boolean).join(' ').trim();
 
       // ─── Create Payment Record ───────────────────────────
       const payment = await tx.salesPaymentReceived.create({
@@ -313,7 +409,7 @@ class SalesPaymentReceivedModel {
           reference: reference || '',
           bankAccountId: bankAccount?.id || null,
           bankAccountName: bankAccount?.accountName || 'Cash',
-          notes: notes || '',
+          notes: mergedNotes,
           status: 'Completed',
           journalEntryId: journalEntry.id,
           arRecordId: arRecord?.id || null,

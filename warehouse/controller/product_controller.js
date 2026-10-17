@@ -554,6 +554,22 @@ const createProduct = async (req, res) => {
       });
     }
 
+    // HS Code: optional, but when provided must be 6–10 digits (optional dots). Never invent fake codes.
+    if (data.hsCode != null && String(data.hsCode).trim() !== '') {
+      const raw = String(data.hsCode).trim();
+      const digits = raw.replace(/\./g, '');
+      if (!/^[\d.]+$/.test(raw) || digits.length < 6 || digits.length > 10) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Invalid HS Code. Use 6 to 10 numeric digits with optional dots (e.g. 100630 or 1006.30). Do not use prefixes like GCC-.',
+        });
+      }
+      data.hsCode = raw;
+    } else {
+      data.hsCode = null;
+    }
+
     data.sku = await ProductModel.generateSku(companyId, data.name, data.categoryId);
 
     if (data.barcodeNumber) {
@@ -768,6 +784,23 @@ const updateProduct = async (req, res) => {
     // Handle FormData
     if (req.body && typeof req.body === 'object') {
       data = { ...req.body };
+    }
+
+    if (data.hsCode !== undefined) {
+      if (data.hsCode == null || String(data.hsCode).trim() === '') {
+        data.hsCode = null;
+      } else {
+        const raw = String(data.hsCode).trim();
+        const digits = raw.replace(/\./g, '');
+        if (!/^[\d.]+$/.test(raw) || digits.length < 6 || digits.length > 10) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'Invalid HS Code. Use 6 to 10 numeric digits with optional dots (e.g. 100630 or 1006.30). Do not use prefixes like GCC-.',
+          });
+        }
+        data.hsCode = raw;
+      }
     }
 
     // ─── Cloudinary uploads ─────────────────────────────────

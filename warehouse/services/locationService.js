@@ -196,6 +196,21 @@ async function syncProductTotalStock(tx, productId) {
 }
 
 async function getLocationAvailability(tx, { productId, locationId }) {
+  // No warehouse selected — fall back to company-wide product stock
+  if (!locationId) {
+    const product = await tx.product.findUnique({
+      where: { id: productId },
+      select: { currentStock: true, reservedStock: true },
+    });
+    const current = product?.currentStock || 0;
+    const reserved = product?.reservedStock || 0;
+    return {
+      current,
+      reserved,
+      available: Math.max(0, current - reserved),
+    };
+  }
+
   const stock = await tx.productStock.findUnique({
     where: { productId_locationId: { productId, locationId } },
   });

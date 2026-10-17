@@ -13,6 +13,9 @@ const {
   buildCurrencyPersistFields,
   resolveTransactionCurrency,
 } = require('../../utils/multiCurrency');
+const {
+  findOrCreateInventoryAccount,
+} = require('../services/stockAccountingService');
 
 // ─── Generate Return Number ──────────────────────────────
 function generateReturnNumber() {
@@ -31,43 +34,6 @@ async function findAPAccount(tx, companyId) {
 
 async function findOrCreateAPAccount(tx, companyId, userId) {
   return getOrCreateApAccount(userId, companyId, tx);
-}
-
-async function findInventoryAccount(tx, companyId) {
-  return tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '1300' },
-        { name: { equals: 'Inventory', mode: 'insensitive' } },
-        { name: { contains: 'Inventory', mode: 'insensitive' } },
-      ]
-    }
-  });
-}
-
-async function findOrCreateInventoryAccount(tx, companyId, userId) {
-  let account = await findInventoryAccount(tx, companyId);
-  if (account) return account;
-
-  account = await tx.chartOfAccount.create({
-    data: {
-      code: '1300',
-      name: 'Inventory',
-      type: 'Asset',
-      parentAccount: 'Current Assets',
-      openingBalance: 0,
-      currentBalance: 0,
-      balanceType: 'Debit',
-      description: 'Inventory asset',
-      taxCode: 'N/A',
-      isActive: true,
-      createdBy: userId || 'SYSTEM',
-      companyId
-    }
-  });
-  return account;
 }
 
 // Legacy alias (do not credit revenue for returns)

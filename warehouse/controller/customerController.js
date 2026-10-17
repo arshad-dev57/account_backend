@@ -8,6 +8,25 @@ function normalizeEmail(email) {
   return trimmed || null;
 }
 
+/** UI expects `company`; Prisma stores `companyName`. */
+function normalizeCustomer(customer) {
+  if (!customer || typeof customer !== 'object') return customer;
+  const company =
+    customer.company ??
+    customer.companyName ??
+    null;
+  return {
+    ...customer,
+    company,
+    companyName: customer.companyName ?? company,
+  };
+}
+
+function normalizeCustomers(list) {
+  if (!Array.isArray(list)) return list;
+  return list.map(normalizeCustomer);
+}
+
 /**
  * customer_number is globally unique (not per-company).
  * Compute next CUST-##### from the true max across all customers.
@@ -120,7 +139,7 @@ const getCustomers = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: customers,
+      data: normalizeCustomers(customers),
       stats,
       pagination: {
         page: pageNum, limit: limitNum, total,
@@ -161,7 +180,10 @@ const getCustomerById = async (req, res) => {
       select: { id: true, orderNumber: true, orderDate: true, grandTotal: true, orderStatus: true, paymentStatus: true }
     });
 
-    res.status(200).json({ success: true, data: { ...customer, recentOrders: orders } });
+    res.status(200).json({
+      success: true,
+      data: normalizeCustomer({ ...customer, recentOrders: orders }),
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch customer', error: error.message });
   }
@@ -182,7 +204,7 @@ const getCustomerByNumber = async (req, res) => {
     });
     
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
-    res.status(200).json({ success: true, data: customer });
+    res.status(200).json({ success: true, data: normalizeCustomer(customer) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch customer', error: error.message });
   }
@@ -278,7 +300,11 @@ const createCustomer = async (req, res) => {
 
     if (!customer) throw lastError;
 
-    res.status(201).json({ success: true, message: 'Customer created successfully', data: customer });
+    res.status(201).json({
+      success: true,
+      message: 'Customer created successfully',
+      data: normalizeCustomer(customer),
+    });
   } catch (error) {
     console.error('Create customer error:', error);
     if (error.code === 'P2002') {
@@ -383,7 +409,11 @@ const updateCustomer = async (req, res) => {
       }
     });
 
-    res.status(200).json({ success: true, message: 'Customer updated successfully', data: updated });
+    res.status(200).json({
+      success: true,
+      message: 'Customer updated successfully',
+      data: normalizeCustomer(updated),
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to update customer', error: error.message });
   }
@@ -457,7 +487,11 @@ const updateCustomerStatus = async (req, res) => {
       data: { status, updatedBy: userId }
     });
 
-    res.status(200).json({ success: true, message: 'Status updated successfully', data: updated });
+    res.status(200).json({
+      success: true,
+      message: 'Status updated successfully',
+      data: normalizeCustomer(updated),
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to update status', error: error.message });
   }
@@ -520,7 +554,7 @@ const searchCustomers = async (req, res) => {
 
     res.status(200).json({ 
       success: true, 
-      data: customers, 
+      data: normalizeCustomers(customers), 
       count: customers.length 
     });
   } catch (error) {

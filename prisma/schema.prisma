@@ -241,6 +241,25 @@ model Company {
   inventoryImportBatches   InventoryImportBatch[]
   unitsOfMeasure           UnitOfMeasure[]
   uomConversions           UomConversion[]
+  tradingDocuments         TradingDocument[]        @relation("TradingDocumentCompany")
+  tradingPriceLists        TradingPriceList[]       @relation("TradingPriceListCompany")
+  tradingCustomerPrices    TradingCustomerPrice[]   @relation("TradingCustomerPriceCompany")
+  tradingAuditLogs         TradingAuditLog[]        @relation("TradingAuditLogCompany")
+  importRfqs               ImportRfq[]              @relation("ImportRfqCompany")
+  importSupplierQuotations ImportSupplierQuotation[] @relation("ImportSupplierQuotationCompany")
+  importPurchaseOrders     ImportPurchaseOrder[]    @relation("ImportPurchaseOrderCompany")
+  importProformaInvoices   ImportProformaInvoice[]  @relation("ImportProformaInvoiceCompany")
+  importShipments          ImportShipment[]         @relation("ImportShipmentCompany")
+  importCarriers           ImportCarrier[]          @relation("ImportCarrierCompany")
+  importCustomsClearances  ImportCustomsClearance[] @relation("ImportCustomsClearanceCompany")
+  importCustomsDutyPayments ImportCustomsDutyPayment[] @relation("ImportCustomsDutyPaymentCompany")
+  importDocuments          ImportDocument[]         @relation("ImportDocumentCompany")
+  importGrns               ImportGrn[]              @relation("ImportGrnCompany")
+  importLandedCosts        ImportLandedCost[]       @relation("ImportLandedCostCompany")
+  importFinanceLcs         ImportFinanceLc[]        @relation("ImportFinanceLcCompany")
+  importSupplierBills      ImportSupplierBill[]     @relation("ImportSupplierBillCompany")
+  importSetting            ImportSetting?           @relation("ImportSettingCompany")
+  importAuditLogs          ImportAuditLog[]         @relation("ImportAuditLogCompany")
 
   @@index([email])
   @@index([isActive])
@@ -301,6 +320,7 @@ model Location {
   manufacturingWIPs    ManufacturingWIP[]       @relation("ManufacturingWIPLocation")
   manufacturingByProducts ManufacturingByProduct[] @relation("ManufacturingByProductLocation")
   manufacturingMPS     ManufacturingMPS[]       @relation("ManufacturingMPSLocation")
+  importGrns           ImportGrn[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -540,6 +560,23 @@ model User {
   submittedWriteOffs        StockWriteOff[]     @relation("WriteOffSubmitter")
   approvedWriteOffs         StockWriteOff[]     @relation("WriteOffApprover")
   postedWriteOffs           StockWriteOff[]     @relation("WriteOffPoster")
+  tradingDocumentsCreated   TradingDocument[]   @relation("TradingDocumentCreator")
+  tradingPriceListsCreated  TradingPriceList[]  @relation("TradingPriceListCreator")
+  tradingCustomerPricesCreated TradingCustomerPrice[] @relation("TradingCustomerPriceCreator")
+  tradingAuditLogs          TradingAuditLog[]   @relation("TradingAuditLogUser")
+  importRfqsCreated         ImportRfq[]         @relation("ImportRfqCreator")
+  importPurchaseOrdersCreated ImportPurchaseOrder[] @relation("ImportPurchaseOrderCreator")
+  importProformaInvoicesCreated ImportProformaInvoice[] @relation("ImportProformaInvoiceCreator")
+  importShipmentsCreated    ImportShipment[]    @relation("ImportShipmentCreator")
+  importCarriersCreated     ImportCarrier[]     @relation("ImportCarrierCreator")
+  importCustomsClearancesCreated ImportCustomsClearance[] @relation("ImportCustomsClearanceCreator")
+  importCustomsDutyPaymentsCreated ImportCustomsDutyPayment[] @relation("ImportCustomsDutyPaymentCreator")
+  importDocumentsCreated    ImportDocument[]    @relation("ImportDocumentCreator")
+  importGrnsCreated         ImportGrn[]         @relation("ImportGrnCreator")
+  importLandedCostsCreated  ImportLandedCost[]  @relation("ImportLandedCostCreator")
+  importFinanceLcsCreated   ImportFinanceLc[]   @relation("ImportFinanceLcCreator")
+  importSupplierBillsCreated ImportSupplierBill[] @relation("ImportSupplierBillCreator")
+  importAuditLogs           ImportAuditLog[]    @relation("ImportAuditLogUser")
   refundCreators            Refund[]            @relation("RefundCreator")
   refundUpdaters            Refund[]            @relation("RefundUpdater")
   refundProcessors          Refund[]            @relation("RefundProcessor")
@@ -1795,6 +1832,7 @@ model Customer {
   accountsReceivable AccountsReceivable[]
   salesPayments      SalesPaymentReceived[]
   transactions       Transaction[]          @relation("CustomerTransactions")
+  tradingCustomerPrices TradingCustomerPrice[]
 
   @@unique([email, companyId])
   @@index([customerNumber])
@@ -2028,6 +2066,16 @@ model Product {
   manufacturingProductCosts ManufacturingProductCost[] @relation("ManufacturingProductCostProduct")
   manufacturingDemands     ManufacturingDemand[]   @relation("ManufacturingDemandProduct")
   manufacturingMPSs         ManufacturingMPS[]   @relation("ManufacturingMPSProduct")
+  tradingPriceListItems     TradingPriceListItem[]
+  tradingCustomerPrices     TradingCustomerPrice[]
+  importRfqItems            ImportRfqItem[]
+  importSupplierQuotationItems ImportSupplierQuotationItem[]
+  importPurchaseOrderItems  ImportPurchaseOrderItem[]
+  importShipmentItems       ImportShipmentItem[]
+  importGrnItems            ImportGrnItem[]
+  importLandedCostItems     ImportLandedCostItem[]
+  importProformaInvoiceItems ImportProformaInvoiceItem[]
+  importSupplierBillItems   ImportSupplierBillItem[]
 
   @@unique([sku, companyId])
   @@index([sku])
@@ -2171,6 +2219,9 @@ model Supplier {
   purchasePayments     PurchasePaymentMake[]
   purchaseReturns      PurchaseReturn[]
   transactions         Transaction[]         @relation("SupplierTransactions")
+  importRfqs               ImportRfq[]
+  importPurchaseOrders     ImportPurchaseOrder[]
+  importSupplierQuotations ImportSupplierQuotation[]
 
   @@unique([code, companyId])
   @@unique([email, companyId])
@@ -3121,6 +3172,7 @@ model BankAccount {
   statementImports      BankStatementImport[]
   statementTransactions BankStatementTransaction[]
   reconciliations       BankReconciliation[]
+  importCustomsDutyPayments ImportCustomsDutyPayment[] @relation("ImportCustomsDutyPaymentBank")
   /// Last CSV/XLSX column mapping remembered for statement imports
   statementColumnMapping Json? @map("statement_column_mapping")
 
@@ -3358,6 +3410,8 @@ model JournalEntry {
   posSale           POSSale?              @relation("POSSaleJournalEntry")
   posReturn         POSReturn?            @relation("POSReturnJournalEntry")
   equityTransaction EquityTransaction?    @relation("EquityTransactionJournal")
+  importLandedCosts ImportLandedCost[]
+  importCustomsDutyPayments ImportCustomsDutyPayment[] @relation("ImportCustomsDutyPaymentJournal")
 
   @@index([entryNumber])
   @@index([date])
@@ -4501,6 +4555,7 @@ model PurchaseOrder {
   goodsReceivingLinks  GoodsReceivingPurchaseOrder[]
   purchaseInvoices     PurchaseInvoice[]
   invoiceSources       PurchaseInvoiceSource[]
+  importPurchaseOrders ImportPurchaseOrder[]
 
   @@index([orderNumber])
   @@index([supplierId])
@@ -4696,6 +4751,7 @@ model GoodsReceiving {
   invoiceSources   PurchaseInvoiceSource[]
   purchaseReturns  PurchaseReturn[]
   purchaseReturnItems PurchaseReturnItem[]
+  importGrns       ImportGrn[]
 
   @@index([grnNumber])
   @@index([purchaseOrderId])
@@ -4843,6 +4899,7 @@ model PurchaseInvoice {
   purchaseReturns    PurchaseReturn[]
   PurchaseReturnItem PurchaseReturnItem[]
   fiscalYear         FiscalYear?              @relation("PurchaseInvoiceFiscalYear", fields: [fiscalYearId], references: [id])
+  importSupplierBills ImportSupplierBill[]
 
   @@index([invoiceNumber])
   @@index([supplierId])
@@ -7063,4 +7120,1164 @@ model StockWriteOffItem {
   @@index([productId])
   @@map("stock_write_off_items")
 }
+
+// ============================================================
+// TRADING MODULE — classification layer over Sales / Purchases
+// Does NOT duplicate posting; links to existing documents.
+// ============================================================
+
+model TradingDocument {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  documentType  String   @map("document_type") // SALES_ORDER | PURCHASE_ORDER | SALES_INVOICE | PURCHASE_INVOICE | DELIVERY | GRN | SALES_PAYMENT | PURCHASE_PAYMENT | SALES_RETURN | PURCHASE_RETURN | QUOTATION
+  documentId    String   @map("document_id")
+  documentNumber String? @map("document_number")
+  tradeChannel  String   @default("domestic") @map("trade_channel") // domestic | wholesale | b2b | back_to_back
+  tradeRef      String?  @map("trade_ref")
+  counterpartyName String? @map("counterparty_name")
+  status        String?  // mirrored display status from source document
+  amountBase    Decimal? @map("amount_base") @db.Decimal(18, 4)
+  currencyCode  String?  @map("currency_code")
+  documentDate  DateTime? @map("document_date")
+  metadata      Json?
+  createdBy     String?  @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("TradingDocumentCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  creator User?   @relation("TradingDocumentCreator", fields: [createdBy], references: [id])
+
+  @@unique([companyId, documentType, documentId])
+  @@index([companyId])
+  @@index([companyId, documentType])
+  @@index([companyId, tradeChannel])
+  @@index([companyId, documentDate])
+  @@index([documentId])
+  @@map("trading_documents")
+}
+
+model TradingPriceList {
+  id                 String   @id @default(uuid())
+  companyId          String   @map("company_id")
+  code               String
+  name               String
+  /// Distributor | Wholesale | Retail | Key Account | Contract | Spot
+  tier               String   @default("Wholesale")
+  currencyCode       String   @default("PKR") @map("currency_code")
+  /// Fixed | MarkupOnCost | DiscountOnList
+  pricingMethod      String   @default("Fixed") @map("pricing_method")
+  /// CostPrice | AverageCost | LastPurchase | StandardCost
+  costBasis          String   @default("CostPrice") @map("cost_basis")
+  discountPercentage Decimal  @default(0) @map("discount_percentage") @db.Decimal(8, 4)
+  markupPercentage   Decimal  @default(0) @map("markup_percentage") @db.Decimal(8, 4)
+  effectiveFrom      DateTime @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+  isActive           Boolean  @default(true) @map("is_active")
+  notes              String?
+  createdBy          String?  @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  company        Company                 @relation("TradingPriceListCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  creator        User?                   @relation("TradingPriceListCreator", fields: [createdBy], references: [id])
+  items          TradingPriceListItem[]
+  customerPrices TradingCustomerPrice[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("trading_price_lists")
+}
+
+model TradingPriceListItem {
+  id                 String    @id @default(uuid())
+  priceListId        String    @map("price_list_id")
+  productId          String    @map("product_id")
+  unitName           String    @default("Pcs") @map("unit_name")
+  unitPrice          Decimal   @map("unit_price") @db.Decimal(18, 4)
+  listPrice          Decimal?  @map("list_price") @db.Decimal(18, 4)
+  minQty             Decimal   @default(1) @map("min_qty") @db.Decimal(18, 4)
+  maxQty             Decimal?  @map("max_qty") @db.Decimal(18, 4)
+  discountPercentage Decimal   @default(0) @map("discount_percentage") @db.Decimal(8, 4)
+  markupPercentage   Decimal   @default(0) @map("markup_percentage") @db.Decimal(8, 4)
+  effectiveFrom      DateTime? @map("effective_from") @db.Date
+  effectiveTo        DateTime? @map("effective_to") @db.Date
+
+  priceList TradingPriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  product   Product          @relation(fields: [productId], references: [id])
+
+  @@unique([priceListId, productId, minQty])
+  @@index([productId])
+  @@map("trading_price_list_items")
+}
+
+model TradingCustomerPrice {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  customerId         String    @map("customer_id")
+  productId          String    @map("product_id")
+  priceListId        String?   @map("price_list_id")
+  currencyCode       String    @default("PKR") @map("currency_code")
+  unitName           String    @default("Pcs") @map("unit_name")
+  listPrice          Decimal   @map("list_price") @db.Decimal(18, 4)
+  negotiatedPrice    Decimal   @map("negotiated_price") @db.Decimal(18, 4)
+  discountPercentage Decimal   @default(0) @map("discount_percentage") @db.Decimal(8, 4)
+  targetMarginPct    Decimal   @default(20) @map("target_margin_pct") @db.Decimal(8, 4)
+  minOrderQty        Decimal   @default(1) @map("min_order_qty") @db.Decimal(18, 4)
+  effectiveFrom      DateTime? @map("effective_from") @db.Date
+  effectiveUntil     DateTime? @map("effective_until") @db.Date
+  /// Active | Under Review | Expired | Draft
+  status             String    @default("Active")
+  notes              String?
+  createdBy          String?   @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company   Company           @relation("TradingCustomerPriceCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  customer  Customer          @relation(fields: [customerId], references: [id])
+  product   Product           @relation(fields: [productId], references: [id])
+  priceList TradingPriceList? @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  creator   User?             @relation("TradingCustomerPriceCreator", fields: [createdBy], references: [id])
+
+  @@unique([companyId, customerId, productId])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([productId])
+  @@index([priceListId])
+  @@map("trading_customer_prices")
+}
+
+model TradingAuditLog {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  action     String   // CREATE | LINK | UNLINK | UPDATE | CLASSIFY
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  details    Json?
+  userId     String?  @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company Company @relation("TradingAuditLogCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?   @relation("TradingAuditLogUser", fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+  @@map("trading_audit_logs")
+}
+
+// ============================================================
+// IMPORT MANAGEMENT MODULE
+// ============================================================
+
+/// Global UN/LOCODE port master for Import RFQ / shipment discharge ports.
+model ImportPort {
+  id          String   @id @default(uuid())
+  unLocode    String   @unique @map("un_locode")
+  name        String
+  country     String
+  countryCode String?  @map("country_code")
+  portType    String   @default("Sea") @map("port_type")
+  isActive    Boolean  @default(true) @map("is_active")
+  aliases     Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  importRfqs ImportRfq[]
+
+  @@index([name])
+  @@index([country])
+  @@map("import_ports")
+}
+
+model ImportRfq {
+  id                        String    @id @default(uuid())
+  companyId                 String    @map("company_id")
+  rfqNumber                 String    @map("rfq_number")
+  date                      DateTime  @default(now())
+  supplierId                String?   @map("supplier_id")
+  supplierName              String    @map("supplier_name")
+  supplierCountry           String?   @map("supplier_country")
+  incoterm                  String    @default("CIF")
+  currency                  String    @default("USD")
+  portId                    String?   @map("port_id")
+  portOfDischarge           String?   @map("port_of_discharge")
+  countryOfDispatch         String?   @map("country_of_dispatch")
+  expectedDelivery          DateTime? @map("expected_delivery")
+  quotationDeadline         DateTime? @map("quotation_deadline")
+  status                    String    @default("Draft")
+  totalEstimatedUsd         Decimal   @default(0) @map("total_estimated_usd") @db.Decimal(18, 4)
+  selectedQuotationId       String?   @map("selected_quotation_id")
+  singleSourceJustification String?   @map("single_source_justification")
+  awardedBy                 String?   @map("awarded_by")
+  awardedAt                 DateTime? @map("awarded_at")
+  approvedBy                String?   @map("approved_by")
+  approvedAt                DateTime? @map("approved_at")
+  notes                     String?
+  createdBy                 String?   @map("created_by")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  company        Company                   @relation("ImportRfqCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  supplier       Supplier?                 @relation(fields: [supplierId], references: [id])
+  creator        User?                     @relation("ImportRfqCreator", fields: [createdBy], references: [id])
+  port           ImportPort?               @relation(fields: [portId], references: [id], onDelete: SetNull)
+  items          ImportRfqItem[]
+  quotations     ImportSupplierQuotation[]
+  purchaseOrders ImportPurchaseOrder[]
+
+  @@unique([companyId, rfqNumber])
+  @@index([companyId, status])
+  @@index([supplierId])
+  @@index([portId])
+  @@map("import_rfqs")
+}
+
+model ImportRfqItem {
+  id              String   @id @default(uuid())
+  rfqId           String   @map("rfq_id")
+  productId       String?  @map("product_id")
+  productName     String   @map("product_name")
+  sku             String?
+  hsCode          String?  @map("hs_code")
+  quantity        Decimal  @default(1) @db.Decimal(18, 4)
+  uom             String   @default("PCS")
+  targetPriceUsd  Decimal  @default(0) @map("target_price_usd") @db.Decimal(18, 4)
+  quotedPriceUsd  Decimal? @map("quoted_price_usd") @db.Decimal(18, 4)
+
+  rfq     ImportRfq @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  product Product?  @relation(fields: [productId], references: [id])
+
+  @@index([rfqId])
+  @@index([productId])
+  @@map("import_rfq_items")
+}
+
+/// Multi-supplier quotation against one Import RFQ (comparison / selection).
+model ImportSupplierQuotation {
+  id                String    @id @default(uuid())
+  companyId         String    @map("company_id")
+  rfqId             String    @map("rfq_id")
+  quotationNumber   String    @map("quotation_number")
+  supplierId        String?   @map("supplier_id")
+  supplierName      String    @map("supplier_name")
+  supplierCountry   String?   @map("supplier_country")
+  quotationDate     DateTime  @default(now()) @map("quotation_date")
+  validUntil        DateTime? @map("valid_until")
+  currency          String    @default("USD")
+  exchangeRateToUsd Decimal   @default(1) @map("exchange_rate_to_usd") @db.Decimal(18, 8)
+  incoterm          String    @default("CIF")
+  paymentTerms      String?   @map("payment_terms")
+  leadTimeDays      Int       @default(0) @map("lead_time_days")
+  freightEstimateUsd Decimal  @default(0) @map("freight_estimate_usd") @db.Decimal(18, 4)
+  totalForeign      Decimal   @default(0) @map("total_foreign") @db.Decimal(18, 4)
+  totalUsd          Decimal   @default(0) @map("total_usd") @db.Decimal(18, 4)
+  estimatedLandedUsd Decimal  @default(0) @map("estimated_landed_usd") @db.Decimal(18, 4)
+  status            String    @default("Received") // Received | Shortlisted | Selected | Rejected | Superseded | Expired
+  revision          Int       @default(1)
+  supersedesId      String?   @map("supersedes_id")
+  supersededById    String?   @map("superseded_by_id")
+  notes             String?
+  negotiationHistory Json?    @map("negotiation_history")
+  createdBy         String?   @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company Company                      @relation("ImportSupplierQuotationCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  rfq     ImportRfq                    @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier Supplier?                   @relation(fields: [supplierId], references: [id])
+  items   ImportSupplierQuotationItem[]
+  supersedes   ImportSupplierQuotation?  @relation("ImportQuotationRevision", fields: [supersedesId], references: [id], onDelete: SetNull)
+  revisions    ImportSupplierQuotation[] @relation("ImportQuotationRevision")
+
+  @@unique([companyId, quotationNumber])
+  @@index([companyId, status])
+  @@index([rfqId])
+  @@index([supplierId])
+  @@index([supersedesId])
+  @@map("import_supplier_quotations")
+}
+
+model ImportSupplierQuotationItem {
+  id            String  @id @default(uuid())
+  quotationId   String  @map("quotation_id")
+  productId     String? @map("product_id")
+  productName   String  @map("product_name")
+  sku           String?
+  quantity      Decimal @default(1) @db.Decimal(18, 4)
+  uom           String  @default("PCS")
+  unitPrice     Decimal @default(0) @map("unit_price") @db.Decimal(18, 4)
+  lineTotal     Decimal @default(0) @map("line_total") @db.Decimal(18, 4)
+  moq           Decimal @default(0) @db.Decimal(18, 4)
+  leadTimeDays  Int     @default(0) @map("lead_time_days")
+
+  quotation ImportSupplierQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product   Product?                @relation(fields: [productId], references: [id])
+
+  @@index([quotationId])
+  @@index([productId])
+  @@map("import_supplier_quotation_items")
+}
+
+model ImportPurchaseOrder {
+  id                String    @id @default(uuid())
+  companyId         String    @map("company_id")
+  poNumber          String    @map("po_number")
+  rfqId             String?   @map("rfq_id")
+  rfqRef            String?   @map("rfq_ref")
+  piRef             String?   @map("pi_ref")
+  orderDate         DateTime  @default(now()) @map("order_date")
+  supplierId        String?   @map("supplier_id")
+  supplierName      String    @map("supplier_name")
+  supplierCountry   String?   @map("supplier_country")
+  incoterm          String    @default("CIF")
+  currency          String    @default("USD")
+  exchangeRateToUsd Decimal   @default(1) @map("exchange_rate_to_usd") @db.Decimal(18, 8)
+  subtotalForeign   Decimal   @default(0) @map("subtotal_foreign") @db.Decimal(18, 4)
+  totalUsd          Decimal   @default(0) @map("total_usd") @db.Decimal(18, 4)
+  paymentTerms      String?   @map("payment_terms")
+  portOfLoading     String?   @map("port_of_loading")
+  portOfEntry       String?   @map("port_of_entry")
+  estimatedArrival  DateTime? @map("estimated_arrival")
+  status            String    @default("Draft")
+  purchaseOrderId   String?   @map("purchase_order_id")
+  notes             String?
+  quotationId       String?   @map("quotation_id")
+  namedPlace        String?   @map("named_place")
+  originCountry     String?   @map("origin_country")
+  shippingMethod    String?   @map("shipping_method")
+  buyerName         String?   @map("buyer_name")
+  internalRef       String?   @map("internal_ref")
+  supplierReference String?   @map("supplier_reference")
+  exchangeRateDate  DateTime? @map("exchange_rate_date")
+  estimatedFreightUsd   Decimal @default(0) @map("estimated_freight_usd") @db.Decimal(18, 4)
+  estimatedInsuranceUsd Decimal @default(0) @map("estimated_insurance_usd") @db.Decimal(18, 4)
+  estimatedDutyUsd      Decimal @default(0) @map("estimated_duty_usd") @db.Decimal(18, 4)
+  advanceRequiredPercent Decimal @default(0) @map("advance_required_percent") @db.Decimal(8, 2)
+  lcRequired        Boolean   @default(false) @map("lc_required")
+  expectedDeliveryDate DateTime? @map("expected_delivery_date")
+  createdBy         String?   @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company           Company                  @relation("ImportPurchaseOrderCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  supplier          Supplier?                @relation(fields: [supplierId], references: [id])
+  rfq               ImportRfq?               @relation(fields: [rfqId], references: [id], onDelete: SetNull)
+  purchaseOrder     PurchaseOrder?           @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  creator           User?                    @relation("ImportPurchaseOrderCreator", fields: [createdBy], references: [id])
+  items             ImportPurchaseOrderItem[]
+  proformaInvoices  ImportProformaInvoice[]
+  shipments         ImportShipment[]
+  customsClearances ImportCustomsClearance[]
+  documents         ImportDocument[]
+  grns              ImportGrn[]
+  landedCosts       ImportLandedCost[]
+  financeLcs        ImportFinanceLc[]
+  bills             ImportSupplierBill[]
+
+  @@unique([companyId, poNumber])
+  @@index([companyId, status])
+  @@index([supplierId])
+  @@index([purchaseOrderId])
+  @@map("import_purchase_orders")
+}
+
+model ImportPurchaseOrderItem {
+  id          String   @id @default(uuid())
+  importPoId  String   @map("import_po_id")
+  productId   String?  @map("product_id")
+  productName String   @map("product_name")
+  sku         String?
+  hsCode      String?  @map("hs_code")
+  quantity    Decimal  @default(1) @db.Decimal(18, 4)
+  uom         String   @default("PCS")
+  unitPrice   Decimal  @default(0) @map("unit_price") @db.Decimal(18, 4)
+  totalAmount Decimal  @default(0) @map("total_amount") @db.Decimal(18, 4)
+  receivedQty Decimal  @default(0) @map("received_qty") @db.Decimal(18, 4)
+
+  importPo ImportPurchaseOrder @relation(fields: [importPoId], references: [id], onDelete: Cascade)
+  product  Product?            @relation(fields: [productId], references: [id])
+
+  @@index([importPoId])
+  @@index([productId])
+  @@map("import_purchase_order_items")
+}
+
+model ImportProformaInvoice {
+  id                     String    @id @default(uuid())
+  companyId              String    @map("company_id")
+  piNumber               String    @map("pi_number")
+  importPoId             String?   @map("import_po_id")
+  poRef                  String?   @map("po_ref")
+  supplierId             String?   @map("supplier_id")
+  supplierName           String    @map("supplier_name")
+  supplierContact        String?   @map("supplier_contact")
+  supplierEmail          String?   @map("supplier_email")
+  supplierAddress        String?   @map("supplier_address")
+  supplierTaxId          String?   @map("supplier_tax_id")
+  supplierReference      String?   @map("supplier_reference")
+  quotationId            String?   @map("quotation_id")
+  rfqRef                 String?   @map("rfq_ref")
+  issueDate              DateTime  @default(now()) @map("issue_date")
+  validUntil             DateTime? @map("valid_until")
+  expectedPaymentDate    DateTime? @map("expected_payment_date")
+  preparedBy             String?   @map("prepared_by")
+  approvedBy             String?   @map("approved_by")
+  approvedAt             DateTime? @map("approved_at")
+  rejectedReason         String?   @map("rejected_reason")
+  originCountry          String?   @map("origin_country")
+  countryOfExport        String?   @map("country_of_export")
+  portOfLoading          String?   @map("port_of_loading")
+  portOfDischarge        String?   @map("port_of_discharge")
+  portOfEntry            String?   @map("port_of_entry")
+  destination            String?
+  incoterm               String?   @default("CIF")
+  namedPlace             String?   @map("named_place")
+  shipmentMode           String?   @map("shipment_mode")
+  expectedShipmentDate   DateTime? @map("expected_shipment_date")
+  estimatedArrival       DateTime? @map("estimated_arrival")
+  paymentTerms           String?   @map("payment_terms")
+  creditDays             Int       @default(0) @map("credit_days")
+  balancePaymentTerms    String?   @map("balance_payment_terms")
+  currency               String    @default("USD")
+  exchangeRateToUsd      Decimal   @default(1) @map("exchange_rate_to_usd") @db.Decimal(18, 8)
+  exchangeRateDate       DateTime? @map("exchange_rate_date")
+  rateSource             String?   @map("rate_source")
+  baseCurrencyCode       String?   @map("base_currency_code")
+  amountForeign          Decimal   @default(0) @map("amount_foreign") @db.Decimal(18, 4)
+  amountUsd              Decimal   @default(0) @map("amount_usd") @db.Decimal(18, 4)
+  merchandiseSubtotal    Decimal   @default(0) @map("merchandise_subtotal") @db.Decimal(18, 4)
+  discountTotal          Decimal   @default(0) @map("discount_total") @db.Decimal(18, 4)
+  taxTotal               Decimal   @default(0) @map("tax_total") @db.Decimal(18, 4)
+  freightEstimate        Decimal   @default(0) @map("freight_estimate") @db.Decimal(18, 4)
+  insuranceEstimate      Decimal   @default(0) @map("insurance_estimate") @db.Decimal(18, 4)
+  otherChargesEstimate   Decimal   @default(0) @map("other_charges_estimate") @db.Decimal(18, 4)
+  customsDutyEstimate    Decimal   @default(0) @map("customs_duty_estimate") @db.Decimal(18, 4)
+  advanceRequiredPercent Decimal   @default(0) @map("advance_required_percent") @db.Decimal(8, 2)
+  advanceAmountUsd       Decimal   @default(0) @map("advance_amount_usd") @db.Decimal(18, 4)
+  lcRequired             Boolean   @default(false) @map("lc_required")
+  lcNumber               String?   @map("lc_number")
+  bankSwift              String?   @map("bank_swift")
+  paymentSchedule        Json?     @map("payment_schedule")
+  advancePaymentDetails  Json?     @map("advance_payment_details")
+  termsAndConditions     String?   @map("terms_and_conditions")
+  internalRemarks        String?   @map("internal_remarks")
+  status                 String    @default("Draft")
+  paymentMadeId          String?   @map("payment_made_id")
+  notes                  String?
+  createdBy              String?   @map("created_by")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  company  Company                     @relation("ImportProformaInvoiceCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo ImportPurchaseOrder?        @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  creator  User?                       @relation("ImportProformaInvoiceCreator", fields: [createdBy], references: [id])
+  items    ImportProformaInvoiceItem[]
+
+  @@unique([companyId, piNumber])
+  @@index([companyId, status])
+  @@index([importPoId])
+  @@index([supplierId])
+  @@map("import_proforma_invoices")
+}
+
+model ImportProformaInvoiceItem {
+  id               String  @id @default(uuid())
+  proformaId       String  @map("proforma_id")
+  importPoItemId   String? @map("import_po_item_id")
+  productId        String? @map("product_id")
+  productName      String  @map("product_name")
+  sku              String?
+  supplierItemCode String? @map("supplier_item_code")
+  description      String?
+  quantity         Decimal @default(1) @db.Decimal(18, 4)
+  uom              String  @default("PCS")
+  unitPrice        Decimal @default(0) @map("unit_price") @db.Decimal(18, 4)
+  discountPercent  Decimal @default(0) @map("discount_percent") @db.Decimal(8, 2)
+  discountAmount   Decimal @default(0) @map("discount_amount") @db.Decimal(18, 4)
+  taxAmount        Decimal @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  lineTotal        Decimal @default(0) @map("line_total") @db.Decimal(18, 4)
+  hsCode           String? @map("hs_code")
+  countryOfOrigin  String? @map("country_of_origin")
+  netWeightKg      Decimal @default(0) @map("net_weight_kg") @db.Decimal(18, 4)
+  grossWeightKg    Decimal @default(0) @map("gross_weight_kg") @db.Decimal(18, 4)
+  notes            String?
+
+  proforma ImportProformaInvoice @relation(fields: [proformaId], references: [id], onDelete: Cascade)
+  product  Product?              @relation(fields: [productId], references: [id])
+
+  @@index([proformaId])
+  @@index([productId])
+  @@map("import_proforma_invoice_items")
+}
+
+model ImportCarrier {
+  id                  String   @id @default(uuid())
+  companyId           String   @map("company_id")
+  code                String
+  name                String
+  carrierType         String   @default("Ocean") @map("carrier_type")
+  scacCode            String?  @map("scac_code")
+  iataCode            String?  @map("iata_code")
+  country             String?
+  contactPerson       String?  @map("contact_person")
+  email               String?
+  phone               String?
+  address             String?
+  website             String?
+  servicesNotes       String?  @map("services_notes")
+  trackingUrlTemplate String?  @map("tracking_url_template")
+  status              String   @default("Active")
+  createdBy           String?  @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  company   Company          @relation("ImportCarrierCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  creator   User?            @relation("ImportCarrierCreator", fields: [createdBy], references: [id])
+  shipments ImportShipment[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([companyId, name])
+  @@map("import_carriers")
+}
+
+model ImportShipment {
+  id               String    @id @default(uuid())
+  companyId        String    @map("company_id")
+  shipmentNumber   String    @map("shipment_number")
+  importPoId       String?   @map("import_po_id")
+  poRef            String?   @map("po_ref")
+  supplierName     String?   @map("supplier_name")
+  carrierId        String?   @map("carrier_id")
+  carrier          String?
+  carrierManualDesc String?  @map("carrier_manual_desc")
+  shipmentMode     String?   @map("shipment_mode")
+  loadType         String?   @map("load_type")
+  bookingRef       String?   @map("booking_ref")
+  trackingRef      String?   @map("tracking_ref")
+  blNumber         String?   @map("bl_number")
+  blType           String?   @map("bl_type")
+  originPort       String?   @map("origin_port")
+  portOfEntry      String?   @map("port_of_entry")
+  originUnLocode   String?   @map("origin_un_locode")
+  destinationUnLocode String? @map("destination_un_locode")
+  finalDeliveryLocation String? @map("final_delivery_location")
+  shippingInstructions  String? @map("shipping_instructions")
+  vesselFlight     String?   @map("vessel_flight")
+  vesselName       String?   @map("vessel_name")
+  voyageNumber     String?   @map("voyage_number")
+  consignee        String?
+  notifyParty      String?   @map("notify_party")
+  proformaId       String?   @map("proforma_id")
+  piRef            String?   @map("pi_ref")
+  financeLcId      String?   @map("finance_lc_id")
+  lcRef            String?   @map("lc_ref")
+  incoterm         String?
+  currency         String?
+  etd              DateTime?
+  eta              DateTime?
+  actualDeparture  DateTime? @map("actual_departure")
+  actualArrival    DateTime? @map("actual_arrival")
+  deliveredAt      DateTime? @map("delivered_at")
+  containerNo      String?   @map("container_no")
+  containerType    String?   @map("container_type")
+  sealNumber       String?   @map("seal_number")
+  packageCount     Decimal?  @map("package_count") @db.Decimal(18, 2)
+  netWeightKg      Decimal?  @map("net_weight_kg") @db.Decimal(18, 2)
+  grossWeightKg    Decimal?  @map("gross_weight_kg") @db.Decimal(18, 2)
+  cbm              Decimal?  @db.Decimal(18, 2)
+  estimatedFreightUsd  Decimal @default(0) @map("estimated_freight_usd") @db.Decimal(18, 4)
+  estimatedInsuranceUsd Decimal @default(0) @map("estimated_insurance_usd") @db.Decimal(18, 4)
+  shipmentStatus   String    @default("Booking Confirmed") @map("shipment_status")
+  currentMilestone String?   @map("current_milestone")
+  milestones       Json?
+  etaHistory       Json?     @map("eta_history")
+  customsOffice    String?   @map("customs_office")
+  warehouseName    String?   @map("warehouse_name")
+  notes            String?
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  company           Company                  @relation("ImportShipmentCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo          ImportPurchaseOrder?     @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  carrierMaster     ImportCarrier?           @relation(fields: [carrierId], references: [id], onDelete: SetNull)
+  creator           User?                    @relation("ImportShipmentCreator", fields: [createdBy], references: [id])
+  items             ImportShipmentItem[]
+  customsClearances ImportCustomsClearance[]
+  grns              ImportGrn[]
+  landedCosts       ImportLandedCost[]
+  documents         ImportDocument[]
+
+  @@unique([companyId, shipmentNumber])
+  @@index([companyId, shipmentStatus])
+  @@index([importPoId])
+  @@index([carrierId])
+  @@index([proformaId])
+  @@index([financeLcId])
+  @@index([blNumber])
+  @@index([containerNo])
+  @@map("import_shipments")
+}
+
+model ImportShipmentItem {
+  id             String  @id @default(uuid())
+  shipmentId     String  @map("shipment_id")
+  importPoItemId String? @map("import_po_item_id")
+  productId      String? @map("product_id")
+  productName    String  @map("product_name")
+  sku            String?
+  quantity       Decimal @default(0) @db.Decimal(18, 4)
+  uom            String  @default("PCS")
+  packageCount   Decimal @default(0) @map("package_count") @db.Decimal(18, 4)
+  netWeightKg    Decimal @default(0) @map("net_weight_kg") @db.Decimal(18, 4)
+  grossWeightKg  Decimal @default(0) @map("gross_weight_kg") @db.Decimal(18, 4)
+
+  shipment ImportShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  product  Product?       @relation(fields: [productId], references: [id])
+
+  @@index([shipmentId])
+  @@index([productId])
+  @@index([importPoItemId])
+  @@map("import_shipment_items")
+}
+
+model ImportCustomsClearance {
+  id                     String    @id @default(uuid())
+  companyId              String    @map("company_id")
+  entryNumber            String    @map("entry_number")
+  billOfEntryNo          String    @map("bill_of_entry_no")
+  importPoId             String?   @map("import_po_id")
+  poRef                  String?   @map("po_ref")
+  shipmentId             String?   @map("shipment_id")
+  shipmentRef            String?   @map("shipment_ref")
+  portOfEntry            String?   @map("port_of_entry")
+  customsOffice          String?   @map("customs_office")
+  declarationDate        DateTime  @default(now()) @map("declaration_date")
+  assessmentDate         DateTime? @map("assessment_date")
+  customsBroker          String?   @map("customs_broker")
+  brokerContact          String?   @map("broker_contact")
+  cifValueUsd            Decimal   @default(0) @map("cif_value_usd") @db.Decimal(18, 4)
+  declarationCurrency    String?   @default("USD") @map("declaration_currency")
+  baseCurrencyCode       String?   @map("base_currency_code")
+  exchangeRateToUsd      Decimal   @default(1) @map("exchange_rate_to_usd") @db.Decimal(18, 8)
+  exchangeRateDate       DateTime? @map("exchange_rate_date")
+  rateSource             String?   @map("rate_source")
+  foreignGoodsValue      Decimal?  @map("foreign_goods_value") @db.Decimal(18, 4)
+  freightForeign         Decimal?  @map("freight_foreign") @db.Decimal(18, 4)
+  insuranceForeign       Decimal?  @map("insurance_foreign") @db.Decimal(18, 4)
+  customsDutyRatePct     Decimal   @default(0) @map("customs_duty_rate_pct") @db.Decimal(8, 2)
+  customsDutyUsd         Decimal   @default(0) @map("customs_duty_usd") @db.Decimal(18, 4)
+  additionalDutyRatePct  Decimal?  @map("additional_duty_rate_pct") @db.Decimal(8, 2)
+  additionalDutyUsd      Decimal?  @map("additional_duty_usd") @db.Decimal(18, 4)
+  regulatoryDutyRatePct  Decimal?  @map("regulatory_duty_rate_pct") @db.Decimal(8, 2)
+  regulatoryDutyUsd      Decimal?  @map("regulatory_duty_usd") @db.Decimal(18, 4)
+  advanceIncomeTaxRatePct Decimal? @map("advance_income_tax_rate_pct") @db.Decimal(8, 2)
+  advanceIncomeTaxUsd    Decimal?  @map("advance_income_tax_usd") @db.Decimal(18, 4)
+  importVatRatePct       Decimal   @default(0) @map("import_vat_rate_pct") @db.Decimal(8, 2)
+  importVatUsd           Decimal   @default(0) @map("import_vat_usd") @db.Decimal(18, 4)
+  portHandlingChargesUsd Decimal?  @map("port_handling_charges_usd") @db.Decimal(18, 4)
+  clearingBrokerFeeUsd   Decimal?  @map("clearing_broker_fee_usd") @db.Decimal(18, 4)
+  demurrageDays          Decimal?  @map("demurrage_days") @db.Decimal(10, 2)
+  demurrageChargesUsd    Decimal?  @map("demurrage_charges_usd") @db.Decimal(18, 4)
+  inspectionFeeUsd       Decimal   @default(0) @map("inspection_fee_usd") @db.Decimal(18, 4)
+  penaltiesUsd           Decimal   @default(0) @map("penalties_usd") @db.Decimal(18, 4)
+  totalCustomsPayableUsd Decimal   @default(0) @map("total_customs_payable_usd") @db.Decimal(18, 4)
+  hsCodes                Json?     @map("hs_codes")
+  clearanceStatus        String    @default("Draft") @map("clearance_status")
+  dutyPaymentRef         String?   @map("duty_payment_ref")
+  dutyPaymentDate        DateTime? @map("duty_payment_date")
+  dutyPaymentMethod      String?   @map("duty_payment_method")
+  dutyPaymentBank        String?   @map("duty_payment_bank")
+  dutyPaymentAmount      Decimal?  @map("duty_payment_amount") @db.Decimal(18, 4)
+  dutyPaymentDifferenceReason String? @map("duty_payment_difference_reason")
+  releaseDate            DateTime? @map("release_date")
+  holdReason             String?   @map("hold_reason")
+  discrepancyNotes       String?   @map("discrepancy_notes")
+  exemptionsNotes        String?   @map("exemptions_notes")
+  fxReviewFlag           Boolean   @default(false) @map("fx_review_flag")
+  fxReviewNote           String?   @map("fx_review_note")
+  landedCostId           String?   @map("landed_cost_id")
+  dutyPaidTotalUsd       Decimal   @default(0) @map("duty_paid_total_usd") @db.Decimal(18, 4)
+  lastJournalEntryId     String?   @map("last_journal_entry_id")
+  idempotencyKey         String?   @map("idempotency_key")
+  assessedBy             String?   @map("assessed_by")
+  assessedAt             DateTime? @map("assessed_at")
+  createdBy              String?   @map("created_by")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  company  Company              @relation("ImportCustomsClearanceCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo ImportPurchaseOrder? @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  shipment ImportShipment?      @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  creator  User?                @relation("ImportCustomsClearanceCreator", fields: [createdBy], references: [id])
+  lines    ImportCustomsClearanceLine[]
+  dutyPayments ImportCustomsDutyPayment[]
+
+  @@unique([companyId, entryNumber])
+  @@index([companyId, clearanceStatus])
+  @@index([importPoId])
+  @@index([shipmentId])
+  @@map("import_customs_clearances")
+}
+
+model ImportCustomsDutyPayment {
+  id                 String   @id @default(uuid())
+  companyId          String   @map("company_id")
+  clearanceId        String   @map("clearance_id")
+  amount             Decimal  @map("amount") @db.Decimal(18, 4)
+  paymentDate        DateTime @map("payment_date")
+  paymentMethod      String   @map("payment_method")
+  reference          String
+  bankAccountId      String   @map("bank_account_id")
+  bankAccountName    String?  @map("bank_account_name")
+  chartOfAccountId   String?  @map("chart_of_account_id")
+  journalEntryId     String?  @map("journal_entry_id")
+  journalEntryNumber String?  @map("journal_entry_number")
+  differenceReason   String?  @map("difference_reason")
+  differenceApproved Boolean  @default(false) @map("difference_approved")
+  createdBy          String?  @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  company      Company                @relation("ImportCustomsDutyPaymentCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  clearance    ImportCustomsClearance @relation(fields: [clearanceId], references: [id], onDelete: Cascade)
+  bankAccount  BankAccount            @relation("ImportCustomsDutyPaymentBank", fields: [bankAccountId], references: [id])
+  journalEntry JournalEntry?          @relation("ImportCustomsDutyPaymentJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  creator      User?                  @relation("ImportCustomsDutyPaymentCreator", fields: [createdBy], references: [id])
+
+  @@unique([companyId, bankAccountId, reference])
+  @@index([clearanceId])
+  @@index([companyId, paymentDate])
+  @@index([journalEntryId])
+  @@map("import_customs_duty_payments")
+}
+
+model ImportCustomsClearanceLine {
+  id                    String   @id @default(uuid())
+  clearanceId           String   @map("clearance_id")
+  shipmentItemId        String?  @map("shipment_item_id")
+  importPoItemId        String?  @map("import_po_item_id")
+  productId             String?  @map("product_id")
+  productName           String   @map("product_name")
+  sku                   String?
+  hsCode                String   @map("hs_code")
+  quantity              Decimal  @default(0) @db.Decimal(18, 4)
+  uom                   String   @default("PCS")
+  assessableValueBase   Decimal  @default(0) @map("assessable_value_base") @db.Decimal(18, 4)
+  dutyRatePct           Decimal  @default(0) @map("duty_rate_pct") @db.Decimal(8, 2)
+  dutyAmountBase        Decimal  @default(0) @map("duty_amount_base") @db.Decimal(18, 4)
+  additionalDutyRatePct Decimal  @default(0) @map("additional_duty_rate_pct") @db.Decimal(8, 2)
+  additionalDutyBase    Decimal  @default(0) @map("additional_duty_base") @db.Decimal(18, 4)
+  regulatoryDutyRatePct Decimal  @default(0) @map("regulatory_duty_rate_pct") @db.Decimal(8, 2)
+  regulatoryDutyBase    Decimal  @default(0) @map("regulatory_duty_base") @db.Decimal(18, 4)
+  vatRatePct            Decimal  @default(0) @map("vat_rate_pct") @db.Decimal(8, 2)
+  vatAmountBase         Decimal  @default(0) @map("vat_amount_base") @db.Decimal(18, 4)
+  rateOverride          Boolean  @default(false) @map("rate_override")
+  overrideReason        String?  @map("override_reason")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  clearance ImportCustomsClearance @relation(fields: [clearanceId], references: [id], onDelete: Cascade)
+
+  @@index([clearanceId])
+  @@map("import_customs_clearance_lines")
+}
+
+model ImportHsTariffRate {
+  id                     String    @id @default(uuid())
+  companyId              String?   @map("company_id")
+  hsCode                 String    @map("hs_code")
+  description            String?
+  countryCode            String?   @map("country_code")
+  dutyRatePct            Decimal   @default(0) @map("duty_rate_pct") @db.Decimal(8, 2)
+  additionalDutyRatePct  Decimal   @default(0) @map("additional_duty_rate_pct") @db.Decimal(8, 2)
+  regulatoryDutyRatePct  Decimal   @default(0) @map("regulatory_duty_rate_pct") @db.Decimal(8, 2)
+  salesTaxRatePct        Decimal   @default(0) @map("sales_tax_rate_pct") @db.Decimal(8, 2)
+  effectiveFrom          DateTime? @map("effective_from")
+  effectiveTo            DateTime? @map("effective_to")
+  status                 String    @default("Active")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([hsCode])
+  @@index([companyId])
+  @@map("import_hs_tariff_rates")
+}
+
+model ImportDocument {
+  id               String    @id @default(uuid())
+  companyId        String    @map("company_id")
+  docNumber        String    @map("doc_number")
+  docType          String    @map("doc_type")
+  importPoId       String?   @map("import_po_id")
+  poRef            String?   @map("po_ref")
+  shipmentId       String?   @map("shipment_id")
+  shipmentRef      String?   @map("shipment_ref")
+  issuer           String?
+  issueDate        DateTime  @default(now()) @map("issue_date")
+  expiryDate       DateTime? @map("expiry_date")
+  originalReceived Boolean   @default(false) @map("original_received")
+  status           String    @default("Pending Review")
+  fileUrl          String?   @map("file_url")
+  filePlaceholder  String?   @map("file_placeholder")
+  verifiedAt       DateTime? @map("verified_at")
+  verifiedBy       String?   @map("verified_by")
+  notes            String?
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  company  Company              @relation("ImportDocumentCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo ImportPurchaseOrder? @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  shipment ImportShipment?      @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  creator  User?                @relation("ImportDocumentCreator", fields: [createdBy], references: [id])
+
+  @@unique([companyId, docNumber])
+  @@index([companyId, status])
+  @@index([importPoId])
+  @@map("import_documents")
+}
+
+model ImportGrn {
+  id               String    @id @default(uuid())
+  companyId        String    @map("company_id")
+  grnNumber        String    @map("grn_number")
+  importPoId       String?   @map("import_po_id")
+  poRef            String?   @map("po_ref")
+  shipmentId       String?   @map("shipment_id")
+  shipmentRef      String?   @map("shipment_ref")
+  locationId       String?   @map("location_id")
+  warehouseName    String?   @map("warehouse_name")
+  receiptDate      DateTime  @default(now()) @map("receipt_date")
+  containerNo      String?   @map("container_no")
+  sealIntact       Boolean   @default(true) @map("seal_intact")
+  receivedBy       String?   @map("received_by")
+  status           String    @default("Draft")
+  goodsReceivingId String?   @map("goods_receiving_id")
+  idempotencyKey   String?   @map("idempotency_key")
+  stockPostedAt    DateTime? @map("stock_posted_at")
+  notes            String?
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  company        Company              @relation("ImportGrnCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo       ImportPurchaseOrder? @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  shipment       ImportShipment?      @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  location       Location?            @relation(fields: [locationId], references: [id])
+  goodsReceiving GoodsReceiving?      @relation(fields: [goodsReceivingId], references: [id], onDelete: SetNull)
+  creator        User?                @relation("ImportGrnCreator", fields: [createdBy], references: [id])
+  items          ImportGrnItem[]
+  landedCosts    ImportLandedCost[]
+
+  @@unique([companyId, grnNumber])
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, status])
+  @@index([importPoId])
+  @@index([goodsReceivingId])
+  @@map("import_grns")
+}
+
+model ImportGrnItem {
+  id             String   @id @default(uuid())
+  importGrnId    String   @map("import_grn_id")
+  importPoItemId String?  @map("import_po_item_id")
+  productId      String?  @map("product_id")
+  productName    String   @map("product_name")
+  sku            String?
+  orderedQty     Decimal  @default(0) @map("ordered_qty") @db.Decimal(18, 4)
+  previouslyReceivedQty Decimal @default(0) @map("previously_received_qty") @db.Decimal(18, 4)
+  remainingQty   Decimal  @default(0) @map("remaining_qty") @db.Decimal(18, 4)
+  receivedQty    Decimal  @default(0) @map("received_qty") @db.Decimal(18, 4)
+  acceptedQty    Decimal  @default(0) @map("accepted_qty") @db.Decimal(18, 4)
+  rejectedQty    Decimal  @default(0) @map("rejected_qty") @db.Decimal(18, 4)
+  uom            String   @default("PCS")
+  lotNumber      String?  @map("lot_number")
+
+  importGrn ImportGrn @relation(fields: [importGrnId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id])
+
+  @@index([importGrnId])
+  @@index([productId])
+  @@index([importPoItemId])
+  @@map("import_grn_items")
+}
+
+model ImportLandedCost {
+  id                          String    @id @default(uuid())
+  companyId                   String    @map("company_id")
+  allocationNumber            String    @map("allocation_number")
+  importPoId                  String?   @map("import_po_id")
+  poRef                       String?   @map("po_ref")
+  shipmentId                  String?   @map("shipment_id")
+  shipmentRef                 String?   @map("shipment_ref")
+  grnId                       String?   @map("grn_id")
+  grnRef                      String?   @map("grn_ref")
+  date                        DateTime  @default(now())
+  purchaseFobTotalUsd         Decimal   @default(0) @map("purchase_fob_total_usd") @db.Decimal(18, 4)
+  oceanFreightUsd             Decimal   @default(0) @map("ocean_freight_usd") @db.Decimal(18, 4)
+  customsDutyUsd              Decimal   @default(0) @map("customs_duty_usd") @db.Decimal(18, 4)
+  marineInsuranceUsd          Decimal   @default(0) @map("marine_insurance_usd") @db.Decimal(18, 4)
+  portDemurrageAndHandlingUsd Decimal   @default(0) @map("port_demurrage_and_handling_usd") @db.Decimal(18, 4)
+  clearingAgencyChargesUsd    Decimal   @default(0) @map("clearing_agency_charges_usd") @db.Decimal(18, 4)
+  inlandTransportationUsd     Decimal   @default(0) @map("inland_transportation_usd") @db.Decimal(18, 4)
+  totalLandedExpensesUsd      Decimal   @default(0) @map("total_landed_expenses_usd") @db.Decimal(18, 4)
+  totalFinalLandedCostUsd     Decimal   @default(0) @map("total_final_landed_cost_usd") @db.Decimal(18, 4)
+  allocationMethod            String    @default("By Item Value") @map("allocation_method")
+  status                      String    @default("Draft")
+  journalEntryId              String?   @map("journal_entry_id")
+  customsClearanceId          String?   @map("customs_clearance_id")
+  reversedAt                  DateTime? @map("reversed_at")
+  reversalJournalEntryId      String?   @map("reversal_journal_entry_id")
+  idempotencyKey              String?   @map("idempotency_key")
+  notes                       String?
+  createdBy                   String?   @map("created_by")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+
+  company      Company               @relation("ImportLandedCostCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo     ImportPurchaseOrder?  @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  shipment     ImportShipment?       @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  grn          ImportGrn?            @relation(fields: [grnId], references: [id], onDelete: SetNull)
+  journalEntry JournalEntry?         @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  creator      User?                 @relation("ImportLandedCostCreator", fields: [createdBy], references: [id])
+  items        ImportLandedCostItem[]
+
+  @@unique([companyId, allocationNumber])
+  @@index([companyId, status])
+  @@index([importPoId])
+  @@index([grnId])
+  @@index([journalEntryId])
+  @@map("import_landed_costs")
+}
+
+model ImportLandedCostItem {
+  id                         String   @id @default(uuid())
+  landedCostId               String   @map("landed_cost_id")
+  productId                  String?  @map("product_id")
+  productName                String   @map("product_name")
+  qty                        Decimal  @default(1) @db.Decimal(18, 4)
+  unitFobUsd                 Decimal  @default(0) @map("unit_fob_usd") @db.Decimal(18, 4)
+  allocatedExpensePerUnitUsd Decimal  @default(0) @map("allocated_expense_per_unit_usd") @db.Decimal(18, 4)
+  finalLandedCostPerUnitUsd  Decimal  @default(0) @map("final_landed_cost_per_unit_usd") @db.Decimal(18, 4)
+  originalCostVariancePct    Decimal  @default(0) @map("original_cost_variance_pct") @db.Decimal(8, 2)
+
+  landedCost ImportLandedCost @relation(fields: [landedCostId], references: [id], onDelete: Cascade)
+  product    Product?         @relation(fields: [productId], references: [id])
+
+  @@index([landedCostId])
+  @@index([productId])
+  @@map("import_landed_cost_items")
+}
+
+model ImportFinanceLc {
+  id                         String    @id @default(uuid())
+  companyId                  String    @map("company_id")
+  lcNumber                   String    @map("lc_number")
+  importPoId                 String?   @map("import_po_id")
+  poRef                      String?   @map("po_ref")
+  piRef                      String?   @map("pi_ref")
+  proformaId                 String?   @map("proforma_id")
+  shipmentId                 String?   @map("shipment_id")
+  supplierId                 String?   @map("supplier_id")
+  applicant                  String?
+  incoterm                   String?
+  lcType                     String    @default("Irrevocable Confirmed Sight LC") @map("lc_type")
+  paymentTenor               String?   @map("payment_tenor")
+  usanceDays                 Int       @default(0) @map("usance_days")
+  issuingBank                String?   @map("issuing_bank")
+  advisingBank               String?   @map("advising_bank")
+  beneficiary                String?
+  lcAmount                   Decimal   @default(0) @map("lc_amount") @db.Decimal(18, 4)
+  currency                   String    @default("USD")
+  exchangeRateToUsd          Decimal   @default(1) @map("exchange_rate_to_usd") @db.Decimal(18, 8)
+  exchangeRateDate           DateTime? @map("exchange_rate_date")
+  baseCurrencyCode           String?   @map("base_currency_code")
+  lcAmountBase               Decimal   @default(0) @map("lc_amount_base") @db.Decimal(18, 4)
+  amountTolerancePercent     Decimal   @default(0) @map("amount_tolerance_percent") @db.Decimal(8, 2)
+  amountDrawn                Decimal   @default(0) @map("amount_drawn") @db.Decimal(18, 4)
+  issuanceDate               DateTime  @default(now()) @map("issuance_date")
+  expiryDate                 DateTime? @map("expiry_date")
+  latestShipmentDate         DateTime? @map("latest_shipment_date")
+  presentationPeriodDays     Int       @default(21) @map("presentation_period_days")
+  confirmed                  Boolean   @default(true)
+  partialShipmentAllowed     Boolean   @default(false) @map("partial_shipment_allowed")
+  transshipmentAllowed       Boolean   @default(false) @map("transshipment_allowed")
+  portOfLoading              String?   @map("port_of_loading")
+  portOfDischarge            String?   @map("port_of_discharge")
+  marginPercent              Decimal   @default(0) @map("margin_percent") @db.Decimal(8, 2)
+  cashMarginBlockedUsd       Decimal   @default(0) @map("cash_margin_blocked_usd") @db.Decimal(18, 4)
+  bankChargesUsd             Decimal   @default(0) @map("bank_charges_usd") @db.Decimal(18, 4)
+  documentPresentationDate   DateTime? @map("document_presentation_date")
+  discrepancyNotes           String?   @map("discrepancy_notes")
+  settlementDate             DateTime? @map("settlement_date")
+  settlementPaymentId        String?   @map("settlement_payment_id")
+  marginJournalEntryId       String?   @map("margin_journal_entry_id")
+  amendments                 Json?
+  status                     String    @default("Draft")
+  notes                      String?
+  createdBy                  String?   @map("created_by")
+  issuedBy                   String?   @map("issued_by")
+  issuedAt                   DateTime? @map("issued_at")
+  approvedBy                 String?   @map("approved_by")
+  approvedAt                 DateTime? @map("approved_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  company  Company              @relation("ImportFinanceLcCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo ImportPurchaseOrder? @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  creator  User?                @relation("ImportFinanceLcCreator", fields: [createdBy], references: [id])
+
+  @@unique([companyId, lcNumber])
+  @@index([companyId, status])
+  @@index([importPoId])
+  @@index([supplierId])
+  @@index([proformaId])
+  @@map("import_finance_lcs")
+}
+
+model ImportSupplierBill {
+  id                    String    @id @default(uuid())
+  companyId             String    @map("company_id")
+  billNumber            String    @map("bill_number")
+  importPoId            String?   @map("import_po_id")
+  poRef                 String?   @map("po_ref")
+  supplierId            String?   @map("supplier_id")
+  supplierName          String    @map("supplier_name")
+  supplierInvoiceNumber String?   @map("supplier_invoice_number")
+  billDate              DateTime  @default(now()) @map("bill_date")
+  dueDate               DateTime? @map("due_date")
+  currency              String    @default("USD")
+  exchangeRateToUsd     Decimal   @default(1) @map("exchange_rate_to_usd") @db.Decimal(18, 8)
+  exchangeRateDate      DateTime? @map("exchange_rate_date")
+  rateSource            String?   @map("rate_source")
+  baseCurrencyCode      String?   @map("base_currency_code")
+  totalAmountForeign    Decimal   @default(0) @map("total_amount_foreign") @db.Decimal(18, 4)
+  totalAmountUsd        Decimal   @default(0) @map("total_amount_usd") @db.Decimal(18, 4)
+  paidAmountUsd         Decimal   @default(0) @map("paid_amount_usd") @db.Decimal(18, 4)
+  balanceUsd            Decimal   @default(0) @map("balance_usd") @db.Decimal(18, 4)
+  freightAmount         Decimal   @default(0) @map("freight_amount") @db.Decimal(18, 4)
+  insuranceAmount       Decimal   @default(0) @map("insurance_amount") @db.Decimal(18, 4)
+  dutyAmount            Decimal   @default(0) @map("duty_amount") @db.Decimal(18, 4)
+  otherCharges          Decimal   @default(0) @map("other_charges") @db.Decimal(18, 4)
+  taxTotal              Decimal   @default(0) @map("tax_total") @db.Decimal(18, 4)
+  discountTotal         Decimal   @default(0) @map("discount_total") @db.Decimal(18, 4)
+  varianceAmount        Decimal   @default(0) @map("variance_amount") @db.Decimal(18, 4)
+  variancePercent       Decimal   @default(0) @map("variance_percent") @db.Decimal(8, 2)
+  matchStatus           String    @default("UNMATCHED") @map("match_status")
+  matchTolerancePct     Decimal   @default(2) @map("match_tolerance_pct") @db.Decimal(8, 2)
+  paymentTerms          String?   @map("payment_terms")
+  status                String    @default("Draft")
+  importGrnId           String?   @map("import_grn_id")
+  shipmentId            String?   @map("shipment_id")
+  proformaId            String?   @map("proforma_id")
+  purchaseInvoiceId     String?   @map("purchase_invoice_id")
+  linkedPurchaseBillUrl String?   @map("linked_purchase_bill_url")
+  journalEntryId        String?   @map("journal_entry_id")
+  postedAt              DateTime? @map("posted_at")
+  idempotencyKey        String?   @map("idempotency_key")
+  notes                 String?
+  createdBy             String?   @map("created_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  company         Company                   @relation("ImportSupplierBillCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo        ImportPurchaseOrder?      @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  purchaseInvoice PurchaseInvoice?          @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull)
+  creator         User?                     @relation("ImportSupplierBillCreator", fields: [createdBy], references: [id])
+  items           ImportSupplierBillItem[]
+
+  @@unique([companyId, billNumber])
+  @@index([companyId, status])
+  @@index([importPoId])
+  @@index([purchaseInvoiceId])
+  @@index([importGrnId])
+  @@map("import_supplier_bills")
+}
+
+model ImportSupplierBillItem {
+  id              String  @id @default(uuid())
+  billId          String  @map("bill_id")
+  importPoItemId  String? @map("import_po_item_id")
+  importGrnItemId String? @map("import_grn_item_id")
+  productId       String? @map("product_id")
+  productName     String  @map("product_name")
+  sku             String?
+  orderedQty      Decimal @default(0) @map("ordered_qty") @db.Decimal(18, 4)
+  receivedQty     Decimal @default(0) @map("received_qty") @db.Decimal(18, 4)
+  acceptedQty     Decimal @default(0) @map("accepted_qty") @db.Decimal(18, 4)
+  rejectedQty     Decimal @default(0) @map("rejected_qty") @db.Decimal(18, 4)
+  invoicedQty     Decimal @default(0) @map("invoiced_qty") @db.Decimal(18, 4)
+  uom             String  @default("PCS")
+  unitPrice       Decimal @default(0) @map("unit_price") @db.Decimal(18, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(8, 2)
+  taxRate         Decimal @default(0) @map("tax_rate") @db.Decimal(8, 2)
+  taxAmount       Decimal @default(0) @map("tax_amount") @db.Decimal(18, 4)
+  lineTotal       Decimal @default(0) @map("line_total") @db.Decimal(18, 4)
+  hsCode          String? @map("hs_code")
+  notes           String?
+
+  bill    ImportSupplierBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  product Product?           @relation(fields: [productId], references: [id])
+
+  @@index([billId])
+  @@index([productId])
+  @@map("import_supplier_bill_items")
+}
+
+model ImportSetting {
+  id                         String   @id @default(uuid())
+  companyId                  String   @unique @map("company_id")
+  defaultIncoterm            String   @default("CIF") @map("default_incoterm")
+  defaultCurrency            String   @default("USD") @map("default_currency")
+  defaultCustomsBroker       String?  @map("default_customs_broker")
+  defaultPortOfEntry         String?  @map("default_port_of_entry")
+  autoCreatePurchaseOrder    Boolean  @default(true) @map("auto_create_purchase_order")
+  defaultReceivingLocationId String?  @map("default_receiving_location_id")
+  clearingAccountId          String?  @map("clearing_account_id")
+  customsDutyAccountId       String?  @map("customs_duty_account_id")
+  additionalDutyAccountId    String?  @map("additional_duty_account_id")
+  regulatoryDutyAccountId    String?  @map("regulatory_duty_account_id")
+  importVatAccountId         String?  @map("import_vat_account_id")
+  advanceIncomeTaxAccountId  String?  @map("advance_income_tax_account_id")
+  freightAccountId           String?  @map("freight_account_id")
+  insuranceAccountId         String?  @map("insurance_account_id")
+  handlingAccountId          String?  @map("handling_account_id")
+  clearingBrokerAccountId    String?  @map("clearing_broker_account_id")
+  inventoryAssetAccountId    String?  @map("inventory_asset_account_id")
+  requireSeparateRfqApprover Boolean  @default(true) @map("require_separate_rfq_approver")
+  requireSeparateLcApprover  Boolean  @default(true) @map("require_separate_lc_approver")
+  requireSeparateCustomsAssessor Boolean @default(true) @map("require_separate_customs_assessor")
+  requireSeparateCustomsPayer Boolean @default(true) @map("require_separate_customs_payer")
+  blockInsufficientBalance   Boolean  @default(true) @map("block_insufficient_balance")
+  dutyPaymentDifferenceThresholdPct Decimal @default(5) @map("duty_payment_difference_threshold_pct") @db.Decimal(8, 2)
+  requirePhysicalOriginalBl  Boolean  @default(true) @map("require_physical_original_bl")
+  defaultCustomsDutyRatePct  Decimal  @default(10) @map("default_customs_duty_rate_pct") @db.Decimal(8, 2)
+  defaultImportVatRatePct    Decimal  @default(5) @map("default_import_vat_rate_pct") @db.Decimal(8, 2)
+  companyCountryCode         String?  @map("company_country_code")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ImportSettingCompany", fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("import_settings")
+}
+
+model ImportAuditLog {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  details    Json?
+  userId     String?  @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company Company @relation("ImportAuditLogCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?   @relation("ImportAuditLogUser", fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+  @@map("import_audit_logs")
+}
+
 

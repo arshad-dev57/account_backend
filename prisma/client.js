@@ -60,6 +60,28 @@ function hasInventoryImportModels(client) {
   );
 }
 
+function tradingCustomerPriceHasPriceList(client) {
+  try {
+    const fields = client?.tradingCustomerPrice?.fields;
+    return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, 'priceListId'));
+  } catch {
+    return false;
+  }
+}
+
+function importPoItemHasHsCode(client) {
+  try {
+    const fields = client?.importPurchaseOrderItem?.fields;
+    return Boolean(
+      fields &&
+        Object.prototype.hasOwnProperty.call(fields, 'hsCode') &&
+        Object.prototype.hasOwnProperty.call(fields, 'productId')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function clientSchemaIsCurrent(client) {
   return (
     userModelHasAssignedTerminal(client) &&
@@ -67,7 +89,9 @@ function clientSchemaIsCurrent(client) {
     companyModelHasPosModeConfigured(client) &&
     restaurantLineHasKitchenStation(client) &&
     hasHrModels(client) &&
-    hasInventoryImportModels(client)
+    hasInventoryImportModels(client) &&
+    tradingCustomerPriceHasPriceList(client) &&
+    importPoItemHasHsCode(client)
   );
 }
 

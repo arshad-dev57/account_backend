@@ -323,6 +323,26 @@ class PurchasePaymentMakeModel {
         throw new Error('Cash in Hand account not found. Cannot record cash payment.');
       }
 
+      // Re-check funding balance inside the transaction (race-safe vs controller check).
+      // JE credits Cash/Bank with base amount — require enough COA balance before posting.
+      const fundingAvailable = Number(creditAccount.currentBalance) || 0;
+      if (fundingAvailable + 1e-6 < totalPaymentBaseNum) {
+        const label = creditAccount.name || creditAccount.code || 'payment account';
+        throw new Error(
+          `Insufficient balance in ${label}. Available: ${fundingAvailable.toLocaleString()}, Required: ${Number(totalPaymentBaseNum).toLocaleString()}. Payment cannot proceed.`
+        );
+      }
+
+      if (bankAccountId && methodNeedsBank) {
+        const bankForBalance = await findBankAccount(tx, companyId, bankAccountId);
+        const bankAvail = Number(bankForBalance?.currentBalance) || 0;
+        if (bankAvail + 1e-6 < totalPaymentBaseNum) {
+          throw new Error(
+            `Insufficient balance in bank account "${bankForBalance?.accountName || ''}". Available: ${bankAvail.toLocaleString()}, Required: ${Number(totalPaymentBaseNum).toLocaleString()}. Payment cannot proceed.`
+          );
+        }
+      }
+
       await ensureFxAccounts(createdBy || userId, companyId, tx);
 
       const jeLines = [

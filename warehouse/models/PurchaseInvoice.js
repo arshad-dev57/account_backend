@@ -11,6 +11,9 @@ const {
   buildCurrencyPersistFields,
   snapshotFromDocument,
 } = require('../../utils/multiCurrency');
+const {
+  findOrCreateInventoryAccount,
+} = require('../services/stockAccountingService');
 
 /**
  * Prefer historical FX from PO/GRN; else resolve via supplier / explicit body.
@@ -64,42 +67,6 @@ function generateInvoiceNumber() {
   const day = String(date.getDate()).padStart(2, '0');
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   return `PI-${year}${month}${day}-${random}`;
-}
-async function findOrCreateInventoryAccount(tx, companyId, userId) {
-  let account = await tx.chartOfAccount.findFirst({
-    where: {
-      companyId: companyId,
-      isActive: true,
-      OR: [
-        { code: '1300' },
-        { code: '1200' },
-        { name: { contains: 'Inventory', mode: 'insensitive' } },
-        { name: { contains: 'Stock', mode: 'insensitive' } },
-        { name: { contains: 'Raw Material', mode: 'insensitive' } }
-      ]
-    }
-  });
-
-  if (!account) {
-    account = await tx.chartOfAccount.create({
-      data: {
-        code: '1300',
-        name: 'Inventory',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        balanceType: 'Debit',
-        description: 'Inventory Account - Auto-created for Purchase Invoices',
-        isActive: true,
-        createdBy: userId || 'SYSTEM',
-        companyId: companyId
-      }
-    });
-    console.log('✅ Auto-created Inventory Account (1300)');
-  }
-
-  return account;
 }
 
 async function findOrCreateAPAccount(tx, companyId, userId) {

@@ -147,8 +147,14 @@ const makePayment = async (req, res) => {
       }
     }
 
-    // ─── Check Bank Account Balance ─────────────────────────
-    if (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online Payment') {
+    // ─── Check funding account balance (Cash / Bank) ─────────
+    // Never allow payments that would drive Cash/Bank negative.
+    const method = paymentMethod || 'Cash';
+    const isBankMethod = ['Bank Transfer', 'Cheque', 'Online Payment', 'Credit Card'].includes(
+      method
+    );
+
+    if (isBankMethod) {
       if (!bankAccountId) {
         return res.status(400).json({
           success: false,
@@ -171,10 +177,28 @@ const makePayment = async (req, res) => {
         });
       }
 
-      if (bankAccount.currentBalance < amount) {
+      const availableBank = Number(bankAccount.currentBalance) || 0;
+      if (availableBank < Number(amount)) {
         return res.status(400).json({
           success: false,
-          message: `Insufficient balance in bank account. Available: ${bankAccount.currentBalance}, Required: ${amount}`
+          message: `Insufficient balance in bank account "${bankAccount.accountName}". Available: ${availableBank.toLocaleString()}, Required: ${Number(amount).toLocaleString()}. Payment cannot proceed.`
+        });
+      }
+    } else {
+      // Cash (or any non-bank method) → Chart of Accounts Cash in Hand
+      const { findCashAccount } = require('../../utils/cashAccountHelper');
+      const cashAccount = await findCashAccount(companyId);
+      if (!cashAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cash in Hand account not found. Create Cash (1001) before making a cash payment.'
+        });
+      }
+      const availableCash = Number(cashAccount.currentBalance) || 0;
+      if (availableCash < Number(amount)) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient Cash in Hand balance. Available: ${availableCash.toLocaleString()}, Required: ${Number(amount).toLocaleString()}. Add capital or receive cash before making this payment.`
         });
       }
     }
@@ -211,9 +235,12 @@ const makePayment = async (req, res) => {
     });
   } catch (error) {
     console.error('Make payment error:', error);
-    res.status(500).json({
+    const msg = error.message || 'Server error';
+    const isClientError =
+      /insufficient|required|not found|exceeds|already fully|cannot/i.test(msg);
+    res.status(isClientError ? 400 : 500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: msg
     });
   }
 };

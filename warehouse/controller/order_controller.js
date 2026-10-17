@@ -75,7 +75,9 @@ const createSalesOrder = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
+    const tradingService = require('../../services/tradingService');
     const {
+      customerId,
       customerName,
       customerEmail,
       customerPhone,
@@ -101,6 +103,7 @@ const createSalesOrder = async (req, res) => {
       internalNotes,
       tags,
       locationId,
+      quotationId,
     } = req.body;
 
     // ─── Validation ──────────────────────────────────────
@@ -118,20 +121,23 @@ const createSalesOrder = async (req, res) => {
       });
     }
 
-    // Resolve warehouse early so stock checks use the correct location
-    let resolvedLocationId;
-    try {
-      resolvedLocationId = await resolveLocationId(
-        prisma,
-        companyId,
-        locationId,
-        userId
-      );
-    } catch (locErr) {
-      return res.status(locErr.statusCode || 400).json({
-        success: false,
-        message: locErr.message || 'Invalid warehouse',
-      });
+    // Warehouse is optional — use it for stock checks when provided
+    let resolvedLocationId = null;
+    if (locationId) {
+      try {
+        resolvedLocationId = await resolveLocationId(
+          prisma,
+          companyId,
+          locationId,
+          userId,
+          { required: false }
+        );
+      } catch (locErr) {
+        return res.status(locErr.statusCode || 400).json({
+          success: false,
+          message: locErr.message || 'Invalid warehouse',
+        });
+      }
     }
 
     // ─── Process Items ──────────────────────────────────
@@ -173,29 +179,76 @@ const createSalesOrder = async (req, res) => {
         });
       }
 
-      // Stock must be available at the selected warehouse
-      const locationStock = await prisma.productStock.findUnique({
-        where: {
-          productId_locationId: {
-            productId: product.id,
-            locationId: resolvedLocationId,
+      // Only enforce warehouse stock when a warehouse was selected
+      if (resolvedLocationId) {
+        const locationStock = await prisma.productStock.findUnique({
+          where: {
+            productId_locationId: {
+              productId: product.id,
+              locationId: resolvedLocationId,
+            },
           },
-        },
-      });
-      const locCurrent = locationStock?.currentStock || 0;
-      const locReserved = locationStock?.reservedStock || 0;
-      const freeToSell = Math.max(0, locCurrent - locReserved);
-
-      if (freeToSell < item.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock at this warehouse for ${product.name}. Available: ${freeToSell}`,
         });
+        const locCurrent = locationStock?.currentStock || 0;
+        const locReserved = locationStock?.reservedStock || 0;
+        const freeToSell = Math.max(0, locCurrent - locReserved);
+
+        if (freeToSell < item.quantity) {
+          return res.status(400).json({
+            success: false,
+            message: `Insufficient stock at this warehouse for ${product.name}. Available: ${freeToSell}`,
+          });
+        }
       }
 
-      const unitPrice = item.unitPrice || product.sellingPrice;
+      // Direct SO: resolve customer negotiated / price-list / standard selling.
+      // Quotation→SO and explicit manual overrides keep the client/quotation unitPrice.
+      const fromQuotation =
+        Boolean(quotationId) ||
+        String(source || '').toLowerCase() === 'quotation';
+      const isManual =
+        item.manualPriceOverride === true ||
+        String(item.priceSource || item.pricingSource || '').toUpperCase() ===
+          'MANUAL';
+
+      let unitPrice =
+        item.unitPrice != null && item.unitPrice !== ''
+          ? Number(item.unitPrice)
+          : Number(product.sellingPrice) || 0;
+      let lineTaxRate = item.taxRate != null ? Number(item.taxRate) : 0;
+      let lineDiscount = item.discount != null ? Number(item.discount) : 0;
+
+      if (customerId && !fromQuotation && !isManual) {
+        try {
+          const resolved = await tradingService.resolveSellPrice({
+            companyId,
+            customerId,
+            productId: product.id,
+            quantity: item.quantity != null ? item.quantity : 1,
+            asOfDate: new Date(),
+          });
+          const priced = tradingService.applyResolvedPriceToLine(resolved, item);
+          unitPrice = priced.unitPrice;
+          if (item.taxRate == null || item.taxRate === '') {
+            lineTaxRate = priced.taxRate;
+          }
+          if (item.discount == null || item.discount === '') {
+            lineDiscount = priced.discount;
+          }
+        } catch (priceErr) {
+          console.warn(
+            '[createSalesOrder] price resolve fallback to line/catalog:',
+            priceErr.message
+          );
+        }
+      }
+
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        unitPrice = Number(product.sellingPrice) || 0;
+      }
+
       const totalPrice = unitPrice * item.quantity;
-      const taxAmount = (totalPrice * (item.taxRate || 0)) / 100;
+      const taxAmount = (totalPrice * (lineTaxRate || 0)) / 100;
       const itemWeight = (item.weight || product.weight || 0) * item.quantity;
 
       orderItems.push({
@@ -208,9 +261,9 @@ const createSalesOrder = async (req, res) => {
         weight: item.weight || product.weight || 0,
         weightUnit: item.weightUnit || product.weightUnit || 'KG',
         dimensions: item.dimensions || '',
-        taxRate: item.taxRate || 0,
+        taxRate: lineTaxRate || 0,
         taxAmount,
-        discount: item.discount || 0,
+        discount: lineDiscount || 0,
         batchNumber: item.batchNumber || '',
         serialNumber: item.serialNumber || '',
         notes: item.notes || ''
@@ -293,8 +346,10 @@ const updateSalesOrder = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
+    const tradingService = require('../../services/tradingService');
     const { id } = req.params;
     const {
+      customerId,
       customerName,
       customerEmail,
       customerPhone,
@@ -323,6 +378,7 @@ const updateSalesOrder = async (req, res) => {
       grandTotal,
       totalWeight,
       totalItems,
+      quotationId,
     } = req.body;
 
     const existing = await prisma.order.findFirst({
@@ -370,10 +426,49 @@ const updateSalesOrder = async (req, res) => {
           });
         }
 
-        const unitPrice = item.unitPrice || product.sellingPrice;
+        const fromQuotation =
+          Boolean(quotationId) ||
+          String(source || existing.source || '').toLowerCase() === 'quotation';
+        const isManual =
+          item.manualPriceOverride === true ||
+          String(item.priceSource || item.pricingSource || '').toUpperCase() ===
+            'MANUAL';
+
+        let unitPrice =
+          item.unitPrice != null && item.unitPrice !== ''
+            ? Number(item.unitPrice)
+            : Number(product.sellingPrice) || 0;
+        let lineTaxRate = item.taxRate != null ? Number(item.taxRate) : 0;
+
+        if (customerId && !fromQuotation && !isManual) {
+          try {
+            const resolved = await tradingService.resolveSellPrice({
+              companyId,
+              customerId,
+              productId: product.id,
+              quantity: item.quantity != null ? item.quantity : 1,
+              asOfDate: new Date(),
+            });
+            const priced = tradingService.applyResolvedPriceToLine(resolved, item);
+            unitPrice = priced.unitPrice;
+            if (item.taxRate == null || item.taxRate === '') {
+              lineTaxRate = priced.taxRate;
+            }
+          } catch (priceErr) {
+            console.warn(
+              '[updateSalesOrder] price resolve fallback:',
+              priceErr.message
+            );
+          }
+        }
+
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+          unitPrice = Number(product.sellingPrice) || 0;
+        }
+
         const quantity = item.quantity;
         const totalPrice = unitPrice * quantity;
-        const taxAmount = (totalPrice * (item.taxRate || 0)) / 100;
+        const taxAmount = (totalPrice * (lineTaxRate || 0)) / 100;
 
         if (existing.locationId) {
           const locationStock = await prisma.productStock.findUnique({
@@ -410,7 +505,7 @@ const updateSalesOrder = async (req, res) => {
           weight: item.weight || product.weight || 0,
           weightUnit: item.weightUnit || product.weightUnit || 'KG',
           dimensions: item.dimensions || '',
-          taxRate: item.taxRate || 0,
+          taxRate: lineTaxRate || 0,
           taxAmount,
           discount: item.discount || 0,
           batchNumber: item.batchNumber || '',

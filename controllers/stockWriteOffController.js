@@ -46,21 +46,11 @@ async function getOrCreateWriteOffExpenseAccount(companyId, userId) {
 }
 
 /**
- * Helper to get default Inventory Asset Account
+ * Helper to get default Inventory Asset Account (prefer 1200 Inventory, never Prepaid 1300)
  */
 async function getInventoryAssetAccount(companyId) {
-  const account = await prisma.chartOfAccount.findFirst({
-    where: {
-      companyId,
-      OR: [
-        { code: '1300' },
-        { code: '1400' },
-        { type: 'Asset', name: { contains: 'Inventory', mode: 'insensitive' } },
-        { name: { contains: 'Stock', mode: 'insensitive' } }
-      ]
-    }
-  });
-  return account;
+  const { findOrCreateInventoryAccount } = require('../warehouse/services/stockAccountingService');
+  return findOrCreateInventoryAccount(prisma, companyId, 'SYSTEM');
 }
 
 /**

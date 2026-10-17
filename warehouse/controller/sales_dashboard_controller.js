@@ -609,7 +609,8 @@ const getTopProducts = async (userId, companyId, dateFilter, locationId = null, 
         oi.product_name AS "productName",
         oi.sku,
         oi.quantity,
-        oi.total_price AS revenue
+        oi.total_price AS revenue,
+        'order'::text AS "source"
       FROM order_items oi
       INNER JOIN orders o ON o.id = oi.order_id
       WHERE ${sqlCompany(companyId, 'o.company_id')}
@@ -626,7 +627,8 @@ const getTopProducts = async (userId, companyId, dateFilter, locationId = null, 
         psi.product_name AS "productName",
         psi.sku,
         psi.quantity,
-        psi.line_total AS revenue
+        psi.line_total AS revenue,
+        'pos'::text AS "source"
       FROM pos_sale_items psi
       INNER JOIN pos_sales ps ON ps.id = psi.pos_sale_id
       LEFT JOIN pos_terminals t ON t.id = ps.terminal_id
@@ -635,6 +637,28 @@ const getTopProducts = async (userId, companyId, dateFilter, locationId = null, 
         AND (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
         AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
         AND ${sqlLocation(locationId, 't.location_id')}
+
+      UNION ALL
+
+      -- Direct invoices only (avoid double-counting order→invoice lines)
+      SELECT
+        sii.product_id AS "productId",
+        sii.product_name AS "productName",
+        sii.sku,
+        sii.quantity,
+        sii.line_total AS revenue,
+        'invoice'::text AS "source"
+      FROM sales_invoice_items sii
+      INNER JOIN sales_invoices si ON si.id = sii.invoice_id
+      WHERE ${sqlCompany(companyId, 'si.company_id')}
+        AND si.is_active = true
+        AND si.is_deleted = false
+        AND si.invoice_status NOT IN ('Draft', 'Cancelled')
+        AND si.order_id IS NULL
+        AND si.pos_sale_id IS NULL
+        AND (${periodStart}::timestamptz IS NULL OR si.invoice_date >= ${periodStart})
+        AND (${periodEnd}::timestamptz IS NULL OR si.invoice_date <= ${periodEnd})
+        AND ${sqlLocation(locationId, 'si.location_id')}
     )
     SELECT
       "productId",
@@ -642,28 +666,45 @@ const getTopProducts = async (userId, companyId, dateFilter, locationId = null, 
       sku,
       COALESCE(SUM(quantity), 0)::float AS quantity,
       COALESCE(SUM(revenue), 0)::float AS revenue,
-      COUNT(*)::int AS "orderCount"
+      COUNT(*)::int AS "orderCount",
+      COALESCE(SUM(CASE WHEN "source" = 'order' THEN revenue ELSE 0 END), 0)::float AS "orderRevenue",
+      COALESCE(SUM(CASE WHEN "source" = 'pos' THEN revenue ELSE 0 END), 0)::float AS "posRevenue",
+      COALESCE(SUM(CASE WHEN "source" = 'invoice' THEN revenue ELSE 0 END), 0)::float AS "invoiceRevenue",
+      COALESCE(SUM(CASE WHEN "source" = 'order' THEN quantity ELSE 0 END), 0)::float AS "orderQty",
+      COALESCE(SUM(CASE WHEN "source" = 'pos' THEN quantity ELSE 0 END), 0)::float AS "posQty",
+      COALESCE(SUM(CASE WHEN "source" = 'invoice' THEN quantity ELSE 0 END), 0)::float AS "invoiceQty"
     FROM lines
     GROUP BY "productId", "productName", sku
     ORDER BY revenue DESC
     LIMIT ${take}
   `;
 
-  return (rows || []).map((item) => ({
-    productId: item.productId,
-    productName: item.productName,
-    sku: item.sku,
-    quantity: toNum(item.quantity),
-    revenue: toNum(item.revenue),
-    orderCount: toNum(item.orderCount),
-  }));
+  return (rows || []).map((item) => {
+    const quantity = toNum(item.quantity);
+    const revenue = toNum(item.revenue);
+    return {
+      productId: item.productId,
+      productName: item.productName,
+      sku: item.sku,
+      quantity,
+      revenue,
+      orderCount: toNum(item.orderCount),
+      avgUnitPrice: quantity > 0 ? revenue / quantity : 0,
+      orderRevenue: toNum(item.orderRevenue),
+      posRevenue: toNum(item.posRevenue),
+      invoiceRevenue: toNum(item.invoiceRevenue),
+      orderQty: toNum(item.orderQty),
+      posQty: toNum(item.posQty),
+      invoiceQty: toNum(item.invoiceQty),
+    };
+  });
 };
 
-const getCustomerStats = async (userId, companyId, dateFilter) => {
+const getCustomerStats = async (userId, companyId, dateFilter, locationId = null) => {
   const periodStart = dateGte(dateFilter);
   const periodEnd = dateLte(dateFilter);
 
-  const [countRows, topCustomers] = await Promise.all([
+  const [countRows, topRows] = await Promise.all([
     prisma.$queryRaw`
       SELECT
         COUNT(*) FILTER (WHERE c.is_active = true AND c.is_deleted = false)::int AS "totalCustomers",
@@ -676,33 +717,94 @@ const getCustomerStats = async (userId, companyId, dateFilter) => {
       FROM customers c
       WHERE ${sqlCompany(companyId, 'c.company_id')}
     `,
-    prisma.customer.findMany({
-      where: {
-        companyId: companyId,
-        isActive: true,
-        isDeleted: false
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        totalOrders: true,
-        totalSpent: true,
-        loyaltyPoints: true
-      },
-      orderBy: {
-        totalSpent: 'desc'
-      },
-      take: 5
-    }),
+    // Live spend from transactions — denormalized customers.total_spent is often stale/0
+    prisma.$queryRaw`
+      WITH sales AS (
+        SELECT
+          o.customer_id AS "customerId",
+          COALESCE(NULLIF(TRIM(o.customer_name), ''), 'Unknown') AS "customerName",
+          o.grand_total AS amount,
+          1 AS "orderCount"
+        FROM orders o
+        WHERE ${sqlCompany(companyId, 'o.company_id')}
+          AND o.is_active = true
+          AND o.is_deleted = false
+          AND o.customer_id IS NOT NULL
+          AND (${periodStart}::timestamptz IS NULL OR o.order_date >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR o.order_date <= ${periodEnd})
+          AND ${sqlLocation(locationId, 'o.location_id')}
+
+        UNION ALL
+
+        SELECT
+          si.customer_id AS "customerId",
+          COALESCE(NULLIF(TRIM(si.customer_name), ''), 'Unknown') AS "customerName",
+          si.grand_total AS amount,
+          1 AS "orderCount"
+        FROM sales_invoices si
+        WHERE ${sqlCompany(companyId, 'si.company_id')}
+          AND si.is_active = true
+          AND si.is_deleted = false
+          AND si.invoice_status NOT IN ('Draft', 'Cancelled')
+          AND si.order_id IS NULL
+          AND si.pos_sale_id IS NULL
+          AND (${periodStart}::timestamptz IS NULL OR si.invoice_date >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR si.invoice_date <= ${periodEnd})
+          AND ${sqlLocation(locationId, 'si.location_id')}
+
+        UNION ALL
+
+        SELECT
+          ps.customer_id AS "customerId",
+          COALESCE(NULLIF(TRIM(ps.customer_name), ''), 'Walk-in') AS "customerName",
+          ps.grand_total AS amount,
+          1 AS "orderCount"
+        FROM pos_sales ps
+        LEFT JOIN pos_terminals t ON t.id = ps.terminal_id
+        WHERE ${sqlCompany(companyId, 'ps.company_id')}
+          AND ps.status = 'Completed'
+          AND ps.customer_id IS NOT NULL
+          AND (${periodStart}::timestamptz IS NULL OR ps.created_at >= ${periodStart})
+          AND (${periodEnd}::timestamptz IS NULL OR ps.created_at <= ${periodEnd})
+          AND ${sqlLocation(locationId, 't.location_id')}
+      ),
+      ranked AS (
+        SELECT
+          s."customerId",
+          MAX(s."customerName") AS "customerName",
+          COALESCE(SUM(s.amount), 0)::float AS "totalSpent",
+          COALESCE(SUM(s."orderCount"), 0)::int AS "totalOrders"
+        FROM sales s
+        GROUP BY s."customerId"
+      )
+      SELECT
+        r."customerId" AS id,
+        COALESCE(c.name, r."customerName") AS name,
+        c.email,
+        c.phone,
+        r."totalOrders",
+        r."totalSpent"
+      FROM ranked r
+      LEFT JOIN customers c ON c.id = r."customerId"
+      ORDER BY r."totalSpent" DESC
+      LIMIT 5
+    `,
   ]);
 
   const row = countRows[0] || {};
+  const topCustomers = (topRows || []).map((c) => ({
+    id: c.id,
+    name: c.name || 'Unknown',
+    email: c.email || '',
+    phone: c.phone || '',
+    totalOrders: toNum(c.totalOrders),
+    totalSpent: toNum(c.totalSpent),
+  }));
+
   return {
     totalCustomers: toNum(row.totalCustomers),
     newCustomers: toNum(row.newCustomers),
-    topCustomers
+    topCustomers,
   };
 };
 
@@ -769,15 +871,19 @@ async function buildSalesComparison(companyId, locationId = null) {
     prisma.$queryRaw`
       SELECT
         COALESCE(SUM(CASE WHEN r.return_date >= ${todayStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "todayReturns",
+        COALESCE(SUM(CASE WHEN r.return_date >= ${yesterdayStart} AND r.return_date < ${todayStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "yesterdayReturns",
         COALESCE(SUM(CASE WHEN r.return_date >= ${weekStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "weekReturns",
+        COALESCE(SUM(CASE WHEN r.return_date >= ${lastWeekStart} AND r.return_date < ${weekStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "lastWeekReturns",
         COALESCE(SUM(CASE WHEN r.return_date >= ${monthStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "monthReturns",
-        COALESCE(SUM(CASE WHEN r.return_date >= ${yearStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "yearReturns"
+        COALESCE(SUM(CASE WHEN r.return_date >= ${lastMonthStart} AND r.return_date < ${monthStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "lastMonthReturns",
+        COALESCE(SUM(CASE WHEN r.return_date >= ${yearStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "yearReturns",
+        COALESCE(SUM(CASE WHEN r.return_date >= ${lastYearStart} AND r.return_date < ${yearStart} THEN r.refund_amount ELSE 0 END), 0)::float AS "lastYearReturns"
       FROM returns r
       LEFT JOIN orders o ON o.id = r.order_id
       WHERE ${sqlCompany(companyId, 'r.company_id')}
         AND r.is_active = true
         AND r.is_deleted = false
-        AND r.return_date >= ${yearStart}
+        AND r.return_date >= ${lastYearStart}
         AND ${sqlLocation(locationId, 'o.location_id')}
     `,
   ]);
@@ -795,41 +901,61 @@ async function buildSalesComparison(companyId, locationId = null) {
   const yearSales = toNum(o.yearSales) + toNum(p.yearSales);
   const lastYearSales = toNum(o.lastYearSales) + toNum(p.lastYearSales);
 
-  const pctChange = (current, prior) =>
-    prior > 0 ? ((current - prior) / prior) * 100 : 0;
+  const todayReturns = toNum(ret.todayReturns);
+  const yesterdayReturns = toNum(ret.yesterdayReturns);
+  const weekReturns = toNum(ret.weekReturns);
+  const lastWeekReturns = toNum(ret.lastWeekReturns);
+  const monthReturns = toNum(ret.monthReturns);
+  const lastMonthReturns = toNum(ret.lastMonthReturns);
+  const yearReturns = toNum(ret.yearReturns);
+  const lastYearReturns = toNum(ret.lastYearReturns);
+
+  const pctChange = (current, prior) => {
+    if (prior > 0) return ((current - prior) / prior) * 100;
+    if (current > 0) return 100;
+    return 0;
+  };
 
   return {
     today: {
       currentSales: todaySales,
       priorSales: yesterdaySales,
-      currentReturns: toNum(ret.todayReturns),
-      priorReturns: 0,
+      currentReturns: todayReturns,
+      priorReturns: yesterdayReturns,
       salesChangePercent: pctChange(todaySales, yesterdaySales),
-      returnsChangePercent: 0,
+      returnsChangePercent: pctChange(todayReturns, yesterdayReturns),
+      currentLabel: 'Today',
+      priorLabel: 'Yesterday',
     },
     week: {
       currentSales: weekSales,
       priorSales: lastWeekSales,
-      currentReturns: toNum(ret.weekReturns),
-      priorReturns: 0,
+      currentReturns: weekReturns,
+      priorReturns: lastWeekReturns,
       salesChangePercent: pctChange(weekSales, lastWeekSales),
-      returnsChangePercent: 0,
+      returnsChangePercent: pctChange(weekReturns, lastWeekReturns),
+      currentLabel: 'This Week',
+      priorLabel: 'Last Week',
     },
     month: {
       currentSales: monthSales,
       priorSales: lastMonthSales,
-      currentReturns: toNum(ret.monthReturns),
-      priorReturns: 0,
+      currentReturns: monthReturns,
+      priorReturns: lastMonthReturns,
       salesChangePercent: pctChange(monthSales, lastMonthSales),
-      returnsChangePercent: 0,
+      returnsChangePercent: pctChange(monthReturns, lastMonthReturns),
+      currentLabel: 'This Month',
+      priorLabel: 'Last Month',
     },
     year: {
       currentSales: yearSales,
       priorSales: lastYearSales,
-      currentReturns: toNum(ret.yearReturns),
-      priorReturns: 0,
+      currentReturns: yearReturns,
+      priorReturns: lastYearReturns,
       salesChangePercent: pctChange(yearSales, lastYearSales),
-      returnsChangePercent: 0,
+      returnsChangePercent: pctChange(yearReturns, lastYearReturns),
+      currentLabel: 'This Year',
+      priorLabel: 'Last Year',
     },
   };
 }
@@ -927,7 +1053,7 @@ const getSalesDashboard = async (req, res) => {
       getRefundStats(userId, companyId, dateFilter, locationId),
       getCreditNoteStats(userId, companyId, dateFilter, locationId),
       getTopProducts(userId, companyId, dateFilter, locationId),
-      getCustomerStats(userId, companyId, dateFilter),
+      getCustomerStats(userId, companyId, dateFilter, locationId),
       buildSalesComparison(companyId, locationId),
       getRecentPosActivity(companyId, 10, locationId),
     ]);
@@ -953,8 +1079,22 @@ const getSalesDashboard = async (req, res) => {
     };
 
     // ─── ENRICH ORDERS DATA ───────────────────────────────────
-    const todayOrders = orderStatusCounts.reduce((sum, s) => sum + (s._count._all || 0), 0);
-    const todayRevenue = orderRevenue._sum.grandTotal || 0;
+    // today* = calendar today (not the selected period totals)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayOrderAgg = await prisma.$queryRaw`
+      SELECT
+        COUNT(*)::int AS count,
+        COALESCE(SUM(o.grand_total), 0)::float AS revenue
+      FROM orders o
+      WHERE ${sqlCompany(companyId, 'o.company_id')}
+        AND o.is_active = true
+        AND o.is_deleted = false
+        AND o.order_date >= ${todayStart}
+        AND ${sqlLocation(locationId, 'o.location_id')}
+    `;
+    const todayOrders = toNum(todayOrderAgg?.[0]?.count);
+    const todayRevenue = toNum(todayOrderAgg?.[0]?.revenue);
     const pendingOrders = orderStatusCounts.find(s => s.orderStatus === 'Pending')?._count._all || 0;
 
     // ─── REVENUE BREAKDOWN (orders + POS + invoices) ──────────

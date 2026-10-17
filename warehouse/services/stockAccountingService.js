@@ -97,37 +97,80 @@ function validateStockOutReason(reasonKey) {
   return meta;
 }
 
+/**
+ * Score COA candidates for Inventory/Stock Asset.
+ * Default chart: 1200 = Inventory, 1300 = Prepaid Expenses.
+ * Never prefer Prepaid Expenses over Inventory.
+ */
+function scoreInventoryCandidate(account) {
+  if (!account) return -Infinity;
+  const code = String(account.code || '').trim();
+  const name = String(account.name || '').toLowerCase();
+  if (/prepaid/.test(name)) return -100;
+  if (code === '1200') return 100;
+  if (
+    (/inventory/.test(name) || /\bstock\b/.test(name) || /raw material/.test(name)) &&
+    code !== '1300'
+  ) {
+    return 80;
+  }
+  // Only accept 1300 if explicitly named as inventory (legacy mis-seed), never Prepaid
+  if (code === '1300' && /inventory|stock/.test(name) && !/prepaid/.test(name)) {
+    return 40;
+  }
+  if (code === '1300') return -50;
+  if (/inventory/.test(name) || /\bstock\b/.test(name) || /raw material/.test(name)) {
+    return 70;
+  }
+  return 0;
+}
+
+function preferInventoryAccount(candidates = []) {
+  const ranked = [...candidates].sort(
+    (a, b) => scoreInventoryCandidate(b) - scoreInventoryCandidate(a)
+  );
+  const best = ranked[0];
+  if (best && scoreInventoryCandidate(best) > 0) return best;
+  return null;
+}
+
+/**
+ * Resolve Inventory asset account for COGS / stock / purchase postings.
+ * Prefer code 1200 (default chart Inventory). Never silently use Prepaid Expenses (1300).
+ */
 async function findOrCreateInventoryAccount(tx, companyId, userId) {
-  let account = await tx.chartOfAccount.findFirst({
+  const candidates = await tx.chartOfAccount.findMany({
     where: {
       companyId,
       isActive: true,
       OR: [
-        { code: '1300' },
         { code: '1200' },
+        { code: '1300' },
         { name: { contains: 'Inventory', mode: 'insensitive' } },
         { name: { contains: 'Stock', mode: 'insensitive' } },
+        { name: { contains: 'Raw Material', mode: 'insensitive' } },
       ],
     },
   });
 
-  if (!account) {
-    account = await tx.chartOfAccount.create({
-      data: {
-        code: '1300',
-        name: 'Inventory',
-        type: 'Asset',
-        parentAccount: 'Current Assets',
-        openingBalance: 0,
-        currentBalance: 0,
-        balanceType: 'Debit',
-        description: 'Inventory — auto-created for stock movements',
-        isActive: true,
-        createdBy: userId || 'SYSTEM',
-        companyId,
-      },
-    });
-  }
+  let account = preferInventoryAccount(candidates);
+  if (account) return account;
+
+  account = await tx.chartOfAccount.create({
+    data: {
+      code: '1200',
+      name: 'Inventory',
+      type: 'Asset',
+      parentAccount: 'Current Assets',
+      openingBalance: 0,
+      currentBalance: 0,
+      balanceType: 'Debit',
+      description: 'Inventory — auto-created for stock / COGS postings',
+      isActive: true,
+      createdBy: userId || 'SYSTEM',
+      companyId,
+    },
+  });
   return account;
 }
 
@@ -535,5 +578,7 @@ module.exports = {
   createStockJournalEntry,
   createStockCreditPayableBill,
   findOrCreateInventoryAccount,
+  preferInventoryAccount,
+  scoreInventoryCandidate,
   findOrCreateEquityAccount,
 };

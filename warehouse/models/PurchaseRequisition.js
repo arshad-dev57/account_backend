@@ -38,12 +38,15 @@ class PurchaseRequisitionModel {
         }
       }
 
-      const locationId = await resolveLocationId(
-        tx,
-        data.companyId,
-        data.locationId,
-        data.createdBy
-      );
+      // Warehouse optional — only resolve when explicitly selected
+      const locationId = data.locationId
+        ? await resolveLocationId(
+            tx,
+            data.companyId,
+            data.locationId,
+            data.createdBy
+          )
+        : null;
 
       const items = data.items.map((item) => ({
         productId: item.productId,

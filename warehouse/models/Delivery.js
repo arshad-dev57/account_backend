@@ -7,6 +7,10 @@ const {
   getLocationAvailability,
 } = require('../services/locationService');
 const { getIssuedByInvoiceQty } = require('../services/inventoryService');
+const {
+  getReservedDeliveredQtyByProduct,
+  buildRemainingDeliveryLines,
+} = require('../services/salesQuantityService');
 
 function generateDeliveryNumber() {
   const date = new Date();
@@ -223,30 +227,27 @@ class DeliveryModel {
         data.createdBy
       );
 
-      // Get existing deliveries for this order
-      const existingDeliveries = await tx.delivery.findMany({
-        where: {
-          salesOrderId: data.salesOrderId,
-          isActive: true,
-          isDeleted: false
-        },
-        include: {
-          items: true
-        }
-      });
+      // Multi-order-aware reserved qty (pending + confirmed), including secondary SO lines
+      const deliveredQuantities = await getReservedDeliveredQtyByProduct(
+        data.salesOrderId,
+        { tx }
+      );
 
-      // Calculate already delivered quantities per product
-      const deliveredQuantities = {};
-      for (const delivery of existingDeliveries) {
-        for (const item of delivery.items) {
-          deliveredQuantities[item.productId] =
-            (deliveredQuantities[item.productId] || 0) + item.deliveredQuantity;
-        }
-      }
+      // Warehouse optional — use selected/order location when present, else company default or null
+      const companyId =
+        salesOrder.companyId || data.companyId || null;
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        data.locationId || salesOrder.locationId || null,
+        data.createdBy
+      );
 
       // Process delivery items
       let totalDeliveredQuantity = 0;
       const deliveryItems = [];
+      // Track stock demand within this request (prevents same-product over-allocate)
+      const stockDemandThisRequest = {};
 
       for (const item of data.items) {
         const orderItem = salesOrder.items.find(oi => oi.productId === item.productId);
@@ -277,19 +278,15 @@ class DeliveryModel {
           throw new Error(`Product ${item.productId} not found`);
         }
 
-        const locationId = await resolveLocationId(
-          tx,
-          salesOrder.companyId,
-          data.locationId || salesOrder.locationId,
-          data.createdBy
-        );
         const locStock = await getLocationAvailability(tx, {
           productId: item.productId,
           locationId,
         });
-        if (locStock.current < item.deliveredQuantity) {
+        const priorDemand = stockDemandThisRequest[item.productId] || 0;
+        const freeStock = Math.max(0, (locStock.available ?? locStock.current) - priorDemand);
+        if (freeStock < item.deliveredQuantity) {
           throw new Error(
-            `Insufficient stock at this warehouse for ${orderItem.productName}. On hand: ${locStock.current}, Required: ${item.deliveredQuantity}`
+            `Insufficient stock${locationId ? ' at this warehouse' : ''} for ${orderItem.productName}. Available: ${freeStock}, Required: ${item.deliveredQuantity}`
           );
         }
 
@@ -304,6 +301,9 @@ class DeliveryModel {
           notes: item.notes || ''
         });
 
+        // Hold qty for subsequent lines in this request
+        deliveredQuantities[item.productId] = alreadyDelivered + item.deliveredQuantity;
+        stockDemandThisRequest[item.productId] = priorDemand + item.deliveredQuantity;
         totalDeliveredQuantity += item.deliveredQuantity;
       }
 
@@ -318,15 +318,6 @@ class DeliveryModel {
       } else if (totalDeliveredQuantity > 0) {
         deliveryStatus = 'Pending';
       }
-
-      const companyId =
-        salesOrder.companyId || data.companyId || null;
-      const locationId = await resolveLocationId(
-        tx,
-        companyId,
-        data.locationId || salesOrder.locationId,
-        data.createdBy
-      );
 
       // Create delivery with validated customerId
       const delivery = await tx.delivery.create({
@@ -426,19 +417,10 @@ class DeliveryModel {
         data.createdBy
       );
 
-      // ── 4. Build a map: orderId → { order, existingDeliveredQty by productId } ──
+      // ── 4. Multi-order-aware reserved qty per order ────────
       const orderMap = {};
       for (const order of salesOrders) {
-        const existingDeliveries = await tx.delivery.findMany({
-          where: { salesOrderId: order.id, isActive: true, isDeleted: false },
-          include: { items: true },
-        });
-        const deliveredQty = {};
-        for (const d of existingDeliveries) {
-          for (const di of d.items) {
-            deliveredQty[di.productId] = (deliveredQty[di.productId] || 0) + di.deliveredQuantity;
-          }
-        }
+        const deliveredQty = await getReservedDeliveredQtyByProduct(order.id, { tx });
         orderMap[order.id] = { order, deliveredQty };
       }
 
@@ -446,12 +428,13 @@ class DeliveryModel {
       const locationId = await resolveLocationId(
         tx,
         companyId,
-        data.locationId || primaryOrder.locationId,
+        data.locationId || primaryOrder.locationId || null,
         data.createdBy
       );
 
       const deliveryItems = [];
       let totalDeliveredQuantity = 0;
+      const stockDemandThisRequest = {};
 
       for (const item of data.items) {
         if (!item.orderId) {
@@ -486,9 +469,11 @@ class DeliveryModel {
         if (!product) throw new Error(`Product ${item.productId} not found`);
 
         const locStock = await getLocationAvailability(tx, { productId: item.productId, locationId });
-        if (locStock.current < item.deliveredQuantity) {
+        const priorDemand = stockDemandThisRequest[item.productId] || 0;
+        const freeStock = Math.max(0, (locStock.available ?? locStock.current) - priorDemand);
+        if (freeStock < item.deliveredQuantity) {
           throw new Error(
-            `Insufficient stock for ${orderItem.productName}. On hand: ${locStock.current}, Required: ${item.deliveredQuantity}`
+            `Insufficient stock for ${orderItem.productName}. Available: ${freeStock}, Required: ${item.deliveredQuantity}`
           );
         }
 
@@ -504,6 +489,8 @@ class DeliveryModel {
           notes: `__ORDER_ID__:${item.orderId}${item.notes ? ' ' + item.notes : ''}`,
         });
 
+        deliveredQty[item.productId] = alreadyDelivered + item.deliveredQuantity;
+        stockDemandThisRequest[item.productId] = priorDemand + item.deliveredQuantity;
         totalDeliveredQuantity += item.deliveredQuantity;
       }
 
@@ -593,6 +580,48 @@ class DeliveryModel {
         });
       }
 
+      const locationId = await resolveLocationId(
+        tx,
+        companyId,
+        delivery.locationId || delivery.salesOrder?.locationId || null,
+        userId
+      );
+
+      // Re-validate order remaining at confirm (exclude this pending delivery's own qty)
+      const reservedQtyCache = {};
+      const thisDeliveryByOrderProduct = {};
+      for (const item of delivery.items) {
+        if (!(item.deliveredQuantity > 0)) continue;
+        const itemOrderIdMatch = item.notes ? item.notes.match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/) : null;
+        const itemOrderId = itemOrderIdMatch ? itemOrderIdMatch[1] : delivery.salesOrderId;
+        const key = `${itemOrderId}:${item.productId}`;
+        thisDeliveryByOrderProduct[key] = (thisDeliveryByOrderProduct[key] || 0) + Number(item.deliveredQuantity);
+      }
+
+      for (const [key, thisQty] of Object.entries(thisDeliveryByOrderProduct)) {
+        const [itemOrderId, productId] = key.split(':');
+        if (!reservedQtyCache[itemOrderId]) {
+          reservedQtyCache[itemOrderId] = await getReservedDeliveredQtyByProduct(itemOrderId, { tx });
+        }
+        const reservedAll = reservedQtyCache[itemOrderId][productId] || 0;
+        // reserved includes this pending DN — net others = reserved - this DN
+        const othersReserved = Math.max(0, reservedAll - thisQty);
+
+        const order = await tx.order.findUnique({
+          where: { id: itemOrderId },
+          include: { items: true },
+        });
+        const orderItem = order?.items?.find((oi) => oi.productId === productId);
+        const ordered = orderItem ? Number(orderItem.quantity) || 0 : 0;
+        const remaining = Math.max(0, ordered - othersReserved);
+        if (thisQty > remaining) {
+          const label = orderItem?.productName || productId;
+          throw new Error(
+            `Cannot confirm: quantity ${thisQty} for ${label} exceeds remaining on order (${remaining})`
+          );
+        }
+      }
+
       // Update stock for each item (single stock-out point)
       for (const item of delivery.items) {
         if (item.deliveredQuantity > 0) {
@@ -603,13 +632,6 @@ class DeliveryModel {
           if (!product) {
             throw new Error(`Product ${item.productId} not found`);
           }
-
-          const locationId = await resolveLocationId(
-            tx,
-            companyId,
-            delivery.locationId || delivery.salesOrder?.locationId,
-            userId
-          );
 
           const itemOrderIdMatch = item.notes ? item.notes.match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/) : null;
           const itemOrderId = itemOrderIdMatch ? itemOrderIdMatch[1] : delivery.salesOrderId;
@@ -628,6 +650,7 @@ class DeliveryModel {
             delta: -qtyToIssue,
             reservedDelta: -item.deliveredQuantity,
             productName: item.productName,
+            checkAvailable: qtyToIssue > 0,
           });
 
           if (qtyToIssue > 0) {
@@ -1224,21 +1247,11 @@ class DeliveryModel {
 
     const skip = (page - 1) * limit;
 
-    // Get orders with their deliveries
     const orders = await prisma.order.findMany({
       where,
       include: {
         items: true,
         customer: true,
-        deliveries: {
-          where: {
-            isActive: true,
-            isDeleted: false
-          },
-          include: {
-            items: true
-          }
-        }
       },
       skip,
       take: limit,
@@ -1247,31 +1260,23 @@ class DeliveryModel {
       }
     });
 
-    const total = await prisma.order.count({ where });
-
-    // Calculate remaining quantities for each order
-    const ordersWithRemaining = orders.map(order => {
-      // Calculate total delivered per product
-      const deliveredQty = {};
-      for (const delivery of order.deliveries) {
-        for (const item of delivery.items) {
-          deliveredQty[item.productId] = (deliveredQty[item.productId] || 0) + item.deliveredQuantity;
-        }
-      }
-
-      // Calculate remaining items
-      const remainingItems = order.items.map(item => ({
+    const ordersWithRemaining = [];
+    for (const order of orders) {
+      const reservedQty = await getReservedDeliveredQtyByProduct(order.id);
+      const remainingItems = buildRemainingDeliveryLines(order.items, reservedQty).map((item) => ({
         productId: item.productId,
         productName: item.productName,
         sku: item.sku,
-        quantity: item.quantity,
+        quantity: item.orderedQuantity,
         unitPrice: item.unitPrice,
-        deliveredQuantity: deliveredQty[item.productId] || 0,
-        remainingQuantity: item.quantity - (deliveredQty[item.productId] || 0),
-        unit: 'Pcs'
-      })).filter(item => item.remainingQuantity > 0);
+        deliveredQuantity: item.deliveredQuantity,
+        remainingQuantity: item.remainingQuantity,
+        unit: item.unit || 'Pcs',
+      }));
 
-      return {
+      if (remainingItems.length === 0) continue;
+
+      ordersWithRemaining.push({
         id: order.id,
         orderNumber: order.orderNumber,
         customerName: order.customerName,
@@ -1279,10 +1284,11 @@ class DeliveryModel {
         customerPhone: order.customerPhone || '',
         orderDate: order.orderDate,
         orderStatus: order.orderStatus,
+        locationId: order.locationId || null,
         items: remainingItems,
-        hasRemainingItems: remainingItems.length > 0
-      };
-    }).filter(order => order.hasRemainingItems);
+        hasRemainingItems: true,
+      });
+    }
 
     return {
       orders: ordersWithRemaining,

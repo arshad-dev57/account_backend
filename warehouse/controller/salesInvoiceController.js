@@ -1049,7 +1049,7 @@ const getAvailableOrdersForInvoicing = async (req, res) => {
 
     const availableOrders = [];
     for (const order of orders) {
-      const rem = await getOrderInvoiceRemaining(order, { allowUndelivered: true });
+      const rem = await getOrderInvoiceRemaining(order, { allowUndelivered: false });
       if (!rem.hasRemaining) continue;
 
       const items = rem.items;

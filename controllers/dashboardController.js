@@ -11,6 +11,21 @@ const {
   posSaleLocationWhere,
   withLocation
 } = require('../utils/accountingLocationHelper');
+const {
+  pctChange,
+  roundPct,
+  splitBankAndCashAccounts,
+  liquidCashBalance,
+  netWorkingCapital,
+  pluralize,
+  ageOutstandingBuckets,
+  daysSalesOutstanding,
+  daysPayableOutstanding,
+  currentRatio,
+  quickRatio,
+} = require('../utils/dashboardMetricsHelper');
+const { preferInventoryAccount } = require('../warehouse/services/stockAccountingService');
+
 function formatAmount(amount) {
   const formatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -24,6 +39,25 @@ function formatAmount(amount) {
 function toNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** KPI change fields: null prior → change null + changeLabel New/— */
+function growthFields(current, previous, { invertPositive = false } = {}) {
+  const change = roundPct(pctChange(current, previous));
+  if (change == null) {
+    const cur = toNum(current);
+    const prev = toNum(previous);
+    return {
+      change: null,
+      changeLabel: prev === 0 && cur !== 0 ? 'New' : '—',
+      isPositive: invertPositive ? cur <= 0 : cur >= 0,
+    };
+  }
+  return {
+    change,
+    changeLabel: null,
+    isPositive: invertPositive ? change <= 0 : change >= 0,
+  };
 }
 
 /** Prefer totalAmount (includes tax) when present, else amount. */
@@ -58,9 +92,10 @@ function sumDocs(arr, getAmount) {
   return arr.reduce((s, d) => s + getAmount(d), 0);
 }
 
+/** @deprecated use pctChange / growthFields — kept for any residual callers */
 function pct(current, previous) {
-  if (previous === 0) return current > 0 ? 100 : current < 0 ? -100 : 0;
-  return ((current - previous) / Math.abs(previous)) * 100;
+  const v = pctChange(current, previous);
+  return v == null ? 0 : v;
 }
 
 function startOfDay(d) {
@@ -376,27 +411,30 @@ function groupByDay(docs, getAmount) {
 
 function plKpis(pl) {
   const revenue = toNum(pl?.revenue?.total);
-  const expenses =
-    toNum(pl?.operatingExpenses?.total) +
-    toNum(pl?.otherExpenses?.total) +
-    toNum(pl?.costOfGoodsSold);
+  const cogs = toNum(pl?.costOfGoodsSold);
+  const operatingExpenses = toNum(pl?.operatingExpenses?.total);
+  const otherExpenses = toNum(pl?.otherExpenses?.total);
+  const operatingProfit = toNum(pl?.grossProfit) - operatingExpenses;
+  const expenses = operatingExpenses + otherExpenses + cogs;
   return {
     revenue,
     expenses,
+    cogs,
+    operatingExpenses,
+    otherExpenses,
+    operatingProfit,
     netProfit: toNum(pl?.netProfit),
     grossProfit: toNum(pl?.grossProfit),
     profitMargin: toNum(pl?.netProfitMargin)
   };
 }
 
+/** Operating & other expense categories only — COGS stays on the P&L, not this pie. */
 function buildLedgerExpenseCategories(pl) {
   const items = [
     ...(pl?.operatingExpenses?.items || []),
     ...(pl?.otherExpenses?.items || [])
   ];
-  if (toNum(pl?.costOfGoodsSold) > 0) {
-    items.push({ name: 'Cost of Goods Sold', amount: pl.costOfGoodsSold });
-  }
   const totalAmount = items.reduce((s, i) => s + toNum(i.amount), 0);
   return items
     .map((i) => ({
@@ -733,22 +771,47 @@ async function buildCapitalPosition({
   const periodEarnings = toNum(periodPl.netProfit);
   const isIncrease = periodEarnings >= 0;
 
+  // Two real snapshots only — do not invent intermediate equity history.
   const series = [
     {
       month: 'Capital',
-      label: 'Capital',
+      label: 'Owner capital',
       opening: yourCapital,
       capital: yourCapital,
       earnings: 0
     },
     {
       month: 'Now',
-      label: 'Now',
+      label: 'Total equity (now)',
       opening: yourCapital,
       capital: currentEquity,
       earnings: ytdEarnings
     }
   ];
+
+  const currentAssets = (bs.assets?.current || []).reduce(
+    (s, a) => s + toNum(a.balance),
+    0
+  );
+  const currentLiabilities = (bs.liabilities?.current || []).reduce(
+    (s, l) => s + toNum(l.balance),
+    0
+  );
+  const inventoryBalance = (bs.assets?.current || [])
+    .filter((a) => {
+      const name = String(a.name || '').toLowerCase();
+      const code = String(a.code || '');
+      const parent = String(a.parentAccount || a.parent || '').toLowerCase();
+      // Prefer true inventory; never treat Prepaid Expenses (1300) as inventory
+      if (code === '1300' || name.includes('prepaid')) return false;
+      return (
+        code === '1200' ||
+        name.includes('inventory') ||
+        name.includes('stock') ||
+        parent.includes('inventory')
+      );
+    })
+    .reduce((s, a) => s + toNum(a.balance), 0);
 
   return {
     openingCapital: yourCapital,
@@ -765,6 +828,18 @@ async function buildCapitalPosition({
     changeOnCapital: currentEquity - yourCapital,
     isIncrease,
     chart: series,
+    chartNote:
+      'Snapshot comparison (owner capital vs total equity now) — not a historical time series',
+    balanceSheet: {
+      currentAssets,
+      currentLiabilities,
+      inventory: inventoryBalance,
+      totalAssets: toNum(bs.totals?.totalAssets),
+      totalLiabilities: toNum(bs.totals?.totalLiabilities),
+      totalEquity: currentEquity,
+      isBalanced: !!bs.isBalanced,
+      difference: toNum(bs.difference),
+    },
     kpi: {
       amount: currentEquity,
       formatted: formatAmount(currentEquity),
@@ -883,19 +958,22 @@ function buildLiteCapitalPosition(equityAccounts, lineSums, periodPl, equityModu
     chart: [
       {
         month: 'Capital',
-        label: 'Capital',
+        label: 'Owner capital',
         opening: yourCapital,
         capital: yourCapital,
         earnings: 0
       },
       {
         month: 'Now',
-        label: 'Now',
+        label: 'Total equity (now)',
         opening: yourCapital,
         capital: currentEquity,
         earnings: retainedEarnings
       }
     ],
+    chartNote:
+      'Snapshot comparison (owner capital vs total equity now) — not a historical time series',
+    balanceSheet: null,
     kpi: {
       amount: currentEquity,
       formatted: formatAmount(currentEquity),
@@ -1052,7 +1130,13 @@ async function buildDashboardOverview({
           ...whLoc
         })
       },
-      select: { outstanding: true, orderId: true, invoiceStatus: true }
+      select: {
+        outstanding: true,
+        orderId: true,
+        invoiceStatus: true,
+        invoiceDate: true,
+        customerName: true,
+      }
     }),
     prisma.salesInvoice.findMany({
       where: {
@@ -1063,7 +1147,13 @@ async function buildDashboardOverview({
           ...salesLoc
         })
       },
-      select: { outstanding: true, orderId: true, invoiceStatus: true }
+      select: {
+        outstanding: true,
+        orderId: true,
+        invoiceStatus: true,
+        invoiceDate: true,
+        customerName: true,
+      }
     }),
     scopedLocation
       ? emptyList
@@ -1074,7 +1164,7 @@ async function buildDashboardOverview({
             outstanding: { gt: 0 },
             status: { notIn: ['Cancelled', 'Voided', 'Draft', 'Paid'] }
           },
-          select: { outstanding: true }
+          select: { outstanding: true, date: true }
         }),
     prisma.purchaseInvoice.findMany({
       where: {
@@ -1092,11 +1182,18 @@ async function buildDashboardOverview({
           },
         ]
       },
-      select: { outstanding: true }
+      select: { outstanding: true, invoiceDate: true }
     }),
     prisma.bankAccount.findMany({
       where: { companyId, status: 'Active' },
-      select: { currentBalance: true, accountType: true }
+      select: {
+        id: true,
+        accountName: true,
+        bankName: true,
+        currentBalance: true,
+        accountType: true,
+        chartOfAccountId: true,
+      }
     }),
     // Period-scoped activity feed
     prisma.paymentReceived.findMany({
@@ -1382,20 +1479,130 @@ async function buildDashboardOverview({
     0
   );
   const totalPayables = billsPayable + purchasePayable;
-  const bankBalance = bankAccounts.reduce(
-    (s, acc) => s + toNum(acc.currentBalance),
-    0
-  );
   const cashOnlyBalance = toNum(cashAccount?.currentBalance);
+  const bankSplit = splitBankAndCashAccounts(bankAccounts, cashAccount?.id);
+  const bankBalance = bankSplit.bankBalance;
+  const liquidCash = liquidCashBalance(cashOnlyBalance, bankBalance);
   const posSalesAmount = toNum(posAgg._sum?.grandTotal);
   const posSalesCount = posAgg._count?.id || 0;
 
-  const revenueChange = pct(ledger.revenue, previousLedger.revenue);
-  const expenseChange = pct(ledger.expenses, previousLedger.expenses);
-  const profitChange = pct(ledger.netProfit, previousLedger.netProfit);
-  const salesChange = pct(totalSalesInvoiced, prevSalesInvoiced);
-  const purchasesChange = pct(current.purchases, prevPurchases);
-  const grossProfitChange = pct(ledger.grossProfit, previousLedger.grossProfit);
+  const revenueGrowth = growthFields(ledger.revenue, previousLedger.revenue);
+  const expenseGrowth = growthFields(ledger.expenses, previousLedger.expenses, {
+    invertPositive: true,
+  });
+  const profitGrowth = growthFields(ledger.netProfit, previousLedger.netProfit);
+  const salesGrowth = growthFields(totalSalesInvoiced, prevSalesInvoiced);
+  const purchasesGrowth = growthFields(current.purchases, prevPurchases, {
+    invertPositive: true,
+  });
+  const grossProfitGrowth = growthFields(
+    ledger.grossProfit,
+    previousLedger.grossProfit
+  );
+
+  // Inventory from COA (prefer resolver) — no create side-effects
+  const inventoryCandidates = await prisma.chartOfAccount.findMany({
+    where: {
+      companyId,
+      isActive: true,
+      OR: [
+        { code: '1200' },
+        { name: { contains: 'Inventory', mode: 'insensitive' } },
+        { name: { contains: 'Stock', mode: 'insensitive' } },
+      ],
+    },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      currentBalance: true,
+      parentAccount: true,
+      type: true,
+    },
+  });
+  const inventoryAccount = preferInventoryAccount(inventoryCandidates);
+  const inventoryFromCoa = toNum(inventoryAccount?.currentBalance);
+
+  const bsSlice = capitalPosition?.balanceSheet || {};
+  const currentAssets =
+    bsSlice.currentAssets != null
+      ? toNum(bsSlice.currentAssets)
+      : liquidCash + inventoryFromCoa + totalReceivables;
+  const currentLiabilities =
+    bsSlice.currentLiabilities != null
+      ? toNum(bsSlice.currentLiabilities)
+      : totalPayables;
+  const inventoryBalance =
+    bsSlice.inventory != null && Math.abs(toNum(bsSlice.inventory)) > 0.005
+      ? toNum(bsSlice.inventory)
+      : inventoryFromCoa;
+  const workingCapitalAmount = netWorkingCapital({
+    currentAssets,
+    currentLiabilities,
+    cashInHand: cashOnlyBalance,
+    bankBalance,
+    inventory: inventoryBalance,
+    receivables: totalReceivables,
+    payables: totalPayables,
+  });
+  const totalAssetsAmount = toNum(bsSlice.totalAssets);
+  const totalLiabilitiesAmount = toNum(bsSlice.totalLiabilities);
+  const cr = currentRatio(currentAssets, currentLiabilities);
+  const qr = quickRatio(currentAssets, inventoryBalance, currentLiabilities);
+
+  const periodDays = Math.max(
+    1,
+    Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1
+  );
+  const arAging = ageOutstandingBuckets(
+    allOutstandingSales,
+    endDate,
+    'invoiceDate'
+  );
+  const apAging = ageOutstandingBuckets(
+    [
+      ...outstandingBills.map((b) => ({
+        outstanding: b.outstanding,
+        invoiceDate: b.date,
+      })),
+      ...outstandingPurchaseInvoices,
+    ],
+    endDate,
+    'invoiceDate'
+  );
+  const dso = daysSalesOutstanding(
+    totalReceivables,
+    totalSalesInvoiced,
+    periodDays
+  );
+  const dpo = daysPayableOutstanding(
+    totalPayables,
+    current.purchases,
+    periodDays
+  );
+
+  // Top customers from period sales (warehouse + module merged)
+  const customerTotals = {};
+  for (const inv of mergedSalesRows) {
+    if (!inRange(inv.invoiceDate, startDate, endDate)) continue;
+    const name = String(inv.customerName || 'Unknown').trim() || 'Unknown';
+    customerTotals[name] = (customerTotals[name] || 0) + toNum(inv.grandTotal);
+  }
+  const topCustomers = Object.entries(customerTotals)
+    .map(([name, amount]) => ({ name, amount, formatted: formatAmount(amount) }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5);
+
+  const cashNegativeWarning =
+    cashOnlyBalance < 0
+      ? {
+          severity: 'warning',
+          message:
+            'Cash in Hand ledger balance is negative. This reflects posted journal lines (or opening balance), not a dashboard calculation error. Review Cash journals / payments before posting owner capital or reversing entries. Bank overdrafts on true bank accounts are allowed separately.',
+          amount: cashOnlyBalance,
+          code: cashAccount?.code || null,
+        }
+      : null;
 
   const { chartData: moduleChart, useDaily } = buildChartSeries({
     incomes: allIncomes,
@@ -1448,8 +1655,9 @@ async function buildDashboardOverview({
       totalRevenue: {
         amount: ledger.revenue,
         formatted: formatAmount(ledger.revenue),
-        change: Math.round(revenueChange * 10) / 10,
-        isPositive: revenueChange >= 0,
+        change: revenueGrowth.change,
+        changeLabel: revenueGrowth.changeLabel,
+        isPositive: revenueGrowth.isPositive,
         period: timePeriod,
         sources: {
           salesInvoiced: current.salesInvoiced,
@@ -1464,8 +1672,9 @@ async function buildDashboardOverview({
       totalSales: {
         amount: totalSalesInvoiced,
         formatted: formatAmount(totalSalesInvoiced),
-        change: Math.round(salesChange * 10) / 10,
-        isPositive: salesChange >= 0,
+        change: salesGrowth.change,
+        changeLabel: salesGrowth.changeLabel,
+        isPositive: salesGrowth.isPositive,
         period: timePeriod,
         count: totalSalesCount,
         source: 'Sales invoices invoiced amount (accrual, selected period)'
@@ -1491,30 +1700,56 @@ async function buildDashboardOverview({
       totalPurchases: {
         amount: current.purchases,
         formatted: formatAmount(current.purchases),
-        change: Math.round(purchasesChange * 10) / 10,
-        isPositive: purchasesChange <= 0,
+        change: purchasesGrowth.change,
+        changeLabel: purchasesGrowth.changeLabel,
+        isPositive: purchasesGrowth.isPositive,
         period: timePeriod,
         source: 'Purchase invoices (selected period)'
       },
       totalExpenses: {
         amount: ledgerExpenseTotal,
         formatted: formatAmount(ledgerExpenseTotal),
-        change: Math.round(expenseChange * 10) / 10,
-        isPositive: expenseChange <= 0,
+        change: expenseGrowth.change,
+        changeLabel: expenseGrowth.changeLabel,
+        isPositive: expenseGrowth.isPositive,
         period: timePeriod,
         count: expenseScreenCount,
+        label: 'Total expenses (incl. COGS)',
         sources: {
           expenseModule: expenseScreenTotal,
           operating: toNum(currentPl.operatingExpenses?.total),
           other: toNum(currentPl.otherExpenses?.total),
           cogs: toNum(currentPl.costOfGoodsSold),
-          formula: 'Posted ledger expenses incl. COGS (accrual — same as P&L)'
+          formula: 'Operating + other + COGS (accrual — same as P&L); COGS also shown separately'
         }
+      },
+      costOfGoodsSold: {
+        amount: ledger.cogs,
+        formatted: formatAmount(ledger.cogs),
+        period: timePeriod,
+        formula: 'Posted COGS ledger accounts (same as P&L)',
+        basis: 'accrual',
+      },
+      operatingExpenses: {
+        amount: ledger.operatingExpenses,
+        formatted: formatAmount(ledger.operatingExpenses),
+        period: timePeriod,
+        formula: 'Posted operating expense accounts excluding COGS',
+        basis: 'accrual',
+      },
+      operatingProfit: {
+        amount: ledger.operatingProfit,
+        formatted: formatAmount(ledger.operatingProfit),
+        isPositive: ledger.operatingProfit >= 0,
+        period: timePeriod,
+        formula: 'Gross profit − operating expenses (EBIT proxy; tax not separated)',
+        basis: 'accrual',
       },
       netProfit: {
         amount: netProfitAmount,
         formatted: formatAmount(netProfitAmount),
-        change: Math.round(profitChange * 10) / 10,
+        change: profitGrowth.change,
+        changeLabel: profitGrowth.changeLabel,
         isPositive: netProfitAmount >= 0,
         margin:
           ledger.revenue > 0
@@ -1527,7 +1762,8 @@ async function buildDashboardOverview({
       grossProfit: {
         amount: ledger.grossProfit,
         formatted: formatAmount(ledger.grossProfit),
-        change: Math.round(grossProfitChange * 10) / 10,
+        change: grossProfitGrowth.change,
+        changeLabel: grossProfitGrowth.changeLabel,
         isPositive: ledger.grossProfit >= 0,
         period: timePeriod,
         formula: 'Ledger revenue − COGS (same as P&L)'
@@ -1549,7 +1785,8 @@ async function buildDashboardOverview({
         count: allOutstandingSales.length,
         period: 'Current',
         basis: 'subledger',
-        source: 'Outstanding customer invoices (not GL AR control)'
+        source: 'Outstanding customer invoices (not GL AR control)',
+        aging: arAging,
       },
       accountsPayable: {
         amount: totalPayables,
@@ -1563,17 +1800,20 @@ async function buildDashboardOverview({
         breakdown: {
           bills: billsPayable,
           purchaseInvoices: purchasePayable
-        }
+        },
+        aging: apAging,
       },
       cashBalance: {
-        amount: bankBalance,
-        formatted: formatAmount(bankBalance),
+        amount: liquidCash,
+        formatted: formatAmount(liquidCash),
         change: 0,
-        isPositive: bankBalance >= 0,
+        isPositive: liquidCash >= 0,
         cashOnly: cashOnlyBalance,
-        accountsCount: bankAccounts.length,
+        bankOnly: bankBalance,
+        accountsCount: bankSplit.bankAccountsCount,
         period: 'Current',
-        basis: 'snapshot'
+        basis: 'snapshot',
+        formula: 'Cash in Hand (COA) + bank accounts excluding cash mirrors',
       },
       cashInHand: {
         amount: cashOnlyBalance,
@@ -1583,17 +1823,82 @@ async function buildDashboardOverview({
         isPositive: cashOnlyBalance >= 0,
         period: 'Current',
         basis: 'snapshot',
-        source: 'Chart of Accounts current balance'
+        source: 'Chart of Accounts current balance',
+        warning: cashNegativeWarning,
       },
       bankBalance: {
         amount: bankBalance,
         formatted: formatAmount(bankBalance),
         change: 0,
         isPositive: bankBalance >= 0,
-        accountsCount: bankAccounts.length,
+        accountsCount: bankSplit.bankAccountsCount,
+        excludedCashMirrors: bankSplit.cashMirrorCount,
         period: 'Current',
         basis: 'snapshot',
-        source: 'Sum of active bank account balances'
+        source:
+          'Sum of active bank accounts excluding Cash-type / cash-COA-linked rows (shown under Cash)',
+      },
+      inventory: {
+        amount: inventoryBalance,
+        formatted: formatAmount(inventoryBalance),
+        code: inventoryAccount?.code || null,
+        name: inventoryAccount?.name || 'Inventory',
+        period: 'Current',
+        basis: 'snapshot',
+        source: 'Chart of Accounts / balance sheet current inventory',
+      },
+      workingCapital: {
+        amount: workingCapitalAmount,
+        formatted: formatAmount(workingCapitalAmount),
+        isPositive: workingCapitalAmount >= 0,
+        period: 'Current',
+        formula: 'Current assets − current liabilities (includes inventory when mapped)',
+        basis: 'snapshot',
+        components: {
+          currentAssets,
+          currentLiabilities,
+          cashInHand: cashOnlyBalance,
+          bank: bankBalance,
+          inventory: inventoryBalance,
+          receivables: totalReceivables,
+          payables: totalPayables,
+        },
+      },
+      totalAssets: {
+        amount: totalAssetsAmount,
+        formatted: formatAmount(totalAssetsAmount),
+        period: 'Current',
+        basis: 'ledger_balance_sheet',
+      },
+      totalLiabilities: {
+        amount: totalLiabilitiesAmount,
+        formatted: formatAmount(totalLiabilitiesAmount),
+        period: 'Current',
+        basis: 'ledger_balance_sheet',
+      },
+      currentRatio: {
+        amount: cr,
+        formatted: cr == null ? '—' : String(Math.round(cr * 100) / 100),
+        period: 'Current',
+        formula: 'Current assets ÷ current liabilities',
+      },
+      quickRatio: {
+        amount: qr,
+        formatted: qr == null ? '—' : String(Math.round(qr * 100) / 100),
+        period: 'Current',
+        formula: '(Current assets − inventory) ÷ current liabilities',
+      },
+      dso: {
+        amount: dso,
+        formatted: dso == null ? '—' : `${Math.round(dso)} days`,
+        period: timePeriod,
+        formula: '(AR ÷ credit sales) × days in period',
+      },
+      dpo: {
+        amount: dpo,
+        formatted: dpo == null ? '—' : `${Math.round(dpo)} days`,
+        period: timePeriod,
+        formula: '(AP ÷ purchases) × days in period',
       },
       capital: capitalPosition.kpi
     },
@@ -1614,7 +1919,17 @@ async function buildDashboardOverview({
       arAp: 'subledger',
       cashBank: 'account_snapshot',
       note:
-        'P&L KPIs are accrual (IFRS-style). AR/AP are open invoice balances. Cash/Bank are current account balances.',
+        'P&L KPIs are accrual (IFRS-style). AR/AP are open invoice balances. Cash is COA Cash in Hand; Bank excludes cash-type / cash-COA-linked BankAccount rows to prevent double counting.',
+    },
+    warnings: [cashNegativeWarning].filter(Boolean),
+    aging: { receivables: arAging, payables: apAging },
+    topCustomers,
+    ratios: {
+      currentRatio: cr,
+      quickRatio: qr,
+      dso,
+      dpo,
+      periodDays,
     },
     breakdown: {
       salesRevenue: current.salesRevenue,
@@ -1626,13 +1941,23 @@ async function buildDashboardOverview({
       operatingExpenses: current.operatingExpenses,
       expenseScreenTotal,
       ledgerExpenses: ledgerExpenseTotal,
+      cogs: ledger.cogs,
+      operatingProfit: ledger.operatingProfit,
       receivables: totalReceivables,
       payables: totalPayables,
       billsPayable,
       purchasePayable,
       bankBalance,
       cashOnlyBalance,
-      bankAccountsCount: bankAccounts.length
+      liquidCash,
+      inventory: inventoryBalance,
+      workingCapital: workingCapitalAmount,
+      currentAssets,
+      currentLiabilities,
+      totalAssets: totalAssetsAmount,
+      totalLiabilities: totalLiabilitiesAmount,
+      bankAccountsCount: bankSplit.bankAccountsCount,
+      cashMirrorBankRowsExcluded: bankSplit.cashMirrorCount,
     },
     weeklyData: {
       revenue: ledger.revenue,

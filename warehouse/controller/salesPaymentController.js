@@ -73,8 +73,15 @@ const receivePayment = async (req, res) => {
       reference,
       notes,
       invoicePayments,
-      paymentDate
+      paymentDate,
+      idempotencyKey: bodyIdempotencyKey,
     } = req.body;
+
+    const idempotencyKey =
+      bodyIdempotencyKey ||
+      req.get('Idempotency-Key') ||
+      req.get('X-Idempotency-Key') ||
+      null;
 
     const postingDate = paymentDate ? new Date(paymentDate) : new Date();
 
@@ -128,7 +135,8 @@ const receivePayment = async (req, res) => {
       userId,
       createdBy: userId,
       fiscalYearId,
-      companyId
+      companyId,
+      idempotencyKey,
     };
 
     const payment = await SalesPaymentReceived.receivePayment(paymentData);

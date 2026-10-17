@@ -87,12 +87,15 @@ class PurchaseOrderModel {
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
-      const locationId = await resolveLocationId(
-        tx,
-        data.companyId,
-        data.locationId,
-        data.createdBy
-      );
+      // Warehouse optional — only resolve when explicitly selected
+      const locationId = data.locationId
+        ? await resolveLocationId(
+            tx,
+            data.companyId,
+            data.locationId,
+            data.createdBy
+          )
+        : null;
 
       const currencyResolved = await resolveTransactionCurrency({
         companyId: data.companyId,
@@ -103,6 +106,8 @@ class PurchaseOrderModel {
         supplierId: data.supplierId,
         asOfDate: data.orderDate ? new Date(data.orderDate) : new Date(),
         client: tx,
+        // PR→PO / draft POs should not block when supplier FX rate is missing
+        fallbackToBaseIfNoRate: true,
       });
       const fx = buildCurrencyPersistFields(currencyResolved, grandTotal);
 

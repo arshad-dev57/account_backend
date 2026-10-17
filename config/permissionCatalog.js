@@ -275,6 +275,67 @@ const MODULE_DEFINITIONS = [
   },
 
   // ═══════════════════════════════════════════════════════════
+  // TRADING  (/trading/*) — classification lens over Sales/Purchase
+  // ═══════════════════════════════════════════════════════════
+  {
+    key: 'trading',
+    name: 'Trading Operations',
+    description: 'Domestic wholesale trading classification, pricing, margins, and KPIs over existing Sales/Purchase documents',
+    resources: [
+      res('dashboard', 'Trading Dashboard', 'Trading KPIs and operational overview', VIEW_ONLY),
+      res('documents', 'Trading Documents', 'Classify and list trading-linked ERP documents', CRUD),
+      res('price_lists', 'Trading Price Lists', 'Wholesale and tier price lists', CRUD),
+      res('customer_pricing', 'Customer Pricing', 'Negotiated customer product prices', CRUD),
+      res('margins', 'Margin Analysis', 'Gross margin by product / customer', VIEW_EXPORT),
+      res('reports', 'Trading Reports', 'Trading performance reports', VIEW_EXPORT),
+      res('settings', 'Trading Settings', 'Trading module preferences', VIEW_EDIT)
+    ]
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // IMPORT MANAGEMENT  (/import/*)
+  // ═══════════════════════════════════════════════════════════
+  {
+    key: 'import',
+    name: 'Import Management',
+    description: 'International procurement, RFQs, proformas, shipments, customs clearance, import GRN, landed cost allocation, finance LC, and import bills',
+    resources: [
+      res('dashboard', 'Import Dashboard', 'Import KPIs, status pipeline, and cost analytics', VIEW_ONLY),
+      res('rfqs', 'Import RFQs', 'Supplier requests for quotation', CRUD_FULL),
+      res('orders', 'Import Purchase Orders', 'International procurement orders', CRUD_FULL),
+      res('proformas', 'Import Proforma Invoices', 'Proforma invoices and advance payments', CRUD_FULL),
+      res('shipments', 'Shipments & Tracking', 'Ocean/Air shipment tracking and container milestones', CRUD_FULL),
+      res('carriers', 'Carriers & Freight Forwarders', 'Carrier master for ocean, air, road, rail and multimodal transport', CRUD_FULL),
+      res(
+        'customs',
+        'Customs & Clearance',
+        'Bill of entry, customs duties, port handling, inspection, duty payment and release',
+        [
+          'view',
+          'create',
+          'edit',
+          'delete',
+          'assess',
+          'record_payment',
+          'release',
+          'hold',
+          'cancel',
+          'approve',
+          'print',
+          'export',
+        ]
+      ),
+      res('documents', 'Import Documents', 'Bills of lading, commercial invoices, packing lists, and certificates', CRUD_FULL),
+      res('grn', 'Import Goods Receiving', 'Import goods receipt notes, container inspection, and put-away', CRUD_FULL),
+      res('landed_costs', 'Landed Cost Allocation', 'Distribute freight, customs, insurance, and handling charges to inventory items', ['view', 'create', 'edit', 'delete', 'post', 'print', 'export']),
+      res('finance', 'Import Finance & LC', 'Letters of credit, margin blocks, and trade finance instruments', CRUD_FULL),
+      res('bills', 'Import Supplier Bills', 'Commercial invoices, vendor liabilities, and payments', ['view', 'create', 'edit', 'delete', 'approve', 'pay', 'print', 'export']),
+      res('reports', 'Import Reports', 'Import spend, landed cost breakdown, and lead time reports', VIEW_EXPORT),
+      res('settings', 'Import Settings', 'Import default Incoterms, ports, clearing accounts, and preferences', VIEW_EDIT)
+    ]
+  },
+
+  // ═══════════════════════════════════════════════════════════
   // REPORTS (cross-module)
   // ═══════════════════════════════════════════════════════════
   {
@@ -311,6 +372,9 @@ const MODULE_DEFINITIONS = [
       res('module_users', 'Module Tile: Users', 'Show Users on main dashboard selection', VIEW_ONLY),
       res('module_pos', 'Module Tile: Point of Sale', 'Show POS on main dashboard selection', VIEW_ONLY),
       res('module_distributor', 'Module Tile: Distributor', 'Show Distributor on main dashboard selection', VIEW_ONLY),
+      res('module_trading', 'Module Tile: Trading', 'Show Trading on main dashboard selection', VIEW_ONLY),
+      res('module_import', 'Module Tile: Import', 'Show Import Management on main dashboard selection', VIEW_ONLY),
+      res('module_export', 'Module Tile: Export', 'Show Export Management on main dashboard selection', VIEW_ONLY),
       res('widgets_sales', 'Sales Summary & Charts', 'Sales revenue and trajectory widgets', VIEW_ONLY, ['ALL', 'OWN']),
       res('widgets_purchases', 'Purchases & Vendor Summary', 'Purchase charts and open POs', VIEW_ONLY),
       res('widgets_financial', 'Revenue, Expenses & Profit', 'Gross / net profit widgets', VIEW_ONLY),
@@ -384,8 +448,12 @@ const DEFAULT_SYSTEM_ROLES = [
       'sales.invoices.*',
       'sales.payments.*',
       'sales.credits.*',
+      'import.customs.view',
+      'import.customs.record_payment',
+      'import.settings.view',
       'dashboard.overview.view',
       'dashboard.module_accounting.view',
+      'dashboard.module_import.view',
       'dashboard.module_sales.view',
       'dashboard.module_purchases.view',
       'dashboard.module_tax.view',
@@ -433,8 +501,12 @@ const DEFAULT_SYSTEM_ROLES = [
       'sales.payments.*',
       'purchases.invoices.view',
       'purchases.payments.*',
+      'import.customs.view',
+      'import.customs.record_payment',
+      'import.settings.view',
       'dashboard.overview.view',
       'dashboard.module_accounting.view',
+      'dashboard.module_import.view',
       'dashboard.module_tax.view',
       'dashboard.widgets_cash_bank.view',
       'dashboard.widgets_ar_ap.view'
@@ -446,6 +518,7 @@ const DEFAULT_SYSTEM_ROLES = [
     isSystem: true,
     patterns: [
       'sales.*',
+      'trading.*',
       'inventory.products.view',
       'inventory.stock.view',
       'reports.sales.*',
@@ -484,11 +557,34 @@ const DEFAULT_SYSTEM_ROLES = [
     isSystem: true,
     patterns: [
       'purchases.*',
+      'import.dashboard.view',
+      'import.rfqs.*',
+      'import.orders.*',
+      'import.proformas.*',
+      'import.shipments.*',
+      'import.carriers.*',
+      'import.customs.view',
+      'import.customs.create',
+      'import.customs.edit',
+      'import.customs.assess',
+      'import.customs.release',
+      'import.customs.hold',
+      'import.customs.cancel',
+      'import.documents.*',
+      'import.grn.*',
+      'import.landed_costs.*',
+      'import.finance.*',
+      'import.bills.view',
+      'import.bills.create',
+      'import.bills.edit',
+      'import.reports.view',
+      'import.settings.view',
       'inventory.products.view',
       'inventory.stock.view',
       'reports.purchases.*',
       'dashboard.overview.view',
       'dashboard.module_purchases.view',
+      'dashboard.module_import.view',
       'dashboard.widgets_purchases.view'
     ]
   },

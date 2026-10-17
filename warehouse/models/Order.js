@@ -30,22 +30,15 @@ class OrderModel {
     const orderNumber = generateOrderNumber(data.orderType || 'Sales Order');
     
     return await prisma.$transaction(async (tx) => {
-      const locationId =
-        data.orderType === 'Purchase Order'
-          ? data.locationId
-            ? await resolveLocationId(
-                tx,
-                data.companyId,
-                data.locationId,
-                data.createdBy || data.userId
-              )
-            : null
-          : await resolveLocationId(
-              tx,
-              data.companyId,
-              data.locationId,
-              data.createdBy || data.userId
-            );
+      // Warehouse is optional: only resolve when explicitly provided
+      const locationId = data.locationId
+        ? await resolveLocationId(
+            tx,
+            data.companyId,
+            data.locationId,
+            data.createdBy || data.userId
+          )
+        : null;
 
       // Create order
       const order = await tx.order.create({

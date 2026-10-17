@@ -2,6 +2,87 @@
 
 const Quotation = require('../models/Quotation');
 const prisma = require('../../prisma/client');
+const tradingService = require('../../services/tradingService');
+
+/**
+ * Resolve products + authoritative unit prices for a customer.
+ * Priority: customer negotiated → linked price list → standard selling.
+ * Client unitPrice is used only when manualPriceOverride / priceSource=MANUAL.
+ */
+async function buildPricedQuotationItems({
+  companyId,
+  customerId,
+  items,
+  asOfDate,
+}) {
+  const quotationItems = [];
+  const pricingMeta = [];
+
+  for (const item of items) {
+    let product;
+
+    if (item.productId) {
+      product = await prisma.product.findFirst({
+        where: {
+          id: item.productId,
+          companyId,
+          isActive: true,
+        },
+      });
+    } else if (item.sku) {
+      product = await prisma.product.findFirst({
+        where: {
+          sku: item.sku,
+          companyId,
+          isActive: true,
+        },
+      });
+    }
+
+    if (!product) {
+      const err = new Error(
+        `Product not found: ${item.productName || item.sku || item.productId}`
+      );
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const resolved = await tradingService.resolveSellPrice({
+      companyId,
+      customerId: customerId || null,
+      productId: product.id,
+      quantity: item.quantity != null ? item.quantity : 1,
+      asOfDate: asOfDate || new Date(),
+    });
+
+    const priced = tradingService.applyResolvedPriceToLine(resolved, item);
+
+    quotationItems.push({
+      productId: product.id,
+      productName: product.name,
+      sku: product.sku,
+      quantity: item.quantity,
+      unitPrice: priced.unitPrice,
+      discount: priced.discount,
+      taxRate: priced.taxRate,
+      notes: item.notes || '',
+    });
+
+    pricingMeta.push({
+      productId: product.id,
+      sku: product.sku,
+      unitPrice: priced.unitPrice,
+      pricingSource: priced.pricingSource,
+      currencyCode: priced.currencyCode,
+      unitName: priced.unitName,
+      listPrice: priced.listPrice,
+      messages: priced.pricingMessages,
+      warnings: priced.pricingWarnings,
+    });
+  }
+
+  return { quotationItems, pricingMeta };
+}
 
 // ============================================================
 // ─── QUOTATION CONTROLLERS ────────────────────────────────────
@@ -47,48 +128,6 @@ const createQuotation = async (req, res) => {
       });
     }
 
-    // ─── Process Items ──────────────────────────────────
-    const quotationItems = [];
-    for (const item of items) {
-      let product;
-
-      if (item.productId) {
-        product = await prisma.product.findFirst({
-          where: {
-            id: item.productId,
-            companyId: companyId,
-            isActive: true
-          }
-        });
-      } else if (item.sku) {
-        product = await prisma.product.findFirst({
-          where: {
-            sku: item.sku,
-            companyId: companyId,
-            isActive: true
-          }
-        });
-      }
-
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          message: `Product not found: ${item.productName || item.sku || item.productId}`
-        });
-      }
-
-      quotationItems.push({
-        productId: product.id,
-        productName: product.name,
-        sku: product.sku,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice || product.sellingPrice,
-        discount: item.discount || 0,
-        taxRate: item.taxRate || product.taxRate || 0,
-        notes: item.notes || ''
-      });
-    }
-
     const { resolveLocationId } = require('../services/locationService');
     let resolvedLocationId = null;
     try {
@@ -104,6 +143,8 @@ const createQuotation = async (req, res) => {
         message: locErr.message || 'Invalid warehouse',
       });
     }
+
+    const asOfDate = quotationDate ? new Date(quotationDate) : new Date();
 
     // ─── If Multiple Customers Provided ─────────────────
     if (hasMultipleCustomers) {
@@ -124,8 +165,20 @@ const createQuotation = async (req, res) => {
             cEmail = dbCust.email || '';
             cPhone = dbCust.phone || '';
             cCompany = dbCust.company || '';
+          } else {
+            return res.status(404).json({
+              success: false,
+              message: `Customer not found: ${custId}`,
+            });
           }
         }
+
+        const { quotationItems, pricingMeta } = await buildPricedQuotationItems({
+          companyId,
+          customerId: custId || null,
+          items,
+          asOfDate,
+        });
 
         const qData = {
           customerId: custId,
@@ -146,7 +199,7 @@ const createQuotation = async (req, res) => {
         };
 
         const created = await Quotation.create(qData);
-        createdQuotations.push(created);
+        createdQuotations.push({ ...created, pricingMeta });
       }
 
       return res.status(201).json({
@@ -186,6 +239,13 @@ const createQuotation = async (req, res) => {
       finalCustomerCompany = customer.company || '';
     }
 
+    const { quotationItems, pricingMeta } = await buildPricedQuotationItems({
+      companyId,
+      customerId: customerId || null,
+      items,
+      asOfDate,
+    });
+
     const quotationData = {
       customerId: customerId || '',
       customerName: finalCustomerName,
@@ -209,13 +269,14 @@ const createQuotation = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Quotation created successfully',
-      data: quotation
+      data: { ...quotation, pricingMeta },
     });
   } catch (error) {
     console.error('Create quotation error:', error);
-    res.status(500).json({
+    const status = error.statusCode || 500;
+    res.status(status).json({
       success: false,
-      message: 'Server error',
+      message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -495,49 +556,27 @@ const updateQuotation = async (req, res) => {
     if (termsConditions !== undefined) updateData.termsConditions = termsConditions;
     if (status) updateData.status = status;
 
-    // ─── Process items if provided ──────────────────────
+    // ─── Process items if provided (authoritative pricing) ─
+    let pricingMeta = null;
     if (items) {
-      const processedItems = [];
-      for (const item of items) {
-        let product;
-
-        if (item.productId) {
-          product = await prisma.product.findFirst({
-            where: {
-              id: item.productId,
-              companyId: companyId,
-              isActive: true
-            }
-          });
-        } else if (item.sku) {
-          product = await prisma.product.findFirst({
-            where: {
-              sku: item.sku,
-              companyId: companyId,
-              isActive: true
-            }
-          });
-        }
-
-        if (!product) {
-          return res.status(404).json({
-            success: false,
-            message: `Product not found: ${item.productName || item.sku || item.productId}`
-          });
-        }
-
-        processedItems.push({
-          productId: product.id,
-          productName: product.name,
-          sku: product.sku,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice || product.sellingPrice,
-          discount: item.discount || 0,
-          taxRate: item.taxRate || product.taxRate || 0,
-          notes: item.notes || ''
+      const effectiveCustomerId =
+        updateData.customerId || quotation.customerId || customerId || null;
+      const asOfDate = updateData.quotationDate || quotation.quotationDate || new Date();
+      try {
+        const priced = await buildPricedQuotationItems({
+          companyId,
+          customerId: effectiveCustomerId,
+          items,
+          asOfDate,
+        });
+        updateData.items = priced.quotationItems;
+        pricingMeta = priced.pricingMeta;
+      } catch (priceErr) {
+        return res.status(priceErr.statusCode || 400).json({
+          success: false,
+          message: priceErr.message || 'Failed to resolve line pricing',
         });
       }
-      updateData.items = processedItems;
     }
 
     // ─── Update Quotation ──────────────────────────────────
@@ -546,11 +585,11 @@ const updateQuotation = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Quotation updated successfully',
-      data: updatedQuotation
+      data: pricingMeta ? { ...updatedQuotation, pricingMeta } : updatedQuotation,
     });
   } catch (error) {
     console.error('Update quotation error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -672,11 +711,14 @@ const convertQuotationToOrder = async (req, res) => {
       });
     }
 
-    // Optional partial conversion: { items: [{ productId, quantity }] }
+    // Optional partial conversion: { items: [{ productId, quantity }], locationId? }
     const selectedItems = Array.isArray(req.body?.items) ? req.body.items : null;
+    const convertLocationId = req.body?.locationId || null;
 
     // ─── Convert to Order ──────────────────────────────────
-    const result = await Quotation.convertToOrder(id, userId, selectedItems);
+    const result = await Quotation.convertToOrder(id, userId, selectedItems, {
+      locationId: convertLocationId,
+    });
 
     res.status(200).json({
       success: true,
@@ -692,7 +734,8 @@ const convertQuotationToOrder = async (req, res) => {
     });
   } catch (error) {
     console.error('Convert quotation error:', error);
-    res.status(500).json({
+    const status = error.statusCode || (error.name === 'PrismaClientValidationError' ? 400 : 500);
+    res.status(status).json({
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined

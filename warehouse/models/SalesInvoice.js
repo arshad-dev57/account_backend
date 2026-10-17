@@ -6,8 +6,14 @@ const {
   getOrCreateArAccount,
   getOrCreateSalesRevenueAccount,
 } = require('../../utils/arAccountHelper');
-const { postSalesInvoiceCOGS } = require('../services/salesAccountingService');
-const { applySalesInvoiceStockOut } = require('../services/inventoryService');
+const {
+  postSalesInvoiceCOGS,
+  reverseSalesInvoiceCOGS,
+} = require('../services/salesAccountingService');
+const {
+  applySalesInvoiceStockOut,
+  reverseSalesInvoiceStockOut,
+} = require('../services/inventoryService');
 
 // ─── Generate Invoice Number Function ──────────────────────
 function generateInvoiceNumber() {
@@ -168,6 +174,8 @@ class SalesInvoiceModel {
         subtotal += lineTotal;
         totalDiscount += discountAmount;
         totalTax += taxAmount;
+        const orderTag = `__ORDER_ID__:${order.id}`;
+        const lineNotes = [orderTag, item.notes].filter(Boolean).join(' ') || null;
         return {
           productId: item.productId,
           productName: item.productName,
@@ -178,7 +186,7 @@ class SalesInvoiceModel {
           taxRate: item.taxRate || 0,
           taxAmount,
           lineTotal: total,
-          notes: item.notes || null
+          notes: lineNotes
         };
       }).filter(Boolean);
 
@@ -193,6 +201,8 @@ class SalesInvoiceModel {
       // ✅ FIXED: Use companyId instead of userId
       const arAccount = await findARAccount(tx, companyId, userId);
       const revenueAccount = await findRevenueAccount(tx, companyId, userId);
+
+      const orderLinkMeta = `__LINKED_ORDERS__:${JSON.stringify([order.id])}\n`;
 
       const invoice = await tx.salesInvoice.create({
         data: {
@@ -218,7 +228,9 @@ class SalesInvoiceModel {
           outstanding: grandTotal,
           invoiceStatus: 'Draft',
           paymentStatus: 'Unpaid',
-          notes: order.customerNotes || null,
+          notes: order.customerNotes
+            ? `${orderLinkMeta}${order.customerNotes}`
+            : orderLinkMeta,
           salesRevenueAccountId: revenueAccount?.id || null,
           arAccountId: arAccount?.id || null,
           createdBy: userId,          // ✅ Use createdBy
@@ -284,12 +296,26 @@ class SalesInvoiceModel {
 
       let subtotal = 0, totalDiscount = 0, totalTax = 0;
 
+      const linkedOrderIds = new Set();
+      if (delivery.salesOrderId) linkedOrderIds.add(delivery.salesOrderId);
+      const linkedFromNotes = (() => {
+        try {
+          const { parseLinkedIds } = require('../services/salesQuantityService');
+          return parseLinkedIds(delivery.notes, '__LINKED_ORDERS__');
+        } catch {
+          return [];
+        }
+      })();
+      linkedFromNotes.forEach((id) => linkedOrderIds.add(id));
+
       const invoiceItems = remainingInfo.items.map(item => {
         const orderItem = delivery.salesOrder?.items?.find(oi => oi.productId === item.productId);
         const unitPrice = item.unitPrice || orderItem?.unitPrice || item.product?.sellingPrice || 0;
         const discount = item.discount ?? orderItem?.discount ?? 0;
         const taxRate = item.taxRate ?? orderItem?.taxRate ?? 0;
         const qty = item.remainingQuantity;
+        const lineOrderId = item.orderId || delivery.salesOrderId || null;
+        if (lineOrderId) linkedOrderIds.add(lineOrderId);
 
         const lineTotal = qty * unitPrice;
         const discountAmount = (lineTotal * discount) / 100;
@@ -301,6 +327,9 @@ class SalesInvoiceModel {
         totalDiscount += discountAmount;
         totalTax += taxAmount;
 
+        const orderTag = lineOrderId ? `__ORDER_ID__:${lineOrderId}` : '';
+        const lineNotes = [orderTag, item.notes].filter(Boolean).join(' ') || null;
+
         return {
           productId: item.productId,
           productName: item.productName,
@@ -311,7 +340,7 @@ class SalesInvoiceModel {
           taxRate,
           taxAmount,
           lineTotal: total,
-          notes: item.notes || null
+          notes: lineNotes
         };
       });
 
@@ -319,6 +348,13 @@ class SalesInvoiceModel {
 
       const arAccount = await findARAccount(tx, companyId, userId);
       const revenueAccount = await findRevenueAccount(tx, companyId, userId);
+
+      const linkedOrderArr = [...linkedOrderIds];
+      let metadata = '';
+      if (linkedOrderArr.length > 0) {
+        metadata += `__LINKED_ORDERS__:${JSON.stringify(linkedOrderArr)}\n`;
+      }
+      metadata += `__LINKED_DELIVERIES__:${JSON.stringify([delivery.id])}\n`;
 
       const invoice = await tx.salesInvoice.create({
         data: {
@@ -344,6 +380,7 @@ class SalesInvoiceModel {
           outstanding: grandTotal,
           invoiceStatus: 'Draft',
           paymentStatus: 'Unpaid',
+          notes: metadata || null,
           salesRevenueAccountId: revenueAccount?.id || null,
           arAccountId: arAccount?.id || null,
           createdBy: userId,
@@ -458,22 +495,36 @@ class SalesInvoiceModel {
         getDeliveryInvoiceRemaining,
       } = require('../services/salesQuantityService');
 
-      // Precompute remaining per order / delivery
+      // Precompute remaining — delivered-based when deliveries exist (blocks double-bill)
       const orderRemainingCache = {};
       for (const order of salesOrders) {
         orderRemainingCache[order.id] = await getOrderInvoiceRemaining(order, {
           tx,
-          allowUndelivered: true,
+          allowUndelivered: false,
         });
+      }
+      for (const dlv of salesDeliveries) {
+        const oid = dlv.salesOrderId;
+        if (oid && !orderRemainingCache[oid]) {
+          const order = await tx.order.findUnique({
+            where: { id: oid },
+            include: { items: true },
+          });
+          if (order) {
+            orderRemainingCache[oid] = await getOrderInvoiceRemaining(order, {
+              tx,
+              allowUndelivered: false,
+            });
+          }
+        }
       }
       const deliveryRemainingCache = {};
       for (const dlv of salesDeliveries) {
         deliveryRemainingCache[dlv.id] = await getDeliveryInvoiceRemaining(dlv, { tx });
       }
 
-      // Track qty being billed in this request (same product across lines)
-      const billingNowByOrderProduct = {}; // `${orderId}:${productId}` → qty
-      const billingNowByDeliveryProduct = {};
+      // Unified cap: order lines AND delivery lines share (orderId, productId)
+      const billingNowByOrderProduct = {};
 
       for (const item of items) {
         const qty = Number(item.quantity) || 0;
@@ -481,58 +532,69 @@ class SalesInvoiceModel {
           throw new Error(`Invoice quantity must be > 0 for ${item.productName || item.productId}`);
         }
 
+        let orderId = item.orderId || null;
+        let deliveryCap = Infinity;
+
         if (item.deliveryId) {
           const rem = deliveryRemainingCache[item.deliveryId];
           if (!rem) throw new Error(`Delivery ${item.deliveryId} not found in selection`);
           const line = rem.items.find((i) => i.productId === item.productId);
-          const key = `${item.deliveryId}:${item.productId}`;
-          const alreadyInPayload = billingNowByDeliveryProduct[key] || 0;
-          const maxRem = line ? line.remainingQuantity : 0;
-          if (qty + alreadyInPayload > maxRem) {
+          deliveryCap = line ? line.remainingQuantity : 0;
+          orderId =
+            orderId ||
+            line?.orderId ||
+            salesDeliveries.find((d) => d.id === item.deliveryId)?.salesOrderId ||
+            null;
+          if (!orderId) {
             throw new Error(
-              `Quantity ${qty} for ${item.productName || item.productId} exceeds remaining to invoice (${maxRem - alreadyInPayload}) on delivery`
+              `Cannot resolve order for delivery line ${item.productName || item.productId}`
             );
           }
-          billingNowByDeliveryProduct[key] = alreadyInPayload + qty;
-          continue;
-        }
-
-        const orderId =
-          item.orderId ||
-          (salesOrders.length === 1 ? salesOrders[0].id : null);
-        if (!orderId) {
-          throw new Error(`orderId is required on invoice line for ${item.productName || item.productId}`);
+        } else {
+          orderId = orderId || (salesOrders.length === 1 ? salesOrders[0].id : null);
+          if (!orderId) {
+            throw new Error(
+              `orderId is required on invoice line for ${item.productName || item.productId}`
+            );
+          }
         }
 
         let rem = orderRemainingCache[orderId];
         if (!rem) {
-          // Order may only be linked via delivery — compute on the fly
           const order = await tx.order.findUnique({
             where: { id: orderId },
             include: { items: true },
           });
           if (!order) throw new Error(`Order ${orderId} not found`);
-          rem = await getOrderInvoiceRemaining(order, { tx });
+          rem = await getOrderInvoiceRemaining(order, { tx, allowUndelivered: false });
           orderRemainingCache[orderId] = rem;
         }
 
-        const line = rem.items.find((i) => i.productId === item.productId);
-        // Multi-source may auto-create deliveries for undelivered qty — allow up to ordered − invoiced
-        const order = salesOrders.find((o) => o.id === orderId);
-        const orderItem = order?.items?.find((oi) => oi.productId === item.productId);
-        const ordered = orderItem ? Number(orderItem.quantity) || 0 : qty;
-        const invoicedMap = rem.invoicedMap || {};
-        const maxByOrdered = Math.max(0, ordered - (invoicedMap[item.productId] || 0));
-        const effectiveMax = Math.max(line?.remainingQuantity || 0, maxByOrdered);
+        const orderLine = rem.items.find((i) => i.productId === item.productId);
+        let effectiveMax = orderLine ? orderLine.remainingQuantity : 0;
+
+        // Direct SO→Invoice (no confirmed deliveries yet): allow ordered − invoiced + auto-delivery
+        if (!rem.hasConfirmedDeliveries && !item.deliveryId) {
+          const order = salesOrders.find((o) => o.id === orderId);
+          const orderItem = order?.items?.find((oi) => oi.productId === item.productId);
+          const ordered = orderItem ? Number(orderItem.quantity) || 0 : qty;
+          const invoicedMap = rem.invoicedMap || {};
+          effectiveMax = Math.max(0, ordered - (invoicedMap[item.productId] || 0));
+        }
+
+        if (item.deliveryId) {
+          effectiveMax = Math.min(effectiveMax, deliveryCap);
+        }
 
         const key = `${orderId}:${item.productId}`;
         const alreadyInPayload = billingNowByOrderProduct[key] || 0;
         if (qty + alreadyInPayload > effectiveMax) {
           throw new Error(
-            `Quantity ${qty} for ${item.productName || item.productId} exceeds remaining to invoice (${Math.max(0, effectiveMax - alreadyInPayload)}) on order`
+            `Quantity ${qty} for ${item.productName || item.productId} exceeds remaining to invoice (${Math.max(0, effectiveMax - alreadyInPayload)})`
           );
         }
         billingNowByOrderProduct[key] = alreadyInPayload + qty;
+        item._resolvedOrderId = orderId;
       }
 
       // ── 3. Auto-Create and Confirm Deliveries for Orders ──
@@ -540,9 +602,13 @@ class SalesInvoiceModel {
       const createdDeliveryNumbers = [];
 
       for (const order of salesOrders) {
-        // Find items in this invoice payload belonging to this order
+        // Find items in this invoice payload belonging to this order (skip delivery-sourced lines)
         const orderItemsForInvoice = items.filter(
-          (i) => i.orderId === order.id || (!i.orderId && !i.deliveryId && salesOrders.length === 1)
+          (i) =>
+            !i.deliveryId &&
+            (i._resolvedOrderId === order.id ||
+              i.orderId === order.id ||
+              (!i.orderId && salesOrders.length === 1))
         );
 
         if (orderItemsForInvoice.length === 0) continue;
@@ -623,6 +689,10 @@ class SalesInvoiceModel {
         totalDiscount += discountAmount;
         totalTax += taxAmount;
 
+        const resolvedOrderId = item._resolvedOrderId || item.orderId || null;
+        const orderTag = resolvedOrderId ? `__ORDER_ID__:${resolvedOrderId}` : '';
+        const lineNotes = [orderTag, item.notes].filter(Boolean).join(' ') || null;
+
         return {
           productId: item.productId,
           productName: item.productName || 'Item',
@@ -633,7 +703,7 @@ class SalesInvoiceModel {
           taxRate,
           taxAmount,
           lineTotal: total,
-          notes: item.notes || null,
+          notes: lineNotes,
         };
       });
 
@@ -653,7 +723,11 @@ class SalesInvoiceModel {
         ...createdDeliveryNumbers,
       ].filter((v, i, a) => a.indexOf(v) === i).join(', ');
 
-      const allLinkedOrderIds = salesOrders.map((o) => o.id);
+      const allLinkedOrderIds = [
+        ...salesOrders.map((o) => o.id),
+        ...salesDeliveries.map((d) => d.salesOrderId).filter(Boolean),
+        ...items.map((i) => i._resolvedOrderId || i.orderId).filter(Boolean),
+      ].filter((v, i, a) => a.indexOf(v) === i);
       const allLinkedDeliveryIds = [
         ...salesDeliveries.map((d) => d.id),
         ...createdDeliveryIds,
@@ -1188,7 +1262,8 @@ class SalesInvoiceModel {
         where: { id },
         include: {
           accountsReceivable: true,
-          journalEntry: { include: { lines: true } }
+          journalEntry: { include: { lines: true } },
+          items: true,
         }
       });
 
@@ -1199,32 +1274,53 @@ class SalesInvoiceModel {
       }
 
       if (invoice.invoiceStatus === 'Posted') {
-        if (invoice.journalEntry) {
-          const reverseEntryNumber = `REV-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-          await tx.journalEntry.create({
+        const revReference = `${invoice.invoiceNumber}-REV`;
+        const existingRev = await tx.journalEntry.findFirst({
+          where: {
+            companyId: invoice.companyId,
+            reference: revReference,
+            status: 'Posted',
+          },
+        });
+
+        if (!existingRev && invoice.journalEntry?.lines?.length) {
+          const reverseEntry = await tx.journalEntry.create({
             data: {
-              entryNumber: reverseEntryNumber,
+              entryNumber: `REV-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
               date: new Date(),
-              description: `Reversal of invoice #${invoice.invoiceNumber}`,
-              reference: invoice.invoiceNumber,
+              description: `Reversal of invoice #${invoice.invoiceNumber}${reason ? `: ${reason}` : ''}`,
+              reference: revReference,
               status: 'Posted',
+              type: 'Reversal',
               createdBy: userId,
               postedBy: userId,
               postedAt: new Date(),
               companyId: invoice.companyId,
               fiscalYearId: invoice.fiscalYearId,
               lines: {
-                create: invoice.journalEntry.lines.map(line => ({
+                create: invoice.journalEntry.lines.map((line) => ({
                   accountId: line.accountId,
                   accountName: line.accountName,
                   accountCode: line.accountCode,
                   debit: line.credit,
-                  credit: line.debit
-                }))
-              }
-            }
+                  credit: line.debit,
+                })),
+              },
+            },
+            include: { lines: true },
           });
+          await BalanceCalculator.applyJournalLines(tx, reverseEntry.lines);
         }
+
+        // Reverse COGS (inventory credit) exactly once
+        await reverseSalesInvoiceCOGS(tx, {
+          invoice,
+          userId,
+          companyId: invoice.companyId,
+        });
+
+        // Reverse invoice stock-out exactly once (delivery-issued qty stays)
+        await reverseSalesInvoiceStockOut(tx, { invoice, userId });
 
         await tx.accountsReceivable.deleteMany({
           where: { invoiceId: invoice.id },

@@ -137,12 +137,65 @@ async function findInvoicesForOrder(orderId, { tx = prisma } = {}) {
   return merged;
 }
 
+/**
+ * Resolve which order an invoice line belongs to.
+ * Prefers __ORDER_ID__ on item notes; falls back to invoice.orderId for single-order invoices.
+ * For multi-linked invoices without line tags, returns null (caller should skip or use delivery).
+ */
+function resolveInvoiceLineOrderId(inv, item) {
+  if (item?.notes) {
+    const m = String(item.notes).match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/);
+    if (m) return m[1];
+  }
+  const linked = parseLinkedIds(inv.notes, '__LINKED_ORDERS__');
+  if (linked.length > 1) {
+    // Multi-order invoice without per-line order tag — cannot safely attribute
+    return null;
+  }
+  if (linked.length === 1) return linked[0];
+  return inv.orderId || null;
+}
+
 async function getInvoicedQtyByProduct(orderId, { tx = prisma } = {}) {
   const map = {};
+  if (!orderId) return map;
   const invoices = await findInvoicesForOrder(orderId, { tx });
   for (const inv of invoices) {
+    const linked = parseLinkedIds(inv.notes, '__LINKED_ORDERS__');
+    const isMulti = linked.length > 1;
+
     for (const item of inv.items || []) {
-      addQty(map, item.productId, item.quantity);
+      const lineOrderId = resolveInvoiceLineOrderId(inv, item);
+
+      if (lineOrderId) {
+        if (lineOrderId !== orderId) continue;
+        addQty(map, item.productId, item.quantity);
+        continue;
+      }
+
+      // Legacy multi-order invoice without line tags: attribute via linked delivery items
+      if (isMulti && inv.deliveryId) {
+        const delivery = await tx.delivery.findUnique({
+          where: { id: inv.deliveryId },
+          include: { items: true },
+        });
+        if (delivery) {
+          const dItem = (delivery.items || []).find((di) => di.productId === item.productId);
+          let dOrderId = delivery.salesOrderId;
+          if (dItem?.notes) {
+            const m = String(dItem.notes).match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/);
+            if (m) dOrderId = m[1];
+          }
+          if (dOrderId !== orderId) continue;
+          addQty(map, item.productId, item.quantity);
+          continue;
+        }
+      }
+
+      // Single-order / primary-only fallback
+      if (!isMulti && (inv.orderId === orderId || linked.includes(orderId))) {
+        addQty(map, item.productId, item.quantity);
+      }
     }
   }
   return map;
@@ -321,37 +374,65 @@ async function getDeliveryInvoiceRemaining(delivery, { tx = prisma } = {}) {
   const invoicedMap = await getInvoicedQtyForDelivery(delivery.id, { tx });
   const orderItems = delivery.salesOrder?.items || [];
 
-  const items = (delivery.items || [])
-    .map((item) => {
-      const delivered = Number(item.deliveredQuantity) || 0;
-      const invoiced = invoicedMap[item.productId] || 0;
-      const remaining = Math.max(0, delivered - invoiced);
-      const orderItem = orderItems.find((oi) => oi.productId === item.productId);
-      const unitPrice =
-        orderItem?.unitPrice != null
-          ? Number(orderItem.unitPrice)
-          : item.product?.sellingPrice != null
-            ? Number(item.product.sellingPrice)
-            : Number(item.unitPrice) || 0;
+  // Cap delivery remaining by order-level invoiced qty (prevents order+delivery double-bill)
+  const orderInvoicedCache = {};
+  const resolveLineOrderId = (item) => {
+    if (item?.notes) {
+      const m = String(item.notes).match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/);
+      if (m) return m[1];
+    }
+    return delivery.salesOrderId || null;
+  };
 
-      return {
-        id: item.id,
-        productId: item.productId,
-        productName: item.productName || item.product?.name || 'Product',
-        sku: item.sku || item.product?.sku || '',
-        unit: item.unit || 'Pcs',
-        orderedQuantity: item.orderedQuantity || 0,
-        deliveredQuantity: delivered,
-        invoicedQuantity: invoiced,
-        quantity: remaining,
-        remainingQuantity: remaining,
-        maxQuantity: remaining,
-        unitPrice,
-        discount: orderItem?.discount != null ? Number(orderItem.discount) : 0,
-        taxRate: orderItem?.taxRate != null ? Number(orderItem.taxRate) : 0,
-      };
-    })
-    .filter((i) => i.remainingQuantity > 0);
+  const items = [];
+  for (const item of delivery.items || []) {
+    const delivered = Number(item.deliveredQuantity) || 0;
+    const deliveryInvoiced = invoicedMap[item.productId] || 0;
+    let remaining = Math.max(0, delivered - deliveryInvoiced);
+
+    const lineOrderId = resolveLineOrderId(item);
+    if (lineOrderId && remaining > 0) {
+      if (!orderInvoicedCache[lineOrderId]) {
+        orderInvoicedCache[lineOrderId] = await getInvoicedQtyByProduct(lineOrderId, { tx });
+      }
+      const orderInvoiced = orderInvoicedCache[lineOrderId][item.productId] || 0;
+      const orderItem =
+        orderItems.find((oi) => oi.productId === item.productId) ||
+        (delivery.salesOrder?.items || []).find((oi) => oi.productId === item.productId);
+      const ordered = orderItem ? Number(orderItem.quantity) || 0 : delivered;
+      const orderRemaining = Math.max(0, ordered - orderInvoiced);
+      remaining = Math.min(remaining, orderRemaining);
+    }
+
+    if (remaining <= 0) continue;
+
+    const orderItem = orderItems.find((oi) => oi.productId === item.productId);
+    const unitPrice =
+      orderItem?.unitPrice != null
+        ? Number(orderItem.unitPrice)
+        : item.product?.sellingPrice != null
+          ? Number(item.product.sellingPrice)
+          : Number(item.unitPrice) || 0;
+
+    items.push({
+      id: item.id,
+      productId: item.productId,
+      productName: item.productName || item.product?.name || 'Product',
+      sku: item.sku || item.product?.sku || '',
+      unit: item.unit || 'Pcs',
+      orderedQuantity: item.orderedQuantity || 0,
+      deliveredQuantity: delivered,
+      invoicedQuantity: deliveryInvoiced,
+      quantity: remaining,
+      remainingQuantity: remaining,
+      maxQuantity: remaining,
+      orderId: lineOrderId,
+      unitPrice,
+      discount: orderItem?.discount != null ? Number(orderItem.discount) : 0,
+      taxRate: orderItem?.taxRate != null ? Number(orderItem.taxRate) : 0,
+      notes: item.notes || null,
+    });
+  }
 
   return { items, hasRemaining: items.length > 0, invoicedMap };
 }
@@ -479,6 +560,7 @@ module.exports = {
   getDeliveredQtyByProduct,
   getReservedDeliveredQtyByProduct,
   findInvoicesForOrder,
+  resolveInvoiceLineOrderId,
   getInvoicedQtyByProduct,
   getInvoicedQtyForDelivery,
   getReturnedQtyByProduct,

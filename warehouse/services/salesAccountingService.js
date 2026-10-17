@@ -142,6 +142,54 @@ async function postSalesInvoiceCOGS(tx, { invoice, userId, companyId }) {
   return journalEntry;
 }
 
+/**
+ * Reverse posted COGS JE for an invoice exactly once (idempotent via -COGS-REV reference).
+ */
+async function reverseSalesInvoiceCOGS(tx, { invoice, userId, companyId }) {
+  const cogsReference = `${invoice.invoiceNumber}-COGS`;
+  const revReference = `${invoice.invoiceNumber}-COGS-REV`;
+
+  const alreadyRev = await tx.journalEntry.findFirst({
+    where: { companyId, reference: revReference, status: 'Posted' },
+  });
+  if (alreadyRev) return alreadyRev;
+
+  const cogsJe = await tx.journalEntry.findFirst({
+    where: { companyId, reference: cogsReference, status: 'Posted' },
+    include: { lines: true },
+  });
+  if (!cogsJe || !(cogsJe.lines || []).length) return null;
+
+  const journalEntry = await tx.journalEntry.create({
+    data: {
+      entryNumber: `JE-COGS-REV-${Date.now()}`,
+      date: new Date(),
+      description: `Reversal of COGS — Sales Invoice #${invoice.invoiceNumber}`,
+      reference: revReference,
+      status: 'Posted',
+      type: 'Reversal',
+      createdBy: userId,
+      postedBy: userId,
+      postedAt: new Date(),
+      companyId,
+      fiscalYearId: invoice.fiscalYearId || null,
+      lines: {
+        create: cogsJe.lines.map((line) => ({
+          accountId: line.accountId,
+          accountName: line.accountName,
+          accountCode: line.accountCode,
+          debit: line.credit,
+          credit: line.debit,
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+
+  await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
+  return journalEntry;
+}
+
 async function postSalesReturnAccounting(tx, params) {
   const {
     returnRecord,
@@ -302,6 +350,7 @@ async function postRefundPaymentAccounting(tx, params) {
 module.exports = {
   findOrCreateCOGSAccount,
   postSalesInvoiceCOGS,
+  reverseSalesInvoiceCOGS,
   postSalesReturnAccounting,
   postRefundPaymentAccounting,
   computeItemsCOGS,

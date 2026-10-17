@@ -707,20 +707,15 @@ const getAvailableOrdersForDelivery = async (req, res) => {
 
     const where = { AND: and };
 
-    // Get orders with their deliveries
+    const {
+      getReservedDeliveredQtyByProduct,
+      buildRemainingDeliveryLines,
+    } = require('../services/salesQuantityService');
+
     const orders = await prisma.order.findMany({
       where,
       include: {
         items: true,
-        deliveries: {
-          where: {
-            isActive: true,
-            isDeleted: false
-          },
-          include: {
-            items: true
-          }
-        }
       },
       skip: (parseInt(page) - 1) * parseInt(limit),
       take: parseInt(limit),
@@ -729,35 +724,25 @@ const getAvailableOrdersForDelivery = async (req, res) => {
       }
     });
 
-    // Calculate remaining quantities for each order
-    const ordersWithRemaining = orders.map(order => {
-      // Calculate total delivered per product
-      const deliveredQty = {};
-      for (const delivery of order.deliveries || []) {
-        for (const item of delivery.items || []) {
-          deliveredQty[item.productId] = (deliveredQty[item.productId] || 0) + (Number(item.deliveredQuantity) || 0);
-        }
-      }
+    // Multi-order-aware remaining (includes secondary SO lines on shared deliveries)
+    const ordersWithRemaining = [];
+    for (const order of orders) {
+      const reservedQty = await getReservedDeliveredQtyByProduct(order.id);
+      const remainingItems = buildRemainingDeliveryLines(order.items, reservedQty).map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        productName: item.productName,
+        sku: item.sku,
+        orderedQuantity: item.orderedQuantity,
+        deliveredQuantity: item.deliveredQuantity,
+        remainingQuantity: item.remainingQuantity,
+        unitPrice: Number(item.unitPrice) || 0,
+        unit: item.unit || 'Pcs',
+      }));
 
-      // Calculate remaining quantities
-      const remainingItems = (order.items || []).map(item => {
-        const deliv = deliveredQty[item.productId] || 0;
-        const ordQty = Number(item.quantity) || 0;
-        const remQty = Math.max(0, ordQty - deliv);
-        return {
-          id: item.id,
-          productId: item.productId,
-          productName: item.productName,
-          sku: item.sku,
-          orderedQuantity: ordQty,
-          deliveredQuantity: deliv,
-          remainingQuantity: remQty,
-          unitPrice: Number(item.unitPrice) || 0,
-          unit: 'Pcs'
-        };
-      }).filter(item => item.remainingQuantity > 0);
+      if (remainingItems.length === 0) continue;
 
-      return {
+      ordersWithRemaining.push({
         id: order.id,
         orderNumber: order.orderNumber,
         customerName: order.customerName,
@@ -768,9 +753,9 @@ const getAvailableOrdersForDelivery = async (req, res) => {
         locationId: order.locationId,
         items: remainingItems,
         remainingItems,
-        hasRemainingItems: remainingItems.length > 0
-      };
-    }).filter(order => order.hasRemainingItems);
+        hasRemainingItems: true,
+      });
+    }
 
     const total = ordersWithRemaining.length;
 

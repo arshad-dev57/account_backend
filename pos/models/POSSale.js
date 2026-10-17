@@ -11,6 +11,9 @@ const {
   toBaseQty,
 } = require('../../warehouse/services/productUomService');
 const { toNumber, roundTo } = require('../../warehouse/services/inventoryMath');
+const {
+  findOrCreateInventoryAccount,
+} = require('../../warehouse/services/stockAccountingService');
 
 /** Use terminal warehouse only when explicitly set — never force a default warehouse. */
 async function resolveSaleLocationId(tx, { companyId, terminalId, locationIdInput }) {
@@ -61,15 +64,6 @@ async function findOrCreateCOGSAccount(tx, companyId, userId) {
   });
   if (!acc) {
     acc = await tx.chartOfAccount.create({ data: { code: '5000', name: 'Cost of Goods Sold', type: 'Expense', parentAccount: 'Cost of Sales', openingBalance: 0, currentBalance: 0, balanceType: 'Debit', description: 'Cost of Goods Sold', isActive: true, createdBy: userId, companyId } });
-  }
-  return acc;
-}
-async function findOrCreateInventoryAccount(tx, companyId, userId) {
-  let acc = await tx.chartOfAccount.findFirst({
-    where: { companyId, isActive: true, OR: [{ code: '1300' }, { name: { contains: 'Inventory', mode: 'insensitive' } }, { name: { contains: 'Stock', mode: 'insensitive' } }] }
-  });
-  if (!acc) {
-    acc = await tx.chartOfAccount.create({ data: { code: '1300', name: 'Inventory', type: 'Asset', parentAccount: 'Current Assets', openingBalance: 0, currentBalance: 0, balanceType: 'Debit', description: 'Inventory/Stock Account', isActive: true, createdBy: userId, companyId } });
   }
   return acc;
 }

@@ -209,5 +209,7 @@ const stockWriteOffRoutes = require('./routes/stockWriteOffRoutes');
 
 app.use('/api/distributor', distributorRoutes);
 app.use('/api/inventory/write-offs', stockWriteOffRoutes);
+app.use('/api/trading', require('./routes/tradingRoutes'));
+app.use('/api/import', require('./routes/importRoutes'));
 
 module.exports = app;
