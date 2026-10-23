@@ -308,8 +308,8 @@ const MODULE_DEFINITIONS = [
       res('carriers', 'Carriers & Freight Forwarders', 'Carrier master for ocean, air, road, rail and multimodal transport', CRUD_FULL),
       res(
         'customs',
-        'Customs & Clearance',
-        'Bill of entry, customs duties, port handling, inspection, duty payment and release',
+        'Customs Clearance & Port Formalities',
+        'Bill of entry, customs duties, port handling, inspection, duty payment, approval, and release. Grant Approve so a user can sign off Pending Approval clearances.',
         [
           'view',
           'create',
@@ -326,7 +326,12 @@ const MODULE_DEFINITIONS = [
         ]
       ),
       res('documents', 'Import Documents', 'Bills of lading, commercial invoices, packing lists, and certificates', CRUD_FULL),
-      res('grn', 'Import Goods Receiving', 'Import goods receipt notes, container inspection, and put-away', CRUD_FULL),
+      res(
+        'grn',
+        'Import Goods Receiving',
+        'Import goods receipt notes against shipments after customs release, container inspection, and put-away',
+        ['view', 'create', 'edit', 'delete', 'post', 'approve', 'cancel', 'print', 'export']
+      ),
       res('landed_costs', 'Landed Cost Allocation', 'Distribute freight, customs, insurance, and handling charges to inventory items', ['view', 'create', 'edit', 'delete', 'post', 'print', 'export']),
       res('finance', 'Import Finance & LC', 'Letters of credit, margin blocks, and trade finance instruments', CRUD_FULL),
       res('bills', 'Import Supplier Bills', 'Commercial invoices, vendor liabilities, and payments', ['view', 'create', 'edit', 'delete', 'approve', 'pay', 'print', 'export']),
@@ -503,6 +508,8 @@ const DEFAULT_SYSTEM_ROLES = [
       'purchases.payments.*',
       'import.customs.view',
       'import.customs.record_payment',
+      'import.rfqs.view',
+      'import.rfqs.approve',
       'import.settings.view',
       'dashboard.overview.view',
       'dashboard.module_accounting.view',
@@ -616,11 +623,16 @@ const DEFAULT_SYSTEM_ROLES = [
     patterns: [
       'inventory.*',
       'purchases.grn.*',
+      'import.grn.view',
+      'import.grn.create',
+      'import.grn.post',
+      'import.grn.cancel',
       'sales.deliveries.*',
       'reports.inventory.*',
       'dashboard.overview.view',
       'dashboard.module_inventory.view',
-      'dashboard.widgets_inventory.view'
+      'dashboard.widgets_inventory.view',
+      'dashboard.module_import.view'
     ]
   },
   {
@@ -638,9 +650,13 @@ const DEFAULT_SYSTEM_ROLES = [
       'inventory.adjustments.create',
       'purchases.grn.view',
       'purchases.grn.create',
+      'import.grn.view',
+      'import.grn.create',
+      'import.grn.post',
       'sales.deliveries.view',
       'sales.deliveries.edit',
-      'dashboard.module_inventory.view'
+      'dashboard.module_inventory.view',
+      'dashboard.module_import.view'
     ]
   },
   {

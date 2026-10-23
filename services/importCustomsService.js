@@ -17,6 +17,9 @@ const { getCompanyBaseCurrency: getBaseCurrency } = require('../utils/multiCurre
 const BalanceCalculator = require('../utils/balanceCalculator');
 const { resolveFiscalYearId } = require('../utils/fiscalYearHelper');
 const { getEffectivePermissions } = require('./permissionService');
+const { sendToUser, sendToUsers } = require('./notificationService');
+
+const CUSTOMS_APPROVE_PERMISSION = 'import.customs.approve';
 
 function toNumber(val, fallback = 0) {
   if (val == null || val === '') return fallback;
@@ -85,12 +88,27 @@ async function logImportAudit({ companyId, action, entityType, entityId, details
 
 const CUSTOMS_STATUS_TRANSITIONS = {
   Draft: ['Under Assessment', 'Cancelled'],
-  'Under Assessment': ['Assessed', 'On Hold/Examination', 'Cancelled'],
-  Assessed: ['Partially Paid', 'Duty Paid', 'On Hold/Examination', 'Cancelled'],
-  'Partially Paid': ['Partially Paid', 'Duty Paid', 'On Hold/Examination', 'Cancelled'],
-  'Duty Paid': ['Released/Cleared', 'On Hold/Examination', 'Cancelled'],
+  // Maker sends for assessment; assessor confirms → Assessed, or sends back → Draft
+  'Under Assessment': ['Assessed', 'Draft', 'On Hold/Examination', 'Cancelled'],
+  // Maker sends for payment; payer records duty → Duty Paid / Partially Paid
+  Assessed: ['Pending Payment', 'On Hold/Examination', 'Cancelled'],
+  'Pending Payment': ['Duty Paid', 'Partially Paid', 'Assessed', 'On Hold/Examination', 'Cancelled'],
+  'Partially Paid': ['Partially Paid', 'Duty Paid', 'Pending Payment', 'On Hold/Examination', 'Cancelled'],
+  // Release requires approval: Duty Paid → Pending Approval → Approved → Released/Cleared
+  'Duty Paid': ['Pending Approval', 'On Hold/Examination', 'Cancelled'],
+  'Pending Approval': ['Approved', 'Duty Paid', 'On Hold/Examination', 'Cancelled'],
+  Approved: ['Released/Cleared', 'On Hold/Examination', 'Cancelled'],
   'Released/Cleared': [],
-  'On Hold/Examination': ['Under Assessment', 'Assessed', 'Partially Paid', 'Duty Paid', 'Cancelled'],
+  'On Hold/Examination': [
+    'Under Assessment',
+    'Assessed',
+    'Pending Payment',
+    'Partially Paid',
+    'Duty Paid',
+    'Pending Approval',
+    'Approved',
+    'Cancelled',
+  ],
   Cancelled: [],
   // legacy aliases
   Cleared: [],
@@ -106,7 +124,20 @@ const CUSTOMS_PERM_MESSAGES = {
   'import.customs.hold': 'You do not have permission to put customs clearances on hold',
   'import.customs.cancel': 'You do not have permission to cancel customs clearances',
   'import.customs.edit': 'You do not have permission to edit customs clearances',
+  'import.customs.approve':
+    'You do not have permission to approve customs clearance & port formalities',
 };
+
+/** Permissions that authorize recording customs duty payments (Accountant-friendly). */
+const CUSTOMS_PAYMENT_PERMISSIONS = [
+  'import.customs.record_payment',
+  'purchases.payments.create',
+  'purchases.payments.edit',
+  'accounting.accounts_payable.create',
+  'accounting.accounts_payable.edit',
+  'accounting.journal_entries.create',
+  'accounting.journal_entries.post',
+];
 
 function isCashBankAccount(ba) {
   if (!ba) return false;
@@ -137,6 +168,73 @@ async function assertCustomsPermission(req, permissionKey, { companyId, entityId
     });
   }
   throw customsError(message, 'permission', 'PERMISSION_DENIED', 403);
+}
+
+function hasAnyEffectivePermission(effective, keys = []) {
+  if (!effective) return false;
+  if (effective.isAdmin) return true;
+  const map = effective.permissionMap || {};
+  return keys.some((k) => map[k]?.granted === true);
+}
+
+/**
+ * Accountants / finance users can record duty payments even if they don't have
+ * the dedicated import.customs.record_payment key (stale role seeds).
+ */
+async function assertCanRecordCustomsDutyPayment(req, { companyId, entityId } = {}) {
+  const userId = req.user?.id || req.user?._id;
+  const cid = companyId || req.user?.companyId;
+  const effective = req.effectivePermissions || (await getEffectivePermissions(userId, cid));
+  if (hasAnyEffectivePermission(effective, CUSTOMS_PAYMENT_PERMISSIONS)) return true;
+
+  const message =
+    CUSTOMS_PERM_MESSAGES['import.customs.record_payment'] ||
+    'You do not have permission to record customs duty payments';
+  if (cid && entityId) {
+    await logImportAudit({
+      companyId: cid,
+      action: 'PERMISSION_DENIED',
+      entityType: 'IMPORT_CUSTOMS',
+      entityId,
+      details: { permission: 'import.customs.record_payment', alternatives: CUSTOMS_PAYMENT_PERMISSIONS, message },
+      userId,
+    });
+  }
+  throw customsError(message, 'permission', 'PERMISSION_DENIED', 403);
+}
+
+/**
+ * SOD: creator cannot pay. Assessor may pay when they hold accounting/payment
+ * permissions (Accountant flow). Strict mode still blocks assessor if they
+ * lack payment-oriented permissions.
+ */
+async function assertCustomsPaymentSod(req, existing, settings) {
+  if (settings?.requireSeparateCustomsPayer === false) return;
+
+  const userId = req.user?.id || req.user?._id;
+  if (!userId) return;
+
+  if (existing.createdBy && existing.createdBy === userId) {
+    throw customsError(
+      'Payment must be recorded by a different user than the clearance creator. Ask an Accountant / Finance user to record the duty payment.',
+      'permission',
+      'SOD_VIOLATION'
+    );
+  }
+
+  if (existing.assessedBy && existing.assessedBy === userId) {
+    const cid = existing.companyId || req.user?.companyId;
+    const effective = req.effectivePermissions || (await getEffectivePermissions(userId, cid));
+    // Accountant / AP / payments users are allowed to pay after assessing.
+    const isPaymentRole = hasAnyEffectivePermission(effective, CUSTOMS_PAYMENT_PERMISSIONS);
+    if (!isPaymentRole) {
+      throw customsError(
+        'Payment must be recorded by an Accountant (or a user with payment permissions), different from the assessor.',
+        'permission',
+        'SOD_VIOLATION'
+      );
+    }
+  }
 }
 
 function normalizeCustomsStatus(status) {
@@ -1449,21 +1547,99 @@ async function updateCustomsStatusEnterprise(req, id, status, paymentRef, extra 
   await assertRecordCompanyAccess(req, existing.companyId);
 
   const { from, to } = assertCustomsTransition(existing.clearanceStatus, status);
+
+  // Approval gates use dedicated endpoints (submit / approve / reject)
+  if (to === 'Pending Approval' || (from === 'Pending Approval' && to === 'Approved')) {
+    throw customsError(
+      to === 'Pending Approval'
+        ? 'Use Send for Approval — status cannot jump to Pending Approval directly'
+        : 'Use Approve action — status cannot jump to Approved directly',
+      'status',
+      'USE_APPROVAL_ACTION'
+    );
+  }
+  if (from === 'Pending Approval' && to === 'Duty Paid' && !extra._rejectApproval) {
+    throw customsError(
+      'Use Reject Approval action to send a pending clearance back to Duty Paid',
+      'status',
+      'USE_APPROVAL_ACTION'
+    );
+  }
+
   const settings = await prisma.importSetting.findUnique({ where: { companyId: existing.companyId } }).catch(() => null);
   const userId = req.user.id;
   const note = extra.reason || extra.note || extra.holdReason || null;
 
-  if (to === 'Under Assessment' || to === 'Assessed') {
+  if (to === 'Under Assessment') {
+    // Makers (create/edit) can send for assessment; assessors may also send
+    const effective =
+      req.effectivePermissions ||
+      (await getEffectivePermissions(userId, existing.companyId));
+    if (
+      !hasAnyEffectivePermission(effective, [
+        'import.customs.create',
+        'import.customs.edit',
+        'import.customs.assess',
+      ])
+    ) {
+      throw customsError(
+        'You do not have permission to submit customs clearance for assessment',
+        'permission',
+        'PERMISSION_DENIED',
+        403
+      );
+    }
+  } else if (to === 'Assessed') {
+    if (from === 'Pending Payment') {
+      // Payer sends payment request back to Assessed
+      await assertCanRecordCustomsDutyPayment(req, {
+        companyId: existing.companyId,
+        entityId: id,
+      });
+    } else {
+      await assertCustomsPermission(req, 'import.customs.assess', {
+        companyId: existing.companyId,
+        entityId: id,
+      });
+    }
+  } else if (to === 'Draft' && from === 'Under Assessment') {
+    // Assessor rejects / sends back for correction
     await assertCustomsPermission(req, 'import.customs.assess', {
       companyId: existing.companyId,
       entityId: id,
     });
+  } else if (to === 'Pending Payment') {
+    const effective =
+      req.effectivePermissions ||
+      (await getEffectivePermissions(userId, existing.companyId));
+    if (
+      !hasAnyEffectivePermission(effective, [
+        'import.customs.create',
+        'import.customs.edit',
+        'import.customs.assess',
+        'import.customs.record_payment',
+      ])
+    ) {
+      throw customsError(
+        'You do not have permission to submit customs clearance for duty payment',
+        'permission',
+        'PERMISSION_DENIED',
+        403
+      );
+    }
   } else if (to === 'Duty Paid' || to === 'Partially Paid') {
-    await assertCustomsPermission(req, 'import.customs.record_payment', {
+    await assertCanRecordCustomsDutyPayment(req, {
       companyId: existing.companyId,
       entityId: id,
     });
   } else if (to === 'Released/Cleared') {
+    if (normalizeCustomsStatus(existing.clearanceStatus) !== 'Approved') {
+      throw customsError(
+        'Customs clearance must be Approved before Released/Cleared. Send for approval first.',
+        'status',
+        'APPROVAL_REQUIRED'
+      );
+    }
     await assertCustomsPermission(req, 'import.customs.release', {
       companyId: existing.companyId,
       entityId: id,
@@ -1490,7 +1666,7 @@ async function updateCustomsStatusEnterprise(req, id, status, paymentRef, extra 
   let assessedDateForPatch = null;
   let releaseDateForPatch = null;
 
-  if (to === 'Assessed') {
+  if (to === 'Assessed' && from !== 'Pending Payment') {
     if (settings?.requireSeparateCustomsAssessor !== false && existing.createdBy && existing.createdBy === userId) {
       throw customsError(
         'Creator and assessor must be different users',
@@ -1523,8 +1699,12 @@ async function updateCustomsStatusEnterprise(req, id, status, paymentRef, extra 
     if (!existing.assessmentDate && !extra.assessmentDate) {
       throw customsError('Assessment date is required before release', 'assessmentDate');
     }
-    if (normalizeCustomsStatus(existing.clearanceStatus) !== 'Duty Paid') {
-      throw customsError('Duty must be fully paid before release', 'status');
+    if (normalizeCustomsStatus(existing.clearanceStatus) !== 'Approved') {
+      throw customsError(
+        'Customs clearance & port formalities must be Approved before release',
+        'status',
+        'APPROVAL_REQUIRED'
+      );
     }
     if (extra.assessmentDate) {
       assessedDateForPatch = assertCustomsCalendarDate(extra.assessmentDate, {
@@ -1553,7 +1733,7 @@ async function updateCustomsStatusEnterprise(req, id, status, paymentRef, extra 
     clearanceStatus: to === 'Released/Cleared' ? 'Released/Cleared' : to,
   };
 
-  if (to === 'Assessed') {
+  if (to === 'Assessed' && from !== 'Pending Payment') {
     patch.assessedBy = userId;
     patch.assessedAt = new Date();
     patch.assessmentDate = assessedDateForPatch;
@@ -1645,9 +1825,109 @@ async function updateCustomsStatusEnterprise(req, id, status, paymentRef, extra 
       nextStatus: to,
       reason: note,
       dutyPaymentRef: patch.dutyPaymentRef,
+      ...(to === 'Under Assessment' ? { action: 'SUBMIT_FOR_ASSESSMENT' } : {}),
+      ...(to === 'Assessed' && from !== 'Pending Payment' ? { action: 'CONFIRM_ASSESSMENT' } : {}),
+      ...(to === 'Draft' && from === 'Under Assessment' ? { action: 'REJECT_ASSESSMENT' } : {}),
+      ...(to === 'Pending Payment' ? { action: 'SUBMIT_FOR_PAYMENT' } : {}),
+      ...(to === 'Assessed' && from === 'Pending Payment' ? { action: 'REJECT_PAYMENT_REQUEST' } : {}),
     },
     userId,
   });
+
+  // Assessment / payment request notifications
+  try {
+    const { findCompanyUserIdsWithPermission } = require('./importService');
+    if (to === 'Under Assessment') {
+      const assessorIds = await findCompanyUserIdsWithPermission(
+        existing.companyId,
+        'import.customs.assess',
+        { excludeUserIds: [userId] }
+      );
+      if (assessorIds.length) {
+        await sendToUsers(assessorIds, {
+          title: 'Customs assessment requested',
+          message: `${existing.entryNumber} was sent for duty assessment.`,
+          type: 'action',
+          category: 'Import',
+          data: {
+            entityType: 'IMPORT_CUSTOMS',
+            entityId: id,
+            entryNumber: existing.entryNumber,
+            link: '/import/approvals',
+          },
+        });
+      }
+    } else if (to === 'Pending Payment') {
+      const payerIds = await findCompanyUserIdsWithPermission(
+        existing.companyId,
+        'import.customs.record_payment',
+        { excludeUserIds: [userId] }
+      );
+      if (payerIds.length) {
+        await sendToUsers(payerIds, {
+          title: 'Customs duty payment requested',
+          message: `${existing.entryNumber} is ready for duty payment.`,
+          type: 'action',
+          category: 'Import',
+          data: {
+            entityType: 'IMPORT_CUSTOMS',
+            entityId: id,
+            entryNumber: existing.entryNumber,
+            link: '/import/approvals',
+          },
+        });
+      }
+    } else if (
+      (to === 'Assessed' && from === 'Under Assessment') ||
+      (to === 'Draft' && from === 'Under Assessment')
+    ) {
+      const notifyUserId = existing.createdBy;
+      if (notifyUserId && notifyUserId !== userId) {
+        await sendToUser({
+          mongoUserId: notifyUserId,
+          title:
+            to === 'Assessed'
+              ? 'Customs assessment confirmed'
+              : 'Customs assessment sent back',
+          message:
+            to === 'Assessed'
+              ? `${existing.entryNumber} assessment was confirmed. Send it for duty payment next.`
+              : note
+                ? `${existing.entryNumber} was sent back to Draft: ${note}`
+                : `${existing.entryNumber} was sent back to Draft. Review and resubmit.`,
+          type: to === 'Assessed' ? 'success' : 'warning',
+          category: 'Import',
+          data: {
+            entityType: 'IMPORT_CUSTOMS',
+            entityId: id,
+            entryNumber: existing.entryNumber,
+            link: `/import/customs?id=${id}`,
+          },
+        });
+      }
+    } else if (to === 'Assessed' && from === 'Pending Payment') {
+      const notifyUserId = existing.createdBy;
+      if (notifyUserId && notifyUserId !== userId) {
+        await sendToUser({
+          mongoUserId: notifyUserId,
+          title: 'Duty payment request sent back',
+          message: note
+            ? `${existing.entryNumber} payment request returned: ${note}`
+            : `${existing.entryNumber} was returned to Assessed. Review and resubmit for payment.`,
+          type: 'warning',
+          category: 'Import',
+          data: {
+            entityType: 'IMPORT_CUSTOMS',
+            entityId: id,
+            entryNumber: existing.entryNumber,
+            link: `/import/customs?id=${id}`,
+          },
+        });
+      }
+    }
+  } catch (notifyErr) {
+    console.error('[import] Customs workflow notification failed:', notifyErr.message);
+  }
 
   return getCustomsClearanceById(req, id);
 }
@@ -1693,9 +1973,15 @@ async function listCustomsPaymentAccounts(req, query = {}) {
     isCash: isCashBankAccount(ba),
   }));
   if (!method || method === 'Other') return mapped;
-  if (method === 'Cash') return mapped.filter((a) => a.isCash);
-  // Bank Transfer / Pay Order / Online Portal → non-cash bank accounts
-  return mapped.filter((a) => !a.isCash);
+  const normalized = String(method).trim().toLowerCase();
+  if (normalized === 'cash') return mapped.filter((a) => a.isCash);
+  // Bank / Cheque / Bank Transfer / Pay Order / Online Portal → non-cash bank accounts
+  if (
+    ['bank', 'bank transfer', 'cheque', 'check', 'pay order', 'online portal'].includes(normalized)
+  ) {
+    return mapped.filter((a) => !a.isCash);
+  }
+  return mapped;
 }
 
 /**
@@ -1705,7 +1991,7 @@ async function recordCustomsDutyPayment(req, id, data = {}) {
   const companyId = requireSingleCompany(req);
   const userId = req.user.id;
 
-  await assertCustomsPermission(req, 'import.customs.record_payment', {
+  await assertCanRecordCustomsDutyPayment(req, {
     companyId,
     entityId: id,
   });
@@ -1717,32 +2003,18 @@ async function recordCustomsDutyPayment(req, id, data = {}) {
   if (!existing) throw customsError('Customs Clearance record not found', null, 'NOT_FOUND', 404);
 
   const fromStatus = normalizeCustomsStatus(existing.clearanceStatus);
-  if (!['Assessed', 'Partially Paid'].includes(fromStatus)) {
+  if (!['Pending Payment', 'Partially Paid'].includes(fromStatus)) {
     throw customsError(
-      'Duty payment can only be recorded when status is Assessed or Partially Paid',
-      'clearanceStatus'
+      'Duty payment can only be recorded when status is Pending Payment or Partially Paid. Send for duty payment first.',
+      'clearanceStatus',
+      'PAYMENT_REQUEST_REQUIRED'
     );
   }
 
   const settings =
     (await prisma.importSetting.findUnique({ where: { companyId } }).catch(() => null)) || {};
 
-  if (settings.requireSeparateCustomsPayer !== false) {
-    if (existing.createdBy && existing.createdBy === userId) {
-      throw customsError(
-        'Payment must be recorded by a user different from the creator and the assessor',
-        'permission',
-        'SOD_VIOLATION'
-      );
-    }
-    if (existing.assessedBy && existing.assessedBy === userId) {
-      throw customsError(
-        'Payment must be recorded by a user different from the creator and the assessor',
-        'permission',
-        'SOD_VIOLATION'
-      );
-    }
-  }
+  await assertCustomsPaymentSod(req, existing, settings);
 
   const amount = data.dutyPaymentAmount != null ? toNumber(data.dutyPaymentAmount) : null;
   const method = data.dutyPaymentMethod || data.paymentMethod || null;
@@ -2041,6 +2313,30 @@ async function recordCustomsDutyPayment(req, id, data = {}) {
     userId,
   });
 
+  try {
+    const notifyUserId = existing.createdBy;
+    if (notifyUserId && notifyUserId !== userId) {
+      await sendToUser({
+        mongoUserId: notifyUserId,
+        title: nextStatus === 'Duty Paid' ? 'Customs duty fully paid' : 'Customs duty payment recorded',
+        message:
+          nextStatus === 'Duty Paid'
+            ? `${existing.entryNumber} duty is fully paid. You can send it for clearance approval.`
+            : `${existing.entryNumber} partial duty payment recorded. Remaining: ${remainingAfter}.`,
+        type: 'success',
+        category: 'Import',
+        data: {
+          entityType: 'IMPORT_CUSTOMS',
+          entityId: id,
+          entryNumber: existing.entryNumber,
+          link: `/import/customs?id=${id}`,
+        },
+      });
+    }
+  } catch (notifyErr) {
+    console.error('[import] Duty payment notification failed:', notifyErr.message);
+  }
+
   const full = await getCustomsClearanceById(req, id);
   return {
     ...full,
@@ -2103,8 +2399,257 @@ async function listCustomsClearancesEnriched(req, query = {}) {
   return Promise.all(rows.map((r) => enrichCustomsClearance(r)));
 }
 
+/**
+ * Duty Paid → Pending Approval. Notifies users with import.customs.approve.
+ */
+async function submitCustomsForApproval(req, id) {
+  const existing = await prisma.importCustomsClearance.findUnique({
+    where: { id },
+    include: { lines: true, importPo: true, shipment: true, dutyPayments: true },
+  });
+  if (!existing) throw customsError('Customs Clearance record not found', null, 'NOT_FOUND', 404);
+  await assertRecordCompanyAccess(req, existing.companyId);
+
+  const from = normalizeCustomsStatus(existing.clearanceStatus);
+  assertCustomsTransition(from, 'Pending Approval');
+
+  const userId = req.user?.id || req.user?._id;
+  const effective =
+    req.effectivePermissions || (await getEffectivePermissions(userId, existing.companyId));
+  if (
+    !hasAnyEffectivePermission(effective, [
+      'import.customs.edit',
+      'import.customs.assess',
+      'import.customs.record_payment',
+      'import.customs.release',
+      'import.customs.create',
+    ])
+  ) {
+    throw customsError(
+      'You do not have permission to submit customs clearance for approval',
+      'permission',
+      'PERMISSION_DENIED',
+      403
+    );
+  }
+  const updated = await prisma.importCustomsClearance.update({
+    where: { id },
+    data: {
+      clearanceStatus: 'Pending Approval',
+      approvalRequestedBy: userId,
+      approvalRequestedAt: new Date(),
+      approvedBy: null,
+      approvedAt: null,
+    },
+    include: { lines: true, importPo: true, shipment: true, dutyPayments: true },
+  });
+
+  await logImportAudit({
+    companyId: existing.companyId,
+    action: 'STATUS_CHANGE',
+    entityType: 'IMPORT_CUSTOMS',
+    entityId: id,
+    details: {
+      from,
+      to: 'Pending Approval',
+      previousStatus: from,
+      nextStatus: 'Pending Approval',
+      action: 'SUBMIT_FOR_APPROVAL',
+      userId,
+      at: new Date().toISOString(),
+    },
+    userId,
+  });
+
+  try {
+    const { findCompanyUserIdsWithPermission } = require('./importService');
+    const approverIds = await findCompanyUserIdsWithPermission(
+      existing.companyId,
+      CUSTOMS_APPROVE_PERMISSION,
+      { excludeUserIds: [userId] }
+    );
+    if (approverIds.length) {
+      await sendToUsers(approverIds, {
+        title: 'Customs clearance awaiting approval',
+        message: `${existing.entryNumber} port formalities / customs clearance is ready for approval.`,
+        type: 'action',
+        category: 'Import',
+        data: {
+          entityType: 'IMPORT_CUSTOMS',
+          entityId: id,
+          entryNumber: existing.entryNumber,
+          link: '/import/approvals',
+        },
+      });
+    }
+  } catch (notifyErr) {
+    console.error('[import] Customs approval notification failed:', notifyErr.message);
+  }
+
+  return enrichCustomsClearance(updated);
+}
+
+/**
+ * Pending Approval → Approved. Requires import.customs.approve (route-enforced).
+ */
+async function approveCustomsClearance(req, id) {
+  const existing = await prisma.importCustomsClearance.findUnique({
+    where: { id },
+    include: { lines: true, importPo: true, shipment: true, dutyPayments: true },
+  });
+  if (!existing) throw customsError('Customs Clearance record not found', null, 'NOT_FOUND', 404);
+  await assertRecordCompanyAccess(req, existing.companyId);
+
+  const from = normalizeCustomsStatus(existing.clearanceStatus);
+  assertCustomsTransition(from, 'Approved');
+
+  await assertCustomsPermission(req, CUSTOMS_APPROVE_PERMISSION, {
+    companyId: existing.companyId,
+    entityId: id,
+  });
+
+  const userId = req.user.id;
+  if (existing.approvalRequestedBy && existing.approvalRequestedBy === userId) {
+    throw customsError(
+      'Requester and approver must be different users. Ask another user with Customs Approve permission to sign off.',
+      'status',
+      'SOD_VIOLATION',
+      403
+    );
+  }
+
+  const updated = await prisma.importCustomsClearance.update({
+    where: { id },
+    data: {
+      clearanceStatus: 'Approved',
+      approvedBy: userId,
+      approvedAt: new Date(),
+    },
+    include: { lines: true, importPo: true, shipment: true, dutyPayments: true },
+  });
+
+  await logImportAudit({
+    companyId: existing.companyId,
+    action: 'STATUS_CHANGE',
+    entityType: 'IMPORT_CUSTOMS',
+    entityId: id,
+    details: {
+      from,
+      to: 'Approved',
+      previousStatus: from,
+      nextStatus: 'Approved',
+      action: 'APPROVE',
+      userId,
+      at: new Date().toISOString(),
+    },
+    userId,
+  });
+
+  try {
+    const notifyUserId = existing.approvalRequestedBy || existing.createdBy;
+    if (notifyUserId && notifyUserId !== userId) {
+      await sendToUser({
+        mongoUserId: notifyUserId,
+        title: 'Customs clearance approved',
+        message: `${existing.entryNumber} was approved. You can now release / clear the shipment.`,
+        type: 'success',
+        category: 'Import',
+        data: {
+          entityType: 'IMPORT_CUSTOMS',
+          entityId: id,
+          entryNumber: existing.entryNumber,
+          link: `/import/customs?id=${id}`,
+        },
+      });
+    }
+  } catch (notifyErr) {
+    console.error('[import] Customs approved notification failed:', notifyErr.message);
+  }
+
+  return enrichCustomsClearance(updated);
+}
+
+/**
+ * Pending Approval → Duty Paid (reject / send back).
+ */
+async function rejectCustomsApproval(req, id, data = {}) {
+  const existing = await prisma.importCustomsClearance.findUnique({
+    where: { id },
+    include: { lines: true, importPo: true, shipment: true, dutyPayments: true },
+  });
+  if (!existing) throw customsError('Customs Clearance record not found', null, 'NOT_FOUND', 404);
+  await assertRecordCompanyAccess(req, existing.companyId);
+
+  const from = normalizeCustomsStatus(existing.clearanceStatus);
+  assertCustomsTransition(from, 'Duty Paid');
+
+  await assertCustomsPermission(req, CUSTOMS_APPROVE_PERMISSION, {
+    companyId: existing.companyId,
+    entityId: id,
+  });
+
+  const userId = req.user.id;
+  const reason = String(data.reason || data.rejectReason || '').trim() || null;
+
+  const updated = await prisma.importCustomsClearance.update({
+    where: { id },
+    data: {
+      clearanceStatus: 'Duty Paid',
+      approvedBy: null,
+      approvedAt: null,
+      approvalRequestedBy: null,
+      approvalRequestedAt: null,
+    },
+    include: { lines: true, importPo: true, shipment: true, dutyPayments: true },
+  });
+
+  await logImportAudit({
+    companyId: existing.companyId,
+    action: 'STATUS_CHANGE',
+    entityType: 'IMPORT_CUSTOMS',
+    entityId: id,
+    details: {
+      from,
+      to: 'Duty Paid',
+      previousStatus: from,
+      nextStatus: 'Duty Paid',
+      action: 'REJECT_APPROVAL',
+      reason: reason || undefined,
+      userId,
+      at: new Date().toISOString(),
+    },
+    userId,
+  });
+
+  try {
+    const notifyUserId = existing.approvalRequestedBy || existing.createdBy;
+    if (notifyUserId && notifyUserId !== userId) {
+      await sendToUser({
+        mongoUserId: notifyUserId,
+        title: 'Customs clearance approval rejected',
+        message: reason
+          ? `${existing.entryNumber} was sent back: ${reason}`
+          : `${existing.entryNumber} was sent back to Duty Paid. Review and resubmit.`,
+        type: 'warning',
+        category: 'Import',
+        data: {
+          entityType: 'IMPORT_CUSTOMS',
+          entityId: id,
+          entryNumber: existing.entryNumber,
+          link: `/import/customs?id=${id}`,
+        },
+      });
+    }
+  } catch (notifyErr) {
+    console.error('[import] Customs reject notification failed:', notifyErr.message);
+  }
+
+  return enrichCustomsClearance(updated);
+}
+
 module.exports = {
   CUSTOMS_STATUS_TRANSITIONS,
+  CUSTOMS_APPROVE_PERMISSION,
   normalizeCustomsStatus,
   previewCustomsClearance,
   createCustomsClearanceEnterprise,
@@ -2116,4 +2661,7 @@ module.exports = {
   recordCustomsDutyPayment,
   listCustomsPaymentAccounts,
   lookupTariff,
+  submitCustomsForApproval,
+  approveCustomsClearance,
+  rejectCustomsApproval,
 };

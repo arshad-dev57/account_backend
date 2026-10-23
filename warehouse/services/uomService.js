@@ -151,8 +151,6 @@ async function convertQuantity(companyId, qty, fromCode, toCode, precision = 6) 
   if (inverse && toNumber(inverse.conversionFactor) !== 0) {
     return roundTo(q / toNumber(inverse.conversionFactor), precision);
   }
-
-  // No conversion — treat as 1:1 but flag caller via NaN sentinel? Keep qty and let validation warn.
   return roundTo(q, precision);
 }
 

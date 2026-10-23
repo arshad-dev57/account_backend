@@ -12,6 +12,11 @@ const createInvoiceFromOrder = async (req, res) => {
     const userId = req.user.id;
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const { orderId, dueDate, paymentTerms } = req.body;
+    const {
+      normalizeInstallmentSaleInput,
+      createSalesInstallmentSchedule,
+    } = require('../../services/installmentScheduleService');
+    const installmentInput = normalizeInstallmentSaleInput(req.body);
     const postingDate = new Date();
 
     // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
@@ -60,6 +65,29 @@ const createInvoiceFromOrder = async (req, res) => {
       paymentTerms,
       fiscalYearId
     );
+
+    if (installmentInput.isInstallmentSale && invoice?.id) {
+      const plan = await createSalesInstallmentSchedule({
+        companyId,
+        invoiceId: invoice.id,
+        grandTotal: invoice.grandTotal,
+        invoiceDate: invoice.invoiceDate || postingDate,
+        planInput: installmentInput,
+      });
+      await prisma.salesInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          isInstallmentSale: true,
+          downPaymentAmount: plan.downPaymentAmount,
+          installmentCount: plan.installmentCount,
+          installmentFrequency: plan.installmentFrequency,
+          installmentAmount: plan.installmentAmount,
+          paymentTerms:
+            paymentTerms ||
+            `Installment ${plan.installmentCount}x ${plan.installmentFrequency}`,
+        },
+      });
+    }
 
     const postedInvoice = await SalesInvoice.postInvoice(invoice.id, userId);
 
@@ -185,6 +213,11 @@ const createManualInvoice = async (req, res) => {
       locationId,
     } = req.body;
 
+    const {
+      normalizeInstallmentSaleInput,
+    } = require('../../services/installmentScheduleService');
+    const installmentInput = normalizeInstallmentSaleInput(req.body);
+
     const postingDate = invoiceDate ? new Date(invoiceDate) : new Date();
 
     // ─── Fiscal Year Guard (Req 5) ────────────────────────────────────────
@@ -274,6 +307,7 @@ const createManualInvoice = async (req, res) => {
       fiscalYearId: fiscalYearId,
       companyId: companyId,  // ✅ Added companyId
       locationId: locationId || null,
+      ...installmentInput,
     };
 
     const invoice = await SalesInvoice.createManual(invoiceData);
@@ -316,6 +350,10 @@ const createMultiSourceInvoice = async (req, res) => {
       notes,
       locationId,
     } = req.body;
+    const {
+      normalizeInstallmentSaleInput,
+    } = require('../../services/installmentScheduleService');
+    const installmentInput = normalizeInstallmentSaleInput(req.body);
 
     const postingDate = new Date();
 
@@ -355,6 +393,7 @@ const createMultiSourceInvoice = async (req, res) => {
       companyId,
       locationId,
       fiscalYearId,
+      ...installmentInput,
     });
 
     const postedInvoice = await SalesInvoice.postInvoice(invoice.id, userId);
@@ -593,7 +632,10 @@ const getSalesInvoiceById = async (req, res) => {
           }
         },
         salesRevenueAccount: true,
-        arAccount: true
+        arAccount: true,
+        installmentSchedules: {
+          orderBy: { installmentNumber: 'asc' },
+        },
       }
     });
 

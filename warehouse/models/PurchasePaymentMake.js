@@ -503,6 +503,25 @@ class PurchasePaymentMakeModel {
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
+
+        if (invoice.isInstallmentPurchase) {
+          try {
+            const {
+              applyPaymentToPurchaseInstallments,
+            } = require('../../services/installmentScheduleService');
+            await applyPaymentToPurchaseInstallments({
+              companyId,
+              invoiceId: invoice.id,
+              amount: inv.amountPaid,
+              purchasePaymentId: payment.id,
+              preferredInstallmentIds:
+                inv.preferredInstallmentIds || inv.installmentIds || null,
+              tx,
+            });
+          } catch (instErr) {
+            console.warn('[makePayment] installment schedule update skipped:', instErr.message);
+          }
+        }
       }
 
       // ─── Update Bank Account Balance (BASE amount leaving) ───
@@ -840,6 +859,23 @@ class PurchasePaymentMakeModel {
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
+
+        if (invoice.isInstallmentPurchase && companyId) {
+          try {
+            const {
+              reversePaymentFromPurchaseInstallments,
+            } = require('../../services/installmentScheduleService');
+            await reversePaymentFromPurchaseInstallments({
+              companyId,
+              invoiceId: invoice.id,
+              amount: invPayment.amountPaid,
+              purchasePaymentId: payment.id,
+              tx,
+            });
+          } catch (instErr) {
+            console.warn('[cancelPurchasePayment] installment reverse skipped:', instErr.message);
+          }
+        }
       }
 
       // ─── Reverse Journal Entry ─────────────────────────────

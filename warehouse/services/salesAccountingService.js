@@ -112,6 +112,7 @@ async function postSalesInvoiceCOGS(tx, { invoice, userId, companyId }) {
       reference,
       status: 'Posted',
       createdBy: userId,
+      
       postedBy: userId,
       postedAt: new Date(),
       companyId,

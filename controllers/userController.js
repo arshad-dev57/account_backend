@@ -343,7 +343,9 @@ exports.register = async (req, res) => {
       fiscalYear, taxRegistrationNumber,
       industry, businessType,
       websiteLink, contactNo,
-      fiscalYearStartDate, fiscalYearEndDate, fiscalYearName
+      fiscalYearStartDate, fiscalYearEndDate, fiscalYearName,
+      operationalBusinessType, salesModel, purchaseModel,
+      installmentRevenuePolicy,
     } = req.body;
     
     let logo = req.body.logo || '';
@@ -567,6 +569,25 @@ exports.register = async (req, res) => {
       console.error('⚠️ [register] Company membership failed (non-fatal):', memError.message);
     }
 
+    let businessConfig = null;
+    try {
+      const {
+        parseBusinessConfigFromRequestBody,
+        seedCompanyBusinessConfig,
+      } = require('../utils/companyBusinessConfig');
+      const requested = parseBusinessConfigFromRequestBody({
+        operationalBusinessType,
+        salesModel,
+        purchaseModel,
+        installmentRevenuePolicy,
+        ...req.body,
+      });
+      businessConfig = await seedCompanyBusinessConfig(company.id, requested);
+      console.log('✅ [register] Business config seeded:', businessConfig.salesModel);
+    } catch (cfgError) {
+      console.error('⚠️ [register] Business config seeding failed (non-fatal):', cfgError.message);
+    }
+
     // NOTE: Do NOT auto-create a Main Warehouse. Warehouse creation is an explicit user action.
 
     try {
@@ -587,6 +608,7 @@ exports.register = async (req, res) => {
       message: `User registered successfully. Free trial started for ${TRIAL_DAYS} days!`,
       token,
       refreshToken,
+      businessConfig: businessConfig || undefined,
       user: {
         id: user._id,
         firstName: user.firstName,
@@ -600,6 +622,7 @@ exports.register = async (req, res) => {
         contactNo: user.contactNo,
         businessDetails: user.businessDetails || {},
         role: user.role,
+        companyId: company.id,
         subscription: {
           plan: user.subscription.plan,
           status: user.subscription.status,
@@ -1751,6 +1774,44 @@ exports.updateCurrency = async (req, res) => {
       }
     });
 
+    // Sync company base currency so Import FX / conversion rates use the selected
+    // app currency (e.g. SAR) instead of the seeded PKR default.
+    let baseCurrency = null;
+    try {
+      const companyId = req.user?.companyId || updatedUser.companyId;
+      if (companyId) {
+        const { ensureCurrenciesSeeded, getCurrencyByCode } = require('../utils/multiCurrency');
+        await ensureCurrenciesSeeded();
+        let currency = await getCurrencyByCode(String(currencyCode).toUpperCase());
+        if (!currency) {
+          currency = await prisma.currency.create({
+            data: {
+              code: String(currencyCode).toUpperCase(),
+              name: String(currencyCode).toUpperCase(),
+              symbol: String(currencySymbol),
+              decimalPlaces: 2,
+              isActive: true,
+            },
+          });
+        } else if (!currency.isActive) {
+          currency = await prisma.currency.update({
+            where: { id: currency.id },
+            data: { isActive: true },
+          });
+        }
+        if (currency) {
+          const company = await prisma.company.update({
+            where: { id: companyId },
+            data: { baseCurrencyId: currency.id },
+            include: { baseCurrency: true },
+          });
+          baseCurrency = company.baseCurrency;
+        }
+      }
+    } catch (syncErr) {
+      console.warn('⚠️ [updateCurrency] Company base sync skipped:', syncErr.message);
+    }
+
     console.log('✅ [updateCurrency] Currency updated successfully');
     console.log('📦 [updateCurrency] Updated Business Details:', JSON.stringify(updatedUser.businessDetails, null, 2));
 
@@ -1759,7 +1820,15 @@ exports.updateCurrency = async (req, res) => {
       message: 'Currency updated successfully',
       data: {
         currencyCode: updatedUser.businessDetails?.currencyCode || 'USD',
-        currencySymbol: updatedUser.businessDetails?.currencySymbol || '$'
+        currencySymbol: updatedUser.businessDetails?.currencySymbol || '$',
+        baseCurrency: baseCurrency
+          ? {
+              id: baseCurrency.id,
+              code: baseCurrency.code,
+              symbol: baseCurrency.symbol,
+              name: baseCurrency.name,
+            }
+          : null,
       }
     });
   } catch (error) {

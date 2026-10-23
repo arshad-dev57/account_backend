@@ -477,6 +477,26 @@ class SalesPaymentReceivedModel {
           }
         });
 
+        // Keep installment schedule in sync with existing payment collections (no duplicate payments)
+        if (invoice.isInstallmentSale) {
+          try {
+            const {
+              applyPaymentToSalesInstallments,
+            } = require('../../services/installmentScheduleService');
+            await applyPaymentToSalesInstallments({
+              companyId,
+              invoiceId: invoice.id,
+              amount: inv.amountPaid,
+              salesPaymentId: payment.id,
+              preferredInstallmentIds:
+                inv.preferredInstallmentIds || inv.installmentIds || null,
+              tx,
+            });
+          } catch (instErr) {
+            console.warn('[receivePayment] installment schedule update skipped:', instErr.message);
+          }
+        }
+
         if (invoice.orderId) {
           orderIdsToSync.add(invoice.orderId);
         }
@@ -891,6 +911,23 @@ class SalesPaymentReceivedModel {
             status: newOutstanding <= 0 ? 'Paid' : 'Current'
           }
         });
+
+        if (invoice.isInstallmentSale && payment.companyId) {
+          try {
+            const {
+              reversePaymentFromSalesInstallments,
+            } = require('../../services/installmentScheduleService');
+            await reversePaymentFromSalesInstallments({
+              companyId: payment.companyId,
+              invoiceId: invoice.id,
+              amount: invPayment.amountPaid,
+              salesPaymentId: payment.id,
+              tx,
+            });
+          } catch (instErr) {
+            console.warn('[cancelPayment] installment reverse skipped:', instErr.message);
+          }
+        }
 
         if (invoice.orderId) orderIdsToSync.add(invoice.orderId);
       }

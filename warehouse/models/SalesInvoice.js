@@ -419,6 +419,10 @@ class SalesInvoiceModel {
       paymentTerms = 'Net 30',
       notes,
       fiscalYearId,
+      isInstallmentSale,
+      downPaymentAmount,
+      installmentCount,
+      installmentFrequency,
     } = data;
 
     if (!orderIds.length && !deliveryIds.length) {
@@ -745,6 +749,24 @@ class SalesInvoiceModel {
       const primaryOrderId = salesOrders[0]?.id || salesDeliveries[0]?.salesOrderId || null;
       const primaryDeliveryId = salesDeliveries[0]?.id || createdDeliveryIds[0] || null;
 
+      let installmentPlan = null;
+      if (isInstallmentSale) {
+        const { buildInstallmentPlan } = require('../../services/installmentScheduleService');
+        const {
+          resolveEffectiveCompanyConfig,
+          assertInstallmentSalesAllowed,
+        } = require('../../utils/companyBusinessConfig');
+        const config = await resolveEffectiveCompanyConfig(targetCompanyId);
+        assertInstallmentSalesAllowed(config, { isInstallment: true });
+        installmentPlan = buildInstallmentPlan({
+          grandTotal,
+          downPaymentAmount,
+          installmentCount,
+          installmentFrequency,
+          startDate: invoiceDate,
+        });
+      }
+
       const invoice = await tx.salesInvoice.create({
         data: {
           invoiceNumber,
@@ -760,7 +782,9 @@ class SalesInvoiceModel {
           shippingAddress: firstSource.shippingAddress || {},
           invoiceDate,
           dueDate: dueDateObj,
-          paymentTerms: paymentTerms || 'Net 30',
+          paymentTerms: installmentPlan
+            ? (paymentTerms || `Installment ${installmentPlan.installmentCount}x ${installmentPlan.installmentFrequency}`)
+            : (paymentTerms || 'Net 30'),
           subtotal,
           discountTotal: totalDiscount,
           taxTotal: totalTax,
@@ -776,6 +800,11 @@ class SalesInvoiceModel {
           companyId: targetCompanyId,
           locationId: locationId || firstSource.locationId || null,
           fiscalYearId: fiscalYearId || null,
+          isInstallmentSale: Boolean(isInstallmentSale),
+          downPaymentAmount: installmentPlan ? installmentPlan.downPaymentAmount : 0,
+          installmentCount: installmentPlan ? installmentPlan.installmentCount : null,
+          installmentFrequency: installmentPlan ? installmentPlan.installmentFrequency : null,
+          installmentAmount: installmentPlan ? installmentPlan.installmentAmount : null,
           items: { create: invoiceItems },
         },
         include: {
@@ -783,8 +812,25 @@ class SalesInvoiceModel {
           customer: true,
           order: true,
           delivery: true,
+          installmentSchedules: true,
         },
       });
+
+      if (installmentPlan) {
+        const { createSalesInstallmentSchedule } = require('../../services/installmentScheduleService');
+        await createSalesInstallmentSchedule({
+          companyId: targetCompanyId,
+          invoiceId: invoice.id,
+          grandTotal,
+          invoiceDate,
+          planInput: {
+            downPaymentAmount: installmentPlan.downPaymentAmount,
+            installmentCount: installmentPlan.installmentCount,
+            installmentFrequency: installmentPlan.installmentFrequency,
+          },
+          tx,
+        });
+      }
 
       return invoice;
     });
@@ -800,6 +846,10 @@ class SalesInvoiceModel {
         billingAddress, shippingAddress, items, dueDate,
         paymentTerms, notes, userId, createdBy, fiscalYearId, companyId,
         locationId,
+        isInstallmentSale,
+        downPaymentAmount,
+        installmentCount,
+        installmentFrequency,
       } = data;
 
       if (!customerId && !customerName) throw new Error('Customer is required');
@@ -876,6 +926,24 @@ class SalesInvoiceModel {
 
       const grandTotal = subtotal - totalDiscount + totalTax;
 
+      let installmentPlan = null;
+      if (isInstallmentSale) {
+        const { buildInstallmentPlan } = require('../../services/installmentScheduleService');
+        const {
+          resolveEffectiveCompanyConfig,
+          assertInstallmentSalesAllowed,
+        } = require('../../utils/companyBusinessConfig');
+        const config = await resolveEffectiveCompanyConfig(companyId);
+        assertInstallmentSalesAllowed(config, { isInstallment: true });
+        installmentPlan = buildInstallmentPlan({
+          grandTotal,
+          downPaymentAmount,
+          installmentCount,
+          installmentFrequency,
+          startDate: invoiceDate,
+        });
+      }
+
       // ✅ FIXED: Use companyId instead of userId
       const arAccount = await findARAccount(tx, companyId, userId);
       const revenueAccount = await findRevenueAccount(tx, companyId, userId);
@@ -891,7 +959,9 @@ class SalesInvoiceModel {
           shippingAddress: shippingAddress || {},
           invoiceDate,
           dueDate: dueDateObj,
-          paymentTerms: paymentTerms || 'Net 30',
+          paymentTerms: isInstallmentSale
+            ? (paymentTerms || `Installment ${installmentPlan.installmentCount}x ${installmentPlan.installmentFrequency}`)
+            : (paymentTerms || 'Net 30'),
           subtotal,
           discountTotal: totalDiscount,
           taxTotal: totalTax,
@@ -907,13 +977,43 @@ class SalesInvoiceModel {
           companyId: companyId,             // ✅ Use companyId
           fiscalYearId: fiscalYearId,
           locationId: locationId || null,
+          isInstallmentSale: Boolean(isInstallmentSale),
+          downPaymentAmount: installmentPlan ? installmentPlan.downPaymentAmount : 0,
+          installmentCount: installmentPlan ? installmentPlan.installmentCount : null,
+          installmentFrequency: installmentPlan ? installmentPlan.installmentFrequency : null,
+          installmentAmount: installmentPlan ? installmentPlan.installmentAmount : null,
           items: { create: invoiceItems }
         },
         include: {
           items: { include: { product: true } },
-          customer: true
+          customer: true,
+          installmentSchedules: true,
         }
       });
+
+      if (installmentPlan) {
+        const { createSalesInstallmentSchedule } = require('../../services/installmentScheduleService');
+        await createSalesInstallmentSchedule({
+          companyId,
+          invoiceId: invoice.id,
+          grandTotal,
+          invoiceDate,
+          planInput: {
+            downPaymentAmount: installmentPlan.downPaymentAmount,
+            installmentCount: installmentPlan.installmentCount,
+            installmentFrequency: installmentPlan.installmentFrequency,
+          },
+          tx,
+        });
+        return tx.salesInvoice.findUnique({
+          where: { id: invoice.id },
+          include: {
+            items: { include: { product: true } },
+            customer: true,
+            installmentSchedules: { orderBy: { installmentNumber: 'asc' } },
+          },
+        });
+      }
 
       return invoice;
     });
@@ -1123,7 +1223,8 @@ class SalesInvoiceModel {
         },
         accountsReceivable: { include: { payments: true } },
         salesRevenueAccount: true,
-        arAccount: true
+        arAccount: true,
+        installmentSchedules: { orderBy: { installmentNumber: 'asc' } },
       }
     });
   }
@@ -1331,6 +1432,17 @@ class SalesInvoiceModel {
             where: { id: invoice.customerId },
             data: { outstandingBalance: { decrement: invoice.grandTotal } },
           });
+        }
+      }
+
+      if (invoice.isInstallmentSale) {
+        try {
+          const {
+            cancelOpenInstallmentsForSalesInvoice,
+          } = require('../../services/installmentScheduleService');
+          await cancelOpenInstallmentsForSalesInvoice(id, invoice.companyId, tx);
+        } catch (instErr) {
+          console.warn('[cancelInvoice] installment cancel skipped:', instErr.message);
         }
       }
 

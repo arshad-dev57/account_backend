@@ -14,15 +14,20 @@ describe('import customs lifecycle', () => {
     assert.equal(normalizeCustomsStatus('Out of Charge'), 'Released/Cleared');
   });
 
-  it('enforces Draft → Under Assessment → Assessed → Duty Paid → Released', () => {
+  it('enforces Draft → Under Assessment → Assessed → Pending Payment → Duty Paid → Pending Approval → Approved → Released', () => {
     assert.ok(CUSTOMS_STATUS_TRANSITIONS.Draft.includes('Under Assessment'));
     assert.ok(CUSTOMS_STATUS_TRANSITIONS['Under Assessment'].includes('Assessed'));
-    assert.ok(CUSTOMS_STATUS_TRANSITIONS.Assessed.includes('Duty Paid'));
-    assert.ok(CUSTOMS_STATUS_TRANSITIONS['Duty Paid'].includes('Released/Cleared'));
+    assert.ok(CUSTOMS_STATUS_TRANSITIONS.Assessed.includes('Pending Payment'));
+    assert.ok(CUSTOMS_STATUS_TRANSITIONS['Pending Payment'].includes('Duty Paid'));
+    assert.ok(CUSTOMS_STATUS_TRANSITIONS['Duty Paid'].includes('Pending Approval'));
+    assert.ok(CUSTOMS_STATUS_TRANSITIONS['Pending Approval'].includes('Approved'));
+    assert.ok(CUSTOMS_STATUS_TRANSITIONS.Approved.includes('Released/Cleared'));
   });
 
-  it('blocks release before duty paid', () => {
+  it('blocks release before duty paid / approval', () => {
     assert.ok(!CUSTOMS_STATUS_TRANSITIONS.Assessed.includes('Released/Cleared'));
+    assert.ok(!CUSTOMS_STATUS_TRANSITIONS.Assessed.includes('Duty Paid'));
+    assert.ok(!CUSTOMS_STATUS_TRANSITIONS['Duty Paid'].includes('Released/Cleared'));
     assert.ok(!CUSTOMS_STATUS_TRANSITIONS['Under Assessment'].includes('Duty Paid'));
   });
 

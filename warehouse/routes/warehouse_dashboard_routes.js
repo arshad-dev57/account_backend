@@ -14,10 +14,8 @@ const {
 
 } = require('../controller/warehouse_dashboard_controller');
 
-// All routes are protected
 router.use(protect);
 
-// Dashboard routes
 router.get('/metrics', getDashboardMetrics);
 router.get('/activities', getRecentActivities);
 router.get('/alerts', getAlerts);

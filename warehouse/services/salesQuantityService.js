@@ -5,11 +5,9 @@
  * All qty maps are keyed by productId → number.
  */
 const prisma = require('../../prisma/client');
-
 const ACTIVE_INVOICE_STATUSES = ['Draft', 'Posted', 'Sent', 'Partially Paid', 'Paid', 'Overdue'];
 const ACTIVE_RETURN_STATUSES = ['Pending', 'Approved', 'Completed', 'Processing'];
 const ACTIVE_REFUND_STATUSES = ['Pending', 'Processing', 'Completed', 'Approved'];
-
 function addQty(map, productId, qty) {
   if (!productId) return;
   const n = Number(qty) || 0;
@@ -29,7 +27,6 @@ function parseLinkedIds(notes, marker) {
     return [];
   }
 }
-
 /**
  * Confirmed (stock-issued) delivered qty per product for an order.
  * Counts deliveries with confirmedAt OR deliveryStatus === 'Delivered'.
@@ -38,7 +35,6 @@ function parseLinkedIds(notes, marker) {
 async function getDeliveredQtyByProduct(orderId, { tx = prisma, includePending = false } = {}) {
   const map = {};
   if (!orderId) return map;
-
   const deliveries = await tx.delivery.findMany({
     where: {
       isActive: true,
@@ -137,11 +133,6 @@ async function findInvoicesForOrder(orderId, { tx = prisma } = {}) {
   return merged;
 }
 
-/**
- * Resolve which order an invoice line belongs to.
- * Prefers __ORDER_ID__ on item notes; falls back to invoice.orderId for single-order invoices.
- * For multi-linked invoices without line tags, returns null (caller should skip or use delivery).
- */
 function resolveInvoiceLineOrderId(inv, item) {
   if (item?.notes) {
     const m = String(item.notes).match(/__ORDER_ID__:([a-zA-Z0-9_-]+)/);

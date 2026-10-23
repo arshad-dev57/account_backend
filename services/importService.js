@@ -14,6 +14,12 @@ const {
 } = require('../utils/companyAccess');
 const { resolveImportExchangeRate, assertImportRateDate } = require('../utils/importFx');
 const importEnterprise = require('./importEnterpriseService');
+const { hasPermission, isAdminRole, isPlatformAdmin } = require('./permissionService');
+const { sendToUser, sendToUsers } = require('./notificationService');
+const importGrnService = require('./importGrnService');
+
+const RFQ_APPROVE_PERMISSION = 'import.rfqs.approve';
+const CUSTOMS_APPROVE_PERMISSION = 'import.customs.approve';
 
 function toNumber(val, fallback = 0) {
   if (val == null) return fallback;
@@ -53,103 +59,10 @@ function allocateLandedByValue(items, totalExpenses) {
   });
 }
 
-const IMPORT_GRN_POSTED_STATUSES = [
-  'Inspected & Received',
-  'Posted',
-  'Confirmed',
-  'Received',
-];
-
-/** Reject over-receiving against remaining ordered qty. */
-function validateReceiveQty({
-  orderedQty,
-  alreadyReceivedQty,
-  receiveQty,
-  allowOverReceive = false,
-  requirePositive = true,
-}) {
-  const ordered = toNumber(orderedQty, 0);
-  const already = toNumber(alreadyReceivedQty, 0);
-  const recv = toNumber(receiveQty, 0);
-  if (!Number.isFinite(recv)) {
-    const err = new Error('Received quantity is not a valid number');
-    err.status = 400;
-    err.code = 'INVALID_QTY';
-    throw err;
-  }
-  if (recv < 0 || (requirePositive && !(recv > 0))) {
-    const err = new Error(
-      requirePositive && !(recv > 0)
-        ? 'Received quantity must be greater than zero'
-        : 'Received quantity cannot be negative'
-    );
-    err.status = 400;
-    err.code = 'INVALID_QTY';
-    throw err;
-  }
-  const remaining = Math.max(0, ordered - already);
-  if (!allowOverReceive && recv > remaining + 1e-9) {
-    const err = new Error(
-      `Over-receiving not allowed: remaining ${remaining}, attempted ${recv}`
-    );
-    err.status = 400;
-    err.code = 'OVER_RECEIVE';
-    throw err;
-  }
-  return { ordered, already, recv, remaining };
-}
-
-/**
- * Sum accepted quantities from posted Import GRNs for a PO (excludes Draft/Cancelled).
- * Prefer importPoItemId; fall back to productId for legacy lines.
- */
-async function sumPostedAcceptedForPo(tx, { companyId, importPoId }) {
-  const rows = await tx.importGrnItem.findMany({
-    where: {
-      importGrn: {
-        companyId,
-        importPoId,
-        status: { in: IMPORT_GRN_POSTED_STATUSES },
-      },
-    },
-    select: {
-      importPoItemId: true,
-      productId: true,
-      acceptedQty: true,
-      receivedQty: true,
-    },
-  });
-  const byPoItemId = {};
-  const byProductId = {};
-  for (const r of rows) {
-    const qty = toNumber(r.acceptedQty != null ? r.acceptedQty : r.receivedQty, 0);
-    if (r.importPoItemId) {
-      byPoItemId[r.importPoItemId] = (byPoItemId[r.importPoItemId] || 0) + qty;
-    }
-    if (r.productId) {
-      byProductId[r.productId] = (byProductId[r.productId] || 0) + qty;
-    }
-  }
-  return { byPoItemId, byProductId };
-}
-
-function serializePoItemForReceiving(item, previouslyReceived) {
-  const orderedQty = toNumber(item.quantity, 0);
-  const previouslyReceivedQty = toNumber(previouslyReceived, 0);
-  const remainingQty = Math.max(0, orderedQty - previouslyReceivedQty);
-  return {
-    id: item.id,
-    importPoItemId: item.id,
-    productId: item.productId || null,
-    productName: item.productName,
-    sku: item.sku || null,
-    uom: item.uom || 'PCS',
-    orderedQty,
-    previouslyReceivedQty,
-    remainingQty,
-    unitPrice: toNumber(item.unitPrice, 0),
-  };
-}
+const IMPORT_GRN_POSTED_STATUSES = importGrnService.IMPORT_GRN_POSTED_STATUSES;
+const validateReceiveQty = importGrnService.validateReceiveQty;
+const sumPostedAcceptedForPo = importGrnService.sumPostedAcceptedForPo;
+const serializePoItemForReceiving = importGrnService.serializePoItemForReceiving;
 
 const IMPORT_PO_STATUS_TRANSITIONS = {
   Draft: ['Ordered', 'Cancelled'],
@@ -172,7 +85,9 @@ const IMPORT_RFQ_STATUS_TRANSITIONS = {
   Sent: ['Quotes Received', 'Cancelled', 'Expired'],
   'Quotes Received': ['Under Comparison', 'Cancelled', 'Expired'],
   'Under Comparison': ['Awarded', 'Cancelled', 'Expired'],
-  Awarded: ['Approved', 'Cancelled'],
+  // Approve goes through submit-for-approval → Pending Approval → approve action
+  Awarded: ['Pending Approval', 'Cancelled'],
+  'Pending Approval': ['Approved', 'Awarded', 'Cancelled'],
   // Awarded via reopenRfq only (not a free-form status jump from the client)
   Approved: ['Converted to PO', 'Cancelled', 'Awarded'],
   'Converted to PO': [],
@@ -263,6 +178,7 @@ const RFQ_HS_REFRESH_STATUSES = [
   'Quotes Received',
   'Under Comparison',
   'Awarded',
+  'Pending Approval',
   'Approved',
 ];
 
@@ -993,25 +909,23 @@ async function updateRfq(req, id, data) {
       err.code = 'USE_REOPEN_ACTION';
       throw err;
     }
-    if (to === 'Approved' && !existing.selectedQuotationId) {
-      const err = new Error('Cannot approve RFQ without an awarded supplier quotation');
+    if (to === 'Pending Approval') {
+      const err = new Error('Use Send for Approval action — status cannot jump to Pending Approval directly');
       err.status = 400;
-      err.code = 'QUOTATION_REQUIRED';
+      err.code = 'USE_SUBMIT_FOR_APPROVAL_ACTION';
       throw err;
     }
     if (to === 'Approved') {
-      const settings = await getSettings(req);
-      const requireSeparate = settings.requireSeparateRfqApprover !== false;
-      if (requireSeparate && existing.awardedBy && existing.awardedBy === userId) {
-        const err = new Error(
-          'Award and approval must be done by different users. The user who awarded this RFQ cannot approve it.'
-        );
-        err.status = 403;
-        err.code = 'SEPARATE_APPROVER_REQUIRED';
-        throw err;
-      }
-      updatePayload.approvedBy = userId;
-      updatePayload.approvedAt = new Date();
+      const err = new Error('Use Approve RFQ action — status cannot jump to Approved directly');
+      err.status = 400;
+      err.code = 'USE_APPROVE_ACTION';
+      throw err;
+    }
+    if (from === 'Pending Approval' && to === 'Awarded') {
+      const err = new Error('Use Reject Approval action — status cannot return to Awarded directly');
+      err.status = 400;
+      err.code = 'USE_REJECT_APPROVAL_ACTION';
+      throw err;
     }
     if (to === 'Converted to PO') {
       const err = new Error('Use Convert to Purchase Order action — status cannot jump to Converted to PO directly');
@@ -2782,519 +2696,46 @@ async function createDocument(req, data) {
 }
 
 // ============================================================
-// 8. IMPORT GRN / RECEIVING (INVENTORY & STOCK MOVEMENTS)
+// 8. IMPORT GRN / RECEIVING (delegates to importGrnService)
 // ============================================================
 async function listGrns(req, query = {}) {
-  const companyScope = getCompanyScope(req);
-  const { search, status, page = 1, limit = 20 } = query;
-  const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
-
-  const where = {
-    companyId: companyScope,
-    ...(status && status !== 'All' ? { status } : {}),
-    ...(search
-      ? {
-        OR: [
-          { grnNumber: { contains: search, mode: 'insensitive' } },
-          { poRef: { contains: search, mode: 'insensitive' } },
-          { containerNo: { contains: search, mode: 'insensitive' } },
-          { warehouseName: { contains: search, mode: 'insensitive' } },
-        ],
-      }
-      : {}),
-  };
-
-  const [total, items] = await Promise.all([
-    prisma.importGrn.count({ where }),
-    prisma.importGrn.findMany({
-      where,
-      include: { items: true, importPo: true, location: true, shipment: true },
-      orderBy: { receiptDate: 'desc' },
-      skip,
-      take: Number(limit),
-    }),
-  ]);
-
-  return {
-    items,
-    pagination: {
-      total,
-      page: Number(page),
-      limit: Number(limit),
-      pages: Math.ceil(total / Number(limit)) || 1,
-    },
-  };
+  return importGrnService.listGrns(req, query);
 }
 
 async function getGrnById(req, id) {
-  const grn = await prisma.importGrn.findUnique({
-    where: { id },
-    include: { items: true, importPo: true, location: true, landedCosts: true },
-  });
-  if (!grn) throw new Error('Import GRN not found');
-  await assertRecordCompanyAccess(req, grn.companyId);
-  return grn;
+  return importGrnService.getGrnById(req, id);
 }
 
-/**
- * Server-authoritative receiving lines for Import GRN create form.
- * Computes previouslyReceived from posted GRNs (not client state).
- */
 async function getReceivingPreview(req, importPoId) {
-  const companyId = requireSingleCompany(req);
-  if (!importPoId) {
-    const err = new Error('importPoId is required');
-    err.status = 400;
-    throw err;
-  }
-
-  const importPo = await prisma.importPurchaseOrder.findFirst({
-    where: { id: importPoId, companyId },
-    include: { items: true },
-  });
-  if (!importPo) {
-    const err = new Error('Import PO not found for active company');
-    err.status = 404;
-    throw err;
-  }
-  if (!importPo.items?.length) {
-    const err = new Error('Import PO has no line items to receive');
-    err.status = 400;
-    err.code = 'PO_LINES_MISSING';
-    throw err;
-  }
-
-  const posted = await sumPostedAcceptedForPo(prisma, { companyId, importPoId });
-  const lines = importPo.items.map((item) => {
-    const previously =
-      (item.id && posted.byPoItemId[item.id]) ||
-      (item.productId && posted.byProductId[item.productId]) ||
-      toNumber(item.receivedQty, 0);
-    if (!item.productId) {
-      const err = new Error(
-        `Import PO line "${item.productName}" is missing productId — cannot receive into inventory`
-      );
-      err.status = 400;
-      err.code = 'PRODUCT_REQUIRED';
-      throw err;
-    }
-    return serializePoItemForReceiving(item, previously);
-  });
-
-  return {
-    importPoId: importPo.id,
-    poNumber: importPo.poNumber,
-    supplierId: importPo.supplierId,
-    supplierName: importPo.supplierName,
-    status: importPo.status,
-    purchaseOrderId: importPo.purchaseOrderId || null,
-    lines,
-  };
+  return importGrnService.getReceivingPreview(req, importPoId);
 }
 
-/**
- * Read-only audit of Import GRN integrity (duplicates, zero qty, missing stock).
- * Does not mutate data.
- */
+async function getShipmentReceivingPreview(req, shipmentId) {
+  return importGrnService.getShipmentReceivingPreview(req, shipmentId);
+}
+
+async function listReceivableShipments(req, query = {}) {
+  return importGrnService.listReceivableShipments(req, query);
+}
+
 async function auditImportGrns(req, query = {}) {
-  const companyScope = getCompanyScope(req);
-  const where = {
-    companyId: companyScope,
-    ...(query.importPoId ? { importPoId: query.importPoId } : {}),
-    ...(query.poRef ? { poRef: { contains: query.poRef, mode: 'insensitive' } } : {}),
-  };
-
-  const grns = await prisma.importGrn.findMany({
-    where,
-    include: { items: true },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  const byPo = {};
-  const issues = [];
-
-  for (const g of grns) {
-    const key = g.importPoId || g.poRef || g.id;
-    if (!byPo[key]) byPo[key] = [];
-    byPo[key].push(g);
-
-    for (const it of g.items) {
-      if (toNumber(it.orderedQty) <= 0) {
-        issues.push({
-          type: 'ZERO_ORDERED_QTY',
-          grnNumber: g.grnNumber,
-          grnId: g.id,
-          productName: it.productName,
-          productId: it.productId,
-        });
-      }
-    }
-
-    const isPosted = IMPORT_GRN_POSTED_STATUSES.includes(g.status);
-    if (isPosted && !g.stockPostedAt) {
-      const moveCount = await prisma.stockMovement.count({
-        where: { companyId: g.companyId, reference: g.grnNumber, type: 'Goods Receiving' },
-      });
-      if (moveCount === 0) {
-        issues.push({
-          type: 'MISSING_STOCK_MOVEMENT',
-          grnNumber: g.grnNumber,
-          grnId: g.id,
-          status: g.status,
-          locationId: g.locationId,
-          note: 'Posted/Inspected GRN has no stock movement — do not auto-repost without reconciliation',
-        });
-      }
-    }
-  }
-
-  const duplicateGroups = [];
-  for (const [poKey, list] of Object.entries(byPo)) {
-    const posted = list.filter((g) => IMPORT_GRN_POSTED_STATUSES.includes(g.status));
-    if (posted.length > 1) {
-      duplicateGroups.push({
-        importPoKey: poKey,
-        postedCount: posted.length,
-        grnNumbers: posted.map((g) => g.grnNumber),
-        totalAcceptedByProduct: posted.reduce((acc, g) => {
-          for (const it of g.items) {
-            const pid = it.productId || it.productName;
-            acc[pid] = (acc[pid] || 0) + toNumber(it.acceptedQty || it.receivedQty);
-          }
-          return acc;
-        }, {}),
-      });
-    }
-  }
-
-  return {
-    scanned: grns.length,
-    duplicateGroups,
-    issues,
-    generatedAt: new Date().toISOString(),
-  };
+  return importGrnService.auditImportGrns(req, query);
 }
 
 async function createGrn(req, data) {
-  const companyId = requireSingleCompany(req);
-  const userId = req.user.id;
-  const idempotencyKey =
-    (data.idempotencyKey || req.headers['idempotency-key'] || '').toString().trim() || null;
+  return importGrnService.createGrn(req, data);
+}
 
-  if (idempotencyKey) {
-    const existing = await prisma.importGrn.findFirst({
-      where: { companyId, idempotencyKey },
-      include: { items: true, location: true },
-    });
-    if (existing) return existing;
-  }
+async function postGrn(req, id) {
+  return importGrnService.postGrn(req, id);
+}
 
-  if (!data.importPoId) {
-    const err = new Error('importPoId is required to create an Import GRN');
-    err.status = 400;
-    throw err;
-  }
+async function cancelGrn(req, id, data) {
+  return importGrnService.cancelGrn(req, id, data);
+}
 
-  const shouldConfirm =
-    String(data.status || '').toLowerCase() === 'inspected & received' ||
-    data.confirmNow === true;
-  const initialStatus = shouldConfirm ? 'Inspected & Received' : (data.status || 'Draft');
-
-  return await prisma.$transaction(async (tx) => {
-    // Lock PO lines for concurrent receive protection
-    await tx.$queryRaw`
-      SELECT id FROM import_purchase_order_items
-      WHERE import_po_id = ${data.importPoId}
-      FOR UPDATE
-    `;
-
-    const importPo = await tx.importPurchaseOrder.findFirst({
-      where: { id: data.importPoId, companyId },
-      include: { items: true },
-    });
-    if (!importPo) {
-      const err = new Error('Import PO not found for active company');
-      err.status = 404;
-      throw err;
-    }
-    if (!importPo.items?.length) {
-      const err = new Error('Import PO has no line items');
-      err.status = 400;
-      err.code = 'PO_LINES_MISSING';
-      throw err;
-    }
-
-    let locationId = data.locationId || null;
-    let warehouseName = data.warehouseName || '';
-    if (locationId) {
-      const loc = await assertLocationBelongsToActiveCompany(locationId, companyId);
-      warehouseName = loc.name || warehouseName;
-    } else {
-      locationId = await resolveLocationId(tx, companyId, null, userId, {
-        required: false,
-        allowCreateDefault: false,
-      });
-      if (locationId) {
-        const loc = await tx.location.findUnique({ where: { id: locationId } });
-        warehouseName = loc?.name || warehouseName;
-      }
-    }
-
-    if (shouldConfirm && !locationId) {
-      const locCount = await tx.location.count({
-        where: { companyId, isDeleted: false, isActive: true },
-      });
-      if (locCount > 0) {
-        const err = new Error(
-          'Warehouse/location is required to post Import GRN stock. Select a warehouse for the active company.'
-        );
-        err.status = 400;
-        err.code = 'WAREHOUSE_REQUIRED';
-        throw err;
-      }
-      // No warehouses configured for company — post via canonical unscoped Product.currentStock
-    }
-
-    const posted = await sumPostedAcceptedForPo(tx, {
-      companyId,
-      importPoId: importPo.id,
-    });
-
-    const incoming = Array.isArray(data.items) ? data.items : [];
-    if (!incoming.length) {
-      const err = new Error('At least one receiving line is required');
-      err.status = 400;
-      err.code = 'ITEMS_REQUIRED';
-      throw err;
-    }
-
-    const itemsData = [];
-    for (const it of incoming) {
-      const poLine = importPo.items.find(
-        (p) =>
-          (it.importPoItemId && p.id === it.importPoItemId) ||
-          (it.productId && p.productId === it.productId)
-      );
-      if (!poLine) {
-        const err = new Error(
-          `Receiving line does not match Import PO items (${it.productName || it.productId || it.importPoItemId})`
-        );
-        err.status = 400;
-        err.code = 'PO_LINE_MISMATCH';
-        throw err;
-      }
-      if (!poLine.productId) {
-        const err = new Error(`PO line "${poLine.productName}" has no productId`);
-        err.status = 400;
-        err.code = 'PRODUCT_REQUIRED';
-        throw err;
-      }
-
-      const ordered = toNumber(poLine.quantity, 0);
-      if (!(ordered > 0)) {
-        const err = new Error(
-          `Import PO line "${poLine.productName}" has invalid ordered quantity`
-        );
-        err.status = 400;
-        err.code = 'INVALID_ORDERED_QTY';
-        throw err;
-      }
-
-      const already =
-        posted.byPoItemId[poLine.id] ||
-        posted.byProductId[poLine.productId] ||
-        toNumber(poLine.receivedQty, 0);
-      const received = toNumber(it.receivedQty, 0);
-      const accepted = toNumber(it.acceptedQty, received);
-      const rejected = toNumber(it.rejectedQty, 0);
-
-      if (it.uom && poLine.uom && String(it.uom).toLowerCase() !== String(poLine.uom).toLowerCase()) {
-        const err = new Error(
-          `UOM mismatch for ${poLine.productName}: PO=${poLine.uom}, GRN=${it.uom}`
-        );
-        err.status = 400;
-        err.code = 'UOM_MISMATCH';
-        throw err;
-      }
-
-      const { remaining } = validateReceiveQty({
-        orderedQty: ordered,
-        alreadyReceivedQty: already,
-        receiveQty: accepted > 0 ? accepted : received,
-        allowOverReceive: data.allowOverReceive === true,
-        requirePositive: true,
-      });
-
-      if (accepted + rejected - received > 1e-6 && received > 0) {
-        // Soft check: accepted+rejected should roughly equal received
-      }
-
-      itemsData.push({
-        importPoItemId: poLine.id,
-        productId: poLine.productId,
-        productName: poLine.productName,
-        sku: poLine.sku || null,
-        orderedQty: ordered,
-        previouslyReceivedQty: already,
-        remainingQty: remaining,
-        receivedQty: received > 0 ? received : accepted,
-        acceptedQty: accepted,
-        rejectedQty: rejected,
-        uom: poLine.uom || it.uom || 'PCS',
-        lotNumber: it.lotNumber || null,
-      });
-    }
-
-    const count = await tx.importGrn.count({ where: { companyId } });
-    const year = new Date().getFullYear();
-    const grnNumber = data.grnNumber || `IGRN-${year}-${String(count + 1).padStart(3, '0')}`;
-
-    let grn;
-    try {
-      grn = await tx.importGrn.create({
-        data: {
-          companyId,
-          grnNumber,
-          importPoId: importPo.id,
-          poRef: data.poRef || importPo.poNumber,
-          shipmentId: data.shipmentId || null,
-          shipmentRef: data.shipmentRef || null,
-          locationId,
-          warehouseName: warehouseName || null,
-          receiptDate: data.receiptDate ? new Date(data.receiptDate) : new Date(),
-          containerNo: data.containerNo || null,
-          sealIntact: data.sealIntact !== false,
-          receivedBy: data.receivedBy || req.user.firstName || 'Warehouse Inspector',
-          status: initialStatus,
-          idempotencyKey,
-          notes: data.notes || null,
-          createdBy: userId,
-          items: { create: itemsData },
-        },
-        include: { items: true, location: true },
-      });
-    } catch (e) {
-      if (e.code === 'P2002' && idempotencyKey) {
-        const again = await tx.importGrn.findFirst({
-          where: { companyId, idempotencyKey },
-          include: { items: true, location: true },
-        });
-        if (again) return again;
-      }
-      throw e;
-    }
-
-    if (shouldConfirm) {
-      // Duplicate stock guard by GRN reference
-      const existingMoves = await tx.stockMovement.count({
-        where: { companyId, reference: grnNumber, type: 'Goods Receiving' },
-      });
-      if (existingMoves > 0) {
-        const err = new Error(`Stock already posted for ${grnNumber}`);
-        err.status = 409;
-        err.code = 'ALREADY_POSTED';
-        throw err;
-      }
-
-      for (const item of grn.items) {
-        if (!item.productId) {
-          const err = new Error(`Cannot post stock without productId for ${item.productName}`);
-          err.status = 400;
-          err.code = 'PRODUCT_REQUIRED';
-          throw err;
-        }
-        const acceptedQty = toNumber(item.acceptedQty || item.receivedQty, 0);
-        if (!(acceptedQty > 0)) continue;
-
-        const product = await tx.product.findFirst({
-          where: { id: item.productId, companyId },
-        });
-        if (!product) {
-          const err = new Error(`Product not found in active company: ${item.productName}`);
-          err.status = 400;
-          throw err;
-        }
-
-        const adj = await adjustLocationStock(tx, {
-          companyId,
-          productId: item.productId,
-          locationId: locationId || null,
-          delta: acceptedQty,
-          productName: item.productName,
-        });
-
-        await tx.stockMovement.create({
-          data: {
-            productId: item.productId,
-            productName: item.productName,
-            type: 'Goods Receiving',
-            movementType: 'PURCHASE_RECEIPT',
-            quantity: acceptedQty,
-            uom: item.uom || null,
-            previousStock: adj.previousLocationStock ?? adj.previousCompanyStock ?? 0,
-            newStock: adj.newLocationStock ?? adj.newCompanyStock ?? 0,
-            reason: `Import GRN #${grnNumber} - PO #${grn.poRef || importPo.poNumber}`,
-            reference: grnNumber,
-            status: 'Completed',
-            createdBy: userId,
-            companyId,
-            locationId: locationId || null,
-            supplierId: importPo.supplierId || null,
-            supplierName: importPo.supplierName || null,
-            movementDate: grn.receiptDate || new Date(),
-          },
-        });
-      }
-
-      // Sync PO line receivedQty from posted GRN totals (authoritative)
-      const afterPosted = await sumPostedAcceptedForPo(tx, {
-        companyId,
-        importPoId: importPo.id,
-      });
-      let allReceived = true;
-      for (const poLine of importPo.items) {
-        const nextRecv =
-          afterPosted.byPoItemId[poLine.id] ||
-          afterPosted.byProductId[poLine.productId] ||
-          0;
-        await tx.importPurchaseOrderItem.update({
-          where: { id: poLine.id },
-          data: { receivedQty: nextRecv },
-        });
-        if (nextRecv + 1e-9 < toNumber(poLine.quantity)) allReceived = false;
-      }
-
-      const nextPoStatus = allReceived ? 'Received' : 'Partially Received';
-      // Allow transition into receive statuses even from Arrived/In Transit
-      await tx.importPurchaseOrder.update({
-        where: { id: importPo.id },
-        data: { status: nextPoStatus },
-      });
-
-      grn = await tx.importGrn.update({
-        where: { id: grn.id },
-        data: { stockPostedAt: new Date() },
-        include: { items: true, location: true },
-      });
-    }
-
-    await logImportAudit({
-      companyId,
-      action: shouldConfirm ? 'RECEIVE_CONFIRMED' : 'CREATE',
-      entityType: 'IMPORT_GRN',
-      entityId: grn.id,
-      details: {
-        grnNumber,
-        status: grn.status,
-        locationId,
-        stockPostedAt: grn.stockPostedAt,
-        idempotencyKey,
-      },
-      userId,
-    });
-
-    return grn;
-  }, { maxWait: 15_000, timeout: 60_000 });
+async function verifyShipmentOriginalBl(req, id, data) {
+  return importGrnService.verifyShipmentOriginalBl(req, id, data);
 }
 
 async function listLandedCosts(req, query = {}) {
@@ -3495,6 +2936,14 @@ async function postLandedCost(req, id) {
       },
     });
 
+    if (lc.grnId) {
+      await importGrnService.applyLandedCostToGrn(tx, {
+        companyId,
+        grnId: lc.grnId,
+        items: lc.items || [],
+      });
+    }
+
     if (lc.importPoId) {
       await tx.importPurchaseOrder.update({
         where: { id: lc.importPoId },
@@ -3639,6 +3088,8 @@ async function getSettings(req) {
         blockInsufficientBalance: true,
         dutyPaymentDifferenceThresholdPct: 5,
         requirePhysicalOriginalBl: true,
+        allowGrnBeforeCustomsRelease: false,
+        requireSeparateGrnPoster: true,
         defaultCustomsDutyRatePct: 10,
         defaultImportVatRatePct: 5,
         companyCountryCode: 'PK',
@@ -3676,6 +3127,8 @@ async function updateSettings(req, data) {
           ? Number(data.dutyPaymentDifferenceThresholdPct)
           : 5,
       requirePhysicalOriginalBl: data.requirePhysicalOriginalBl !== false,
+      allowGrnBeforeCustomsRelease: data.allowGrnBeforeCustomsRelease === true,
+      requireSeparateGrnPoster: data.requireSeparateGrnPoster !== false,
       defaultCustomsDutyRatePct: data.defaultCustomsDutyRatePct != null ? Number(data.defaultCustomsDutyRatePct) : 10,
       defaultImportVatRatePct: data.defaultImportVatRatePct != null ? Number(data.defaultImportVatRatePct) : 5,
       companyCountryCode: data.companyCountryCode || 'PK',
@@ -3723,6 +3176,12 @@ async function updateSettings(req, data) {
         : {}),
       ...(data.requirePhysicalOriginalBl !== undefined
         ? { requirePhysicalOriginalBl: data.requirePhysicalOriginalBl === true }
+        : {}),
+      ...(data.allowGrnBeforeCustomsRelease !== undefined
+        ? { allowGrnBeforeCustomsRelease: data.allowGrnBeforeCustomsRelease === true }
+        : {}),
+      ...(data.requireSeparateGrnPoster !== undefined
+        ? { requireSeparateGrnPoster: data.requireSeparateGrnPoster === true }
         : {}),
       ...(data.defaultCustomsDutyRatePct !== undefined
         ? { defaultCustomsDutyRatePct: Number(data.defaultCustomsDutyRatePct) }
@@ -4341,6 +3800,436 @@ async function selectQuotation(req, id, data = {}) {
 }
 
 /**
+ * Resolve active company user IDs that effectively hold a permission
+ * (role grants, overrides, or admin/owner). Optionally exclude users.
+ */
+async function findCompanyUserIdsWithPermission(companyId, permissionKey, { excludeUserIds = [] } = {}) {
+  const exclude = new Set((excludeUserIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+
+  const [memberships, directUsers] = await Promise.all([
+    prisma.companyMembership.findMany({
+      where: { companyId, isActive: true },
+      select: {
+        userId: true,
+        role: true,
+        isOwner: true,
+        user: { select: { id: true, isActive: true, email: true, role: true } },
+      },
+    }),
+    prisma.user.findMany({
+      where: { companyId, isActive: true },
+      select: { id: true, email: true, role: true },
+    }),
+  ]);
+
+  const candidates = new Map();
+  for (const m of memberships) {
+    if (!m.user?.isActive) continue;
+    candidates.set(String(m.userId), {
+      id: String(m.userId),
+      email: m.user.email,
+      role: m.user.role,
+      membershipRole: m.role,
+      isOwner: Boolean(m.isOwner),
+    });
+  }
+  for (const u of directUsers) {
+    if (!candidates.has(String(u.id))) {
+      candidates.set(String(u.id), {
+        id: String(u.id),
+        email: u.email,
+        role: u.role,
+        membershipRole: null,
+        isOwner: false,
+      });
+    }
+  }
+
+  const results = [];
+  for (const candidate of candidates.values()) {
+    if (exclude.has(candidate.id)) continue;
+    if (
+      candidate.isOwner ||
+      isAdminRole(candidate.membershipRole) ||
+      isAdminRole(candidate.role) ||
+      isPlatformAdmin(candidate.email)
+    ) {
+      results.push(candidate.id);
+      continue;
+    }
+    const allowed = await hasPermission(candidate.id, companyId, permissionKey);
+    if (allowed) results.push(candidate.id);
+  }
+  return [...new Set(results)];
+}
+
+/**
+ * Awarded → Pending Approval. Notifies users with import.rfqs.approve.
+ */
+async function submitRfqForApproval(req, id) {
+  const companyId = requireSingleCompany(req);
+  const userId = req.user.id;
+
+  const rfq = await prisma.importRfq.findFirst({
+    where: { id, companyId },
+    include: {
+      items: true,
+      port: true,
+      quotations: { include: { items: true } },
+      purchaseOrders: { select: { id: true, poNumber: true, status: true } },
+    },
+  });
+  if (!rfq) {
+    const err = new Error('Import RFQ not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const status = normalizeRfqStatus(rfq.status);
+  assertRfqStatusTransition(status, 'Pending Approval');
+
+  if (!rfq.selectedQuotationId) {
+    const err = new Error('Cannot submit for approval without an awarded supplier quotation');
+    err.status = 400;
+    err.code = 'QUOTATION_REQUIRED';
+    throw err;
+  }
+
+  const updated = await prisma.importRfq.update({
+    where: { id },
+    data: { status: 'Pending Approval' },
+    include: {
+      items: true,
+      port: true,
+      quotations: { include: { items: true } },
+      purchaseOrders: { select: { id: true, poNumber: true, status: true } },
+    },
+  });
+
+  await logImportAudit({
+    companyId,
+    action: 'STATUS_CHANGE',
+    entityType: 'IMPORT_RFQ',
+    entityId: id,
+    details: {
+      previousStatus: status,
+      nextStatus: 'Pending Approval',
+      action: 'SUBMIT_FOR_APPROVAL',
+      userId,
+      at: new Date().toISOString(),
+    },
+    userId,
+  });
+
+  try {
+    const approverIds = await findCompanyUserIdsWithPermission(companyId, RFQ_APPROVE_PERMISSION, {
+      excludeUserIds: [userId],
+    });
+    if (approverIds.length) {
+      await sendToUsers(approverIds, {
+        title: 'RFQ awaiting approval',
+        message: `${rfq.rfqNumber} supplier quotation is ready for approval.`,
+        type: 'action',
+        category: 'Import',
+        data: {
+          entityType: 'IMPORT_RFQ',
+          entityId: id,
+          rfqId: id,
+          rfqNumber: rfq.rfqNumber,
+          link: '/import/approvals',
+        },
+      });
+    }
+  } catch (notifyErr) {
+    console.error('[import] RFQ approval notification failed:', notifyErr.message);
+  }
+
+  return serializeRfq(updated);
+}
+
+/**
+ * Pending Approval → Approved. Requires import.rfqs.approve (enforced at route).
+ */
+async function approveRfq(req, id) {
+  const companyId = requireSingleCompany(req);
+  const userId = req.user.id;
+
+  const rfq = await prisma.importRfq.findFirst({
+    where: { id, companyId },
+  });
+  if (!rfq) {
+    const err = new Error('Import RFQ not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const status = normalizeRfqStatus(rfq.status);
+  assertRfqStatusTransition(status, 'Approved');
+
+  if (!rfq.selectedQuotationId) {
+    const err = new Error('Cannot approve RFQ without an awarded supplier quotation');
+    err.status = 400;
+    err.code = 'QUOTATION_REQUIRED';
+    throw err;
+  }
+
+  const settings = await getSettings(req);
+  const requireSeparate = settings.requireSeparateRfqApprover !== false;
+  if (requireSeparate && rfq.awardedBy && rfq.awardedBy === userId) {
+    const err = new Error(
+      'Award and approval must be done by different users. The user who awarded this RFQ cannot approve it.'
+    );
+    err.status = 403;
+    err.code = 'SEPARATE_APPROVER_REQUIRED';
+    throw err;
+  }
+
+  await prisma.importRfq.update({
+    where: { id },
+    data: {
+      status: 'Approved',
+      approvedBy: userId,
+      approvedAt: new Date(),
+    },
+  });
+
+  await logImportAudit({
+    companyId,
+    action: 'STATUS_CHANGE',
+    entityType: 'IMPORT_RFQ',
+    entityId: id,
+    details: {
+      previousStatus: status,
+      nextStatus: 'Approved',
+      action: 'APPROVE',
+      userId,
+      at: new Date().toISOString(),
+    },
+    userId,
+  });
+
+  try {
+    const notifyUserId = rfq.awardedBy || rfq.createdBy;
+    if (notifyUserId && notifyUserId !== userId) {
+      await sendToUser({
+        mongoUserId: notifyUserId,
+        title: 'RFQ approved',
+        message: `${rfq.rfqNumber} was approved. You can convert it to a purchase order.`,
+        type: 'success',
+        category: 'Import',
+        data: {
+          entityType: 'IMPORT_RFQ',
+          entityId: id,
+          rfqId: id,
+          rfqNumber: rfq.rfqNumber,
+          link: `/import/rfqs?id=${id}`,
+        },
+      });
+    }
+  } catch (notifyErr) {
+    console.error('[import] RFQ approved notification failed:', notifyErr.message);
+  }
+
+  return getRfqById(req, id);
+}
+
+/**
+ * Pending Approval → Awarded (reject / send back). Optional reason in audit.
+ */
+async function rejectRfqApproval(req, id, data = {}) {
+  const companyId = requireSingleCompany(req);
+  const userId = req.user.id;
+  const reason = String(data.reason || data.rejectReason || '').trim() || null;
+
+  const rfq = await prisma.importRfq.findFirst({
+    where: { id, companyId },
+  });
+  if (!rfq) {
+    const err = new Error('Import RFQ not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const status = normalizeRfqStatus(rfq.status);
+  assertRfqStatusTransition(status, 'Awarded');
+
+  await prisma.importRfq.update({
+    where: { id },
+    data: {
+      status: 'Awarded',
+      approvedBy: null,
+      approvedAt: null,
+    },
+  });
+
+  await logImportAudit({
+    companyId,
+    action: 'STATUS_CHANGE',
+    entityType: 'IMPORT_RFQ',
+    entityId: id,
+    details: {
+      previousStatus: status,
+      nextStatus: 'Awarded',
+      action: 'REJECT_APPROVAL',
+      reason: reason || undefined,
+      userId,
+      at: new Date().toISOString(),
+    },
+    userId,
+  });
+
+  try {
+    const notifyUserId = rfq.awardedBy || rfq.createdBy;
+    if (notifyUserId && notifyUserId !== userId) {
+      await sendToUser({
+        mongoUserId: notifyUserId,
+        title: 'RFQ approval rejected',
+        message: reason
+          ? `${rfq.rfqNumber} was sent back: ${reason}`
+          : `${rfq.rfqNumber} was sent back to Awarded. Review and resubmit.`,
+        type: 'warning',
+        category: 'Import',
+        data: {
+          entityType: 'IMPORT_RFQ',
+          entityId: id,
+          rfqId: id,
+          rfqNumber: rfq.rfqNumber,
+          link: `/import/rfqs?id=${id}`,
+        },
+      });
+    }
+  } catch (notifyErr) {
+    console.error('[import] RFQ reject notification failed:', notifyErr.message);
+  }
+
+  return getRfqById(req, id);
+}
+
+/**
+ * Approval inbox: pending RFQs + customs clearances (and optional recent approved).
+ */
+async function listImportApprovals(req, query = {}) {
+  const companyId = requireSingleCompany(req);
+  const includeRecent = String(query.includeRecent || '').toLowerCase() === 'true';
+  const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
+
+  const pending = await prisma.importRfq.findMany({
+    where: { companyId, status: 'Pending Approval' },
+    include: {
+      items: true,
+      supplier: true,
+      port: true,
+      quotations: { include: { items: true }, orderBy: { createdAt: 'desc' } },
+      purchaseOrders: { select: { id: true, poNumber: true, status: true } },
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+  });
+
+  const pendingCustoms = await prisma.importCustomsClearance.findMany({
+    where: { companyId, clearanceStatus: 'Pending Approval' },
+    include: { importPo: true, shipment: true, lines: true },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+  });
+
+  const pendingAssessments = await prisma.importCustomsClearance.findMany({
+    where: { companyId, clearanceStatus: 'Under Assessment' },
+    include: { importPo: true, shipment: true, lines: true },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+  });
+
+  const pendingPayments = await prisma.importCustomsClearance.findMany({
+    where: { companyId, clearanceStatus: 'Pending Payment' },
+    include: { importPo: true, shipment: true, lines: true },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+  });
+
+  let recent = [];
+  let recentCustoms = [];
+  let recentAssessments = [];
+  if (includeRecent) {
+    recent = await prisma.importRfq.findMany({
+      where: {
+        companyId,
+        status: { in: ['Approved', 'Awarded'] },
+        approvedAt: { not: null },
+      },
+      include: {
+        items: true,
+        supplier: true,
+        port: true,
+        quotations: { include: { items: true }, orderBy: { createdAt: 'desc' } },
+        purchaseOrders: { select: { id: true, poNumber: true, status: true } },
+      },
+      orderBy: { approvedAt: 'desc' },
+      take: Math.min(20, limit),
+    });
+    recentCustoms = await prisma.importCustomsClearance.findMany({
+      where: {
+        companyId,
+        clearanceStatus: { in: ['Approved', 'Released/Cleared'] },
+        approvedAt: { not: null },
+      },
+      include: { importPo: true, shipment: true, lines: true },
+      orderBy: { approvedAt: 'desc' },
+      take: Math.min(20, limit),
+    });
+    recentAssessments = await prisma.importCustomsClearance.findMany({
+      where: {
+        companyId,
+        clearanceStatus: { in: ['Assessed', 'Partially Paid', 'Duty Paid'] },
+        assessedAt: { not: null },
+      },
+      include: { importPo: true, shipment: true, lines: true },
+      orderBy: { assessedAt: 'desc' },
+      take: Math.min(20, limit),
+    });
+  }
+
+  const importCustoms = require('./importCustomsService');
+  const pendingCustomsOut = await Promise.all(
+    pendingCustoms.map((r) => importCustoms.getCustomsClearanceById(req, r.id))
+  );
+  const recentCustomsOut = await Promise.all(
+    recentCustoms.map((r) => importCustoms.getCustomsClearanceById(req, r.id))
+  );
+  const pendingAssessmentsOut = await Promise.all(
+    pendingAssessments.map((r) => importCustoms.getCustomsClearanceById(req, r.id))
+  );
+  const recentAssessmentsOut = await Promise.all(
+    recentAssessments.map((r) => importCustoms.getCustomsClearanceById(req, r.id))
+  );
+  const pendingPaymentsOut = await Promise.all(
+    pendingPayments.map((r) => importCustoms.getCustomsClearanceById(req, r.id))
+  );
+
+  return {
+    pending: pending.map((r) => serializeRfq(r)),
+    recent: recent.map((r) => serializeRfq(r)),
+    pendingCustoms: pendingCustomsOut,
+    recentCustoms: recentCustomsOut,
+    pendingAssessments: pendingAssessmentsOut,
+    recentAssessments: recentAssessmentsOut,
+    pendingPayments: pendingPaymentsOut,
+  };
+}
+
+async function submitCustomsForApproval(req, id) {
+  return importEnterprise.submitCustomsForApproval(req, id);
+}
+
+async function approveCustomsClearance(req, id) {
+  return importEnterprise.approveCustomsClearance(req, id);
+}
+
+async function rejectCustomsApproval(req, id, data = {}) {
+  return importEnterprise.rejectCustomsApproval(req, id, data || {});
+}
+
+/**
  * Reopen an Approved RFQ so award can be changed. Clears approval; requires reason.
  */
 async function reopenRfq(req, id, data = {}) {
@@ -4942,6 +4831,11 @@ module.exports = {
   listQuotations,
   createQuotation,
   selectQuotation,
+  submitRfqForApproval,
+  approveRfq,
+  rejectRfqApproval,
+  listImportApprovals,
+  findCompanyUserIdsWithPermission,
   reopenRfq,
   refreshRfqItemHsCode,
   convertRfqToPurchaseOrder,
@@ -4991,17 +4885,26 @@ module.exports = {
   previewCustomsClearance,
   createCustomsClearance,
   updateCustomsStatus,
+  submitCustomsForApproval,
+  approveCustomsClearance,
+  rejectCustomsApproval,
   recalculateCustomsWithCurrentRate,
   refreshCustomsTariffData,
   recordCustomsDutyPayment,
   listCustomsPaymentAccounts,
+  CUSTOMS_APPROVE_PERMISSION,
   listDocuments,
   createDocument,
   listGrns,
   getGrnById,
   getReceivingPreview,
+  getShipmentReceivingPreview,
+  listReceivableShipments,
   auditImportGrns,
   createGrn,
+  postGrn,
+  cancelGrn,
+  verifyShipmentOriginalBl,
   sumPostedAcceptedForPo,
   serializePoItemForReceiving,
   IMPORT_GRN_POSTED_STATUSES,

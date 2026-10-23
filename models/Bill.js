@@ -1,18 +1,11 @@
 const prisma = require('../prisma/client');
-
-// ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_BILL_STATUS = ['Unpaid', 'Partial', 'Paid', 'Overdue'];
 
 class BillModel {
 
-  // ============================================================
-  // ✅ GENERATE UNIQUE BILL NUMBER - FIXED
-  // ============================================================
   static async generateBillNumber(companyId) {
     const prefix = 'BILL-';
-    
-    // Find the highest existing bill number for this company
-    const highestBill = await prisma.bill.findFirst({
+        const highestBill = await prisma.bill.findFirst({
       where: {
         companyId: companyId,
         billNumber: {
@@ -37,8 +30,6 @@ class BillModel {
         }
       }
     }
-
-    // Check if the generated number already exists (safety check)
     let candidate = `${prefix}${String(nextNumber).padStart(4, '0')}`;
     let attempts = 0;
     const maxAttempts = 100;
@@ -55,21 +46,15 @@ class BillModel {
       if (!existing) {
         break;
       }
-
-      // Try next number
       nextNumber++;
       candidate = `${prefix}${String(nextNumber).padStart(4, '0')}`;
       attempts++;
     }
-
-    // If we couldn't find a unique number, use timestamp-based fallback
     if (attempts >= maxAttempts) {
       const timestamp = Date.now().toString(36).toUpperCase();
       const random = Math.random().toString(36).substring(2, 6).toUpperCase();
       candidate = `${prefix}${timestamp}${random}`.substring(0, 15);
-      
-      // Verify fallback is unique
-      const existing = await prisma.bill.findFirst({
+            const existing = await prisma.bill.findFirst({
         where: {
           billNumber: candidate,
           companyId: companyId
@@ -84,10 +69,6 @@ class BillModel {
 
     return candidate;
   }
-
-  // ============================================================
-  // ✅ VALIDATE BILL DATA
-  // ============================================================
   static validateBillData(data) {
     const errors = [];
 
@@ -108,9 +89,6 @@ class BillModel {
     return errors;
   }
 
-  // ============================================================
-  // ✅ DETERMINE BILL STATUS
-  // ============================================================
   static determineStatus(totalAmount, paidAmount, dueDate) {
     const outstanding = totalAmount - paidAmount;
     if (outstanding <= 0) return 'Paid';
@@ -119,20 +97,13 @@ class BillModel {
     return 'Unpaid';
   }
 
-  // ============================================================
-  // ✅ CREATE BILL
-  // ============================================================
   static async create(data) {
     const errors = this.validateBillData(data);
     if (errors.length > 0) {
       throw new Error(errors.join('; '));
     }
-
-    // Generate unique bill number using companyId
     const billNumber = await this.generateBillNumber(data.companyId);
-    
-    // Calculate totals
-    let subtotal = 0;
+        let subtotal = 0;
     let taxTotal = 0;
     
     const items = data.items.map(item => {
@@ -184,10 +155,6 @@ class BillModel {
       }
     });
   }
-
-  // ============================================================
-  // ✅ FIND ALL BILLS WITH FILTERS
-  // ============================================================
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { date: 'desc' } } = options;
     
@@ -216,16 +183,10 @@ class BillModel {
     });
   }
 
-  // ============================================================
-  // ✅ COUNT BILLS
-  // ============================================================
   static async count(filter = {}) {
     return await prisma.bill.count({ where: filter });
   }
 
-  // ============================================================
-  // ✅ FIND BILL BY ID
-  // ============================================================
   static async findById(id) {
     return await prisma.bill.findUnique({
       where: { id },
@@ -360,10 +321,6 @@ class BillModel {
       }
     });
   }
-
-  // ============================================================
-  // ✅ UPDATE BILL STATUS
-  // ============================================================
   static async updateStatus(id, status) {
     if (!VALID_BILL_STATUS.includes(status)) {
       throw new Error(`Invalid status. Must be one of: ${VALID_BILL_STATUS.join(', ')}`);
@@ -379,10 +336,6 @@ class BillModel {
       }
     });
   }
-
-  // ============================================================
-  // ✅ UPDATE BILL PAYMENT
-  // ============================================================
   static async updatePayment(id, amount, companyId) {
     return await prisma.$transaction(async (tx) => {
       const bill = await tx.bill.findFirst({
@@ -415,18 +368,12 @@ class BillModel {
     });
   }
 
-  // ============================================================
-  // ✅ DELETE BILL
-  // ============================================================
   static async delete(id) {
     return await prisma.bill.delete({
       where: { id }
     });
   }
 
-  // ============================================================
-  // ✅ GET BILL STATS
-  // ============================================================
   static async getStats(companyId) {
     const filter = { companyId: companyId };
     
@@ -454,9 +401,6 @@ class BillModel {
     };
   }
 
-  // ============================================================
-  // ✅ SEARCH BILLS
-  // ============================================================
   static async search(query, companyId, options = {}) {
     const { skip, take } = options;
 
@@ -489,9 +433,6 @@ class BillModel {
     return { bills, total };
   }
 
-  // ============================================================
-  // ✅ GET BILLS BY DATE RANGE
-  // ============================================================
   static async getByDateRange(startDate, endDate, companyId) {
     return await prisma.bill.findMany({
       where: {
@@ -513,9 +454,6 @@ class BillModel {
     });
   }
 
-  // ============================================================
-  // ✅ GET OVERDUE BILLS
-  // ============================================================
   static async getOverdueBills(companyId) {
     return await prisma.bill.findMany({
       where: {

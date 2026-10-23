@@ -258,13 +258,53 @@ model Company {
   importLandedCosts        ImportLandedCost[]       @relation("ImportLandedCostCompany")
   importFinanceLcs         ImportFinanceLc[]        @relation("ImportFinanceLcCompany")
   importSupplierBills      ImportSupplierBill[]     @relation("ImportSupplierBillCompany")
+  importSupplierClaims     ImportSupplierClaim[]    @relation("ImportSupplierClaimCompany")
   importSetting            ImportSetting?           @relation("ImportSettingCompany")
   importAuditLogs          ImportAuditLog[]         @relation("ImportAuditLogCompany")
+  businessConfig           CompanyBusinessConfig?
+  salesInstallmentSchedules SalesInstallmentSchedule[] @relation("SalesInstallmentScheduleCompany")
+  purchaseInstallmentSchedules PurchaseInstallmentSchedule[] @relation("PurchaseInstallmentScheduleCompany")
 
   @@index([email])
   @@index([isActive])
   @@index([parentCompanyId])
   @@map("companies")
+}
+
+// ============================================================
+// COMPANY BUSINESS MODEL CONFIGURATION
+// Operational sales/purchase model per company (not legal entity type).
+// Child companies materialize a copy from parent on create; overrides
+// are gated by allowChildConfigOverride on the parent config.
+// ============================================================
+
+model CompanyBusinessConfig {
+  id     String @id @default(uuid())
+  companyId String @unique @map("company_id")
+
+  /// Trading | Manufacturing | Retail | Distribution | Services | Other
+  operationalBusinessType String @default("Other") @map("operational_business_type")
+  /// standard | installment | both
+  salesModel String @default("standard") @map("sales_model")
+  /// standard | installment
+  purchaseModel String @default("standard") @map("purchase_model")
+  /// full_on_sale | as_collected — accounting recognition policy (transaction rules still apply)
+  installmentRevenuePolicy String @default("full_on_sale") @map("installment_revenue_policy")
+  /// Parent policy: whether child companies may change their own business model
+  allowChildConfigOverride Boolean @default(true) @map("allow_child_config_override")
+  /// True when this row was seeded from a parent and has not been independently overridden
+  inheritedFromParent Boolean @default(false) @map("inherited_from_parent")
+  /// Company id this config was copied from (null for root / custom)
+  sourceParentCompanyId String? @map("source_parent_company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([salesModel])
+  @@index([purchaseModel])
+  @@map("company_business_configs")
 }
 
 // ============================================================
@@ -573,9 +613,12 @@ model User {
   importCustomsDutyPaymentsCreated ImportCustomsDutyPayment[] @relation("ImportCustomsDutyPaymentCreator")
   importDocumentsCreated    ImportDocument[]    @relation("ImportDocumentCreator")
   importGrnsCreated         ImportGrn[]         @relation("ImportGrnCreator")
+  importGrnsPosted          ImportGrn[]         @relation("ImportGrnPoster")
   importLandedCostsCreated  ImportLandedCost[]  @relation("ImportLandedCostCreator")
   importFinanceLcsCreated   ImportFinanceLc[]   @relation("ImportFinanceLcCreator")
   importSupplierBillsCreated ImportSupplierBill[] @relation("ImportSupplierBillCreator")
+  importSupplierClaimsCreated ImportSupplierClaim[] @relation("ImportSupplierClaimCreator")
+  importShipmentsBlVerified ImportShipment[]   @relation("ImportShipmentBlVerifier")
   importAuditLogs           ImportAuditLog[]    @relation("ImportAuditLogUser")
   refundCreators            Refund[]            @relation("RefundCreator")
   refundUpdaters            Refund[]            @relation("RefundUpdater")
@@ -4876,6 +4919,13 @@ model PurchaseInvoice {
   companyId    String? @map("company_id")
   locationId   String? @map("location_id")
 
+  /// Installment purchase plan (integrated into existing purchase invoice)
+  isInstallmentPurchase  Boolean @default(false) @map("is_installment_purchase")
+  downPaymentAmount      Float   @default(0) @map("down_payment_amount")
+  installmentCount       Int?    @map("installment_count")
+  installmentFrequency   String? @map("installment_frequency")
+  installmentAmount      Float?  @map("installment_amount")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -4900,6 +4950,7 @@ model PurchaseInvoice {
   PurchaseReturnItem PurchaseReturnItem[]
   fiscalYear         FiscalYear?              @relation("PurchaseInvoiceFiscalYear", fields: [fiscalYearId], references: [id])
   importSupplierBills ImportSupplierBill[]
+  installmentSchedules PurchaseInstallmentSchedule[]
 
   @@index([invoiceNumber])
   @@index([supplierId])
@@ -4915,7 +4966,35 @@ model PurchaseInvoice {
   @@index([locationId])
   @@index([currencyId])
   @@index([baseCurrencyId])
+  @@index([isInstallmentPurchase])
   @@map("purchase_invoices")
+}
+
+model PurchaseInstallmentSchedule {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  invoiceId         String   @map("invoice_id")
+  installmentNumber Int      @map("installment_number")
+  dueDate           DateTime @map("due_date")
+  amount            Float
+  paidAmount        Float    @default(0) @map("paid_amount")
+  status            String   @default("Pending")
+  paidAt            DateTime? @map("paid_at")
+  purchasePaymentId String?  @map("purchase_payment_id")
+  notes             String   @default("")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company         @relation("PurchaseInstallmentScheduleCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  invoice PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, installmentNumber])
+  @@index([companyId])
+  @@index([invoiceId])
+  @@index([dueDate])
+  @@index([status])
+  @@map("purchase_installment_schedules")
 }
 
 // ============================================================
@@ -5000,6 +5079,14 @@ model SalesInvoice {
   companyId    String? @map("company_id")
   locationId   String? @map("location_id")
 
+  /// Installment sale plan (integrated into existing sales invoice — not a separate module)
+  isInstallmentSale      Boolean @default(false) @map("is_installment_sale")
+  downPaymentAmount      Float   @default(0) @map("down_payment_amount")
+  installmentCount       Int?    @map("installment_count")
+  /// monthly | weekly | biweekly | quarterly
+  installmentFrequency   String? @map("installment_frequency")
+  installmentAmount      Float?  @map("installment_amount")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -5019,6 +5106,7 @@ model SalesInvoice {
   invoicePayments     SalesInvoicePayment[]
   fiscalYear          FiscalYear?           @relation("SalesInvoiceFiscalYear", fields: [fiscalYearId], references: [id])
   creditNotes         CreditNote[]
+  installmentSchedules SalesInstallmentSchedule[]
 
   @@index([invoiceNumber])
   @@index([orderId])
@@ -5032,7 +5120,36 @@ model SalesInvoice {
   @@index([companyId])
   @@index([fiscalYearId])
   @@index([locationId])
+  @@index([isInstallmentSale])
   @@map("sales_invoices")
+}
+
+model SalesInstallmentSchedule {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  invoiceId         String   @map("invoice_id")
+  installmentNumber Int      @map("installment_number")
+  dueDate           DateTime @map("due_date")
+  amount            Float
+  paidAmount        Float    @default(0) @map("paid_amount")
+  /// Pending | Partial | Paid | Overdue | Cancelled
+  status            String   @default("Pending")
+  paidAt            DateTime? @map("paid_at")
+  salesPaymentId    String?  @map("sales_payment_id")
+  notes             String   @default("")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company  Company      @relation("SalesInstallmentScheduleCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  invoice  SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, installmentNumber])
+  @@index([companyId])
+  @@index([invoiceId])
+  @@index([dueDate])
+  @@index([status])
+  @@map("sales_installment_schedules")
 }
 
 // ============================================================
@@ -7694,6 +7811,9 @@ model ImportShipment {
   customsOffice    String?   @map("customs_office")
   warehouseName    String?   @map("warehouse_name")
   notes            String?
+  originalBlReceived   Boolean   @default(false) @map("original_bl_received")
+  originalBlReceivedAt DateTime? @map("original_bl_received_at")
+  originalBlReceivedBy String?   @map("original_bl_received_by")
   createdBy        String?   @map("created_by")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -7702,11 +7822,13 @@ model ImportShipment {
   importPo          ImportPurchaseOrder?     @relation(fields: [importPoId], references: [id], onDelete: SetNull)
   carrierMaster     ImportCarrier?           @relation(fields: [carrierId], references: [id], onDelete: SetNull)
   creator           User?                    @relation("ImportShipmentCreator", fields: [createdBy], references: [id])
+  blVerifier        User?                    @relation("ImportShipmentBlVerifier", fields: [originalBlReceivedBy], references: [id])
   items             ImportShipmentItem[]
   customsClearances ImportCustomsClearance[]
   grns              ImportGrn[]
   landedCosts       ImportLandedCost[]
   documents         ImportDocument[]
+  supplierClaims    ImportSupplierClaim[]
 
   @@unique([companyId, shipmentNumber])
   @@index([companyId, shipmentStatus])
@@ -7802,6 +7924,10 @@ model ImportCustomsClearance {
   idempotencyKey         String?   @map("idempotency_key")
   assessedBy             String?   @map("assessed_by")
   assessedAt             DateTime? @map("assessed_at")
+  approvalRequestedBy    String?   @map("approval_requested_by")
+  approvalRequestedAt    DateTime? @map("approval_requested_at")
+  approvedBy             String?   @map("approved_by")
+  approvedAt             DateTime? @map("approved_at")
   createdBy              String?   @map("created_by")
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
@@ -7812,6 +7938,7 @@ model ImportCustomsClearance {
   creator  User?                @relation("ImportCustomsClearanceCreator", fields: [createdBy], references: [id])
   lines    ImportCustomsClearanceLine[]
   dutyPayments ImportCustomsDutyPayment[]
+  grns     ImportGrn[]
 
   @@unique([companyId, entryNumber])
   @@index([companyId, clearanceStatus])
@@ -7945,6 +8072,9 @@ model ImportGrn {
   poRef            String?   @map("po_ref")
   shipmentId       String?   @map("shipment_id")
   shipmentRef      String?   @map("shipment_ref")
+  customsClearanceId String? @map("customs_clearance_id")
+  customsRef       String?   @map("customs_ref")
+  boeNumber         String?   @map("boe_number")
   locationId       String?   @map("location_id")
   warehouseName    String?   @map("warehouse_name")
   receiptDate      DateTime  @default(now()) @map("receipt_date")
@@ -7955,24 +8085,37 @@ model ImportGrn {
   goodsReceivingId String?   @map("goods_receiving_id")
   idempotencyKey   String?   @map("idempotency_key")
   stockPostedAt    DateTime? @map("stock_posted_at")
+  isLegacy         Boolean   @default(false) @map("is_legacy")
+  isBonded         Boolean   @default(false) @map("is_bonded")
+  earlyReceiveReason String? @map("early_receive_reason")
+  costStatus       String    @default("Provisional") @map("cost_status")
+  postedBy         String?   @map("posted_by")
+  postedAt         DateTime? @map("posted_at")
+  cancelledAt      DateTime? @map("cancelled_at")
+  cancelReason     String?   @map("cancel_reason")
   notes            String?
   createdBy        String?   @map("created_by")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  company        Company              @relation("ImportGrnCompany", fields: [companyId], references: [id], onDelete: Cascade)
-  importPo       ImportPurchaseOrder? @relation(fields: [importPoId], references: [id], onDelete: SetNull)
-  shipment       ImportShipment?      @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
-  location       Location?            @relation(fields: [locationId], references: [id])
-  goodsReceiving GoodsReceiving?      @relation(fields: [goodsReceivingId], references: [id], onDelete: SetNull)
-  creator        User?                @relation("ImportGrnCreator", fields: [createdBy], references: [id])
-  items          ImportGrnItem[]
-  landedCosts    ImportLandedCost[]
+  company          Company                 @relation("ImportGrnCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importPo         ImportPurchaseOrder?    @relation(fields: [importPoId], references: [id], onDelete: SetNull)
+  shipment         ImportShipment?         @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  customsClearance ImportCustomsClearance? @relation(fields: [customsClearanceId], references: [id], onDelete: SetNull)
+  location         Location?               @relation(fields: [locationId], references: [id])
+  goodsReceiving   GoodsReceiving?         @relation(fields: [goodsReceivingId], references: [id], onDelete: SetNull)
+  creator          User?                   @relation("ImportGrnCreator", fields: [createdBy], references: [id])
+  poster           User?                   @relation("ImportGrnPoster", fields: [postedBy], references: [id])
+  items            ImportGrnItem[]
+  landedCosts      ImportLandedCost[]
+  supplierClaims   ImportSupplierClaim[]
 
   @@unique([companyId, grnNumber])
   @@unique([companyId, idempotencyKey])
   @@index([companyId, status])
   @@index([importPoId])
+  @@index([shipmentId])
+  @@index([customsClearanceId])
   @@index([goodsReceivingId])
   @@map("import_grns")
 }
@@ -7981,25 +8124,71 @@ model ImportGrnItem {
   id             String   @id @default(uuid())
   importGrnId    String   @map("import_grn_id")
   importPoItemId String?  @map("import_po_item_id")
+  shipmentItemId String?  @map("shipment_item_id")
   productId      String?  @map("product_id")
   productName    String   @map("product_name")
   sku            String?
   orderedQty     Decimal  @default(0) @map("ordered_qty") @db.Decimal(18, 4)
+  shippedQty     Decimal  @default(0) @map("shipped_qty") @db.Decimal(18, 4)
   previouslyReceivedQty Decimal @default(0) @map("previously_received_qty") @db.Decimal(18, 4)
   remainingQty   Decimal  @default(0) @map("remaining_qty") @db.Decimal(18, 4)
   receivedQty    Decimal  @default(0) @map("received_qty") @db.Decimal(18, 4)
   acceptedQty    Decimal  @default(0) @map("accepted_qty") @db.Decimal(18, 4)
+  shortQty       Decimal  @default(0) @map("short_qty") @db.Decimal(18, 4)
+  damagedQty     Decimal  @default(0) @map("damaged_qty") @db.Decimal(18, 4)
   rejectedQty    Decimal  @default(0) @map("rejected_qty") @db.Decimal(18, 4)
+  shortReason    String?  @map("short_reason")
+  damagedReason  String?  @map("damaged_reason")
+  rejectedReason String?  @map("rejected_reason")
+  unitCostProvisional Decimal? @map("unit_cost_provisional") @db.Decimal(18, 4)
+  unitCostFinal  Decimal? @map("unit_cost_final") @db.Decimal(18, 4)
+  costStatus     String   @default("Provisional") @map("cost_status")
+  stockDisposition String @default("Sellable") @map("stock_disposition")
   uom            String   @default("PCS")
   lotNumber      String?  @map("lot_number")
 
   importGrn ImportGrn @relation(fields: [importGrnId], references: [id], onDelete: Cascade)
   product   Product?  @relation(fields: [productId], references: [id])
+  supplierClaims ImportSupplierClaim[]
 
   @@index([importGrnId])
   @@index([productId])
   @@index([importPoItemId])
+  @@index([shipmentItemId])
   @@map("import_grn_items")
+}
+
+model ImportSupplierClaim {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  claimNumber     String   @map("claim_number")
+  importGrnId     String?  @map("import_grn_id")
+  importGrnItemId String?  @map("import_grn_item_id")
+  shipmentId      String?  @map("shipment_id")
+  importPoId      String?  @map("import_po_id")
+  productId       String?  @map("product_id")
+  productName     String   @map("product_name")
+  claimType       String   @map("claim_type")
+  quantity        Decimal  @default(0) @db.Decimal(18, 4)
+  uom             String   @default("PCS")
+  reason          String
+  status          String   @default("Open")
+  notes           String?
+  createdBy       String?  @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  company   Company        @relation("ImportSupplierClaimCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  importGrn ImportGrn?     @relation(fields: [importGrnId], references: [id], onDelete: SetNull)
+  grnItem   ImportGrnItem? @relation(fields: [importGrnItemId], references: [id], onDelete: SetNull)
+  shipment  ImportShipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  creator   User?          @relation("ImportSupplierClaimCreator", fields: [createdBy], references: [id])
+
+  @@unique([companyId, claimNumber])
+  @@index([companyId, status])
+  @@index([importGrnId])
+  @@index([shipmentId])
+  @@map("import_supplier_claims")
 }
 
 model ImportLandedCost {
@@ -8251,6 +8440,8 @@ model ImportSetting {
   blockInsufficientBalance   Boolean  @default(true) @map("block_insufficient_balance")
   dutyPaymentDifferenceThresholdPct Decimal @default(5) @map("duty_payment_difference_threshold_pct") @db.Decimal(8, 2)
   requirePhysicalOriginalBl  Boolean  @default(true) @map("require_physical_original_bl")
+  allowGrnBeforeCustomsRelease Boolean @default(false) @map("allow_grn_before_customs_release")
+  requireSeparateGrnPoster   Boolean  @default(true) @map("require_separate_grn_poster")
   defaultCustomsDutyRatePct  Decimal  @default(10) @map("default_customs_duty_rate_pct") @db.Decimal(8, 2)
   defaultImportVatRatePct    Decimal  @default(5) @map("default_import_vat_rate_pct") @db.Decimal(8, 2)
   companyCountryCode         String?  @map("company_country_code")

@@ -1134,45 +1134,260 @@ async function postSupplierBillEnterprise(req, id) {
   });
 }
 
+function isCashPaymentAccount(ba) {
+  if (!ba) return false;
+  const name = `${ba.bankName || ''} ${ba.accountName || ''} ${ba.accountType || ''}`.toLowerCase();
+  return (
+    String(ba.bankName || '').toLowerCase() === 'cash' ||
+    String(ba.accountType || '').toLowerCase() === 'cash' ||
+    /\bcash\b/.test(name)
+  );
+}
+
+function normalizeBillPaymentMethod(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  if (v === 'cash') return 'Cash';
+  if (v === 'bank' || v === 'bank transfer' || v === 'wire_transfer' || v === 'wire transfer') {
+    return 'Bank';
+  }
+  if (v === 'cheque' || v === 'check') return 'Cheque';
+  return null;
+}
+
 async function recordBillPaymentEnterprise(req, id, data = {}) {
   const bill = await getSupplierBillById(req, id);
-  if (!['Posted', 'Partially Paid', 'Approved'].includes(bill.status) && bill.status !== 'Paid') {
-    // Allow payment recording after post; Approved drafts need post first for GL
-    if (['Draft', 'Pending Approval', 'Submitted'].includes(bill.status)) {
-      const err = new Error('Post the bill before recording payments');
-      err.status = 400;
-      throw err;
-    }
+  const companyId = bill.companyId;
+  const userId = req.user.id;
+
+  // Payment can only settle a bill that already hit GL (Posted / partial).
+  if (!['Posted', 'Partially Paid'].includes(String(bill.status || ''))) {
+    const err = new Error('Post the bill before recording payments');
+    err.status = 400;
+    throw err;
+  }
+  if (!bill.journalEntryId) {
+    const err = new Error('Bill has no GL posting yet. Post the bill first, then record payment.');
+    err.status = 400;
+    throw err;
   }
 
-  const paymentAmount = toNumber(data.paymentAmountUsd ?? data.amountUsd ?? data.amount, 0);
+  const paymentAmount = Math.round(toNumber(data.paymentAmountUsd ?? data.amountUsd ?? data.amount, 0) * 100) / 100;
   if (!(paymentAmount > 0)) {
     const err = new Error('Payment amount must be greater than zero');
     err.status = 400;
     throw err;
   }
 
-  const newPaid = toNumber(bill.paidAmountUsd) + paymentAmount;
+  const paymentMethod = normalizeBillPaymentMethod(data.paymentMethod);
+  if (!paymentMethod) {
+    const err = new Error('Payment method must be Cash, Bank, or Cheque');
+    err.status = 400;
+    err.field = 'paymentMethod';
+    throw err;
+  }
+
+  const bankAccountId = data.bankAccountId || data.accountId || null;
+  if (!bankAccountId) {
+    const err = new Error('Select a Cash / Bank account from Accounting');
+    err.status = 400;
+    err.field = 'bankAccountId';
+    throw err;
+  }
+
+  const paymentDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
+  await fiscalYearGuard(userId, paymentDate);
+  const fiscalYearId = await resolveFiscalYearId(userId, paymentDate);
+
+  const bankAccount = await prisma.bankAccount.findFirst({
+    where: {
+      id: bankAccountId,
+      companyId,
+      OR: [{ status: 'Active' }, { status: 'active' }, { status: 'ACTIVE' }],
+    },
+  });
+  if (!bankAccount) {
+    const err = new Error('Selected account was not found in Accounting Bank Accounts');
+    err.status = 400;
+    err.field = 'bankAccountId';
+    throw err;
+  }
+  if (!bankAccount.chartOfAccountId) {
+    const err = new Error(
+      'Selected account is not linked to Chart of Accounts. Open Accounting → Bank Accounts and link a COA account.'
+    );
+    err.status = 400;
+    err.field = 'bankAccountId';
+    throw err;
+  }
+
+  const cashAccount = isCashPaymentAccount(bankAccount);
+  if (paymentMethod === 'Cash' && !cashAccount) {
+    const err = new Error('Cash payments must use an active Cash account from Accounting');
+    err.status = 400;
+    err.field = 'bankAccountId';
+    throw err;
+  }
+  if ((paymentMethod === 'Bank' || paymentMethod === 'Cheque') && cashAccount) {
+    const err = new Error(`${paymentMethod} payments must use an active Bank account (not Cash)`);
+    err.status = 400;
+    err.field = 'bankAccountId';
+    throw err;
+  }
+
+  const available = Number(bankAccount.currentBalance) || 0;
+  if (available + 0.01 < paymentAmount) {
+    const err = new Error(
+      `Insufficient account balance. Available ${available.toLocaleString()}, required ${paymentAmount.toLocaleString()}.`
+    );
+    err.status = 400;
+    err.field = 'amountUsd';
+    throw err;
+  }
+
+  const newPaid = Math.round((toNumber(bill.paidAmountUsd) + paymentAmount) * 100) / 100;
   if (newPaid > toNumber(bill.totalAmountUsd) + 0.01) {
     const err = new Error('Payment exceeds bill balance');
     err.status = 400;
     throw err;
   }
-  const newBalance = Math.max(0, toNumber(bill.totalAmountUsd) - newPaid);
-  const status = newBalance === 0 ? 'Paid' : 'Partially Paid';
+  const newBalance = Math.max(0, Math.round((toNumber(bill.totalAmountUsd) - newPaid) * 100) / 100);
+  const status = newBalance <= 0.009 ? 'Paid' : 'Partially Paid';
+  const paymentRef =
+    String(data.reference || data.paymentRef || '').trim() ||
+    `IBPAY-${bill.billNumber}-${Date.now().toString().slice(-6)}`;
 
-  const updated = await prisma.importSupplierBill.update({
-    where: { id },
-    data: {
-      paidAmountUsd: newPaid,
-      balanceUsd: newBalance,
-      status,
-    },
-    include: { items: true },
+  const result = await prisma.$transaction(async (tx) => {
+    const creditCoa = await tx.chartOfAccount.findFirst({
+      where: { id: bankAccount.chartOfAccountId, companyId, isActive: true },
+    });
+    if (!creditCoa) {
+      const err = new Error('Selected account Chart of Accounts link is invalid or inactive');
+      err.status = 400;
+      err.field = 'bankAccountId';
+      throw err;
+    }
+
+    let apAccount = await tx.chartOfAccount.findFirst({
+      where: {
+        companyId,
+        type: 'Liability',
+        OR: [
+          { name: { contains: 'Payable', mode: 'insensitive' } },
+          { name: { contains: 'Creditor', mode: 'insensitive' } },
+        ],
+      },
+    });
+    if (!apAccount) {
+      apAccount = await tx.chartOfAccount.findFirst({ where: { companyId, type: 'Liability' } });
+    }
+    if (!apAccount) {
+      const err = new Error('Company must have an Accounts Payable (Liability) account in Chart of Accounts');
+      err.status = 400;
+      throw err;
+    }
+
+    const entryNumber = `JE-IBPAY-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const journalEntry = await tx.journalEntry.create({
+      data: {
+        entryNumber,
+        date: paymentDate,
+        description: `Import bill payment ${bill.billNumber} via ${paymentMethod} (${bankAccount.accountName})`,
+        reference: paymentRef,
+        status: 'Posted',
+        type: 'Normal',
+        companyId,
+        fiscalYearId,
+        createdBy: userId,
+        postedBy: userId,
+        postedAt: new Date(),
+        lines: {
+          create: [
+            {
+              accountId: apAccount.id,
+              accountName: apAccount.name,
+              accountCode: apAccount.code,
+              debit: paymentAmount,
+              credit: 0,
+            },
+            {
+              accountId: creditCoa.id,
+              accountName: creditCoa.name,
+              accountCode: creditCoa.code,
+              debit: 0,
+              credit: paymentAmount,
+            },
+          ],
+        },
+      },
+      include: { lines: true },
+    });
+
+    await BalanceCalculator.applyJournalLines(tx, journalEntry.lines);
+
+    await tx.bankAccount.update({
+      where: { id: bankAccount.id },
+      data: { currentBalance: { decrement: paymentAmount } },
+    });
+
+    // Keep linked Purchase Invoice / AP subledger in sync when present
+    if (bill.purchaseInvoiceId) {
+      const invoice = await tx.purchaseInvoice.findFirst({
+        where: { id: bill.purchaseInvoiceId, companyId },
+      });
+      if (invoice) {
+        const invPaid = Math.round((Number(invoice.paidAmount || 0) + paymentAmount) * 100) / 100;
+        const invOutstanding = Math.max(
+          0,
+          Math.round((Number(invoice.grandTotal || 0) - invPaid) * 100) / 100
+        );
+        const paymentStatus =
+          invOutstanding <= 0.009 ? 'Paid' : invPaid > 0 ? 'Partial' : 'Unpaid';
+        await tx.purchaseInvoice.update({
+          where: { id: invoice.id },
+          data: {
+            paidAmount: invPaid,
+            outstanding: invOutstanding,
+            paymentStatus,
+            paidAt: invOutstanding <= 0.009 ? new Date() : invoice.paidAt,
+          },
+        });
+
+        const apRow = await tx.accountsPayable.findFirst({
+          where: { invoiceId: invoice.id, companyId },
+        });
+        if (apRow) {
+          const apPaid = Math.round((Number(apRow.paidAmount || 0) + paymentAmount) * 100) / 100;
+          const apOutstanding = Math.max(
+            0,
+            Math.round((Number(apRow.amount || 0) - apPaid) * 100) / 100
+          );
+          await tx.accountsPayable.update({
+            where: { id: apRow.id },
+            data: {
+              paidAmount: apPaid,
+              outstanding: apOutstanding,
+              status: apOutstanding <= 0.009 ? 'Paid' : apRow.status === 'Overdue' ? 'Overdue' : 'Current',
+            },
+          });
+        }
+      }
+    }
+
+    const billRow = await tx.importSupplierBill.update({
+      where: { id },
+      data: {
+        paidAmountUsd: newPaid,
+        balanceUsd: newBalance,
+        status,
+      },
+      include: { items: true, importPo: true },
+    });
+
+    return { bill: billRow, journalEntry };
   });
 
   await logImportAudit({
-    companyId: bill.companyId,
+    companyId,
     action: 'PAYMENT_RECORDED',
     entityType: 'IMPORT_BILL',
     entityId: id,
@@ -1181,13 +1396,22 @@ async function recordBillPaymentEnterprise(req, id, data = {}) {
       newPaid,
       newBalance,
       status,
-      paymentMadeId: data.paymentMadeId || null,
-      note: 'Import bill payment counter updated; bank GL should come from Purchase Payments module when paymentMadeId is linked',
+      paymentMethod,
+      bankAccountId: bankAccount.id,
+      bankAccountName: bankAccount.accountName,
+      journalEntryId: result.journalEntry.id,
+      journalEntryNumber: result.journalEntry.entryNumber,
+      paymentRef,
+      note: 'Import bill payment posted to GL (Dr AP / Cr Cash-Bank) and bank balance updated',
     },
-    userId: req.user.id,
+    userId,
   });
 
-  return updated;
+  return {
+    ...result.bill,
+    lastPaymentJournalEntryId: result.journalEntry.id,
+    lastPaymentJournalEntryNumber: result.journalEntry.entryNumber,
+  };
 }
 
 // ── Customs ─────────────────────────────────────────────────────────────────
@@ -2247,6 +2471,9 @@ module.exports = {
   listCustomsPaymentAccounts: (...args) => importCustoms.listCustomsPaymentAccounts(...args),
   CUSTOMS_STATUS_TRANSITIONS: importCustoms.CUSTOMS_STATUS_TRANSITIONS,
   normalizeCustomsStatus: importCustoms.normalizeCustomsStatus,
+  submitCustomsForApproval: (...args) => importCustoms.submitCustomsForApproval(...args),
+  approveCustomsClearance: (...args) => importCustoms.approveCustomsClearance(...args),
+  rejectCustomsApproval: (...args) => importCustoms.rejectCustomsApproval(...args),
   createLandedCostEnterprise,
   reverseLandedCost,
   createFinanceLcEnterprise,

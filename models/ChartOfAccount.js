@@ -2,7 +2,6 @@
 
   const prisma = require('../prisma/client');
 
-  // ─── CONSTANTS ─────────────────────────────────────────────────────
   const VALID_ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
   const DEBIT_BALANCE_TYPES = ['Asset', 'Expense'];
   const CREDIT_BALANCE_TYPES = ['Liability', 'Equity', 'Revenue'];
@@ -48,17 +47,11 @@
       return errors;
     }
 
-    // ============================================================
-    // CREATE ACCOUNT
-    // ============================================================
     static async create(data) {
-      // ─── ✅ Validate data ──────────────────────────────────────
       const errors = this.validateAccountData(data);
       if (errors.length > 0) {
         throw new Error(errors.join('; '));
       }
-
-      // ─── Auto-calculate balanceType ────────────────────────────
       let balanceType = 'Debit';
       if (CREDIT_BALANCE_TYPES.includes(data.type)) {
         balanceType = 'Credit';
@@ -88,27 +81,18 @@
       });
     }
 
-    // ============================================================
-    // UPDATE ACCOUNT - ✅ Fixed with validation
-    // ============================================================
     static async update(id, data) {
-      // ─── Get existing account ──────────────────────────────────
       const existing = await prisma.chartOfAccount.findUnique({
         where: { id }
       });
 
       if (!existing) return null;
 
-      // ─── Merge data for validation ─────────────────────────────
       const mergedData = { ...existing, ...data };
-      
-      // ─── ✅ Validate updated data ──────────────────────────────
-      const errors = this.validateAccountData(mergedData);
+            const errors = this.validateAccountData(mergedData);
       if (errors.length > 0) {
         throw new Error(errors.join('; '));
       }
-
-      // ─── Recalculate balanceType if type changed ───────────────
       if (data.type) {
         let balanceType = 'Debit';
         if (CREDIT_BALANCE_TYPES.includes(data.type)) {
@@ -128,22 +112,16 @@
       });
     }
 
-    // ============================================================
-    // ✅ FIX: Update account type with balance check
-    // ============================================================
     static async updateType(id, newType, userId) {
       const account = await prisma.chartOfAccount.findFirst({
         where: { id, createdBy: userId }
       });
 
       if (!account) return null;
-
-      // ─── Check if type change affects balance sign ─────────────
       const oldType = account.type;
       const oldIsDebitType = DEBIT_BALANCE_TYPES.includes(oldType);
       const newIsDebitType = DEBIT_BALANCE_TYPES.includes(newType);
       
-      // If moving between Debit-type and Credit-type accounts
       if (oldIsDebitType !== newIsDebitType && account.currentBalance !== 0) {
         throw new Error(
           `Cannot change type from "${oldType}" to "${newType}" with non-zero balance. ` +
@@ -151,13 +129,9 @@
           `Please reset balance to zero first or use the "fix" endpoint.`
         );
       }
-
-      // ─── Validate new type ─────────────────────────────────────
       if (!VALID_ACCOUNT_TYPES.includes(newType)) {
         throw new Error(`Invalid account type: ${newType}`);
       }
-
-      // ─── Calculate new balanceType ─────────────────────────────
       let balanceType = 'Debit';
       if (CREDIT_BALANCE_TYPES.includes(newType)) {
         balanceType = 'Credit';
@@ -172,9 +146,6 @@
       });
     }
 
-    // ============================================================
-    // GET ALL ACCOUNTS WITH FILTERS
-    // ============================================================
     static async findAll(filter = {}, options = {}) {
       const { skip, take, orderBy = { code: 'asc' } } = options;
       
@@ -191,16 +162,10 @@
       });
     }
 
-    // ============================================================
-    // COUNT ACCOUNTS
-    // ============================================================
     static async count(filter = {}) {
       return await prisma.chartOfAccount.count({ where: filter });
     }
 
-    // ============================================================
-    // FIND ACCOUNT BY ID
-    // ============================================================
     static async findById(id) {
       return await prisma.chartOfAccount.findUnique({
         where: { id },
@@ -212,9 +177,6 @@
       });
     }
 
-    // ============================================================
-    // FIND ACCOUNT BY CODE AND CREATOR
-    // ============================================================
     static async findByCodeAndCreator(code, createdBy) {
       return await prisma.chartOfAccount.findUnique({
         where: {
@@ -226,18 +188,11 @@
       });
     }
 
-    // ============================================================
-    // DELETE ACCOUNT
-    // ============================================================
     static async delete(id) {
       return await prisma.chartOfAccount.delete({
         where: { id }
       });
     }
-
-    // ============================================================
-    // GET ACCOUNT SUMMARY
-    // ============================================================
     static async getSummary(accounts) {
       const summary = {
         Assets: 0,
@@ -257,10 +212,6 @@
 
       return summary;
     }
-
-    // ============================================================
-    // GET ACCOUNT BY TYPE
-    // ============================================================
     static async findByType(type, createdBy) {
       return await prisma.chartOfAccount.findMany({
         where: {
@@ -272,9 +223,6 @@
       });
     }
 
-    // ============================================================
-    // GET ACCOUNTS WITH BALANCE
-    // ============================================================
     static async getAccountsWithBalance(createdBy) {
       const accounts = await prisma.chartOfAccount.findMany({
         where: {
@@ -288,9 +236,6 @@
       return { accounts, summary };
     }
 
-    // ============================================================
-    // UPDATE BALANCE
-    // ============================================================
     static async updateBalance(id, amount, type = 'add') {
       const account = await prisma.chartOfAccount.findUnique({
         where: { id }
@@ -313,19 +258,12 @@
       });
     }
 
-    // ============================================================
-    // ARCHIVE/DEACTIVATE ACCOUNT
-    // ============================================================
     static async toggleActive(id, isActive) {
       return await prisma.chartOfAccount.update({
         where: { id },
         data: { isActive }
       });
     }
-
-    // ============================================================
-    // SEARCH ACCOUNTS
-    // ============================================================
     static async search(query, createdBy, options = {}) {
       const { skip, take } = options;
 
@@ -353,19 +291,12 @@
 
       return { accounts, total };
     }
-
-    // ============================================================
-    // ✅ FIX: Fix account type (Admin/Dev only)
-    // ============================================================
     static async fixAccountType(id, newType, userId) {
       const account = await prisma.chartOfAccount.findFirst({
         where: { id, createdBy: userId }
       });
 
       if (!account) return null;
-
-      // ─── Force change type even with balance ──────────────────
-      // This should be used with caution - only by admin/dev
       let balanceType = 'Debit';
       if (CREDIT_BALANCE_TYPES.includes(newType)) {
         balanceType = 'Credit';

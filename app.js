@@ -10,18 +10,10 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true
 }));
-
-// Large JSON bodies are allowed because offline-sync clients (POS desktop)
-// may push sizable catalogs, and several modules accept inline images in JSON.
-// The desktop push strips base64 images before sending, so in practice
-// payloads stay small — this limit is a safety net, not an invitation.
 app.use(express.json({ limit: '25mb' }));
-
 app.get('/', (req, res) => {
   res.send('API is running 🚀');
 });
-
-// Prisma client health — use after deploy to catch stale Vercel cache / bad DB URL
 app.get('/api/health/prisma', (req, res) => {
   try {
     const prisma = require('./prisma/client');
@@ -70,14 +62,12 @@ const equityRoutes = require('./routes/equityRoutes');
 const loanRoutes = require('./routes/loanRoutes');
 const fiscalYearRoutes = require('./routes/fiscalYearRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const cashFlowRoutes = require('./routes/cashFlowRoutes');
 const plReportRoutes = require('./routes/plReportRoutes');
 const balanceSheetRoutes = require('./routes/balanceSheetRoutes');
 const reportRoutes = require('./routes/reportRoutes');
-
 const productRoutes = require('./warehouse/routes/product_routes');
 const WarehouseCategory = require('./warehouse/routes/category_routes');
 const supplierRoutes = require("./warehouse/routes/supplier_routes");
@@ -173,8 +163,6 @@ app.use('/api/warehouse/products', productRoutes);
 app.use('/api/warehouse/supplier', supplierRoutes);
 app.use('/api/warehouse/categories', WarehouseCategory);
 app.use('/api/warehouse/inventory', inventoryRoutes);
-// Merged sales+purchase list (invoiceType filter) must register first —
-// the legacy invoiceRoutes also mounts GET / and would otherwise win.
 app.use('/api/warehouse/invoices', warehouseInvoiceRoutes);
 app.use('/api/warehouse/invoices', warehouseinvoiceRoutes);
 app.use('/api/warehouse/purchases', warehousePurchaseRoutes);
@@ -196,6 +184,7 @@ app.use('/api/sync', require('./pos/sync/masterDataSyncRoutes'));
 app.use('/api/tax',   taxRoutes);
 app.use('/api/platform', platformAdminRoutes);
 app.use('/api/companies', require('./routes/companyRoutes'));
+app.use('/api/installments', require('./routes/installmentRoutes'));
 app.use('/api/admin', companyStorageRoutes);
 app.use('/api/hr', require('./routes/hrRoutes'));
 app.use('/api/manufacturing', require('./routes/manufacturingRoutes'));

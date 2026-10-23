@@ -18,7 +18,10 @@ const COMPANY_SUBSCRIPTION_SELECT = {
   name: true,
   email: true,
   phone: true,
+  address: true,
   businessType: true,
+  taxRegistrationNumber: true,
+  website: true,
   isActive: true,
   subscriptionPlan: true,
   subscriptionStatus: true,
@@ -32,6 +35,29 @@ const COMPANY_SUBSCRIPTION_SELECT = {
   subscriptionEndDate: true,
   createdAt: true,
 };
+
+const ADMIN_USER_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  phone: true,
+  contactNo: true,
+  country: true,
+  address: true,
+  organizationName: true,
+  websiteLink: true,
+  role: true,
+  isActive: true,
+  createdAt: true,
+  businessDetails: true,
+};
+
+function pickCompanyAdmin(users = []) {
+  if (!Array.isArray(users) || users.length === 0) return null;
+  const byRole = users.find((u) => String(u.role || '').toLowerCase() === 'admin');
+  return byRole || users[0] || null;
+}
 
 async function companyWithCapacity(companyId) {
   const [company, capacity] = await Promise.all([
@@ -74,9 +100,18 @@ exports.listCompanies = async (req, res) => {
       select: {
         ...COMPANY_SUBSCRIPTION_SELECT,
         _count: { select: { users: true } },
+        users: {
+          select: ADMIN_USER_SELECT,
+          orderBy: { createdAt: 'asc' },
+          take: 10,
+        },
       },
     });
-    res.json({ success: true, data: companies });
+    const data = companies.map(({ users, ...company }) => ({
+      ...company,
+      admin: pickCompanyAdmin(users),
+    }));
+    res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -89,15 +124,7 @@ exports.getCompany = async (req, res) => {
       where: { id: req.params.id },
       include: {
         users: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            role: true,
-            isActive: true,
-            createdAt: true,
-          },
+          select: ADMIN_USER_SELECT,
           orderBy: { createdAt: 'asc' },
         },
       },
@@ -106,10 +133,12 @@ exports.getCompany = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Company not found' });
     }
     const capacity = await getCompanyCapacity(prisma, company.id);
+    const admin = pickCompanyAdmin(company.users);
     res.json({
       success: true,
       data: {
         ...company,
+        admin,
         capacity,
       },
     });

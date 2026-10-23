@@ -1847,6 +1847,17 @@ class PurchaseInvoiceModel {
         }
       }
 
+      if (invoice.isInstallmentPurchase) {
+        try {
+          const {
+            cancelOpenInstallmentsForPurchaseInvoice,
+          } = require('../../services/installmentScheduleService');
+          await cancelOpenInstallmentsForPurchaseInvoice(id, invoice.companyId, tx);
+        } catch (instErr) {
+          console.warn('[cancelInvoice] purchase installment cancel skipped:', instErr.message);
+        }
+      }
+
       return await tx.purchaseInvoice.update({
         where: { id },
         data: {

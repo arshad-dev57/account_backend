@@ -30,6 +30,22 @@ const CAN_VIEW = requireAnyPermission([
 const CAN_CREATE_RFQ = requireAnyPermission(['import.rfqs.create', 'purchases.orders.create']);
 const CAN_EDIT_RFQ = requireAnyPermission(['import.rfqs.edit', 'purchases.orders.edit']);
 const CAN_DELETE_RFQ = requireAnyPermission(['import.rfqs.delete', 'purchases.orders.delete']);
+const CAN_APPROVE_RFQ = requireAnyPermission(['import.rfqs.approve']);
+const CAN_APPROVE_CUSTOMS = requireAnyPermission(['import.customs.approve']);
+const CAN_APPROVE_ANY = requireAnyPermission([
+  'import.rfqs.approve',
+  'import.customs.approve',
+  'import.customs.assess',
+  'import.customs.record_payment',
+]);
+const CAN_SUBMIT_CUSTOMS_APPROVAL = requireAnyPermission([
+  'import.customs.edit',
+  'import.customs.assess',
+  'import.customs.record_payment',
+  'import.customs.release',
+  'import.customs.create',
+  'purchases.orders.edit',
+]);
 const CAN_CREATE_PO = requireAnyPermission(['import.orders.create', 'purchases.orders.create']);
 const CAN_EDIT_PO = requireAnyPermission(['import.orders.edit', 'purchases.orders.edit']);
 const CAN_CREATE_PI = requireAnyPermission(['import.proformas.create', 'purchases.orders.create']);
@@ -41,15 +57,33 @@ const CAN_EDIT_CARRIER = requireAnyPermission(['import.carriers.edit', 'import.s
 const CAN_CREATE_CUSTOMS = requireAnyPermission(['import.customs.create', 'purchases.orders.create']);
 const CAN_EDIT_CUSTOMS = requireAnyPermission(['import.customs.edit', 'purchases.orders.edit']);
 const CAN_CUSTOMS_ACTION = requireAnyPermission([
+  'import.customs.create',
   'import.customs.edit',
   'import.customs.assess',
   'import.customs.record_payment',
   'import.customs.release',
   'import.customs.hold',
   'import.customs.cancel',
+  'purchases.orders.create',
   'purchases.orders.edit',
+  // Accountant / Finance can reach payment via status API when needed
+  'purchases.payments.create',
+  'purchases.payments.edit',
+  'accounting.accounts_payable.create',
+  'accounting.accounts_payable.edit',
+  'accounting.journal_entries.create',
+  'accounting.journal_entries.post',
 ]);
-const CAN_RECORD_CUSTOMS_PAYMENT = requireAnyPermission(['import.customs.record_payment']);
+// Accountant / Finance-friendly: accept customs payment OR accounting/purchases payment perms
+const CAN_RECORD_CUSTOMS_PAYMENT = requireAnyPermission([
+  'import.customs.record_payment',
+  'purchases.payments.create',
+  'purchases.payments.edit',
+  'accounting.accounts_payable.create',
+  'accounting.accounts_payable.edit',
+  'accounting.journal_entries.create',
+  'accounting.journal_entries.post',
+]);
 
 // Clearer 403 copy for customs duty payment permission denials
 router.use((req, res, next) => {
@@ -58,12 +92,12 @@ router.use((req, res, next) => {
     if (
       res.statusCode === 403 &&
       Array.isArray(body?.requiredPermissions) &&
-      body.requiredPermissions.includes('import.customs.record_payment') &&
-      body.requiredPermissions.length === 1
+      body.requiredPermissions.includes('import.customs.record_payment')
     ) {
       return originalJson({
         ...body,
-        message: 'You do not have permission to record customs duty payments',
+        message:
+          'You do not have permission to record customs duty payments. Accountant / Finance roles with payment permissions can record duty payments.',
       });
     }
     return originalJson(body);
@@ -71,7 +105,9 @@ router.use((req, res, next) => {
   next();
 });
 const CAN_CREATE_DOC = requireAnyPermission(['import.documents.create', 'purchases.orders.create']);
-const CAN_CREATE_GRN = requireAnyPermission(['import.grn.create', 'purchases.orders.create']);
+const CAN_CREATE_GRN = requireAnyPermission(['import.grn.create']);
+const CAN_POST_GRN = requireAnyPermission(['import.grn.post', 'import.grn.approve']);
+const CAN_CANCEL_GRN = requireAnyPermission(['import.grn.cancel', 'import.grn.delete']);
 const CAN_CREATE_LCA = requireAnyPermission(['import.landed_costs.create', 'purchases.orders.create']);
 const CAN_POST_LCA = requireAnyPermission(['import.landed_costs.post', 'accounting.journal_entries.post']);
 const CAN_CREATE_LC = requireAnyPermission(['import.finance.create', 'purchases.orders.create']);
@@ -127,6 +163,34 @@ router.post('/rfqs/:id/quotations', CAN_CREATE_RFQ, wrap(async (req, res) => {
 
 router.post('/quotations/:id/select', CAN_EDIT_RFQ, wrap(async (req, res) => {
   ok(res, await svc.selectQuotation(req, req.params.id, req.body || {}));
+}));
+
+router.get('/approvals', CAN_APPROVE_ANY, wrap(async (req, res) => {
+  ok(res, await svc.listImportApprovals(req, req.query));
+}));
+
+router.post('/rfqs/:id/submit-for-approval', CAN_EDIT_RFQ, wrap(async (req, res) => {
+  ok(res, await svc.submitRfqForApproval(req, req.params.id));
+}));
+
+router.post('/rfqs/:id/approve', CAN_APPROVE_RFQ, wrap(async (req, res) => {
+  ok(res, await svc.approveRfq(req, req.params.id));
+}));
+
+router.post('/rfqs/:id/reject-approval', CAN_APPROVE_RFQ, wrap(async (req, res) => {
+  ok(res, await svc.rejectRfqApproval(req, req.params.id, req.body || {}));
+}));
+
+router.post('/customs/:id/submit-for-approval', CAN_SUBMIT_CUSTOMS_APPROVAL, wrap(async (req, res) => {
+  ok(res, await svc.submitCustomsForApproval(req, req.params.id));
+}));
+
+router.post('/customs/:id/approve', CAN_APPROVE_CUSTOMS, wrap(async (req, res) => {
+  ok(res, await svc.approveCustomsClearance(req, req.params.id));
+}));
+
+router.post('/customs/:id/reject-approval', CAN_APPROVE_CUSTOMS, wrap(async (req, res) => {
+  ok(res, await svc.rejectCustomsApproval(req, req.params.id, req.body || {}));
 }));
 
 router.post('/rfqs/:id/reopen', CAN_EDIT_RFQ, wrap(async (req, res) => {
@@ -329,7 +393,20 @@ router.get('/grns/audit', CAN_VIEW, wrap(async (req, res) => {
   ok(res, await svc.auditImportGrns(req, req.query));
 }));
 
+router.get('/grns/receivable-shipments', CAN_VIEW, wrap(async (req, res) => {
+  ok(res, await svc.listReceivableShipments(req, req.query));
+}));
+
+router.get('/shipments/:id/receiving-preview', CAN_VIEW, wrap(async (req, res) => {
+  ok(res, await svc.getShipmentReceivingPreview(req, req.params.id));
+}));
+
+router.post('/shipments/:id/verify-original-bl', CAN_CREATE_GRN, wrap(async (req, res) => {
+  ok(res, await svc.verifyShipmentOriginalBl(req, req.params.id, req.body || {}));
+}));
+
 router.get('/purchase-orders/:id/receiving-preview', CAN_VIEW, wrap(async (req, res) => {
+  // Explicitly rejects PO-direct receiving for import
   ok(res, await svc.getReceivingPreview(req, req.params.id));
 }));
 
@@ -339,6 +416,14 @@ router.get('/grns/:id', CAN_VIEW, wrap(async (req, res) => {
 
 router.post('/grns', CAN_CREATE_GRN, wrap(async (req, res) => {
   ok(res, await svc.createGrn(req, req.body), 201);
+}));
+
+router.post('/grns/:id/post', CAN_POST_GRN, wrap(async (req, res) => {
+  ok(res, await svc.postGrn(req, req.params.id));
+}));
+
+router.post('/grns/:id/cancel', CAN_CANCEL_GRN, wrap(async (req, res) => {
+  ok(res, await svc.cancelGrn(req, req.params.id, req.body || {}));
 }));
 
 router.get('/landed-costs', CAN_VIEW, wrap(async (req, res) => {

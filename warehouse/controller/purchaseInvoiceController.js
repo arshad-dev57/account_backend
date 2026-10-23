@@ -5,6 +5,46 @@ const prisma = require('../../prisma/client');
 const taxCalculationService = require('../../tax/services/taxCalculationService');
 const { fiscalYearGuard } = require('../../middleware/fiscalYearMiddleware');
 const { resolveFiscalYearId } = require('../../utils/fiscalYearHelper');
+const {
+  normalizeInstallmentPurchaseInput,
+  createPurchaseInstallmentSchedule,
+} = require('../../services/installmentScheduleService');
+const {
+  resolveEffectiveCompanyConfig,
+  assertInstallmentPurchaseAllowed,
+} = require('../../utils/companyBusinessConfig');
+
+async function attachPurchaseInstallmentSchedule(companyId, invoice, body, postingDate) {
+  const installmentInput = normalizeInstallmentPurchaseInput(body || {});
+  if (!installmentInput.isInstallmentPurchase || !invoice?.id) return invoice;
+
+  const businessConfig = await resolveEffectiveCompanyConfig(companyId);
+  assertInstallmentPurchaseAllowed(businessConfig, { isInstallment: true });
+
+  const plan = await createPurchaseInstallmentSchedule({
+    companyId,
+    invoiceId: invoice.id,
+    grandTotal: invoice.grandTotal,
+    invoiceDate: invoice.invoiceDate || postingDate || new Date(),
+    planInput: installmentInput,
+  });
+
+  return prisma.purchaseInvoice.update({
+    where: { id: invoice.id },
+    data: {
+      isInstallmentPurchase: true,
+      downPaymentAmount: plan.downPaymentAmount,
+      installmentCount: plan.installmentCount,
+      installmentFrequency: plan.installmentFrequency,
+      installmentAmount: plan.installmentAmount,
+    },
+    include: {
+      installmentSchedules: { orderBy: { installmentNumber: 'asc' } },
+      items: true,
+      supplier: true,
+    },
+  });
+}
 
 // ============================================================
 // ─── PURCHASE INVOICE CONTROLLERS ──────────────────────────────
@@ -101,7 +141,13 @@ const createInvoiceFromGRN = async (req, res) => {
       fiscalYearId
     };
 
-    const invoice = await PurchaseInvoice.createFromGRN(invoiceData);
+    let invoice = await PurchaseInvoice.createFromGRN(invoiceData);
+    invoice = await attachPurchaseInstallmentSchedule(
+      companyId,
+      invoice,
+      req.body,
+      postingDate
+    );
 
     await taxCalculationService.recordFromDocument({
       companyId,
@@ -156,7 +202,7 @@ const createInvoiceFromSources = async (req, res) => {
 
     const fiscalYearId = await resolveFiscalYearId(userId, postingDate);
 
-    const invoice = await PurchaseInvoice.createFromSources({
+    let invoice = await PurchaseInvoice.createFromSources({
       goodsReceivingIds: goodsReceivingIds || [],
       purchaseOrderIds: purchaseOrderIds || [],
       items,
@@ -172,6 +218,13 @@ const createInvoiceFromSources = async (req, res) => {
       fiscalYearId,
     });
 
+    invoice = await attachPurchaseInstallmentSchedule(
+      companyId,
+      invoice,
+      req.body,
+      postingDate
+    );
+
     res.status(201).json({
       success: true,
       message: 'Purchase invoice draft created from selected documents',
@@ -179,8 +232,9 @@ const createInvoiceFromSources = async (req, res) => {
     });
   } catch (error) {
     console.error('Create invoice from sources error:', error);
-    res.status(400).json({
+    res.status(error.statusCode || 400).json({
       success: false,
+      code: error.code,
       message: error.message || 'Server error',
     });
   }
@@ -253,7 +307,13 @@ const createInvoiceFromPurchaseOrder = async (req, res) => {
       fiscalYearId: null
     };
 
-    const invoice = await PurchaseInvoice.createFromPurchaseOrder(invoiceData);
+    let invoice = await PurchaseInvoice.createFromPurchaseOrder(invoiceData);
+    invoice = await attachPurchaseInstallmentSchedule(
+      companyId,
+      invoice,
+      req.body,
+      invoiceDate ? new Date(invoiceDate) : new Date()
+    );
 
     await taxCalculationService.recordFromDocument({
       companyId,
@@ -494,7 +554,10 @@ const getPurchaseInvoiceById = async (req, res) => {
           }
         },
         inventoryAccount: true,
-        apAccount: true
+        apAccount: true,
+        installmentSchedules: {
+          orderBy: { installmentNumber: 'asc' },
+        },
       }
     });
 

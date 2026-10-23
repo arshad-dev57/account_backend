@@ -1,8 +1,4 @@
-/**
- * ERP Inventory Import Engine
- * Upload → Parse → Validate → Preview → Confirm → Transactional execute
- * Opening qty creates OPENING_BALANCE stock ledger movements (never silent qty set).
- */
+
 
 const crypto = require('crypto');
 const ExcelJS = require('exceljs');
@@ -21,8 +17,6 @@ const {
   stockValue,
   MOVEMENT_TYPES,
 } = require('./inventoryMath');
-
-/** Official template columns (Factory_ERP_Inventory_Import.xlsx compatible) */
 const TEMPLATE_COLUMNS = [
   'SKU / Item Code',
   'Item Name',

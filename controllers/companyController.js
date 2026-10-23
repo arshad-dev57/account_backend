@@ -278,6 +278,28 @@ exports.createCompany = async (req, res) => {
       console.error('createCompany currency/FX warning:', fxErr.message);
     }
 
+    // Business model config: children inherit parent; root uses request or defaults
+    let businessConfig = null;
+    try {
+      const {
+        parseBusinessConfigFromRequestBody,
+        inheritBusinessConfigFromParent,
+        seedCompanyBusinessConfig,
+        updateCompanyBusinessConfig,
+      } = require('../utils/companyBusinessConfig');
+      const requested = parseBusinessConfigFromRequestBody(body);
+      if (parentCompanyId) {
+        businessConfig = await inheritBusinessConfigFromParent(company.id, parentCompanyId);
+        if (Object.keys(requested).length > 0 && businessConfig.allowChildConfigOverride) {
+          businessConfig = await updateCompanyBusinessConfig(company.id, requested);
+        }
+      } else {
+        businessConfig = await seedCompanyBusinessConfig(company.id, requested);
+      }
+    } catch (cfgErr) {
+      console.error('createCompany business config warning:', cfgErr.message);
+    }
+
     // Do NOT create a warehouse automatically.
 
     invalidateAuthUser(userId);
@@ -289,7 +311,10 @@ exports.createCompany = async (req, res) => {
     res.status(201).json({
       success: true,
       message: `Company "${company.name}" created successfully${billingNote}`,
-      data: companyPublic(company),
+      data: {
+        ...companyPublic(company),
+        businessConfig: businessConfig || undefined,
+      },
     });
   } catch (err) {
     console.error('createCompany error:', err);
@@ -491,6 +516,95 @@ exports.requireSingleCompanyGuard = (req, res, next) => {
       success: false,
       code: err.code || 'COMPANY_REQUIRED',
       message: err.message,
+    });
+  }
+};
+
+// GET /api/companies/business-config — effective config for active company
+exports.getBusinessConfig = async (req, res) => {
+  try {
+    const companyId = requireSingleCompany(req);
+    const {
+      resolveEffectiveCompanyConfig,
+      getParentOverridePolicy,
+      OPERATIONAL_BUSINESS_TYPES,
+      SALES_MODELS,
+      PURCHASE_MODELS,
+      INSTALLMENT_REVENUE_POLICIES,
+    } = require('../utils/companyBusinessConfig');
+
+    const config = await resolveEffectiveCompanyConfig(companyId);
+    const parentPolicy = await getParentOverridePolicy(companyId);
+
+    res.json({
+      success: true,
+      data: {
+        ...config,
+        canEdit: !parentPolicy.isChild || parentPolicy.allowOverride,
+        parentPolicy: parentPolicy.isChild
+          ? {
+              parentCompanyId: parentPolicy.parentCompanyId,
+              allowChildConfigOverride: parentPolicy.allowOverride,
+            }
+          : null,
+        options: {
+          operationalBusinessTypes: OPERATIONAL_BUSINESS_TYPES,
+          salesModels: SALES_MODELS,
+          purchaseModels: PURCHASE_MODELS,
+          installmentRevenuePolicies: INSTALLMENT_REVENUE_POLICIES,
+        },
+      },
+    });
+  } catch (err) {
+    console.error('getBusinessConfig error:', err);
+    res.status(err.statusCode || err.status || 500).json({
+      success: false,
+      code: err.code,
+      message: err.message,
+    });
+  }
+};
+
+// PATCH /api/companies/business-config — update active company business model
+exports.updateBusinessConfig = async (req, res) => {
+  try {
+    const companyId = requireSingleCompany(req);
+    const role = String(req.user.role || '').toLowerCase();
+    if (!['admin', 'owner', 'superadmin', 'platform_admin'].includes(role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only company admins can update business configuration',
+      });
+    }
+
+    const {
+      parseBusinessConfigFromRequestBody,
+      updateCompanyBusinessConfig,
+    } = require('../utils/companyBusinessConfig');
+
+    const patch = parseBusinessConfigFromRequestBody(req.body || {});
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No business configuration fields provided',
+      });
+    }
+
+    const result = await updateCompanyBusinessConfig(companyId, patch);
+    res.json({
+      success: true,
+      message:
+        'Business configuration updated. Historical transactions and accounting records were not modified.',
+      data: result,
+      warnings: result.warnings || [],
+    });
+  } catch (err) {
+    console.error('updateBusinessConfig error:', err);
+    res.status(err.statusCode || err.status || 500).json({
+      success: false,
+      code: err.code,
+      message: err.message,
+      errors: err.errors,
     });
   }
 };

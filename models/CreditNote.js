@@ -1,6 +1,5 @@
 const prisma = require('../prisma/client');
 
-// ─── CONSTANTS ─────────────────────────────────────────────────────
 const VALID_REASON_TYPES = ['Return', 'Refund', 'Discount', 'Adjustment', 'Price Adjustment', 'Damaged Goods'];
 const VALID_STATUS = ['Issued', 'Applied', 'Expired', 'PartiallyApplied'];
 
@@ -237,9 +236,6 @@ class CreditNoteModel {
     });
   }
 
-  // ============================================================
-  // ✅ FIND BY CUSTOMER
-  // ============================================================
   static async findByCustomer(customerId, createdBy) {
     return await prisma.creditNote.findMany({
       where: {
@@ -252,7 +248,7 @@ class CreditNoteModel {
           select: {
             id: true,
             invoiceNumber: true,
-            grandTotal: true,        // ✅ totalAmount → grandTotal
+            grandTotal: true,        
             paidAmount: true,
             outstanding: true,
             invoiceStatus: true,
@@ -311,7 +307,7 @@ class CreditNoteModel {
           select: {
             id: true,
             invoiceNumber: true,
-            grandTotal: true,        // ✅ totalAmount → grandTotal
+            grandTotal: true,       
             paidAmount: true,
             outstanding: true,
             invoiceStatus: true,
@@ -330,9 +326,6 @@ class CreditNoteModel {
     });
   }
 
-  // ============================================================
-  // ✅ UPDATE STATUS
-  // ============================================================
   static async updateStatus(id, status) {
     if (!VALID_STATUS.includes(status)) {
       throw new Error(`Invalid status. Must be one of: ${VALID_STATUS.join(', ')}`);
@@ -354,7 +347,7 @@ class CreditNoteModel {
           select: {
             id: true,
             invoiceNumber: true,
-            grandTotal: true,        // ✅ totalAmount → grandTotal
+            grandTotal: true,       
             paidAmount: true,
             outstanding: true,
             invoiceStatus: true,
@@ -365,9 +358,6 @@ class CreditNoteModel {
     });
   }
 
-  // ============================================================
-  // ✅ DELETE CREDIT NOTE
-  // ============================================================
   static async delete(id) {
     return await prisma.creditNote.delete({
       where: { id }
@@ -488,9 +478,6 @@ class CreditNoteModel {
     };
   }
 
-  // ============================================================
-  // ✅ GET RECENT CREDIT NOTES
-  // ============================================================
   static async getRecent(createdBy, limit = 10) {
     return await prisma.creditNote.findMany({
       where: { createdBy },

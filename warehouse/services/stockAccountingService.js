@@ -1,7 +1,3 @@
-/**
- * Stock Movement ↔ General Ledger bridge.
- * Direct stock in/out posts journal entries based on business reason.
- */
 
 const prisma = require('../../prisma/client');
 const BalanceCalculator = require('../../utils/balanceCalculator');
@@ -73,6 +69,7 @@ function listStockReasons() {
   };
 }
 
+
 function validateStockInReason(reasonKey) {
   const meta = STOCK_IN_REASONS[reasonKey];
   if (!meta) {
@@ -97,11 +94,6 @@ function validateStockOutReason(reasonKey) {
   return meta;
 }
 
-/**
- * Score COA candidates for Inventory/Stock Asset.
- * Default chart: 1200 = Inventory, 1300 = Prepaid Expenses.
- * Never prefer Prepaid Expenses over Inventory.
- */
 function scoreInventoryCandidate(account) {
   if (!account) return -Infinity;
   const code = String(account.code || '').trim();
@@ -134,10 +126,6 @@ function preferInventoryAccount(candidates = []) {
   return null;
 }
 
-/**
- * Resolve Inventory asset account for COGS / stock / purchase postings.
- * Prefer code 1200 (default chart Inventory). Never silently use Prepaid Expenses (1300).
- */
 async function findOrCreateInventoryAccount(tx, companyId, userId) {
   const candidates = await tx.chartOfAccount.findMany({
     where: {
