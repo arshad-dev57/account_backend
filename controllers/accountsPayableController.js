@@ -190,7 +190,6 @@ function purchaseInvoiceToBillShape(inv) {
     billNumber: inv.invoiceNumber,
     vendorId: inv.supplierId,
     vendorName: supplierName,
-    // Frontend AP screens expect supplier* fields (same as billToResponseShape)
     supplierId: inv.supplierId,
     supplierName,
     vendor: inv.supplier
@@ -345,13 +344,6 @@ exports.getNextBillNumber = async (req, res) => {
   }
 };
 
-// ============================================================
-// ✅ SUPPLIER FUNCTIONS
-// ============================================================
-
-// @desc    Get all suppliers
-// @route   GET /api/accounts-payable/suppliers
-// @access  Private
 exports.getSuppliers = async (req, res) => {
   console.log('📦 [AP] getSuppliers called');
 
@@ -456,9 +448,6 @@ exports.getSuppliers = async (req, res) => {
   }
 };
 
-// @desc    Get single supplier
-// @route   GET /api/accounts-payable/suppliers/:id
-// @access  Private
 exports.getSupplier = async (req, res) => {
   console.log('📦 [AP] getSupplier called');
 

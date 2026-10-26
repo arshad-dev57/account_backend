@@ -123,7 +123,6 @@ async function getOrCreateRevenueAccount(userId) {
   return revenueAccount;
 }
 
-// ─── ✅ NEW: Get or create Tax Liability account ──────────────────
 async function getOrCreateTaxLiabilityAccount(userId) {
   console.log('🔍 [AR] Getting/Creating Tax Liability account');
   let taxAccount = await prisma.chartOfAccount.findFirst({

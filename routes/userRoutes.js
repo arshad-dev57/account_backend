@@ -13,7 +13,8 @@
     deleteMyAccount,
     resetPassword,
     updateCurrency,
-    getSessionStatus
+    getSessionStatus,
+    recordActivity,
   } = require('../controllers/userController');
   const { upload } = require('../config/cloudinary');
 
@@ -32,6 +33,8 @@
 
   // ========== PROTECTED ROUTES (Only authentication, NO subscription check) ==========
   router.get('/session-status', protectOnly, getSessionStatus);
+  // Heartbeat / page usage for platform admin activity view
+  router.post('/activity', protectOnly, recordActivity);
   // ✅ Change password - sirf authentication chahiye, subscription nahi
   router.post('/change-password', protectOnly, changePassword);
   router.delete('/me', protectOnly, deleteMyAccount);

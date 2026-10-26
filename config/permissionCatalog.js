@@ -341,6 +341,32 @@ const MODULE_DEFINITIONS = [
   },
 
   // ═══════════════════════════════════════════════════════════
+  // EXPORT MANAGEMENT  (/export/*)
+  // ═══════════════════════════════════════════════════════════
+  {
+    key: 'export',
+    name: 'Export Management',
+    description: 'Export sales lifecycle: inquiries, quotations, orders, proforma invoices, packing, shipments, customs, documents, dispatch, finance LC, receipts, and export expenses',
+    resources: [
+      res('dashboard', 'Export Dashboard', 'Export KPIs, pipeline, and shipment status analytics', VIEW_ONLY),
+      res('inquiries', 'Export Inquiries', 'Customer export inquiries and lead qualification', CRUD_FULL),
+      res('quotations', 'Export Quotations', 'Export price quotations and customer approvals', CRUD_FULL),
+      res('orders', 'Export Sales Orders', 'Confirmed export sales orders and fulfilment', CRUD_FULL),
+      res('proformas', 'Export Proforma Invoices', 'Proforma invoices and advance collection', CRUD_FULL),
+      res('packing', 'Export Packing & Certification', 'Packing lists, inspection, and certification', CRUD_FULL),
+      res('shipments', 'Export Shipments', 'Shipment booking, containers, and milestones', CRUD_FULL),
+      res('customs', 'Export Customs', 'Shipping bills, customs declarations, and Let Export Order', CRUD_FULL),
+      res('documents', 'Export Documents', 'Commercial invoices, packing lists, BL, COO, and courier tracking', CRUD_FULL),
+      res('dispatch', 'Export Dispatch', 'Gate pass, dispatch, and stock posting', CRUD_FULL),
+      res('finance', 'Export Finance & LC', 'Letters of credit and documentary collection', CRUD_FULL),
+      res('receipts', 'Export Receipts & Advances', 'Advance and settlement receipts with FX gain/loss', CRUD_FULL),
+      res('expenses', 'Export Expenses', 'Freight, duty, insurance, bank charges, and export fees', ['view', 'create', 'edit', 'delete', 'post', 'reverse', 'print', 'export']),
+      res('reports', 'Export Reports', 'Export value, country mix, aging, and margin reports', VIEW_EXPORT),
+      res('settings', 'Export Settings', 'Export default Incoterms, ports, accounts, and posting rules', VIEW_EDIT)
+    ]
+  },
+
+  // ═══════════════════════════════════════════════════════════
   // REPORTS (cross-module)
   // ═══════════════════════════════════════════════════════════
   {
@@ -456,9 +482,25 @@ const DEFAULT_SYSTEM_ROLES = [
       'import.customs.view',
       'import.customs.record_payment',
       'import.settings.view',
+      'export.finance.*',
+      'export.receipts.*',
+      'export.expenses.*',
+      'export.customs.view',
+      'export.orders.view',
+      'export.inquiries.view',
+      'export.quotations.view',
+      'export.proformas.view',
+      'export.packing.view',
+      'export.shipments.view',
+      'export.documents.view',
+      'export.dispatch.view',
+      'export.reports.view',
+      'export.settings.view',
+      'export.dashboard.view',
       'dashboard.overview.view',
       'dashboard.module_accounting.view',
       'dashboard.module_import.view',
+      'dashboard.module_export.view',
       'dashboard.module_sales.view',
       'dashboard.module_purchases.view',
       'dashboard.module_tax.view',
@@ -511,9 +553,25 @@ const DEFAULT_SYSTEM_ROLES = [
       'import.rfqs.view',
       'import.rfqs.approve',
       'import.settings.view',
+      'export.receipts.*',
+      'export.expenses.*',
+      'export.finance.view',
+      'export.orders.view',
+      'export.inquiries.view',
+      'export.quotations.view',
+      'export.proformas.view',
+      'export.packing.view',
+      'export.shipments.view',
+      'export.customs.view',
+      'export.documents.view',
+      'export.dispatch.view',
+      'export.reports.view',
+      'export.settings.view',
+      'export.dashboard.view',
       'dashboard.overview.view',
       'dashboard.module_accounting.view',
       'dashboard.module_import.view',
+      'dashboard.module_export.view',
       'dashboard.module_tax.view',
       'dashboard.widgets_cash_bank.view',
       'dashboard.widgets_ar_ap.view'
@@ -526,11 +584,13 @@ const DEFAULT_SYSTEM_ROLES = [
     patterns: [
       'sales.*',
       'trading.*',
+      'export.*',
       'inventory.products.view',
       'inventory.stock.view',
       'reports.sales.*',
       'dashboard.overview.view',
       'dashboard.module_sales.view',
+      'dashboard.module_export.view',
       'dashboard.widgets_sales.view'
     ]
   },
@@ -627,12 +687,19 @@ const DEFAULT_SYSTEM_ROLES = [
       'import.grn.create',
       'import.grn.post',
       'import.grn.cancel',
+      'export.dispatch.*',
+      'export.packing.*',
+      'export.shipments.view',
+      'export.documents.view',
+      'export.orders.view',
+      'export.dashboard.view',
       'sales.deliveries.*',
       'reports.inventory.*',
       'dashboard.overview.view',
       'dashboard.module_inventory.view',
       'dashboard.widgets_inventory.view',
-      'dashboard.module_import.view'
+      'dashboard.module_import.view',
+      'dashboard.module_export.view'
     ]
   },
   {
@@ -653,10 +720,17 @@ const DEFAULT_SYSTEM_ROLES = [
       'import.grn.view',
       'import.grn.create',
       'import.grn.post',
+      'export.dispatch.view',
+      'export.dispatch.edit',
+      'export.packing.view',
+      'export.packing.edit',
+      'export.shipments.view',
+      'export.documents.view',
       'sales.deliveries.view',
       'sales.deliveries.edit',
       'dashboard.module_inventory.view',
-      'dashboard.module_import.view'
+      'dashboard.module_import.view',
+      'dashboard.module_export.view'
     ]
   },
   {
@@ -696,12 +770,14 @@ const DEFAULT_SYSTEM_ROLES = [
       'inventory.*.view',
       'pos.*.view',
       'manufacturing.*.view',
+      'export.*.view',
       'dashboard.overview.view',
       'dashboard.module_sales.view',
       'dashboard.module_purchases.view',
       'dashboard.module_inventory.view',
       'dashboard.module_pos.view',
-      'dashboard.module_manufacturing.view'
+      'dashboard.module_manufacturing.view',
+      'dashboard.module_export.view'
     ]
   }
 ];

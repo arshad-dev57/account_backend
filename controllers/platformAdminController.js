@@ -12,6 +12,7 @@ const {
   TRIAL_DAYS,
 } = require('../utils/companySubscription');
 const { wipeEntireCompany } = require('../utils/deleteAccount');
+const { getCompanyUsageActivity } = require('../services/appUsageService');
 
 const COMPANY_SUBSCRIPTION_SELECT = {
   id: true,
@@ -49,6 +50,7 @@ const ADMIN_USER_SELECT = {
   websiteLink: true,
   role: true,
   isActive: true,
+  lastActiveAt: true,
   createdAt: true,
   businessDetails: true,
 };
@@ -101,16 +103,27 @@ exports.listCompanies = async (req, res) => {
         ...COMPANY_SUBSCRIPTION_SELECT,
         _count: { select: { users: true } },
         users: {
-          select: ADMIN_USER_SELECT,
-          orderBy: { createdAt: 'asc' },
+          select: {
+            ...ADMIN_USER_SELECT,
+            lastActiveAt: true,
+          },
+          orderBy: [{ lastActiveAt: 'desc' }, { createdAt: 'asc' }],
           take: 10,
         },
       },
     });
-    const data = companies.map(({ users, ...company }) => ({
-      ...company,
-      admin: pickCompanyAdmin(users),
-    }));
+    const data = companies.map(({ users, ...company }) => {
+      const lastActiveAt = users.reduce((max, u) => {
+        if (!u.lastActiveAt) return max;
+        const t = new Date(u.lastActiveAt).getTime();
+        return max == null || t > max ? t : max;
+      }, null);
+      return {
+        ...company,
+        admin: pickCompanyAdmin(users),
+        lastActiveAt: lastActiveAt != null ? new Date(lastActiveAt).toISOString() : null,
+      };
+    });
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -134,12 +147,43 @@ exports.getCompany = async (req, res) => {
     }
     const capacity = await getCompanyCapacity(prisma, company.id);
     const admin = pickCompanyAdmin(company.users);
+    const lastActiveAt = (company.users || []).reduce((max, u) => {
+      if (!u.lastActiveAt) return max;
+      const t = new Date(u.lastActiveAt).getTime();
+      return max == null || t > max ? t : max;
+    }, null);
     res.json({
       success: true,
       data: {
         ...company,
         admin,
+        lastActiveAt: lastActiveAt != null ? new Date(lastActiveAt).toISOString() : null,
         capacity,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Client app usage activity (logins / heartbeats) ──────────────────────────
+exports.getCompanyActivity = async (req, res) => {
+  try {
+    const company = await prisma.company.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, name: true },
+    });
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found' });
+    }
+    const limit = req.query.limit;
+    const activity = await getCompanyUsageActivity(company.id, { limit });
+    res.json({
+      success: true,
+      data: {
+        companyId: company.id,
+        companyName: company.name,
+        ...activity,
       },
     });
   } catch (err) {

@@ -20,6 +20,9 @@ const {
 } = require('../utils/demoAccount');
 const { isEmployeeRole } = require('../utils/hrAccess');
 const { TRIAL_DAYS } = require('../utils/subscriptionPricing');
+const { recordAppUsage, getRequestMeta } = require('../services/appUsageService');
+const { initializeCompanyCurrencyConfiguration } = require('../services/companyCurrencyService');
+const { ensureFxAccounts } = require('../utils/fxAccountHelper');
 
 const OTP_TTL_MS = 60 * 1000;
 
@@ -82,7 +85,7 @@ const checkAndExpireSubscription = async (userId) => {
  * Full login session payload (token + user) shared by OTP verify and web/desktop direct login.
  * Mobile keeps OTP; web/desktop can skip OTP via login({ directLogin: true }) or client: 'web'|'desktop'.
  */
-async function buildAuthenticatedLoginPayload(userId) {
+async function buildAuthenticatedLoginPayload(userId, req = null) {
   await checkAndExpireSubscription(userId);
 
   const updatedUserData = await User.findById(userId);
@@ -92,6 +95,29 @@ async function buildAuthenticatedLoginPayload(userId) {
     throw err;
   }
   const updatedUser = new User(updatedUserData);
+
+  // Track successful login for platform admin "is client using the app?" view.
+  try {
+    const meta = req ? getRequestMeta(req) : {};
+    const client = String(req?.body?.client || '').toLowerCase();
+    const source =
+      client === 'desktop' || client === 'mobile' || client === 'web'
+        ? client
+        : req?.body?.directLogin || req?.body?.skipOtp
+          ? 'web'
+          : 'unknown';
+    await recordAppUsage({
+      userId: updatedUser._id || updatedUser.id,
+      companyId: updatedUser.companyId || null,
+      action: 'login',
+      source,
+      path: '/login',
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  } catch (usageErr) {
+    console.error('⚠️ [loginPayload] App usage login track failed:', usageErr.message);
+  }
 
   let userPermissions = [];
   const permissionUserId = updatedUser._id.toString();
@@ -346,6 +372,7 @@ exports.register = async (req, res) => {
       fiscalYearStartDate, fiscalYearEndDate, fiscalYearName,
       operationalBusinessType, salesModel, purchaseModel,
       installmentRevenuePolicy,
+      currencyCode, baseCurrencyCode,
     } = req.body;
     
     let logo = req.body.logo || '';
@@ -438,7 +465,10 @@ exports.register = async (req, res) => {
           taxRegistrationNumber: taxRegistrationNumber || '',
           signature: signature || '',
           industry: industry || '',
-          businessType: businessType || ''
+          businessType: businessType || '',
+          ...(baseCurrencyCode || currencyCode
+            ? { currencyCode: String(baseCurrencyCode || currencyCode).trim().toUpperCase() }
+            : {})
         },
         role: userRole,
         companyId: company.id,
@@ -555,6 +585,29 @@ exports.register = async (req, res) => {
       console.log('✅ [register] Default Chart of Accounts initialized:', coaResult.message);
     } catch (coaError) {
       console.error('⚠️ [register] Default Chart of Accounts initialization failed (non-fatal):', coaError.message);
+    }
+
+    // Multi-currency: the base currency chosen during registration (falling
+    // back to the parent/stored base) drives company rate initialization.
+    // Provider outages never block registration — missing rates are reported.
+    try {
+      const currencyInit = await initializeCompanyCurrencyConfiguration({
+        companyId: company.id,
+        userId: user._id,
+        baseCurrencyCode: baseCurrencyCode || currencyCode || null,
+        fetchRates: true,
+      });
+      console.log(
+        `✅ [register] Currency configuration: base=${currencyInit.baseCurrency.code}, created=${currencyInit.created.length}, missing=${currencyInit.missing.length}`
+      );
+    } catch (currencyError) {
+      console.error('⚠️ [register] Currency initialization failed (non-fatal):', currencyError.message);
+    }
+
+    try {
+      await ensureFxAccounts(user._id, company.id);
+    } catch (fxError) {
+      console.error('⚠️ [register] FX accounts initialization failed (non-fatal):', fxError.message);
     }
 
     try {
@@ -750,7 +803,7 @@ exports.login = async (req, res) => {
       await user.save();
 
       console.log('🌐 [login] Direct login (no OTP) for web client');
-      const payload = await buildAuthenticatedLoginPayload(user._id || user.id);
+      const payload = await buildAuthenticatedLoginPayload(user._id || user.id, req);
       return res.status(200).json(payload);
     }
 
@@ -905,7 +958,7 @@ exports.verifyLoginOTP = async (req, res) => {
     user.loginOtpExpiry = null;
     await user.save();
 
-    const payload = await buildAuthenticatedLoginPayload(user._id || user.id);
+    const payload = await buildAuthenticatedLoginPayload(user._id || user.id, req);
     console.log('📤 [verifyLoginOTP] Login payload ready for', payload.user?.email);
     return res.status(200).json(payload);
   } catch (error) {
@@ -1806,6 +1859,19 @@ exports.updateCurrency = async (req, res) => {
             include: { baseCurrency: true },
           });
           baseCurrency = company.baseCurrency;
+
+          // A new base invalidates the company's rate matrix — initialize
+          // missing rates without touching existing valid rates.
+          try {
+            await initializeCompanyCurrencyConfiguration({
+              companyId,
+              userId,
+              baseCurrencyCode: currency.code,
+              fetchRates: true,
+            });
+          } catch (initErr) {
+            console.warn('⚠️ [updateCurrency] Rate initialization skipped:', initErr.message);
+          }
         }
       }
     } catch (syncErr) {
@@ -1837,6 +1903,44 @@ exports.updateCurrency = async (req, res) => {
       success: false,
       message: 'Server error',
       error: error.message
+    });
+  }
+};
+
+// ==================== APP USAGE HEARTBEAT (web / desktop) ====================
+exports.recordActivity = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Not authenticated' });
+    }
+
+    const action = req.body?.action || 'active';
+    const path = req.body?.path || null;
+    const source = req.body?.source || req.body?.client || 'web';
+    const meta = getRequestMeta(req);
+
+    const result = await recordAppUsage({
+      userId,
+      companyId: req.user?.companyId || req.authUserRow?.companyId || null,
+      action,
+      source,
+      path,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    return res.status(200).json({
+      success: true,
+      recorded: Boolean(result.recorded),
+      lastActiveAt: result.lastActiveAt || new Date(),
+    });
+  } catch (error) {
+    console.error('❌ [recordActivity] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to record activity',
+      error: error.message,
     });
   }
 };

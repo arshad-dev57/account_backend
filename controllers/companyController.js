@@ -10,10 +10,7 @@ const {
   requireSingleCompany,
 } = require('../utils/companyAccess');
 const { invalidateAuthUser } = require('../middleware/authMiddleware');
-const {
-  ensureCurrenciesSeeded,
-  getCurrencyByCode,
-} = require('../utils/multiCurrency');
+const { initializeCompanyCurrencyConfiguration } = require('../services/companyCurrencyService');
 const { ensureFxAccounts } = require('../utils/fxAccountHelper');
 
 /**
@@ -262,20 +259,29 @@ exports.createCompany = async (req, res) => {
       console.error('createCompany COA warning:', coaErr.message);
     }
 
-    // Multi-currency: seed currencies, set PKR as base, ensure FX gain/loss accounts
+    // Multi-currency: honor the requested base currency (or inherit the parent
+    // company's base), seed the master, and initialize company rates. Provider
+    // outages never block company creation — missing rates are reported instead.
     try {
-      await ensureCurrenciesSeeded();
-      const pkr = await getCurrencyByCode('PKR');
-      if (pkr) {
-        await prisma.company.update({
-          where: { id: company.id },
-          data: { baseCurrencyId: pkr.id },
-        });
-        company.baseCurrencyId = pkr.id;
-      }
+      const currencyInit = await initializeCompanyCurrencyConfiguration({
+        companyId: company.id,
+        userId,
+        baseCurrencyCode: body.baseCurrencyCode || body.currencyCode || null,
+        baseCurrencyId: body.baseCurrencyId || null,
+        fetchRates: true,
+      });
+      company.baseCurrencyId = currencyInit.baseCurrency.id;
+      console.log(
+        `createCompany currency initialized: base=${currencyInit.baseCurrency.code} created=${currencyInit.created.length} missing=${currencyInit.missing.length}`
+      );
+    } catch (currencyErr) {
+      console.error('createCompany currency warning:', currencyErr.message);
+    }
+
+    try {
       await ensureFxAccounts(userId, company.id);
     } catch (fxErr) {
-      console.error('createCompany currency/FX warning:', fxErr.message);
+      console.error('createCompany FX account warning:', fxErr.message);
     }
 
     // Business model config: children inherit parent; root uses request or defaults

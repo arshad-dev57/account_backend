@@ -200,5 +200,6 @@ app.use('/api/distributor', distributorRoutes);
 app.use('/api/inventory/write-offs', stockWriteOffRoutes);
 app.use('/api/trading', require('./routes/tradingRoutes'));
 app.use('/api/import', require('./routes/importRoutes'));
+app.use('/api/export', require('./routes/exportRoutes'));
 
 module.exports = app;

@@ -7,6 +7,7 @@ router.get('/stats', protectOnly, ctrl.getStats);
 router.get('/subscription-stats', protectOnly, getSubscriptionStats);
 router.get('/companies', protectOnly, ctrl.listCompanies);
 router.get('/companies/:id', protectOnly, ctrl.getCompany);
+router.get('/companies/:id/activity', protectOnly, ctrl.getCompanyActivity);
 router.put('/companies/:id/status', protectOnly, ctrl.updateCompanyStatus);
 router.put('/companies/:id/subscription', protectOnly, ctrl.updateCompanySubscription);
 router.delete('/companies/:id', protectOnly, ctrl.deleteCompany);

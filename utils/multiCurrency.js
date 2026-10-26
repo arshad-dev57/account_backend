@@ -6,6 +6,7 @@
 
 const { Prisma } = require('@prisma/client');
 const prisma = require('../prisma/client');
+const { CURRENCY_CATALOG } = require('../config/currencyCatalog');
 
 const Decimal = Prisma.Decimal;
 const ZERO = new Decimal(0);
@@ -43,28 +44,71 @@ function isSameCurrency(a, b) {
   return String(a) === String(b);
 }
 
-const DEFAULT_CURRENCIES = [
-  { code: 'PKR', name: 'Pakistani Rupee', symbol: '₨', decimalPlaces: 2 },
-  { code: 'USD', name: 'US Dollar', symbol: '$', decimalPlaces: 2 },
-  { code: 'EUR', name: 'Euro', symbol: '€', decimalPlaces: 2 },
-  { code: 'GBP', name: 'British Pound', symbol: '£', decimalPlaces: 2 },
-  { code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', decimalPlaces: 2 },
-  { code: 'SAR', name: 'Saudi Riyal', symbol: '﷼', decimalPlaces: 2 },
-];
+const DEFAULT_CURRENCIES = CURRENCY_CATALOG;
 
+const SEED_CACHE_TTL_MS = 5 * 60 * 1000;
+let seedCache = { at: 0, ok: false };
+
+function invalidateCurrencySeedCache() {
+  seedCache = { at: 0, ok: false };
+}
+
+/**
+ * Create any missing currency master rows from the ISO 4217 catalog.
+ *
+ * Create-only on purpose: names/symbols are editable by authorized users, so
+ * re-seeding must never overwrite user-maintained master data. Safe to call on
+ * every request — after the first pass it only costs one findMany.
+ */
 async function ensureCurrenciesSeeded(client = prisma) {
-  for (const c of DEFAULT_CURRENCIES) {
-    await client.currency.upsert({
-      where: { code: c.code },
-      create: { ...c, isActive: true },
-      update: {
-        name: c.name,
-        symbol: c.symbol,
-        decimalPlaces: c.decimalPlaces,
-      },
-    });
+  const useCache = client === prisma;
+  if (useCache && seedCache.ok && Date.now() - seedCache.at < SEED_CACHE_TTL_MS) {
+    return client.currency.findMany({ orderBy: { code: 'asc' } });
   }
-  return client.currency.findMany({ orderBy: { code: 'asc' } });
+
+  const existing = await client.currency.findMany({ select: { code: true } });
+  const existingCodes = new Set(existing.map((row) => String(row.code).toUpperCase()));
+  const missing = DEFAULT_CURRENCIES.filter((c) => !existingCodes.has(c.code));
+
+  if (missing.length) {
+    if (typeof client.currency.createMany === 'function') {
+      await client.currency.createMany({
+        data: missing.map((c) => ({ ...c, isActive: true })),
+        skipDuplicates: true,
+      });
+    } else {
+      for (const c of missing) {
+        try {
+          await client.currency.create({ data: { ...c, isActive: true } });
+        } catch (err) {
+          if (err.code !== 'P2002') throw err;
+        }
+      }
+    }
+  }
+
+  const all = await client.currency.findMany({ orderBy: { code: 'asc' } });
+  if (useCache) seedCache = { at: Date.now(), ok: true };
+  return all;
+}
+
+/** UTC-midnight date for the calendar day (safe for @db.Date columns). */
+function startOfUtcDay(input = new Date()) {
+  if (input === null || input === undefined || input === '') return null;
+  const d = input instanceof Date ? new Date(input.getTime()) : new Date(input);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function toDateOnlyString(input = new Date()) {
+  const d = startOfUtcDay(input);
+  return d ? d.toISOString().slice(0, 10) : '';
+}
+
+function isSameUtcDay(a, b) {
+  const x = startOfUtcDay(a);
+  const y = startOfUtcDay(b);
+  return !!x && !!y && x.getTime() === y.getTime();
 }
 
 async function getCurrencyByCode(code, client = prisma) {
@@ -132,8 +176,7 @@ async function getExchangeRate({
     };
   }
 
-  const day = new Date(asOfDate);
-  day.setHours(0, 0, 0, 0);
+  const day = startOfUtcDay(asOfDate) || startOfUtcDay(new Date());
 
   const row = await client.exchangeRate.findFirst({
     where: {
@@ -156,6 +199,8 @@ async function getExchangeRate({
     id: row.id,
     rate: toDecimal(row.rate),
     effectiveDate: row.effectiveDate,
+    source: row.source || 'MANUAL',
+    fetchedAt: row.fetchedAt || null,
     fromCurrencyId: row.fromCurrencyId,
     toCurrencyId: row.toCurrencyId,
     fromCurrency: row.fromCurrency,
@@ -361,6 +406,10 @@ module.exports = {
   isSameCurrency,
   DEFAULT_CURRENCIES,
   ensureCurrenciesSeeded,
+  invalidateCurrencySeedCache,
+  startOfUtcDay,
+  toDateOnlyString,
+  isSameUtcDay,
   getCurrencyByCode,
   getCurrencyById,
   getCompanyBaseCurrency,

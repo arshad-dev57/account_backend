@@ -13,8 +13,6 @@ exports.getBalanceSheet = async (req, res) => {
         message: 'Company context is required'
       });
     }
-
-    // Correct argument order: userId, companyId, period, asOfDate, fiscalYearId, startDate, endDate, locationId
     const data = await buildBalanceSheetFromLedger(
       userId,
       companyId,

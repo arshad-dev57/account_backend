@@ -9,7 +9,6 @@ const {
 } = require('../services/bankAccountingService');
 const { ensureCashBankAccount } = require('../utils/cashAccountHelper');
 
-// ─── HELPER: Generate unique account code ─────────────────────────
 async function generateUniqueAccountCode(companyId) {
   if (!prisma.chartOfAccount?.findMany) {
     const err = new Error(
@@ -52,11 +51,6 @@ async function generateUniqueAccountCode(companyId) {
   return nextCode.toString();
 }
 
-// ============================================================
-// @desc    Create new bank account
-// @route   POST /api/bank-accounts
-// @access  Private
-// ============================================================
 exports.createBankAccount = async (req, res) => {
   try {
     const {
@@ -109,9 +103,6 @@ exports.createBankAccount = async (req, res) => {
     }
 
     const accountCode = await generateUniqueAccountCode(companyId);
-
-    // currentBalance starts at 0; opening JE (if any) increments it atomically.
-    // openingBalance field stores the original opening amount for display/metadata.
     const chartAccount = await prisma.chartOfAccount.create({
       data: {
         code: accountCode,
@@ -142,8 +133,6 @@ exports.createBankAccount = async (req, res) => {
       createdBy: userId,
       companyId: companyId
     });
-
-    // Force currentBalance 0 before JE posts (model may copy opening → current)
     await prisma.bankAccount.update({
       where: { id: bankAccount.id },
       data: { currentBalance: 0, openingBalance: opening }
@@ -164,7 +153,6 @@ exports.createBankAccount = async (req, res) => {
         });
         journalEntry = result.journalEntry;
       } catch (jeErr) {
-        // Roll back bank + COA so we never leave an unbalanced half-create
         await prisma.bankAccount.delete({ where: { id: bankAccount.id } }).catch(() => {});
         await prisma.chartOfAccount.delete({ where: { id: chartAccount.id } }).catch(() => {});
         const statusCode = jeErr.statusCode || (jeErr.code === 'FISCAL_YEAR_CLOSED' ? 400 : 500);
@@ -208,11 +196,6 @@ exports.createBankAccount = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get all bank accounts - FIXED to use BOTH userId and createdBy
-// @route   GET /api/bank-accounts
-// @access  Private
-// ============================================================
 exports.getBankAccounts = async (req, res) => {
   try {
     console.log('🏦 [Bank] getBankAccounts called', {
@@ -245,14 +228,11 @@ exports.getBankAccounts = async (req, res) => {
       console.log('⚠️ [Bank] Opening balance auto-repair skipped:', repairErr.message);
     }
 
-    // Ensure Cash in Hand ledger exists so Cash & Bank page always shows cash
     try {
       await ensureCashBankAccount(userId, companyId);
     } catch (cashErr) {
       console.log('⚠️ [Bank] Cash ledger ensure skipped:', cashErr.message);
     }
-
-    // FIXED: Search using companyId
     const filter = {
       companyId: companyId
     };
@@ -337,11 +317,6 @@ exports.getBankAccounts = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Get single bank account - FIXED to use BOTH userId and createdBy
-// @route   GET /api/bank-accounts/:id
-// @access  Private
-// ============================================================
 exports.getBankAccount = async (req, res) => {
   try {
     const { id } = req.params;
@@ -469,8 +444,6 @@ exports.updateBankAccount = async (req, res) => {
         }
       });
     }
-
-    // Opening balance edit: reverse/repost via dedicated JE (no duplicate entries)
     if (openingBalance !== undefined && openingBalance !== null) {
       const newOpening = Number(openingBalance);
       if (Number.isNaN(newOpening) || newOpening < 0) {
@@ -520,11 +493,6 @@ exports.updateBankAccount = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Delete bank account
-// @route   DELETE /api/bank-accounts/:id
-// @access  Private
-// ============================================================
 exports.deleteBankAccount = async (req, res) => {
   try {
     const { id } = req.params;
@@ -585,11 +553,6 @@ exports.deleteBankAccount = async (req, res) => {
   }
 };
 
-// ============================================================
-// @desc    Update bank account balance
-// @route   PATCH /api/bank-accounts/:id/balance
-// @access  Private
-// ============================================================
 exports.updateBalance = async (req, res) => {
   try {
     const { id } = req.params;
