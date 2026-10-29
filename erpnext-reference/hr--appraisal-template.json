@@ -1,0 +1,75 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Appraisal Template",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:template_title",
+  "naming_rule": "By fieldname",
+  "is_tree": 0,
+  "track_changes": 0,
+  "document_type": "Setup",
+  "documentation": "https://docs.frappe.io/hr/appraisal-template",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Description",
+      "fieldname": "section_break_5",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_7",
+      "fieldname": "section_break_7",
+      "type": "Section Break"
+    }
+  ],
+  "links": [],
+  "tables": [
+    {
+      "fieldname": "goals",
+      "child_doctype": "Appraisal Template Goal"
+    },
+    {
+      "fieldname": "rating_criteria",
+      "child_doctype": "Employee Feedback Rating"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "template_title",
+      "label": "Appraisal Template Title",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Small Text",
+      "in_list_view": 1,
+      "section": "Description"
+    },
+    {
+      "fieldname": "goals",
+      "label": "KRAs",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Appraisal Template Goal",
+      "section": "section_break_7"
+    },
+    {
+      "fieldname": "rating_criteria",
+      "label": "Rating Criteria",
+      "fieldtype": "Table",
+      "options": "Employee Feedback Rating",
+      "description": "Criteria based on which employee should be rated in Performance Feedback and Self Appraisal",
+      "section": "section_break_7"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

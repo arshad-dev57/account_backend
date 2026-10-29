@@ -1,0 +1,160 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Benefit Ledger",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 0,
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [
+    {
+      "label": "Benefit Details",
+      "fieldname": "employee_benefit_details_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "salary_component",
+      "target": "Salary Component"
+    },
+    {
+      "fieldname": "payroll_period",
+      "target": "Payroll Period"
+    },
+    {
+      "fieldname": "reference_doctype",
+      "target": "DocType"
+    },
+    {
+      "fieldname": "reference_document",
+      "target": "reference_doctype"
+    },
+    {
+      "fieldname": "salary_slip",
+      "target": "Salary Slip"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "default": "Today",
+      "section": null
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "salary_component",
+      "label": "Salary Component",
+      "fieldtype": "Link",
+      "options": "Salary Component",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "link_filters": "[[\"Salary Component\",\"accrual_component\",\"=\",1]]",
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Data",
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "payroll_period",
+      "label": "Payroll Period",
+      "fieldtype": "Link",
+      "options": "Payroll Period",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "reference_doctype",
+      "label": "Reference Doctype",
+      "fieldtype": "Link",
+      "options": "DocType",
+      "depends_on": "eval:doc.flexible_benefit",
+      "section": null
+    },
+    {
+      "fieldname": "reference_document",
+      "label": "Reference Document",
+      "fieldtype": "Dynamic Link",
+      "options": "reference_doctype",
+      "depends_on": "eval:doc.flexible_benefit",
+      "section": null
+    },
+    {
+      "fieldname": "salary_slip",
+      "label": "Salary Slip",
+      "fieldtype": "Link",
+      "options": "Salary Slip",
+      "section": null
+    },
+    {
+      "fieldname": "transaction_type",
+      "label": "Transaction Type",
+      "fieldtype": "Select",
+      "options": "Accrual\nPayout",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Benefit Details"
+    },
+    {
+      "fieldname": "amount",
+      "label": "Amount",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "section": "Benefit Details"
+    },
+    {
+      "fieldname": "flexible_benefit",
+      "label": "Flexible Benefit",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "Enabled only for Employee Benefit components from Salary Structure Assignment",
+      "section": "Benefit Details"
+    },
+    {
+      "fieldname": "yearly_benefit",
+      "label": "Yearly Benefit",
+      "fieldtype": "Currency",
+      "section": "Benefit Details"
+    },
+    {
+      "fieldname": "remarks",
+      "label": "Remarks",
+      "fieldtype": "Data",
+      "section": "Benefit Details"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

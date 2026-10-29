@@ -394,7 +394,7 @@ exports.createCorrection = wrap(async (req, res, companyId) => {
       reason: String(req.body.reason || ''),
       proposedIn: req.body.proposedIn || null,
       proposedOut: req.body.proposedOut || null,
-      status: 'Pending'
+      status: 'Open'
     }
   });
   await prisma.hrApproval.create({
@@ -414,7 +414,7 @@ exports.updateCorrection = wrap(async (req, res, companyId) => {
   if (!requireHrManager(req, res)) return;
   const row = await prisma.hrAttendanceCorrection.update({
     where: { id: req.params.id },
-    data: { status: String(req.body.status || 'Pending') }
+    data: { status: String(req.body.status || 'Open') }
   });
   await writeAudit(companyId, req.user.id, 'correction', 'attendance', row.id, row.status);
   res.json({ success: true, data: row });
@@ -569,7 +569,7 @@ exports.saveBonus = wrap(async (req, res, companyId) => {
       amount,
       period: String(req.body.period || ''),
       reason,
-      status: 'Pending'
+      status: 'Draft'
     }
   });
   res.json({ success: true, data: row });
@@ -579,7 +579,7 @@ exports.updateBonus = wrap(async (req, res, companyId) => {
   if (!requireHrManager(req, res)) return;
   const row = await prisma.hrBonus.update({
     where: { id: req.params.id },
-    data: { status: String(req.body.status || 'Pending') }
+    data: { status: String(req.body.status || 'Draft') }
   });
   res.json({ success: true, data: row });
 });
@@ -870,7 +870,7 @@ exports.saveGoal = wrap(async (req, res, companyId) => {
       weight: Number(req.body.weight || 0),
       target: String(req.body.target || ''),
       cycle: String(req.body.cycle || ''),
-      status: 'Open'
+      status: 'Pending'
     }
   });
   res.json({ success: true, data: row });
@@ -963,9 +963,9 @@ exports.myTeam = wrap(async (req, res, companyId) => {
   const today = workDateKey();
   const [attendance, pendingLeaves, pendingOt, pendingCorr] = await Promise.all([
     prisma.hrAttendance.findMany({ where: { companyId, workDate: today, employeeId: { in: ids } } }),
-    prisma.hrLeave.findMany({ where: { companyId, status: 'Pending', employeeId: { in: ids } }, include: { employee: { include: EMP } } }),
-    prisma.hrOvertime.findMany({ where: { companyId, status: 'Pending', employeeId: { in: ids } }, include: { employee: { include: EMP } } }),
-    prisma.hrAttendanceCorrection.findMany({ where: { companyId, status: 'Pending', employeeId: { in: ids } }, include: { employee: { include: EMP } } })
+    prisma.hrLeave.findMany({ where: { companyId, status: { in: ['Pending', 'Open'] }, employeeId: { in: ids } }, include: { employee: { include: EMP } } }),
+    prisma.hrOvertime.findMany({ where: { companyId, status: { in: ['Pending', 'Draft', 'Submitted'] }, employeeId: { in: ids } }, include: { employee: { include: EMP } } }),
+    prisma.hrAttendanceCorrection.findMany({ where: { companyId, status: { in: ['Pending', 'Open'] }, employeeId: { in: ids } }, include: { employee: { include: EMP } } })
   ]);
   const att = new Map(attendance.map((r) => [r.employeeId, r]));
   res.json({

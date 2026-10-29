@@ -8,6 +8,7 @@ const {
   createSalesOrder,
   updateSalesOrder,
   getSalesOrders,
+  sendWhatsAppOrder,
   
   // Purchase Orders
   createPurchaseOrder,
@@ -47,6 +48,9 @@ router.post('/sales', createSalesOrder);
 
 // Get all Sales Orders
 router.get('/sales', getSalesOrders);
+
+// WhatsApp: deliver a generated sales order document (PDF/JPEG)
+router.post('/sales/:id/whatsapp', sendWhatsAppOrder);
 
 // ============================================================
 // ─── PURCHASE ORDER ROUTES ──────────────────────────────────

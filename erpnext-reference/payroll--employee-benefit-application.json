@@ -1,0 +1,175 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Benefit Application",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-BEN-APP-.YY.-.MM.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-benefit-application",
+  "search_fields": "employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Benefits",
+      "fieldname": "section_break_4",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_15",
+      "fieldname": "section_break_15",
+      "type": "Section Break"
+    },
+    {
+      "label": "Totals",
+      "fieldname": "totals",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "payroll_period",
+      "target": "Payroll Period"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Benefit Application"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "employee_benefits",
+      "child_doctype": "Employee Benefit Application Detail"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "date",
+      "label": "Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "section": null
+    },
+    {
+      "fieldname": "payroll_period",
+      "label": "Payroll Period",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Payroll Period",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Benefit Application",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "read_only": 1,
+      "depends_on": "eval:(doc.docstatus==1 || doc.employee)",
+      "section": "Benefits"
+    },
+    {
+      "fieldname": "max_benefits",
+      "label": "Max Benefits (Yearly)",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "Benefits"
+    },
+    {
+      "fieldname": "remaining_benefit",
+      "label": "Remaining Benefits (Yearly)",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "Benefits"
+    },
+    {
+      "fieldname": "employee_benefits",
+      "label": "Flexible Benefits",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Employee Benefit Application Detail",
+      "section": "section_break_15"
+    },
+    {
+      "fieldname": "total_amount",
+      "label": "Total Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "Totals"
+    }
+  ],
+  "allow_rename": 1,
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

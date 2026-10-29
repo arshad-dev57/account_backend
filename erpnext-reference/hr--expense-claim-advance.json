@@ -1,0 +1,160 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Expense Claim Advance",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "document_type": "Document",
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "employee_advance",
+      "target": "Employee Advance"
+    },
+    {
+      "fieldname": "reference_name",
+      "target": "reference_type"
+    },
+    {
+      "fieldname": "advance_account",
+      "target": "Account"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee_advance",
+      "label": "Employee Advance",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee Advance",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "reference_type",
+      "label": "Reference Type",
+      "fieldtype": "Select",
+      "options": "\nPayment Entry\nJournal Entry",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "reference_name",
+      "label": "Reference Name",
+      "fieldtype": "Dynamic Link",
+      "options": "reference_type",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "advance_paid",
+      "label": "Advance Paid",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "base_advance_paid",
+      "label": "Advance Paid (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "exchange_rate",
+      "label": "Exchange Rate",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "precision": "9",
+      "description": "Exchange rate of Payment Entry against Employee Advance",
+      "section": null
+    },
+    {
+      "fieldname": "exchange_gain_loss",
+      "label": "Exchange Gain/Loss",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "depends_on": "exchange_gain_loss",
+      "section": null
+    },
+    {
+      "fieldname": "unclaimed_amount",
+      "label": "Unclaimed Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "base_unclaimed_amount",
+      "label": "Unclaimed Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "return_amount",
+      "label": "Returned Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "depends_on": "return_amount",
+      "section": null
+    },
+    {
+      "fieldname": "allocated_amount",
+      "label": "Allocated Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "base_allocated_amount",
+      "label": "Allocated Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "advance_account",
+      "label": "Advance Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "hidden": 1,
+      "section": null
+    },
+    {
+      "fieldname": "payment_entry_reference",
+      "label": "Payment Entry Reference",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "hidden": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

@@ -1,0 +1,189 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Checkin",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "EMP-CKIN-.MM.-.YYYY.-.######",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-checkin",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Location",
+      "fieldname": "location_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_ksbo",
+      "fieldname": "section_break_ksbo",
+      "type": "Section Break"
+    },
+    {
+      "label": "Shift Timings",
+      "fieldname": "shift_timings_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "shift",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "overtime_type",
+      "target": "Overtime Type"
+    },
+    {
+      "fieldname": "attendance",
+      "target": "Attendance"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "log_type",
+      "label": "Log Type",
+      "fieldtype": "Select",
+      "options": "\nIN\nOUT",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "shift",
+      "label": "Shift",
+      "fieldtype": "Link",
+      "options": "Shift Type",
+      "read_only": 1,
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "overtime_type",
+      "label": "Overtime Type",
+      "fieldtype": "Link",
+      "options": "Overtime Type",
+      "hidden": 1,
+      "section": null
+    },
+    {
+      "fieldname": "time",
+      "label": "Time",
+      "fieldtype": "Datetime",
+      "reqd": 1,
+      "default": "Now",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "device_id",
+      "label": "Location / Device ID",
+      "fieldtype": "Data",
+      "section": null
+    },
+    {
+      "fieldname": "skip_auto_attendance",
+      "label": "Skip Auto Attendance",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "attendance",
+      "label": "Attendance Marked",
+      "fieldtype": "Link",
+      "options": "Attendance",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "latitude",
+      "label": "Latitude",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "precision": "7",
+      "section": "Location"
+    },
+    {
+      "fieldname": "longitude",
+      "label": "Longitude",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "precision": "7",
+      "section": "Location"
+    },
+    {
+      "fieldname": "geolocation",
+      "label": "Geolocation",
+      "fieldtype": "Geolocation",
+      "read_only": 1,
+      "section": "section_break_ksbo"
+    },
+    {
+      "fieldname": "shift_start",
+      "label": "Shift Start",
+      "fieldtype": "Datetime",
+      "hidden": 1,
+      "section": "Shift Timings"
+    },
+    {
+      "fieldname": "shift_end",
+      "label": "Shift End",
+      "fieldtype": "Datetime",
+      "hidden": 1,
+      "section": "Shift Timings"
+    },
+    {
+      "fieldname": "offshift",
+      "label": "Off-shift",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "Shift Timings"
+    },
+    {
+      "fieldname": "shift_actual_start",
+      "label": "Shift Actual Start",
+      "fieldtype": "Datetime",
+      "hidden": 1,
+      "section": "Shift Timings"
+    },
+    {
+      "fieldname": "shift_actual_end",
+      "label": "Shift Actual End",
+      "fieldtype": "Datetime",
+      "hidden": 1,
+      "section": "Shift Timings"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "ASC"
+}

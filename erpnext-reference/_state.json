@@ -1,0 +1,1682 @@
+{
+  "children": {
+    "Appointment Letter content": [
+      "Appointment Letter",
+      "Appointment Letter Template"
+    ],
+    "Appraisal Goal": [
+      "Appraisal"
+    ],
+    "Appraisal KRA": [
+      "Appraisal"
+    ],
+    "Appraisal Template Goal": [
+      "Appraisal Template"
+    ],
+    "Appraisee": [
+      "Appraisal Cycle"
+    ],
+    "Assignment Rule Day": [
+      "Shift Schedule"
+    ],
+    "Daily Work Summary Group User": [
+      "Daily Work Summary Group"
+    ],
+    "Earned Leave Schedule": [
+      "Leave Allocation"
+    ],
+    "Employee Benefit Application Detail": [
+      "Employee Benefit Application"
+    ],
+    "Employee Benefit Detail": [
+      "Salary Slip",
+      "Salary Structure",
+      "Salary Structure Assignment"
+    ],
+    "Employee Boarding Activity": [
+      "Employee Onboarding",
+      "Employee Onboarding Template",
+      "Employee Separation",
+      "Employee Separation Template"
+    ],
+    "Employee Cost Center": [
+      "Salary Structure Assignment"
+    ],
+    "Employee Feedback Rating": [
+      "Appraisal",
+      "Appraisal Template",
+      "Employee Performance Feedback"
+    ],
+    "Employee Property History": [
+      "Employee Promotion",
+      "Employee Transfer"
+    ],
+    "Employee Skill": [
+      "Employee Skill Map"
+    ],
+    "Employee Tax Exemption Declaration Category": [
+      "Employee Tax Exemption Declaration"
+    ],
+    "Employee Tax Exemption Proof Submission Detail": [
+      "Employee Tax Exemption Proof Submission"
+    ],
+    "Employee Training": [
+      "Employee Skill Map"
+    ],
+    "Expected Skill Set": [
+      "Interview Type"
+    ],
+    "Expense Claim Account": [
+      "Expense Claim Type"
+    ],
+    "Expense Claim Advance": [
+      "Expense Claim"
+    ],
+    "Expense Claim Detail": [
+      "Expense Claim"
+    ],
+    "Expense Taxes and Charges": [
+      "Expense Claim"
+    ],
+    "Full and Final Asset": [
+      "Full and Final Statement"
+    ],
+    "Full and Final Outstanding Statement": [
+      "Full and Final Statement",
+      "Full and Final Statement"
+    ],
+    "Gratuity Applicable Component": [
+      "Gratuity Rule"
+    ],
+    "Gratuity Rule Slab": [
+      "Gratuity Rule"
+    ],
+    "Income Tax Slab Other Charges": [
+      "Income Tax Slab"
+    ],
+    "Interview Detail": [
+      "Interview"
+    ],
+    "Interviewer": [
+      "Exit Interview",
+      "Interview Type"
+    ],
+    "Job Offer Term": [
+      "Job Offer",
+      "Job Offer Term Template"
+    ],
+    "Leave Block List Allow": [
+      "Leave Block List"
+    ],
+    "Leave Block List Date": [
+      "Leave Block List"
+    ],
+    "Leave Policy Detail": [
+      "Leave Policy"
+    ],
+    "Overtime Details": [
+      "Overtime Slip"
+    ],
+    "Overtime Salary Component": [
+      "Overtime Type"
+    ],
+    "Payroll Correction Child": [
+      "Arrear",
+      "Arrear",
+      "Arrear",
+      "Payroll Correction",
+      "Payroll Correction",
+      "Payroll Correction"
+    ],
+    "Payroll Employee Detail": [
+      "Payroll Entry"
+    ],
+    "Payroll Period Date": [
+      "Payroll Period"
+    ],
+    "Salary Component Account": [
+      "Salary Component"
+    ],
+    "Salary Detail": [
+      "Salary Slip",
+      "Salary Slip",
+      "Salary Slip",
+      "Salary Structure",
+      "Salary Structure",
+      "Salary Structure"
+    ],
+    "Salary Slip Leave": [
+      "Salary Slip"
+    ],
+    "Salary Slip Timesheet": [
+      "Salary Slip"
+    ],
+    "Salary Withholding Cycle": [
+      "Salary Withholding"
+    ],
+    "Skill Assessment": [
+      "Interview Feedback"
+    ],
+    "Staffing Plan Detail": [
+      "Staffing Plan"
+    ],
+    "Taxable Salary Slab": [
+      "Income Tax Slab"
+    ],
+    "Training Event Employee": [
+      "Training Event"
+    ],
+    "Training Result Employee": [
+      "Training Result"
+    ],
+    "Travel Itinerary": [
+      "Travel Request"
+    ],
+    "Travel Request Costing": [
+      "Travel Request"
+    ],
+    "Vehicle Service": [
+      "Vehicle Log"
+    ]
+  },
+  "failures": [],
+  "integrity": [
+    {
+      "ok": true,
+      "snapshot": "_snap/HR01.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/HR02.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/HR03.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/HR04.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/HR05.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/HR06.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/PR01.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/PR02.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/PR03.txt"
+    },
+    {
+      "ok": true,
+      "snapshot": "_snap/CH01.txt"
+    }
+  ],
+  "written": {
+    "child": {
+      "--child--assignment-rule-day.json": {
+        "bytes": 653,
+        "doctype": "Assignment Rule Day",
+        "fields": 1,
+        "file": "--child--assignment-rule-day.json",
+        "istable": 1,
+        "module": "Automation",
+        "sections": 0
+      }
+    },
+    "hr": {
+      "hr--appointment-letter-content.json": {
+        "bytes": 781,
+        "doctype": "Appointment Letter content",
+        "fields": 2,
+        "file": "hr--appointment-letter-content.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--appointment-letter-template.json": {
+        "bytes": 1422,
+        "doctype": "Appointment Letter Template",
+        "fields": 4,
+        "file": "hr--appointment-letter-template.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--appointment-letter.json": {
+        "bytes": 2646,
+        "doctype": "Appointment Letter",
+        "fields": 8,
+        "file": "hr--appointment-letter.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--appraisal-cycle.json": {
+        "bytes": 4887,
+        "doctype": "Appraisal Cycle",
+        "fields": 13,
+        "file": "hr--appraisal-cycle.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 7
+      },
+      "hr--appraisal-goal.json": {
+        "bytes": 1409,
+        "doctype": "Appraisal Goal",
+        "fields": 4,
+        "file": "hr--appraisal-goal.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--appraisal-kra.json": {
+        "bytes": 1346,
+        "doctype": "Appraisal KRA",
+        "fields": 4,
+        "file": "hr--appraisal-kra.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--appraisal-template-goal.json": {
+        "bytes": 956,
+        "doctype": "Appraisal Template Goal",
+        "fields": 2,
+        "file": "hr--appraisal-template-goal.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--appraisal-template.json": {
+        "bytes": 1883,
+        "doctype": "Appraisal Template",
+        "fields": 4,
+        "file": "hr--appraisal-template.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--appraisal.json": {
+        "bytes": 7550,
+        "doctype": "Appraisal",
+        "fields": 23,
+        "file": "hr--appraisal.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 11
+      },
+      "hr--appraisee.json": {
+        "bytes": 2081,
+        "doctype": "Appraisee",
+        "fields": 6,
+        "file": "hr--appraisee.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--attendance-request.json": {
+        "bytes": 3617,
+        "doctype": "Attendance Request",
+        "fields": 13,
+        "file": "hr--attendance-request.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--attendance.json": {
+        "bytes": 6437,
+        "doctype": "Attendance",
+        "fields": 22,
+        "file": "hr--attendance.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--compensatory-leave-request.json": {
+        "bytes": 3105,
+        "doctype": "Compensatory Leave Request",
+        "fields": 11,
+        "file": "hr--compensatory-leave-request.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--daily-work-summary-group-user.json": {
+        "bytes": 835,
+        "doctype": "Daily Work Summary Group User",
+        "fields": 2,
+        "file": "hr--daily-work-summary-group-user.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--daily-work-summary-group.json": {
+        "bytes": 2165,
+        "doctype": "Daily Work Summary Group",
+        "fields": 6,
+        "file": "hr--daily-work-summary-group.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--daily-work-summary.json": {
+        "bytes": 1193,
+        "doctype": "Daily Work Summary",
+        "fields": 3,
+        "file": "hr--daily-work-summary.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--department-approver.json": {
+        "bytes": 703,
+        "doctype": "Department Approver",
+        "fields": 1,
+        "file": "hr--department-approver.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--designation-skill.json": {
+        "bytes": 674,
+        "doctype": "Designation Skill",
+        "fields": 1,
+        "file": "hr--designation-skill.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--earned-leave-schedule.json": {
+        "bytes": 1900,
+        "doctype": "Earned Leave Schedule",
+        "fields": 7,
+        "file": "hr--earned-leave-schedule.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--employee-advance.json": {
+        "bytes": 6772,
+        "doctype": "Employee Advance",
+        "fields": 19,
+        "file": "hr--employee-advance.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--employee-attendance-tool.json": {
+        "bytes": 3610,
+        "doctype": "Employee Attendance Tool",
+        "fields": 13,
+        "file": "hr--employee-attendance-tool.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--employee-boarding-activity.json": {
+        "bytes": 2407,
+        "doctype": "Employee Boarding Activity",
+        "fields": 9,
+        "file": "hr--employee-boarding-activity.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--employee-checkin.json": {
+        "bytes": 4296,
+        "doctype": "Employee Checkin",
+        "fields": 17,
+        "file": "hr--employee-checkin.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--employee-feedback-criteria.json": {
+        "bytes": 807,
+        "doctype": "Employee Feedback Criteria",
+        "fields": 1,
+        "file": "hr--employee-feedback-criteria.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--employee-feedback-rating.json": {
+        "bytes": 1167,
+        "doctype": "Employee Feedback Rating",
+        "fields": 3,
+        "file": "hr--employee-feedback-rating.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--employee-grade.json": {
+        "bytes": 1402,
+        "doctype": "Employee Grade",
+        "fields": 3,
+        "file": "hr--employee-grade.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--employee-grievance.json": {
+        "bytes": 5925,
+        "doctype": "Employee Grievance",
+        "fields": 19,
+        "file": "hr--employee-grievance.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--employee-health-insurance.json": {
+        "bytes": 892,
+        "doctype": "Employee Health Insurance",
+        "fields": 1,
+        "file": "hr--employee-health-insurance.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--employee-onboarding-template.json": {
+        "bytes": 2180,
+        "doctype": "Employee Onboarding Template",
+        "fields": 6,
+        "file": "hr--employee-onboarding-template.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--employee-onboarding.json": {
+        "bytes": 5492,
+        "doctype": "Employee Onboarding",
+        "fields": 17,
+        "file": "hr--employee-onboarding.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--employee-performance-feedback.json": {
+        "bytes": 5410,
+        "doctype": "Employee Performance Feedback",
+        "fields": 16,
+        "file": "hr--employee-performance-feedback.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--employee-promotion.json": {
+        "bytes": 3404,
+        "doctype": "Employee Promotion",
+        "fields": 10,
+        "file": "hr--employee-promotion.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--employee-property-history.json": {
+        "bytes": 1104,
+        "doctype": "Employee Property History",
+        "fields": 4,
+        "file": "hr--employee-property-history.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--employee-referral.json": {
+        "bytes": 5105,
+        "doctype": "Employee Referral",
+        "fields": 20,
+        "file": "hr--employee-referral.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--employee-separation-template.json": {
+        "bytes": 2180,
+        "doctype": "Employee Separation Template",
+        "fields": 6,
+        "file": "hr--employee-separation-template.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--employee-separation.json": {
+        "bytes": 4768,
+        "doctype": "Employee Separation",
+        "fields": 15,
+        "file": "hr--employee-separation.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--employee-skill-map.json": {
+        "bytes": 1908,
+        "doctype": "Employee Skill Map",
+        "fields": 5,
+        "file": "hr--employee-skill-map.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--employee-skill.json": {
+        "bytes": 1043,
+        "doctype": "Employee Skill",
+        "fields": 3,
+        "file": "hr--employee-skill.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--employee-training.json": {
+        "bytes": 897,
+        "doctype": "Employee Training",
+        "fields": 2,
+        "file": "hr--employee-training.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--employee-transfer.json": {
+        "bytes": 3474,
+        "doctype": "Employee Transfer",
+        "fields": 11,
+        "file": "hr--employee-transfer.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--employment-type.json": {
+        "bytes": 861,
+        "doctype": "Employment Type",
+        "fields": 1,
+        "file": "hr--employment-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--exit-interview.json": {
+        "bytes": 6167,
+        "doctype": "Exit Interview",
+        "fields": 19,
+        "file": "hr--exit-interview.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--expected-skill-set.json": {
+        "bytes": 871,
+        "doctype": "Expected Skill Set",
+        "fields": 2,
+        "file": "hr--expected-skill-set.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--expense-claim-account.json": {
+        "bytes": 970,
+        "doctype": "Expense Claim Account",
+        "fields": 2,
+        "file": "hr--expense-claim-account.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--expense-claim-advance.json": {
+        "bytes": 3979,
+        "doctype": "Expense Claim Advance",
+        "fields": 15,
+        "file": "hr--expense-claim-advance.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--expense-claim-detail.json": {
+        "bytes": 3127,
+        "doctype": "Expense Claim Detail",
+        "fields": 10,
+        "file": "hr--expense-claim-detail.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--expense-claim-type.json": {
+        "bytes": 1343,
+        "doctype": "Expense Claim Type",
+        "fields": 4,
+        "file": "hr--expense-claim-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--expense-claim.json": {
+        "bytes": 12899,
+        "doctype": "Expense Claim",
+        "fields": 39,
+        "file": "hr--expense-claim.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 13
+      },
+      "hr--expense-taxes-and-charges.json": {
+        "bytes": 2743,
+        "doctype": "Expense Taxes and Charges",
+        "fields": 9,
+        "file": "hr--expense-taxes-and-charges.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--full-and-final-asset.json": {
+        "bytes": 2333,
+        "doctype": "Full and Final Asset",
+        "fields": 9,
+        "file": "hr--full-and-final-asset.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--full-and-final-outstanding-statement.json": {
+        "bytes": 2224,
+        "doctype": "Full and Final Outstanding Statement",
+        "fields": 8,
+        "file": "hr--full-and-final-outstanding-statement.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--full-and-final-statement.json": {
+        "bytes": 5127,
+        "doctype": "Full and Final Statement",
+        "fields": 16,
+        "file": "hr--full-and-final-statement.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 5
+      },
+      "hr--goal.json": {
+        "bytes": 5016,
+        "doctype": "Goal",
+        "fields": 17,
+        "file": "hr--goal.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--grievance-type.json": {
+        "bytes": 794,
+        "doctype": "Grievance Type",
+        "fields": 1,
+        "file": "hr--grievance-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--holiday-list-assignment.json": {
+        "bytes": 3169,
+        "doctype": "Holiday List Assignment",
+        "fields": 10,
+        "file": "hr--holiday-list-assignment.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--hr-settings.json": {
+        "bytes": 11294,
+        "doctype": "HR Settings",
+        "fields": 35,
+        "file": "hr--hr-settings.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 14
+      },
+      "hr--hr-telemetry-milestone.json": {
+        "bytes": 804,
+        "doctype": "HR Telemetry Milestone",
+        "fields": 1,
+        "file": "hr--hr-telemetry-milestone.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--identification-document-type.json": {
+        "bytes": 706,
+        "doctype": "Identification Document Type",
+        "fields": 1,
+        "file": "hr--identification-document-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--interest.json": {
+        "bytes": 696,
+        "doctype": "Interest",
+        "fields": 1,
+        "file": "hr--interest.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--interview-detail.json": {
+        "bytes": 670,
+        "doctype": "Interview Detail",
+        "fields": 1,
+        "file": "hr--interview-detail.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--interview-feedback.json": {
+        "bytes": 3432,
+        "doctype": "Interview Feedback",
+        "fields": 9,
+        "file": "hr--interview-feedback.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--interview-type.json": {
+        "bytes": 2159,
+        "doctype": "Interview Type",
+        "fields": 6,
+        "file": "hr--interview-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--interview.json": {
+        "bytes": 4893,
+        "doctype": "Interview",
+        "fields": 15,
+        "file": "hr--interview.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 5
+      },
+      "hr--interviewer.json": {
+        "bytes": 644,
+        "doctype": "Interviewer",
+        "fields": 1,
+        "file": "hr--interviewer.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--job-applicant-source.json": {
+        "bytes": 835,
+        "doctype": "Job Applicant Source",
+        "fields": 2,
+        "file": "hr--job-applicant-source.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--job-applicant.json": {
+        "bytes": 4968,
+        "doctype": "Job Applicant",
+        "fields": 18,
+        "file": "hr--job-applicant.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--job-offer-term-template.json": {
+        "bytes": 911,
+        "doctype": "Job Offer Term Template",
+        "fields": 2,
+        "file": "hr--job-offer-term-template.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--job-offer-term.json": {
+        "bytes": 870,
+        "doctype": "Job Offer Term",
+        "fields": 2,
+        "file": "hr--job-offer-term.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--job-offer.json": {
+        "bytes": 4729,
+        "doctype": "Job Offer",
+        "fields": 14,
+        "file": "hr--job-offer.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--job-opening-template.json": {
+        "bytes": 3001,
+        "doctype": "Job Opening Template",
+        "fields": 11,
+        "file": "hr--job-opening-template.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--job-opening.json": {
+        "bytes": 7978,
+        "doctype": "Job Opening",
+        "fields": 26,
+        "file": "hr--job-opening.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 6
+      },
+      "hr--job-requisition.json": {
+        "bytes": 5068,
+        "doctype": "Job Requisition",
+        "fields": 17,
+        "file": "hr--job-requisition.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--kra.json": {
+        "bytes": 941,
+        "doctype": "KRA",
+        "fields": 2,
+        "file": "hr--kra.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--leave-adjustment.json": {
+        "bytes": 4492,
+        "doctype": "Leave Adjustment",
+        "fields": 15,
+        "file": "hr--leave-adjustment.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--leave-allocation.json": {
+        "bytes": 6657,
+        "doctype": "Leave Allocation",
+        "fields": 22,
+        "file": "hr--leave-allocation.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--leave-application.json": {
+        "bytes": 6049,
+        "doctype": "Leave Application",
+        "fields": 22,
+        "file": "hr--leave-application.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--leave-block-list-allow.json": {
+        "bytes": 690,
+        "doctype": "Leave Block List Allow",
+        "fields": 1,
+        "file": "hr--leave-block-list-allow.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--leave-block-list-date.json": {
+        "bytes": 751,
+        "doctype": "Leave Block List Date",
+        "fields": 2,
+        "file": "hr--leave-block-list-date.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--leave-block-list.json": {
+        "bytes": 2520,
+        "doctype": "Leave Block List",
+        "fields": 6,
+        "file": "hr--leave-block-list.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--leave-control-panel.json": {
+        "bytes": 5385,
+        "doctype": "Leave Control Panel",
+        "fields": 16,
+        "file": "hr--leave-control-panel.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--leave-encashment.json": {
+        "bytes": 7147,
+        "doctype": "Leave Encashment",
+        "fields": 22,
+        "file": "hr--leave-encashment.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--leave-ledger-entry.json": {
+        "bytes": 3502,
+        "doctype": "Leave Ledger Entry",
+        "fields": 14,
+        "file": "hr--leave-ledger-entry.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--leave-period.json": {
+        "bytes": 1657,
+        "doctype": "Leave Period",
+        "fields": 5,
+        "file": "hr--leave-period.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--leave-policy-assignment.json": {
+        "bytes": 3256,
+        "doctype": "Leave Policy Assignment",
+        "fields": 11,
+        "file": "hr--leave-policy-assignment.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--leave-policy-detail.json": {
+        "bytes": 900,
+        "doctype": "Leave Policy Detail",
+        "fields": 2,
+        "file": "hr--leave-policy-detail.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--leave-policy.json": {
+        "bytes": 1701,
+        "doctype": "Leave Policy",
+        "fields": 3,
+        "file": "hr--leave-policy.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--leave-type.json": {
+        "bytes": 6746,
+        "doctype": "Leave Type",
+        "fields": 23,
+        "file": "hr--leave-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 5
+      },
+      "hr--offer-term.json": {
+        "bytes": 740,
+        "doctype": "Offer Term",
+        "fields": 1,
+        "file": "hr--offer-term.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--overtime-details.json": {
+        "bytes": 1813,
+        "doctype": "Overtime Details",
+        "fields": 6,
+        "file": "hr--overtime-details.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--overtime-salary-component.json": {
+        "bytes": 756,
+        "doctype": "Overtime Salary Component",
+        "fields": 1,
+        "file": "hr--overtime-salary-component.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--overtime-slip.json": {
+        "bytes": 4194,
+        "doctype": "Overtime Slip",
+        "fields": 13,
+        "file": "hr--overtime-slip.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--overtime-type.json": {
+        "bytes": 4603,
+        "doctype": "Overtime Type",
+        "fields": 10,
+        "file": "hr--overtime-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--purpose-of-travel.json": {
+        "bytes": 662,
+        "doctype": "Purpose of Travel",
+        "fields": 1,
+        "file": "hr--purpose-of-travel.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--pwa-notification.json": {
+        "bytes": 2259,
+        "doctype": "PWA Notification",
+        "fields": 6,
+        "file": "hr--pwa-notification.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--shift-assignment-tool.json": {
+        "bytes": 5663,
+        "doctype": "Shift Assignment Tool",
+        "fields": 17,
+        "file": "hr--shift-assignment-tool.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 5
+      },
+      "hr--shift-assignment.json": {
+        "bytes": 4346,
+        "doctype": "Shift Assignment",
+        "fields": 13,
+        "file": "hr--shift-assignment.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--shift-location.json": {
+        "bytes": 1507,
+        "doctype": "Shift Location",
+        "fields": 5,
+        "file": "hr--shift-location.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--shift-request.json": {
+        "bytes": 2875,
+        "doctype": "Shift Request",
+        "fields": 10,
+        "file": "hr--shift-request.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--shift-schedule-assignment.json": {
+        "bytes": 3076,
+        "doctype": "Shift Schedule Assignment",
+        "fields": 8,
+        "file": "hr--shift-schedule-assignment.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--shift-schedule.json": {
+        "bytes": 1929,
+        "doctype": "Shift Schedule",
+        "fields": 4,
+        "file": "hr--shift-schedule.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--shift-type.json": {
+        "bytes": 7032,
+        "doctype": "Shift Type",
+        "fields": 21,
+        "file": "hr--shift-type.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 3
+      },
+      "hr--skill-assessment.json": {
+        "bytes": 853,
+        "doctype": "Skill Assessment",
+        "fields": 2,
+        "file": "hr--skill-assessment.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--skill.json": {
+        "bytes": 820,
+        "doctype": "Skill",
+        "fields": 2,
+        "file": "hr--skill.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--staffing-plan-detail.json": {
+        "bytes": 1855,
+        "doctype": "Staffing Plan Detail",
+        "fields": 7,
+        "file": "hr--staffing-plan-detail.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--staffing-plan.json": {
+        "bytes": 2429,
+        "doctype": "Staffing Plan",
+        "fields": 7,
+        "file": "hr--staffing-plan.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--training-event-employee.json": {
+        "bytes": 1796,
+        "doctype": "Training Event Employee",
+        "fields": 6,
+        "file": "hr--training-event-employee.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--training-event.json": {
+        "bytes": 5204,
+        "doctype": "Training Event",
+        "fields": 19,
+        "file": "hr--training-event.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--training-feedback.json": {
+        "bytes": 2914,
+        "doctype": "Training Feedback",
+        "fields": 9,
+        "file": "hr--training-feedback.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--training-program.json": {
+        "bytes": 2711,
+        "doctype": "Training Program",
+        "fields": 9,
+        "file": "hr--training-program.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 2
+      },
+      "hr--training-result-employee.json": {
+        "bytes": 1837,
+        "doctype": "Training Result Employee",
+        "fields": 6,
+        "file": "hr--training-result-employee.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--training-result.json": {
+        "bytes": 1864,
+        "doctype": "Training Result",
+        "fields": 4,
+        "file": "hr--training-result.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--travel-itinerary.json": {
+        "bytes": 2781,
+        "doctype": "Travel Itinerary",
+        "fields": 13,
+        "file": "hr--travel-itinerary.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--travel-request-costing.json": {
+        "bytes": 1623,
+        "doctype": "Travel Request Costing",
+        "fields": 5,
+        "file": "hr--travel-request-costing.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 1
+      },
+      "hr--travel-request.json": {
+        "bytes": 6118,
+        "doctype": "Travel Request",
+        "fields": 22,
+        "file": "hr--travel-request.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 6
+      },
+      "hr--vehicle-log.json": {
+        "bytes": 3986,
+        "doctype": "Vehicle Log",
+        "fields": 14,
+        "file": "hr--vehicle-log.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 4
+      },
+      "hr--vehicle-service-item.json": {
+        "bytes": 726,
+        "doctype": "Vehicle Service Item",
+        "fields": 1,
+        "file": "hr--vehicle-service-item.json",
+        "istable": 0,
+        "module": "HR",
+        "sections": 0
+      },
+      "hr--vehicle-service.json": {
+        "bytes": 1386,
+        "doctype": "Vehicle Service",
+        "fields": 4,
+        "file": "hr--vehicle-service.json",
+        "istable": 1,
+        "module": "HR",
+        "sections": 0
+      }
+    },
+    "payroll": {
+      "payroll--additional-salary.json": {
+        "bytes": 5759,
+        "doctype": "Additional Salary",
+        "fields": 19,
+        "file": "payroll--additional-salary.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 2
+      },
+      "payroll--arrear.json": {
+        "bytes": 4530,
+        "doctype": "Arrear",
+        "fields": 12,
+        "file": "payroll--arrear.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 3
+      },
+      "payroll--bulk-salary-structure-assignment.json": {
+        "bytes": 4062,
+        "doctype": "Bulk Salary Structure Assignment",
+        "fields": 11,
+        "file": "payroll--bulk-salary-structure-assignment.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 4
+      },
+      "payroll--employee-benefit-application-detail.json": {
+        "bytes": 1221,
+        "doctype": "Employee Benefit Application Detail",
+        "fields": 3,
+        "file": "payroll--employee-benefit-application-detail.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--employee-benefit-application.json": {
+        "bytes": 4110,
+        "doctype": "Employee Benefit Application",
+        "fields": 12,
+        "file": "payroll--employee-benefit-application.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 3
+      },
+      "payroll--employee-benefit-claim.json": {
+        "bytes": 3806,
+        "doctype": "Employee Benefit Claim",
+        "fields": 12,
+        "file": "payroll--employee-benefit-claim.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 2
+      },
+      "payroll--employee-benefit-detail.json": {
+        "bytes": 1062,
+        "doctype": "Employee Benefit Detail",
+        "fields": 2,
+        "file": "payroll--employee-benefit-detail.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--employee-benefit-ledger.json": {
+        "bytes": 3928,
+        "doctype": "Employee Benefit Ledger",
+        "fields": 14,
+        "file": "payroll--employee-benefit-ledger.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 1
+      },
+      "payroll--employee-cost-center.json": {
+        "bytes": 935,
+        "doctype": "Employee Cost Center",
+        "fields": 2,
+        "file": "payroll--employee-cost-center.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--employee-incentive.json": {
+        "bytes": 3124,
+        "doctype": "Employee Incentive",
+        "fields": 9,
+        "file": "payroll--employee-incentive.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 2
+      },
+      "payroll--employee-other-income.json": {
+        "bytes": 2726,
+        "doctype": "Employee Other Income",
+        "fields": 7,
+        "file": "payroll--employee-other-income.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 2
+      },
+      "payroll--employee-tax-exemption-category.json": {
+        "bytes": 1031,
+        "doctype": "Employee Tax Exemption Category",
+        "fields": 3,
+        "file": "payroll--employee-tax-exemption-category.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--employee-tax-exemption-declaration-category.json": {
+        "bytes": 1750,
+        "doctype": "Employee Tax Exemption Declaration Category",
+        "fields": 4,
+        "file": "payroll--employee-tax-exemption-declaration-category.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--employee-tax-exemption-declaration.json": {
+        "bytes": 3637,
+        "doctype": "Employee Tax Exemption Declaration",
+        "fields": 10,
+        "file": "payroll--employee-tax-exemption-declaration.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 2
+      },
+      "payroll--employee-tax-exemption-proof-submission-detail.json": {
+        "bytes": 1889,
+        "doctype": "Employee Tax Exemption Proof Submission Detail",
+        "fields": 6,
+        "file": "payroll--employee-tax-exemption-proof-submission-detail.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--employee-tax-exemption-proof-submission.json": {
+        "bytes": 4372,
+        "doctype": "Employee Tax Exemption Proof Submission",
+        "fields": 12,
+        "file": "payroll--employee-tax-exemption-proof-submission.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 4
+      },
+      "payroll--employee-tax-exemption-sub-category.json": {
+        "bytes": 1463,
+        "doctype": "Employee Tax Exemption Sub Category",
+        "fields": 4,
+        "file": "payroll--employee-tax-exemption-sub-category.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--gratuity-applicable-component.json": {
+        "bytes": 765,
+        "doctype": "Gratuity Applicable Component",
+        "fields": 1,
+        "file": "payroll--gratuity-applicable-component.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--gratuity-rule-slab.json": {
+        "bytes": 1049,
+        "doctype": "Gratuity Rule Slab",
+        "fields": 3,
+        "file": "payroll--gratuity-rule-slab.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--gratuity-rule.json": {
+        "bytes": 2895,
+        "doctype": "Gratuity Rule",
+        "fields": 7,
+        "file": "payroll--gratuity-rule.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 3
+      },
+      "payroll--gratuity.json": {
+        "bytes": 5924,
+        "doctype": "Gratuity",
+        "fields": 19,
+        "file": "payroll--gratuity.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 2
+      },
+      "payroll--income-tax-slab-other-charges.json": {
+        "bytes": 1318,
+        "doctype": "Income Tax Slab Other Charges",
+        "fields": 4,
+        "file": "payroll--income-tax-slab-other-charges.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 1
+      },
+      "payroll--income-tax-slab.json": {
+        "bytes": 3724,
+        "doctype": "Income Tax Slab",
+        "fields": 10,
+        "file": "payroll--income-tax-slab.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 4
+      },
+      "payroll--payroll-correction-child.json": {
+        "bytes": 919,
+        "doctype": "Payroll Correction Child",
+        "fields": 2,
+        "file": "payroll--payroll-correction-child.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--payroll-correction.json": {
+        "bytes": 5858,
+        "doctype": "Payroll Correction",
+        "fields": 16,
+        "file": "payroll--payroll-correction.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 3
+      },
+      "payroll--payroll-employee-detail.json": {
+        "bytes": 1649,
+        "doctype": "Payroll Employee Detail",
+        "fields": 5,
+        "file": "payroll--payroll-employee-detail.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--payroll-entry.json": {
+        "bytes": 8398,
+        "doctype": "Payroll Entry",
+        "fields": 27,
+        "file": "payroll--payroll-entry.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 12
+      },
+      "payroll--payroll-period-date.json": {
+        "bytes": 778,
+        "doctype": "Payroll Period Date",
+        "fields": 2,
+        "file": "payroll--payroll-period-date.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--payroll-period.json": {
+        "bytes": 1473,
+        "doctype": "Payroll Period",
+        "fields": 4,
+        "file": "payroll--payroll-period.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 1
+      },
+      "payroll--payroll-settings.json": {
+        "bytes": 6419,
+        "doctype": "Payroll Settings",
+        "fields": 18,
+        "file": "payroll--payroll-settings.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 4
+      },
+      "payroll--retention-bonus.json": {
+        "bytes": 3362,
+        "doctype": "Retention Bonus",
+        "fields": 10,
+        "file": "payroll--retention-bonus.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 2
+      },
+      "payroll--salary-component-account.json": {
+        "bytes": 1564,
+        "doctype": "Salary Component Account",
+        "fields": 3,
+        "file": "payroll--salary-component-account.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--salary-component.json": {
+        "bytes": 8787,
+        "doctype": "Salary Component",
+        "fields": 27,
+        "file": "payroll--salary-component.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 5
+      },
+      "payroll--salary-detail.json": {
+        "bytes": 8332,
+        "doctype": "Salary Detail",
+        "fields": 23,
+        "file": "payroll--salary-detail.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 3
+      },
+      "payroll--salary-slip-leave.json": {
+        "bytes": 1640,
+        "doctype": "Salary Slip Leave",
+        "fields": 6,
+        "file": "payroll--salary-slip-leave.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--salary-slip-loan.json": {
+        "bytes": 2558,
+        "doctype": "Salary Slip Loan",
+        "fields": 8,
+        "file": "payroll--salary-slip-loan.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--salary-slip-timesheet.json": {
+        "bytes": 948,
+        "doctype": "Salary Slip Timesheet",
+        "fields": 2,
+        "file": "payroll--salary-slip-timesheet.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--salary-slip.json": {
+        "bytes": 19096,
+        "doctype": "Salary Slip",
+        "fields": 68,
+        "file": "payroll--salary-slip.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 17
+      },
+      "payroll--salary-structure-assignment.json": {
+        "bytes": 7271,
+        "doctype": "Salary Structure Assignment",
+        "fields": 22,
+        "file": "payroll--salary-structure-assignment.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 4
+      },
+      "payroll--salary-structure.json": {
+        "bytes": 6600,
+        "doctype": "Salary Structure",
+        "fields": 21,
+        "file": "payroll--salary-structure.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 4
+      },
+      "payroll--salary-withholding-cycle.json": {
+        "bytes": 1284,
+        "doctype": "Salary Withholding Cycle",
+        "fields": 4,
+        "file": "payroll--salary-withholding-cycle.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      },
+      "payroll--salary-withholding.json": {
+        "bytes": 4725,
+        "doctype": "Salary Withholding",
+        "fields": 14,
+        "file": "payroll--salary-withholding.json",
+        "istable": 0,
+        "module": "Payroll",
+        "sections": 4
+      },
+      "payroll--taxable-salary-slab.json": {
+        "bytes": 1205,
+        "doctype": "Taxable Salary Slab",
+        "fields": 4,
+        "file": "payroll--taxable-salary-slab.json",
+        "istable": 1,
+        "module": "Payroll",
+        "sections": 0
+      }
+    }
+  }
+}

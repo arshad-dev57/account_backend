@@ -81,19 +81,78 @@ function summarizeRows(rows) {
   };
 }
 
-async function buildAttendanceReport({ companyId, fromStr, toStr, employeeId, department }) {
+function statusCode(status) {
+  switch (String(status || '')) {
+    case 'Present':
+      return 'P';
+    case 'Absent':
+      return 'A';
+    case 'On leave':
+      return 'L';
+    case 'Half day':
+      return 'HD';
+    case 'Late':
+      return 'L';
+    case 'Holiday':
+      return 'H';
+    case 'Weekend':
+      return 'WO';
+    case 'Missing checkout':
+      return 'P';
+    case 'Work From Home':
+      return 'WFH';
+    default:
+      return status || '';
+  }
+}
+
+async function buildAttendanceReport({
+  companyId,
+  fromStr,
+  toStr,
+  employeeId,
+  department,
+  employmentType,
+  status,
+  branchId,
+  departmentId
+}) {
   const { from, to, dayCount } = parseRange(fromStr, toStr);
   const days = eachDay(from, to);
 
-  const employeeWhere = { companyId, status: { not: 'terminated' } };
+  const employeeWhere = { companyId };
   if (employeeId) employeeWhere.id = String(employeeId);
   if (department) {
     employeeWhere.department = { equals: String(department).trim(), mode: 'insensitive' };
   }
+  if (departmentId) employeeWhere.departmentId = String(departmentId);
+  if (employmentType) {
+    employeeWhere.OR = [
+      { employmentTypeId: String(employmentType) },
+      { employmentType: { equals: String(employmentType), mode: 'insensitive' } }
+    ];
+  }
+  if (branchId) employeeWhere.officeId = String(branchId);
+  if (status) {
+    const normalized = String(status).toLowerCase();
+    if (normalized === 'active') employeeWhere.status = { in: ['active', 'Active'] };
+    else if (normalized === 'inactive') employeeWhere.status = { in: ['inactive', 'Inactive'] };
+    else if (normalized === 'left') employeeWhere.status = { in: ['terminated', 'Left', 'left'] };
+    else if (normalized === 'suspended') employeeWhere.status = { in: ['suspended', 'Suspended'] };
+    else employeeWhere.status = status;
+  } else {
+    employeeWhere.status = { notIn: ['terminated', 'Left', 'left'] };
+  }
 
   const employees = await prisma.hrEmployee.findMany({
     where: employeeWhere,
-    include: { user: { select: { firstName: true, lastName: true } } },
+    include: {
+      user: { select: { firstName: true, lastName: true } },
+      office: { select: { id: true, name: true } },
+      gradeRef: { select: { id: true, name: true } },
+      designationRef: { select: { id: true, name: true } },
+      departmentRef: { select: { id: true, name: true } }
+    },
     orderBy: { employeeCode: 'asc' }
   });
 
@@ -163,10 +222,13 @@ async function buildAttendanceReport({ companyId, fromStr, toStr, employeeId, de
         dayName: date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
         employeeId: emp.id,
         employeeCode: emp.employeeCode,
-        employee: fullName(emp.user),
-        department: emp.department || '',
-        designation: emp.designation || '',
+        employee: fullName(emp.user) || emp.employeeName || emp.employeeCode,
+        department: emp.departmentRef?.name || emp.department || '',
+        designation: emp.designationRef?.name || emp.designation || '',
+        branch: emp.office?.name || '',
+        grade: emp.gradeRef?.name || '',
         status,
+        statusCode: statusCode(status),
         checkIn: a?.checkIn || null,
         checkOut: a?.checkOut || null,
         workingMinutes: Number(a?.workingMinutes || 0),
@@ -200,5 +262,7 @@ async function buildAttendanceReport({ companyId, fromStr, toStr, employeeId, de
 module.exports = {
   buildAttendanceReport,
   summarizeRows,
+  statusCode,
+  eachDay,
   ymd
 };

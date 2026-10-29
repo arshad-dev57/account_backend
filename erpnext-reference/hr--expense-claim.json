@@ -1,0 +1,526 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Expense Claim",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "naming_series:",
+  "naming_rule": "By \"Naming Series\" field",
+  "naming_series_options": "HR-EXP-.YYYY.-",
+  "title_field": "employee_name",
+  "timeline_field": "employee",
+  "is_tree": 0,
+  "track_changes": 0,
+  "states": [
+    {
+      "idx": 1,
+      "title": "Draft",
+      "color": "Gray"
+    },
+    {
+      "idx": 2,
+      "title": "Submitted",
+      "color": "Blue"
+    },
+    {
+      "idx": 3,
+      "title": "Cancelled",
+      "color": "Red"
+    },
+    {
+      "idx": 4,
+      "title": "Paid",
+      "color": "Green"
+    },
+    {
+      "idx": 5,
+      "title": "Partially Paid",
+      "color": "Blue"
+    },
+    {
+      "idx": 6,
+      "title": "Unpaid",
+      "color": "Yellow"
+    },
+    {
+      "idx": 7,
+      "title": "Rejected",
+      "color": "Red"
+    }
+  ],
+  "document_type": "Setup",
+  "documentation": "https://docs.frappe.io/hr/expense-claim",
+  "search_fields": "employee,employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Expenses & Advances",
+      "fieldname": "expenses_and_advances_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Currency",
+      "fieldname": "currency_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "expense_details",
+      "fieldname": "expense_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "Taxes & Charges",
+      "fieldname": "taxes_and_charges_sb",
+      "type": "Section Break"
+    },
+    {
+      "label": "Advance Payments",
+      "fieldname": "advance_payments_sb",
+      "type": "Section Break"
+    },
+    {
+      "label": "Totals",
+      "fieldname": "transactions_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Exchange Gain/Loss",
+      "fieldname": "gain_loss_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Accounting",
+      "fieldname": "accounting_details_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Accounting Details",
+      "fieldname": "accounting_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "Accounting Dimensions",
+      "fieldname": "accounting_dimensions_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "More Info",
+      "fieldname": "more_info_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "more_details",
+      "fieldname": "more_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "Dashboard",
+      "fieldname": "dashboard_tab",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "expense_approver",
+      "target": "User"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "gain_loss_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "mode_of_payment",
+      "target": "Mode of Payment"
+    },
+    {
+      "fieldname": "bank_or_cash_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "payable_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "project",
+      "target": "Project"
+    },
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    },
+    {
+      "fieldname": "task",
+      "target": "Task"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Expense Claim"
+    },
+    {
+      "fieldname": "delivery_trip",
+      "target": "Delivery Trip"
+    },
+    {
+      "fieldname": "vehicle_log",
+      "target": "Vehicle Log"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "expenses",
+      "child_doctype": "Expense Claim Detail"
+    },
+    {
+      "fieldname": "taxes",
+      "child_doctype": "Expense Taxes and Charges"
+    },
+    {
+      "fieldname": "advances",
+      "child_doctype": "Expense Claim Advance"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "label": "Series",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "HR-EXP-.YYYY.-",
+      "section": "Expenses & Advances"
+    },
+    {
+      "fieldname": "employee",
+      "label": "From Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": "Expenses & Advances"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Expenses & Advances"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "fetch_from": "employee.department",
+      "section": "Expenses & Advances"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_standard_filter": 1,
+      "fetch_from": "employee.company",
+      "section": "Expenses & Advances"
+    },
+    {
+      "fieldname": "expense_approver",
+      "label": "Expense Approver",
+      "fieldtype": "Link",
+      "options": "User",
+      "section": "Expenses & Advances"
+    },
+    {
+      "fieldname": "approval_status",
+      "label": "Approval Status",
+      "fieldtype": "Select",
+      "default": "Draft",
+      "options": "Draft\nApproved\nRejected\nCancelled",
+      "search_index": 1,
+      "section": "Expenses & Advances"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "depends_on": "eval:(doc.docstatus==1 || doc.employee)",
+      "fetch_from": "employee.salary_currency",
+      "section": "Currency"
+    },
+    {
+      "fieldname": "exchange_rate",
+      "label": "Exchange Rate",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "depends_on": "currency",
+      "precision": "9",
+      "section": "Currency"
+    },
+    {
+      "fieldname": "expenses",
+      "label": "Expenses",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Expense Claim Detail",
+      "section": "expense_details"
+    },
+    {
+      "fieldname": "taxes",
+      "label": "Expense Taxes and Charges",
+      "fieldtype": "Table",
+      "options": "Expense Taxes and Charges",
+      "section": "Taxes & Charges"
+    },
+    {
+      "fieldname": "advances",
+      "label": "Advances",
+      "fieldtype": "Table",
+      "options": "Expense Claim Advance",
+      "section": "Advance Payments"
+    },
+    {
+      "fieldname": "base_total_sanctioned_amount",
+      "label": "Total Sanctioned Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "base_total_advance_amount",
+      "label": "Total Advance Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "base_grand_total",
+      "label": "Grand Total (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "base_total_claimed_amount",
+      "label": "Total Claimed Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "base_total_taxes_and_charges",
+      "label": "Total Taxes and Charges (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "total_sanctioned_amount",
+      "label": "Total Sanctioned Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "total_advance_amount",
+      "label": "Total Advance Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "grand_total",
+      "label": "Grand Total",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "total_claimed_amount",
+      "label": "Total Claimed Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "total_taxes_and_charges",
+      "label": "Total Taxes and Charges",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "total_amount_reimbursed",
+      "label": "Total Amount Reimbursed",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "total_exchange_gain_loss",
+      "label": "Total Exchange Gain/Loss",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "depends_on": "total_exchange_gain_loss",
+      "section": "Exchange Gain/Loss"
+    },
+    {
+      "fieldname": "gain_loss_account",
+      "label": "Gain Loss Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "depends_on": "total_exchange_gain_loss",
+      "section": "Exchange Gain/Loss"
+    },
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "in_standard_filter": 1,
+      "section": "Accounting Details"
+    },
+    {
+      "fieldname": "is_paid",
+      "label": "Is Paid",
+      "fieldtype": "Check",
+      "default": "0",
+      "depends_on": "eval:(doc.docstatus==0 || doc.is_paid)",
+      "section": "Accounting Details"
+    },
+    {
+      "fieldname": "mode_of_payment",
+      "label": "Mode of Payment",
+      "fieldtype": "Link",
+      "options": "Mode of Payment",
+      "depends_on": "is_paid",
+      "section": "Accounting Details"
+    },
+    {
+      "fieldname": "bank_or_cash_account",
+      "label": "Bank / Cash Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "depends_on": "mode_of_payment",
+      "section": "Accounting Details"
+    },
+    {
+      "fieldname": "payable_account",
+      "label": "Payable Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "mandatory_depends_on": "eval:!doc.is_paid",
+      "fetch_from": "company.default_expense_claim_payable_account",
+      "section": "Accounting Details"
+    },
+    {
+      "fieldname": "clearance_date",
+      "label": "Clearance Date",
+      "fieldtype": "Date",
+      "section": "Accounting Details"
+    },
+    {
+      "fieldname": "remark",
+      "label": "Remark",
+      "fieldtype": "Small Text",
+      "section": "Accounting Details"
+    },
+    {
+      "fieldname": "project",
+      "label": "Project",
+      "fieldtype": "Link",
+      "options": "Project",
+      "allow_on_submit": 1,
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "options": "Cost Center",
+      "fetch_from": "company.cost_center",
+      "allow_on_submit": 1,
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Draft",
+      "options": "Draft\nPaid\nPartially Paid\nUnpaid\nRejected\nSubmitted\nCancelled",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "more_details"
+    },
+    {
+      "fieldname": "task",
+      "label": "Task",
+      "fieldtype": "Link",
+      "options": "Task",
+      "section": "more_details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Expense Claim",
+      "read_only": 1,
+      "section": "more_details"
+    },
+    {
+      "fieldname": "delivery_trip",
+      "label": "Delivery Trip",
+      "fieldtype": "Link",
+      "options": "Delivery Trip",
+      "depends_on": "eval: doc.delivery_trip",
+      "section": "more_details"
+    },
+    {
+      "fieldname": "vehicle_log",
+      "label": "Vehicle Log",
+      "fieldtype": "Link",
+      "options": "Vehicle Log",
+      "read_only": 1,
+      "section": "more_details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "show_name_in_global_search": 1
+}

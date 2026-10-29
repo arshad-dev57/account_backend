@@ -1,0 +1,63 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Shift Location",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:location_name",
+  "naming_rule": "By fieldname",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/shift-location",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_xxli",
+      "fieldname": "section_break_xxli",
+      "type": "Section Break"
+    }
+  ],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "location_name",
+      "label": "Location Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "checkin_radius",
+      "label": "Checkin Radius",
+      "fieldtype": "Int",
+      "description": "Radius within which check-in is allowed (in meters)",
+      "section": null
+    },
+    {
+      "fieldname": "latitude",
+      "label": "Latitude",
+      "fieldtype": "Float",
+      "section": null
+    },
+    {
+      "fieldname": "longitude",
+      "label": "Longitude",
+      "fieldtype": "Float",
+      "section": null
+    },
+    {
+      "fieldname": "geolocation",
+      "label": "Geolocation",
+      "fieldtype": "Geolocation",
+      "section": "section_break_xxli"
+    }
+  ],
+  "allow_rename": 1,
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

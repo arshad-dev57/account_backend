@@ -1,0 +1,103 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Gratuity Rule",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "Prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/gratuity-rule",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Gratuity",
+      "fieldname": "gratuity_details_tab",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_2",
+      "fieldname": "section_break_2",
+      "type": "Section Break"
+    },
+    {
+      "label": "Rules",
+      "fieldname": "gratuity_rules_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [],
+  "tables": [
+    {
+      "fieldname": "applicable_earnings_component",
+      "child_doctype": "Gratuity Applicable Component"
+    },
+    {
+      "fieldname": "gratuity_rule_slabs",
+      "child_doctype": "Gratuity Rule Slab"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "disable",
+      "label": "Disable",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "calculate_gratuity_amount_based_on",
+      "label": "Calculate Gratuity Amount Based On",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Current Slab\nSum of all previous slabs",
+      "in_list_view": 1,
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "total_working_days_per_year",
+      "label": "Total working Days Per Year",
+      "fieldtype": "Float",
+      "default": "365",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "work_experience_calculation_function",
+      "label": "Work Experience Calculation Method",
+      "fieldtype": "Select",
+      "default": "Round off Work Experience",
+      "options": "Round off Work Experience\nTake Exact Completed Years\nManual",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "minimum_year_for_gratuity",
+      "label": "Minimum Year for Gratuity",
+      "fieldtype": "Int",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "applicable_earnings_component",
+      "label": "Applicable Earnings Component",
+      "fieldtype": "Table MultiSelect",
+      "reqd": 1,
+      "options": "Gratuity Applicable Component",
+      "description": "Salary components should be part of the Salary Structure.",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "gratuity_rule_slabs",
+      "label": "Current Work Experience",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Gratuity Rule Slab",
+      "description": "Set \"From(Year)\" and \"To(Year)\" to 0 for no upper and lower limit.",
+      "section": "Rules"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

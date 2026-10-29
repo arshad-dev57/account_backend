@@ -1,0 +1,120 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Shift Schedule Assignment",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "HR-SHSA-.YY.-.MM.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/shift-schedule-assignment",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Employee Details",
+      "fieldname": "shift_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Shift Details",
+      "fieldname": "schedule_settings_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "shift_schedule",
+      "target": "Shift Schedule"
+    },
+    {
+      "fieldname": "shift_location",
+      "target": "Shift Location"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.company",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "shift_schedule",
+      "label": "Shift Schedule",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Shift Schedule",
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "shift_location",
+      "label": "Shift Location",
+      "fieldtype": "Link",
+      "options": "Shift Location",
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "shift_status",
+      "label": "Shift Status",
+      "fieldtype": "Select",
+      "default": "Active",
+      "options": "Active\nInactive",
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "enabled",
+      "label": "Enabled",
+      "fieldtype": "Check",
+      "default": "1",
+      "description": "Select this if you want shift assignments to be automatically created indefinitely.",
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "create_shifts_after",
+      "label": "Create Shifts After",
+      "fieldtype": "Date",
+      "default": "Today",
+      "depends_on": "eval:doc.enabled",
+      "mandatory_depends_on": "eval:doc.enabled",
+      "description": "New shift assignments will be created after this date.",
+      "section": "Shift Details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

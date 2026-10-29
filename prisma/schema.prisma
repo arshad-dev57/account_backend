@@ -228,6 +228,9 @@ model Company {
   hrDesignations                    HrDesignation[]
   hrShifts                          HrShift[]
   hrHolidays                        HrHoliday[]
+  hrHolidayLists                    HrHolidayList[]
+  hrGenders                         HrGender[]
+  hrSalutations                     HrSalutation[]
   hrLeaveTypes                      HrLeaveType[]
   hrLeaveBalances                   HrLeaveBalance[]
   hrRosters                         HrRoster[]
@@ -271,6 +274,16 @@ model Company {
   manufacturingDemands              ManufacturingDemand[]              @relation("ManufacturingDemandCompany")
   manufacturingProductCosts         ManufacturingProductCost[]         @relation("ManufacturingProductCostCompany")
   manufacturingSetting              ManufacturingSetting?              @relation("ManufacturingSettingCompany")
+  manufacturingOperations           ManufacturingOperation[]           @relation("ManufacturingOperationCompany")
+  manufacturingWorkstationTypes     ManufacturingWorkstationType[]     @relation("ManufacturingWorkstationTypeCompany")
+  manufacturingProductionPlans      ManufacturingProductionPlan[]      @relation("ManufacturingProductionPlanCompany")
+  manufacturingDowntimeEntries      ManufacturingDowntimeEntry[]       @relation("ManufacturingDowntimeEntryCompany")
+  manufacturingPlantFloors          ManufacturingPlantFloor[]          @relation("ManufacturingPlantFloorCompany")
+  manufacturingStockEntries         ManufacturingStockEntry[]          @relation("ManufacturingStockEntryCompany")
+  manufacturingItemLeadTimes        ManufacturingItemLeadTime[]        @relation("ManufacturingItemLeadTimeCompany")
+  manufacturingSalesForecasts       ManufacturingSalesForecast[]       @relation("ManufacturingSalesForecastCompany")
+  manufacturingBomCreators          ManufacturingBomCreator[]          @relation("ManufacturingBomCreatorCompany")
+  manufacturingBomUpdateTools       ManufacturingBomUpdateTool[]       @relation("ManufacturingBomUpdateToolCompany")
   inventorySettings                 CompanyInventorySetting?
   inventoryImportBatches            InventoryImportBatch[]
   unitsOfMeasure                    UnitOfMeasure[]
@@ -887,6 +900,15 @@ model HrOffice {
 }
 
 model HrEmployee {
+  departmentId     String?   @map("department_id")
+  designationId    String?   @map("designation_id")
+  employeeGradeId  String?   @map("employee_grade_id")
+  employeeGroupId  String?   @map("employee_group_id")
+  employmentTypeId String?   @map("employment_type_id")
+  defaultShiftId   String?   @map("default_shift_id")
+  ctC              Float     @default(0) @map("ctc")
+  salaryCurrency   String    @default("") @map("salary_currency")
+  salaryMode       String    @default("") @map("salary_mode")
   id              String    @id @default(uuid())
   companyId       String    @map("company_id")
   /// Optional application login. Null = HR-only employee (no ERP access).
@@ -913,6 +935,65 @@ model HrEmployee {
   accountNumber   String    @default("") @map("account_number")
   bankSwiftCode   String    @default("") @map("bank_swift_code")
   profile         Json?
+
+  // ERPNext Employee fields (module Setup, 109-field document). Added alongside
+  // the legacy columns so existing employee rows and readers keep working.
+  namingSeries           String    @default("HR-EMP-") @map("naming_series")
+  firstName              String    @default("") @map("first_name")
+  middleName             String    @default("") @map("middle_name")
+  lastName               String    @default("") @map("last_name")
+  employeeName           String    @default("") @map("employee_name")
+  salutationId           String?   @map("salutation_id")
+  genderId               String?   @map("gender_id")
+  dateOfBirth            DateTime? @map("date_of_birth") @db.Date
+  employeeNumber         String    @default("") @map("employee_number")
+  createUserPermission   Boolean   @default(true) @map("create_user_permission")
+  createUserAutomatically Boolean  @default(false) @map("create_user_automatically")
+  companyEmail           String    @default("") @map("company_email")
+  personalEmail          String    @default("") @map("personal_email")
+  preferedContactEmail   String    @default("") @map("prefered_contact_email")
+  preferedEmail          String    @default("") @map("prefered_email")
+  unsubscribed           Boolean   @default(false)
+  currentAddress         String    @default("") @map("current_address")
+  currentAccommodationType String  @default("") @map("current_accommodation_type")
+  permanentAddress       String    @default("") @map("permanent_address")
+  permanentAccommodationType String @default("") @map("permanent_accommodation_type")
+  personToBeContacted    String    @default("") @map("person_to_be_contacted")
+  emergencyPhoneNumber   String    @default("") @map("emergency_phone_number")
+  relation               String    @default("")
+  attendanceDeviceId     String?   @map("attendance_device_id")
+  holidayListId          String?   @map("holiday_list_id")
+  iban                   String    @default("")
+  maritalStatus          String    @default("") @map("marital_status")
+  familyBackground       String    @default("") @map("family_background")
+  bloodGroup             String    @default("") @map("blood_group")
+  healthDetails          String    @default("") @map("health_details")
+  passportNumber         String    @default("") @map("passport_number")
+  validUpto              DateTime? @map("valid_upto") @db.Date
+  dateOfIssue            DateTime? @map("date_of_issue") @db.Date
+  placeOfIssue           String    @default("") @map("place_of_issue")
+  bio                    String    @default("")
+  education              Json      @default("[]")
+  externalWorkHistory    Json      @default("[]") @map("external_work_history")
+  internalWorkHistory    Json      @default("[]") @map("internal_work_history")
+  scheduledConfirmationDate DateTime? @map("scheduled_confirmation_date") @db.Date
+  finalConfirmationDate  DateTime? @map("final_confirmation_date") @db.Date
+  contractEndDate        DateTime? @map("contract_end_date") @db.Date
+  noticeNumberOfDays     Int?      @map("notice_number_of_days")
+  dateOfRetirement       DateTime? @map("date_of_retirement") @db.Date
+  resignationLetterDate  DateTime? @map("resignation_letter_date") @db.Date
+  relievingDate          DateTime? @map("relieving_date") @db.Date
+  heldOn                 DateTime? @map("held_on") @db.Date
+  newWorkplace           String    @default("") @map("new_workplace")
+  leaveEncashed          String    @default("") @map("leave_encashed")
+  encashmentDate         DateTime? @map("encashment_date") @db.Date
+  reasonForLeaving       String    @default("") @map("reason_for_leaving")
+  feedback               String    @default("")
+  image                  String?
+
+  salutation             HrSalutation? @relation(fields: [salutationId], references: [id], onDelete: SetNull)
+  gender                 HrGender?     @relation(fields: [genderId], references: [id], onDelete: SetNull)
+  holidayList            HrHolidayList? @relation(fields: [holidayListId], references: [id], onDelete: SetNull)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -920,6 +1001,12 @@ model HrEmployee {
   user                            User?                            @relation(fields: [userId], references: [id], onDelete: SetNull)
   office                          HrOffice?                        @relation(fields: [officeId], references: [id], onDelete: SetNull)
   costCenterRef                   CostCenter?                      @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  departmentRef                   HrDepartment?                    @relation("HrEmployeeDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  designationRef                  HrDesignation?                   @relation("HrEmployeeDesignation", fields: [designationId], references: [id], onDelete: SetNull)
+  gradeRef                        HrEmployeeGrade?                 @relation(fields: [employeeGradeId], references: [id], onDelete: SetNull)
+  groupRef                        HrEmployeeGroup?                 @relation(fields: [employeeGroupId], references: [id], onDelete: SetNull)
+  employmentTypeRef               HrEmploymentType?                @relation(fields: [employmentTypeId], references: [id], onDelete: SetNull)
+  defaultShift                    HrShift?                         @relation("HrEmployeeDefaultShift", fields: [defaultShiftId], references: [id], onDelete: SetNull)
   manager                         HrEmployee?                      @relation("HrReporting", fields: [managerId], references: [id], onDelete: SetNull)
   reports                         HrEmployee[]                     @relation("HrReporting")
   attendances                     HrAttendance[]
@@ -941,6 +1028,23 @@ model HrEmployee {
   shiftSwaps                      HrShiftSwap[]
   generatedDocuments              HrGeneratedDocument[]
   salesperson                     Salesperson?
+  salaryStructureAssignments      HrSalaryStructureAssignment[]
+  leavePolicyAssignments          HrLeavePolicyAssignment[]
+  leaveEncashments                HrLeaveEncashment[]
+  checkins                        HrEmployeeCheckin[]
+  shiftRequests                   HrShiftRequest[]
+  onboardings                     HrEmployeeOnboarding[]
+  separations                     HrEmployeeSeparation[]
+  grievancesRaised                HrEmployeeGrievance[]           @relation("HrGrievanceRaisedBy")
+  grievancesAgainst               HrEmployeeGrievance[]           @relation("HrGrievanceAgainst")
+  transfers                       HrEmployeeTransfer[]
+  promotions                      HrEmployeePromotion[]
+  skillMap                        HrEmployeeSkillMap?
+  benefitApplications             HrEmployeeBenefitApplication[]
+  benefitClaims                   HrEmployeeBenefitClaim[]
+  taxDeclarations                 HrTaxExemptionDeclaration[]
+  taxProofSubmissions             HrTaxExemptionProofSubmission[]
+  expenseClaims                   HrExpenseClaim[]
   manufacturingWorkOrders         ManufacturingWorkOrder[]         @relation("ManufacturingWorkOrderEmployee")
   manufacturingScraps             ManufacturingScrap[]             @relation("ManufacturingScrapOperator")
   manufacturingReworks            ManufacturingRework[]            @relation("ManufacturingReworkOperator")
@@ -970,11 +1074,23 @@ model HrAttendance {
   status         String    @default("present")
   source         String    @default("geofence")
   workingMinutes Int       @default(0) @map("working_minutes")
+  shiftId        String?   @map("shift_id")
+  leaveApplicationId String? @map("leave_application_id")
+  attendanceRequestId String? @map("attendance_request_id")
+  overtimeTypeId String?   @map("overtime_type_id")
+  overtimeHours  Float     @default(0) @map("overtime_hours")
+  lateEntry      Boolean   @default(false) @map("late_entry")
+  earlyExit      Boolean   @default(false) @map("early_exit")
+  remarks        String    @default("")
+  docStatus      Int       @default(1) @map("doc_status")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  company  Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  employee HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   HrEmployee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift      HrShift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  leaveApplication HrLeave?      @relation("HrAttendanceLeaveApplication", fields: [leaveApplicationId], references: [id], onDelete: SetNull)
+  checkins   HrEmployeeCheckin[]
 
   @@unique([employeeId, workDate])
   @@index([companyId, workDate])
@@ -1005,22 +1121,41 @@ model HrEmployeeLocation {
 model HrLeave {
   id          String   @id @default(uuid())
   companyId   String   @map("company_id")
+  namingSeries String  @default("HR-LAP-.YYYY.-") @map("naming_series")
   employeeId  String   @map("employee_id")
+  employeeName String  @default("") @map("employee_name")
   type        String
   fromDate    DateTime @map("from_date") @db.Date
   toDate      DateTime @map("to_date") @db.Date
-  days        Int
+  days        Float    @default(0)
   reason      String   @default("")
-  status      String   @default("Pending")
+  status      String   @default("Open")
   halfDay     Boolean  @default(false) @map("half_day")
+  halfDayDate DateTime? @map("half_day_date") @db.Date
   hours       Float    @default(0)
+  leaveBalanceBefore Float @default(0) @map("leave_balance_before")
   leaveTypeId String?  @map("leave_type_id")
+  leavePeriodId String? @map("leave_period_id")
+  leaveBalanceId String? @map("leave_balance_id")
+  approverId  String?  @map("approver_id")
+  approverName String  @default("") @map("approver_name")
+  followViaEmail Boolean @default(true) @map("follow_via_email")
+  explanation String   @default("")
+  appliedOn   DateTime? @map("applied_on") @db.Date
+  forwardingNote String @default("") @map("forwarding_note")
+  color       String   @default("")
+  salarySlipId String? @map("salary_slip_id")
+  isLop       Boolean  @default(false) @map("is_lop")
+  docStatus   Int      @default(0) @map("doc_status")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  employee  HrEmployee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  leaveType HrLeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee    HrEmployee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType   HrLeaveType?   @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  leavePeriod HrLeavePeriod? @relation(fields: [leavePeriodId], references: [id], onDelete: SetNull)
+  leaveBalance HrLeaveBalance? @relation(fields: [leaveBalanceId], references: [id], onDelete: SetNull)
+  attendances HrAttendance[] @relation("HrAttendanceLeaveApplication")
 
   @@index([companyId, status])
   @@index([employeeId])
@@ -1028,11 +1163,24 @@ model HrLeave {
 }
 
 model HrOvertime {
+  overtimeTypeId    String?   @map("overtime_type_id")
+  payRateMultiplier Float     @default(1) @map("pay_rate_multiplier")
+  salarySlipId      String?   @map("salary_slip_id")
+  payrollEntryId    String?   @map("payroll_entry_id")
+  postingDate       DateTime? @map("posting_date") @db.Date
+  startDate         DateTime? @map("start_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  employeeName      String    @default("") @map("employee_name")
+  department        String    @default("")
+  totalOvertimeDuration Float @default(0) @map("total_overtime_duration")
+  overtimeDetails   Json      @default("[]") @map("overtime_details")
+  submittedViaPayrollEntry Boolean @default(false) @map("submitted_via_payroll_entry")
+  docStatus         Int       @default(0) @map("doc_status")
   id         String   @id @default(uuid())
   companyId  String   @map("company_id")
   employeeId String   @map("employee_id")
   workDate   DateTime @map("work_date") @db.Date
-  hours      Float
+  hours      Float    @default(0)
   rate       Float    @default(0)
   amount     Float    @default(0)
   reason     String   @default("")
@@ -1070,6 +1218,17 @@ model HrTask {
 }
 
 model HrPerformanceReview {
+  appraisalCycleId    String?  @map("appraisal_cycle_id")
+  appraisalTemplateId String?  @map("appraisal_template_id")
+  kraAssessments      Json     @default("[]") @map("kra_assessments")
+  selfRatings         Json     @default("[]") @map("self_ratings")
+  totalScore          Float    @default(0) @map("total_score")
+  maxScore            Float    @default(0) @map("max_score")
+  averageRating       Float    @default(0) @map("average_rating")
+  remarks             String   @default("")
+  docStatus           Int      @default(0) @map("doc_status")
+  cycle               HrAppraisalCycle?    @relation("HrAppraisalCycleAppraisals", fields: [appraisalCycleId], references: [id], onDelete: SetNull)
+  feedbacks           HrFeedback[]
   id                 String   @id @default(uuid())
   companyId          String   @map("company_id")
   employeeId         String   @map("employee_id")
@@ -1124,6 +1283,13 @@ model HrPayPeriod {
 }
 
 model HrPayrollRun {
+  postingDate    DateTime? @map("posting_date") @db.Date
+  currency       String    @default("")
+  paymentAccount String    @default("") @map("payment_account")
+  payableAccount String    @default("") @map("payable_account")
+  filters        Json?
+  salarySlips    HrPayrollItem[] @relation("HrPayrollRunSlips")
+  docStatus      Int       @default(0) @map("doc_status")
   id                 String    @id @default(uuid())
   companyId          String    @map("company_id")
   payPeriodId        String    @map("pay_period_id")
@@ -1154,6 +1320,16 @@ model HrPayrollRun {
 }
 
 model HrPayrollItem {
+  payrollRunId                String?  @map("payroll_run_id")
+  salaryStructureId           String?  @map("salary_structure_id")
+  salaryStructureAssignmentId String?  @map("salary_structure_assignment_id")
+  incomeTaxSlabId             String?  @map("income_tax_slab_id")
+  workingDays                 Float    @default(0) @map("working_days")
+  paymentDays                 Float    @default(0) @map("payment_days")
+  leaveWithoutPay             Float    @default(0) @map("leave_without_pay")
+  totalEarning                Float    @default(0) @map("total_earning")
+  salarySlipCurrency          String   @default("") @map("salary_slip_currency")
+  docStatus                   Int      @default(0) @map("doc_status")
   id              String    @id @default(uuid())
   companyId       String    @map("company_id")
   employeeId      String    @map("employee_id")
@@ -1188,6 +1364,9 @@ model HrPayrollItem {
   employee      HrEmployee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   payPeriod     HrPayPeriod? @relation(fields: [payPeriodId], references: [id], onDelete: SetNull)
   costCenterRef CostCenter?  @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  payrollRun    HrPayrollRun? @relation("HrPayrollRunSlips", fields: [payrollRunId], references: [id], onDelete: SetNull)
+  salaryStructure HrSalaryStructure? @relation("HrStructureSalarySlips", fields: [salaryStructureId], references: [id], onDelete: SetNull)
+  assignment    HrSalaryStructureAssignment? @relation("HrAssignmentSalarySlips", fields: [salaryStructureAssignmentId], references: [id], onDelete: SetNull)
 
   @@unique([employeeId, period])
   @@index([companyId, period])
@@ -1208,6 +1387,7 @@ model HrSetting {
 }
 
 model HrDepartment {
+  employees HrEmployee[] @relation("HrEmployeeDepartment")
   id                String   @id @default(uuid())
   companyId         String   @map("company_id")
   name              String
@@ -1215,6 +1395,12 @@ model HrDepartment {
   costCenter        String   @default("") @map("cost_center")
   costCenterId      String?  @map("cost_center_id")
   managerEmployeeId String?  @map("manager_employee_id")
+  leaveBlockListId  String?  @map("leave_block_list_id")
+  shiftRequestApprovers Json @default("[]") @map("shift_request_approvers")
+  leaveApprovers    Json     @default("[]") @map("leave_approvers")
+  expenseApprovers  Json     @default("[]") @map("expense_approvers")
+  isGroup           Boolean  @default(false) @map("is_group")
+  disabled          Boolean  @default(false)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -1232,12 +1418,16 @@ model HrDepartment {
 }
 
 model HrDesignation {
-  id        String   @id @default(uuid())
-  companyId String   @map("company_id")
-  name      String
-  level     Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  employees HrEmployee[] @relation("HrEmployeeDesignation")
+  id                  String   @id @default(uuid())
+  companyId           String   @map("company_id")
+  name                String
+  description         String   @default("")
+  level               Int      @default(0)
+  appraisalTemplateId String?  @map("appraisal_template_id")
+  skills              Json     @default("[]")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -1257,14 +1447,94 @@ model HrShift {
   isNight            Boolean  @default(false) @map("is_night")
   isFlexible         Boolean  @default(false) @map("is_flexible")
   overtimeAfterHours Float    @default(8) @map("overtime_after_hours")
+  status             String   @default("Active")
+  holidayListId      String?  @map("holiday_list_id")
+  rosterColor        String   @default("Blue") @map("roster_color")
+  enableAutoAttendance     Boolean @default(false) @map("enable_auto_attendance")
+  determineCheckInAndCheckOut String @default("Alternating entries as IN and OUT during the same shift") @map("determine_check_in_and_check_out")
+  workingHoursCalculationBasedOn String @default("First Check-in and Last Check-out") @map("working_hours_calculation_based_on")
+  firstCheckinThresholdMinutes Int  @default(60) @map("first_checkin_threshold_minutes")
+  lastCheckoutThresholdMinutes Int  @default(60) @map("last_checkout_threshold_minutes")
+  markAutoAttendanceOnHolidays Boolean @default(false) @map("mark_auto_attendance_on_holidays")
+  workingHoursThresholdForHalfDay Float @default(0) @map("working_hours_threshold_for_half_day")
+  workingHoursThresholdForAbsent Float @default(0) @map("working_hours_threshold_for_absent")
+  processAttendanceAfter DateTime? @map("process_attendance_after") @db.Date
+  lastSyncOfCheckin  DateTime? @map("last_sync_of_checkin")
+  autoUpdateLastSync Boolean @default(false) @map("auto_update_last_sync")
+  enableLateEntryMarking   Boolean @default(false) @map("enable_late_entry_marking")
+  enableEarlyExitMarking   Boolean @default(false) @map("enable_early_exit_marking")
+  earlyExitGraceMinutes    Int     @default(15) @map("early_exit_grace_minutes")
+  allowOvertime            Boolean @default(false) @map("allow_overtime")
+  calculateOvertime        Boolean @default(false) @map("calculate_overtime")
+  overtimeTypeId           String? @map("overtime_type_id")
+  workingHours             Float   @default(0) @map("working_hours")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
-  company Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  rosters HrRoster[]
+  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  rosters       HrRoster[]
+  defaultForEmployees HrEmployee[] @relation("HrEmployeeDefaultShift")
+  checkins      HrEmployeeCheckin[]
+  shiftRequests HrShiftRequest[]
+  attendances   HrAttendance[]
 
   @@index([companyId])
   @@map("hr_shifts")
+}
+
+model HrHolidayList {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  name          String   @map("holiday_list_name")
+  fromDate      DateTime @map("from_date") @db.Date
+  toDate        DateTime @map("to_date") @db.Date
+  totalHolidays Float    @default(0) @map("total_holidays")
+  weeklyOff     String   @default("") @map("weekly_off")
+  isHalfDay     Boolean  @default(false) @map("is_half_day")
+  country       String   @default("")
+  subdivision   String   @default("")
+  color         String   @default("")
+  holidays      Json     @default("[]")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees HrEmployee[]
+  assignments HrHolidayListAssignment[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_holiday_lists")
+}
+
+model HrGender {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  gender    String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees HrEmployee[]
+
+  @@unique([companyId, gender])
+  @@index([companyId])
+  @@map("hr_genders")
+}
+
+model HrSalutation {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  salutation String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees HrEmployee[]
+
+  @@unique([companyId, salutation])
+  @@index([companyId])
+  @@map("hr_salutations")
 }
 
 model HrHoliday {
@@ -1293,27 +1563,58 @@ model HrLeaveType {
   carryForward Boolean  @default(false) @map("carry_forward")
   encashable   Boolean  @default(false)
   unit         String   @default("day")
+  maxCarryForward    Int     @default(0) @map("max_carry_forward")
+  maxAllowanceForLop Int     @default(0) @map("max_allowance_for_lop")
+  allowNegative   Boolean @default(false) @map("allow_negative")
+  earnedLeave     Boolean @default(false) @map("earned_leave")
+  leaveDayApplicableForHoliday Boolean @default(true) @map("leave_day_applicable_for_holiday")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  leaves   HrLeave[]
-  balances HrLeaveBalance[]
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  leaves      HrLeave[]
+  balances    HrLeaveBalance[]
+  encashments HrLeaveEncashment[]
 
   @@index([companyId])
   @@map("hr_leave_types")
 }
 
+/// ERPNext "Leave Allocation": a period-bound grant of a leave type to an employee.
 model HrLeaveBalance {
   id          String @id @default(uuid())
   companyId   String @map("company_id")
+  namingSeries String @default("HR-LAL-.YYYY.-") @map("naming_series")
   employeeId  String @map("employee_id")
+  employeeName String @default("") @map("employee_name")
+  department  String @default("")
   leaveTypeId String @map("leave_type_id")
   year        Int
   accrued     Float  @default(0)
   used        Float  @default(0)
   carried     Float  @default(0)
   encashed    Float  @default(0)
+  totalLeavesAllocated Float  @default(0) @map("total_leaves_allocated")
+  newLeaves              Float  @default(0) @map("new_leaves")
+  carryForward           Boolean @default(false) @map("carry_forward")
+  unusedLeaves           Float  @default(0) @map("unused_leaves")
+  carryForwardLeaves     Float  @default(0) @map("carry_forward_leaves")
+  totalLeavesEncashed    Float  @default(0) @map("total_leaves_encashed")
+  leavePeriodId          String?  @map("leave_period_id")
+  leavePolicyId          String?  @map("leave_policy_id")
+  policyAssignmentId     String?  @map("policy_assignment_id")
+  compensatoryRequestId  String?  @map("compensatory_request_id")
+  earnedLeaveSchedule    Json     @default("[]") @map("earned_leave_schedule")
+  fromDate               DateTime? @map("from_date") @db.Date
+  toDate                 DateTime? @map("to_date") @db.Date
+  expired                Boolean  @default(false)
+  docStatus              Int      @default(1) @map("doc_status")
+  status                 String   @default("Open")
+  reason                 String   @default("")
+  leavePeriod        HrLeavePeriod?            @relation(fields: [leavePeriodId], references: [id], onDelete: SetNull)
+  policyAssignment   HrLeavePolicyAssignment?  @relation(fields: [policyAssignmentId], references: [id], onDelete: SetNull)
+  encashments        HrLeaveEncashment[]
+  leaveApplications  HrLeave[]
 
   company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   employee  HrEmployee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
@@ -1361,6 +1662,20 @@ model HrShiftSwap {
 }
 
 model HrAttendanceCorrection {
+  fromDate    DateTime? @map("from_date") @db.Date
+  toDate      DateTime? @map("to_date") @db.Date
+  action      String    @default("Make Attendance")
+  approverId  String?   @map("approver_id")
+  approverName String   @default("") @map("approver_name")
+  justifyAttendanceForLeaveDays Boolean @default(false) @map("justify_attendance_for_leave_days")
+  includeHolidays Boolean @default(false) @map("include_holidays")
+  explainHalfDayStatus Boolean @default(false) @map("explain_half_day_status")
+  halfDay     Boolean   @default(false) @map("half_day")
+  halfDayDate DateTime? @map("half_day_date") @db.Date
+  explanation String    @default("")
+  shiftId     String?  @map("shift_id")
+  attendanceStatus String @default("Present") @map("attendance_status")
+  docStatus   Int       @default(0) @map("doc_status")
   id          String   @id @default(uuid())
   companyId   String   @map("company_id")
   employeeId  String   @map("employee_id")
@@ -1381,6 +1696,14 @@ model HrAttendanceCorrection {
 }
 
 model HrLoan {
+  advanceAccountId  String?   @map("advance_account_id")
+  expenseAccount    String    @default("") @map("expense_account")
+  paidAmount        Float     @default(0) @map("paid_amount")
+  claimedAmount     Float     @default(0) @map("claimed_amount")
+  returnedAmount    Float     @default(0) @map("returned_amount")
+  repaymentMethod   String    @default("Salary Deduction") @map("repayment_method")
+  offsetAgainstSalary Boolean @default(true) @map("offset_against_salary")
+  docStatus         Int       @default(0) @map("doc_status")
   id              String    @id @default(uuid())
   companyId       String    @map("company_id")
   employeeId      String    @map("employee_id")
@@ -1406,6 +1729,13 @@ model HrLoan {
 }
 
 model HrBonus {
+  salaryComponentId String?   @map("salary_component_id")
+  payrollItemId     String?   @map("payroll_item_id")
+  fromDate          DateTime? @map("from_date") @db.Date
+  toDate            DateTime? @map("to_date") @db.Date
+  additionalType    String    @default("Salary") @map("additional_type")
+  docStatus         Int       @default(0) @map("doc_status")
+  notes             String    @default("")
   id         String   @id @default(uuid())
   companyId  String   @map("company_id")
   employeeId String   @map("employee_id")
@@ -1510,6 +1840,12 @@ model HrAuditLog {
 }
 
 model HrGoal {
+  kraId            String?   @map("kra_id")
+  appraisalCycleId String?   @map("appraisal_cycle_id")
+  parentGoalId     String?   @map("parent_goal_id")
+  startDate        DateTime? @map("start_date") @db.Date
+  endDate          DateTime? @map("end_date") @db.Date
+  description      String    @default("")
   id         String   @id @default(uuid())
   companyId  String   @map("company_id")
   employeeId String   @map("employee_id")
@@ -1519,6 +1855,8 @@ model HrGoal {
   target     String   @default("")
   progress   Float    @default(0)
   cycle      String   @default("")
+  department  String  @default("")
+  designation String  @default("")
   status     String   @default("Open")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
@@ -1531,6 +1869,12 @@ model HrGoal {
 }
 
 model HrFeedback {
+  appraisalId        String?  @map("appraisal_id")
+  appraisalCycleId   String?  @map("appraisal_cycle_id")
+  reviewerEmployeeId String?  @map("reviewer_employee_id")
+  ratings            Json     @default("[]")
+  docStatus          Int      @default(0) @map("doc_status")
+  appraisal          HrPerformanceReview? @relation(fields: [appraisalId], references: [id], onDelete: SetNull)
   id           String   @id @default(uuid())
   companyId    String   @map("company_id")
   employeeId   String   @map("employee_id")
@@ -1539,7 +1883,9 @@ model HrFeedback {
   score        Float    @default(0)
   comments     String   @default("")
   cycle        String   @default("")
+  status       String   @default("Draft")
   createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   company  Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   employee HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
@@ -5822,11 +6168,46 @@ model ManufacturingBOM {
   productName        String    @map("product_name")
   version            String    @default("1.0")
   status             String    @default("Draft") // Draft | Active | Obsolete
+  quantity           Float     @default(1)
+  uom                String?   @default("Nos")
   effectiveFrom      DateTime  @map("effective_from")
   effectiveTo        DateTime? @map("effective_to")
   description        String?
   notes              String?
   totalEstimatedCost Float     @default(0) @map("total_estimated_cost")
+
+  // ERPNext Production Item / BOM Configuration / More Info
+  withOperations              Boolean @default(false) @map("with_operations")
+  trackSemiFinishedGoods      Boolean @default(false) @map("track_semi_finished_goods")
+  transferMaterialAgainst     String? @map("transfer_material_against")
+  routingId                   String? @map("routing_id")
+  operations                  Json    @default("[]")
+  processLossPercentage       Float   @default(0) @map("process_loss_percentage")
+  processLossQty              Float   @default(0) @map("process_loss_qty")
+  setQtyBasedOnPercentage     Boolean @default(false) @map("set_qty_based_on_percentage")
+  isDefault                   Boolean @default(false) @map("is_default")
+  setRateOfSubAssemblyItemBasedOnBom Boolean @default(true) @map("set_rate_of_sub_assembly_item_based_on_bom")
+  allowAlternativeItem        Boolean @default(false) @map("allow_alternative_item")
+  isPhantomBom                Boolean @default(false) @map("is_phantom_bom")
+  inspectionRequired          Boolean @default(false) @map("inspection_required")
+  qualityInspectionTemplate   String? @map("quality_inspection_template")
+  defaultSourceWarehouse      String? @map("default_source_warehouse")
+  defaultTargetWarehouse      String? @map("default_target_warehouse")
+  backflushBasedOn            String? @default("BOM") @map("backflush_based_on")
+  operatingCost               Float   @default(0) @map("operating_cost")
+  rawMaterialCost             Float   @default(0) @map("raw_material_cost")
+  fgBasedOperatingCost        Boolean @default(false) @map("fg_based_operating_cost")
+  operatingCostPerBomQuantity Float   @default(0) @map("operating_cost_per_bom_quantity")
+  rmCostAsPer                 String? @default("Valuation Rate") @map("rm_cost_as_per")
+  buyingPriceList             String? @map("buying_price_list")
+  currency                    String?
+  conversionRate              Float   @default(1) @map("conversion_rate")
+  project                     String?
+  explodedItems               Json    @default("[]") @map("exploded_items")
+  secondaryItems              Json    @default("[]") @map("secondary_items")
+  secondaryItemsCost          Float   @default(0) @map("secondary_items_cost")
+  costAllocation              Float   @default(0) @map("cost_allocation")
+  costAllocationPer           Float   @default(0) @map("cost_allocation_per")
 
   createdBy  String  @map("created_by")
   updatedBy  String? @map("updated_by")
@@ -5838,6 +6219,7 @@ model ManufacturingBOM {
 
   // Relations
   product          Product                        @relation("ManufacturingBOMProduct", fields: [productId], references: [id])
+  routing          ManufacturingRouting?          @relation("ManufacturingBOMRouting", fields: [routingId], references: [id])
   creator          User?                          @relation("ManufacturingBOMCreator", fields: [createdBy], references: [id])
   updater          User?                          @relation("ManufacturingBOMUpdater", fields: [updatedBy], references: [id])
   company          Company                        @relation("ManufacturingBOMCompany", fields: [companyId], references: [id])
@@ -5864,7 +6246,12 @@ model ManufacturingBOMComponent {
   substituteMaterial String? @map("substitute_material")
   operationSequence  Int?    @map("operation_sequence")
   workCenterId       String? @map("work_center_id")
+  rate               Float   @default(0)
   estimatedCost      Float   @default(0) @map("estimated_cost")
+  bomNo              String? @map("bom_no")
+  sourceWarehouse    String? @map("source_warehouse")
+  doNotExplode       Boolean @default(false) @map("do_not_explode")
+  percentage         Float   @default(0)
   notes              String?
   sequence           Int     @default(0)
 
@@ -5908,6 +6295,7 @@ model ManufacturingRouting {
   company          Company                         @relation("ManufacturingRoutingCompany", fields: [companyId], references: [id])
   operations       ManufacturingRoutingOperation[]
   productionOrders ManufacturingProductionOrder[]
+  boms             ManufacturingBOM[]              @relation("ManufacturingBOMRouting")
 
   @@index([routingNumber])
   @@index([productId])
@@ -5948,20 +6336,21 @@ model ManufacturingRoutingOperation {
 // ============================================================
 
 model ManufacturingWorkCenter {
-  id             String  @id @default(uuid())
-  workCenterCode String  @unique @map("work_center_code")
-  name           String
-  department     String?
-  locationId     String? @map("location_id")
-  factory        String?
-  capacity       Float   @default(0) // per hour
-  workingHours   Json?   @map("working_hours") // {"start": "08:00", "end": "17:00"}
-  shift          String?
-  efficiency     Float   @default(100) @map("efficiency") // percentage
-  costPerHour    Float   @default(0) @map("cost_per_hour")
-  status         String  @default("Active") // Active | Inactive | Maintenance
-  description    String?
-  notes          String?
+  id                String  @id @default(uuid())
+  workCenterCode    String  @unique @map("work_center_code")
+  name              String
+  department        String?
+  locationId        String? @map("location_id")
+  factory           String?
+  workstationTypeId String? @map("workstation_type_id")
+  capacity          Float   @default(0) // per hour
+  workingHours      Json?   @map("working_hours") // {"start": "08:00", "end": "17:00"}
+  shift             String?
+  efficiency        Float   @default(100) @map("efficiency") // percentage
+  costPerHour       Float   @default(0) @map("cost_per_hour")
+  status            String  @default("Active") // Active | Inactive | Maintenance | Off
+  description       String?
+  notes             String?
 
   createdBy String  @map("created_by")
   updatedBy String? @map("updated_by")
@@ -5972,6 +6361,7 @@ model ManufacturingWorkCenter {
 
   // Relations
   location          Location?                       @relation("ManufacturingWorkCenterLocation", fields: [locationId], references: [id])
+  workstationType   ManufacturingWorkstationType?   @relation("ManufacturingWorkCenterWorkstationType", fields: [workstationTypeId], references: [id])
   creator           User?                           @relation("ManufacturingWorkCenterCreator", fields: [createdBy], references: [id])
   updater           User?                           @relation("ManufacturingWorkCenterUpdater", fields: [updatedBy], references: [id])
   company           Company                         @relation("ManufacturingWorkCenterCompany", fields: [companyId], references: [id])
@@ -5982,9 +6372,12 @@ model ManufacturingWorkCenter {
   wips              ManufacturingWIP[]              @relation("ManufacturingWIPWorkCenter")
   scraps            ManufacturingScrap[]            @relation("ManufacturingScrapWorkCenter")
   reworks           ManufacturingRework[]           @relation("ManufacturingReworkWorkCenter")
+  operations        ManufacturingOperation[]        @relation("ManufacturingOperationWorkstation")
+  downtimeEntries   ManufacturingDowntimeEntry[]    @relation("ManufacturingDowntimeEntryWorkstation")
 
   @@index([workCenterCode])
   @@index([locationId])
+  @@index([workstationTypeId])
   @@index([status])
   @@index([companyId])
   @@map("manufacturing_work_centers")
@@ -6115,21 +6508,61 @@ model ManufacturingProductionOrder {
 model ManufacturingWorkOrder {
   id                String    @id @default(uuid())
   workOrderNumber   String    @unique @map("work_order_number")
+  namingSeries      String    @default("PO-JOB.#####") @map("naming_series")
   productionOrderId String    @map("production_order_id")
   operationName     String    @map("operation_name")
-  sequence          Int
-  workCenterId      String    @map("work_center_id")
+  sequence          Int       @default(0)
+  workCenterId      String?   @map("work_center_id")
   machineId         String?   @map("machine_id")
   employeeId        String?   @map("employee_id")
-  plannedQuantity   Float     @map("planned_quantity")
+  plannedQuantity   Float     @default(0) @map("planned_quantity")
   completedQuantity Float     @default(0) @map("completed_quantity")
   rejectedQuantity  Float     @default(0) @map("rejected_quantity")
   scrapQuantity     Float     @default(0) @map("scrap_quantity")
   startTime         DateTime? @map("start_time")
   endTime           DateTime? @map("end_time")
-  downtime          Float     @default(0) // in minutes
-  status            String    @default("Pending") // Pending | InProgress | Completed | Paused | Cancelled
+  downtime          Float     @default(0) // legacy; prefer totalTimeInMins
+  status            String    @default("Open")
   notes             String?
+
+  // ERPNext Job Card fields
+  postingDate                 DateTime? @map("posting_date")
+  stockUom                    String?   @map("stock_uom")
+  productionItem              String?   @map("production_item")
+  bomNo                       String?   @map("bom_no")
+  finishedGood                String?   @map("finished_good")
+  semiFgBom                   String?   @map("semi_fg_bom")
+  workstationType             String?   @map("workstation_type")
+  sourceWarehouse             String?   @map("source_warehouse")
+  skipMaterialTransfer        Boolean   @default(false) @map("skip_material_transfer")
+  backflushFromWipWarehouse   Boolean   @default(false) @map("backflush_from_wip_warehouse")
+  trackSemiFinishedGoods      Boolean   @default(false) @map("track_semi_finished_goods")
+  wipWarehouse                String?   @map("wip_warehouse")
+  targetWarehouse             String?   @map("target_warehouse")
+  pendingQty                  Float     @default(0) @map("pending_qty")
+  manufacturedQty             Float     @default(0) @map("manufactured_qty")
+  transferredQty              Float     @default(0) @map("transferred_qty")
+  items                       Json      @default("[]")
+  qualityInspectionTemplate   String?   @map("quality_inspection_template")
+  qualityInspection           String?   @map("quality_inspection")
+  expectedStartDate           DateTime? @map("expected_start_date")
+  timeRequired                Float     @default(0) @map("time_required")
+  expectedEndDate             DateTime? @map("expected_end_date")
+  scheduledTimeLogs           Json      @default("[]") @map("scheduled_time_logs")
+  totalTimeInMins             Float     @default(0) @map("total_time_in_mins")
+  timeLogs                    Json      @default("[]") @map("time_logs")
+  subOperations               Json      @default("[]") @map("sub_operations")
+  secondaryItems              Json      @default("[]") @map("secondary_items")
+  forJobCard                  String?   @map("for_job_card")
+  isCorrectiveJobCard         Boolean   @default(false) @map("is_corrective_job_card")
+  hourRate                    Float     @default(0) @map("hour_rate")
+  forOperation                String?   @map("for_operation")
+  itemName                    String?   @map("item_name")
+  requestedQty                Float     @default(0) @map("requested_qty")
+  isPaused                    Boolean   @default(false) @map("is_paused")
+  isSubcontracted             Boolean   @default(false) @map("is_subcontracted")
+  project                     String?
+  operationRowId              Int?      @map("operation_row_id")
 
   createdBy String  @map("created_by")
   updatedBy String? @map("updated_by")
@@ -6140,7 +6573,7 @@ model ManufacturingWorkOrder {
 
   // Relations
   productionOrder      ManufacturingProductionOrder       @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
-  workCenter           ManufacturingWorkCenter            @relation("ManufacturingWorkOrderWorkCenter", fields: [workCenterId], references: [id])
+  workCenter           ManufacturingWorkCenter?           @relation("ManufacturingWorkOrderWorkCenter", fields: [workCenterId], references: [id])
   machine              ManufacturingMachine?              @relation("ManufacturingWorkOrderMachine", fields: [machineId], references: [id])
   employee             HrEmployee?                        @relation("ManufacturingWorkOrderEmployee", fields: [employeeId], references: [id])
   creator              User?                              @relation("ManufacturingWorkOrderCreator", fields: [createdBy], references: [id])
@@ -6899,6 +7332,279 @@ model ManufacturingCostVariance {
   @@index([productionOrderId])
   @@index([varianceType])
   @@map("manufacturing_cost_variances")
+}
+
+// ============================================================
+// ERPNext Manufacturing masters (Operation, Workstation Type, …)
+// ============================================================
+
+model ManufacturingOperation {
+  id                  String  @id @default(uuid())
+  name                String
+  workstationId       String? @map("workstation_id")
+  description         String?
+  batchSize           Float   @default(1) @map("batch_size")
+  totalOperationTime  Float   @default(0) @map("total_operation_time")
+  disabled            Boolean @default(false)
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workstation ManufacturingWorkCenter? @relation("ManufacturingOperationWorkstation", fields: [workstationId], references: [id])
+  company     Company                  @relation("ManufacturingOperationCompany", fields: [companyId], references: [id])
+
+  @@unique([companyId, name])
+  @@index([workstationId])
+  @@index([companyId])
+  @@map("manufacturing_operations")
+}
+
+model ManufacturingWorkstationType {
+  id                   String  @id @default(uuid())
+  name                 String
+  hourRate             Float   @default(0) @map("hour_rate")
+  hourRateElectricity  Float   @default(0) @map("hour_rate_electricity")
+  hourRateConsumable   Float   @default(0) @map("hour_rate_consumable")
+  hourRateRent         Float   @default(0) @map("hour_rate_rent")
+  hourRateLabour       Float   @default(0) @map("hour_rate_labour")
+  description          String?
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company                   @relation("ManufacturingWorkstationTypeCompany", fields: [companyId], references: [id])
+  workstations ManufacturingWorkCenter[] @relation("ManufacturingWorkCenterWorkstationType")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("manufacturing_workstation_types")
+}
+
+model ManufacturingProductionPlan {
+  id             String    @id @default(uuid())
+  name           String    @unique
+  namingSeries   String    @default("MFG-PP-.YYYY.-") @map("naming_series")
+  getItemsFrom   String?   @map("get_items_from")
+  postingDate    DateTime  @map("posting_date")
+  status         String    @default("Draft")
+  reserveStock   Boolean   @default(false) @map("reserve_stock")
+  fromDate       DateTime? @map("from_date")
+  toDate         DateTime? @map("to_date")
+  fromDeliveryDate DateTime? @map("from_delivery_date")
+  toDeliveryDate   DateTime? @map("to_delivery_date")
+  itemCode       String?   @map("item_code")
+  customer       String?
+  warehouse      String?
+  project        String?
+  salesOrderStatus String? @map("sales_order_status")
+  combineItems   Boolean   @default(false) @map("combine_items")
+  salesOrders    Json      @default("[]") @map("sales_orders")
+  materialRequests Json    @default("[]") @map("material_requests")
+  poItems        Json      @default("[]") @map("po_items")
+  subAssemblyWarehouse String? @map("sub_assembly_warehouse")
+  skipAvailableSubAssemblyItem Boolean @default(true) @map("skip_available_sub_assembly_item")
+  combineSubItems Boolean  @default(false) @map("combine_sub_items")
+  noOfShifts     Float     @default(0) @map("no_of_shifts")
+  subAssemblyItems Json    @default("[]") @map("sub_assembly_items")
+  includeNonStockItems Boolean @default(true) @map("include_non_stock_items")
+  includeSubcontractedItems Boolean @default(true) @map("include_subcontracted_items")
+  considerMinimumOrderQty Boolean @default(false) @map("consider_minimum_order_qty")
+  includeSafetyStock Boolean @default(false) @map("include_safety_stock")
+  ignoreExistingOrderedQty Boolean @default(true) @map("ignore_existing_ordered_qty")
+  rawMaterialGroupWarehouse String? @map("raw_material_group_warehouse")
+  forWarehouse   String?   @map("for_warehouse")
+  mrItems        Json      @default("[]") @map("mr_items")
+  totalPlannedQty Float    @default(0) @map("total_planned_qty")
+  totalProducedQty Float   @default(0) @map("total_produced_qty")
+  notes          String?
+  items          Json      @default("[]") // legacy alias; prefer poItems
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ManufacturingProductionPlanCompany", fields: [companyId], references: [id])
+
+  @@index([status])
+  @@index([companyId])
+  @@map("manufacturing_production_plans")
+}
+
+model ManufacturingDowntimeEntry {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  workstationId String   @map("workstation_id")
+  operatorId    String?  @map("operator_id")
+  fromTime      DateTime @map("from_time")
+  toTime        DateTime @map("to_time")
+  stopReason    String?  @map("stop_reason")
+  remarks       String?
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workstation ManufacturingWorkCenter @relation("ManufacturingDowntimeEntryWorkstation", fields: [workstationId], references: [id])
+  company     Company                 @relation("ManufacturingDowntimeEntryCompany", fields: [companyId], references: [id])
+
+  @@index([workstationId])
+  @@index([companyId])
+  @@map("manufacturing_downtime_entries")
+}
+
+model ManufacturingPlantFloor {
+  id        String  @id @default(uuid())
+  name      String
+  warehouse String?
+  disabled  Boolean @default(false)
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ManufacturingPlantFloorCompany", fields: [companyId], references: [id])
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("manufacturing_plant_floors")
+}
+
+model ManufacturingStockEntry {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  purpose         String   @default("Material Transfer for Manufacture")
+  workOrderId     String?  @map("work_order_id")
+  bomId           String?  @map("bom_id")
+  fromWarehouse   String?  @map("from_warehouse")
+  toWarehouse     String?  @map("to_warehouse")
+  postingDate     DateTime @map("posting_date")
+  fgCompletedQty  Float    @default(0) @map("fg_completed_qty")
+  status          String   @default("Draft")
+  items           Json     @default("[]")
+  remarks         String?
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ManufacturingStockEntryCompany", fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@map("manufacturing_stock_entries")
+}
+
+model ManufacturingItemLeadTime {
+  id              String @id @default(uuid())
+  name            String @unique
+  itemId          String @map("item_id")
+  itemName        String @default("") @map("item_name")
+  leadTimeDays    Float  @default(0) @map("lead_time_days")
+  safetyStockDays Float  @default(0) @map("safety_stock_days")
+  notes           String?
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ManufacturingItemLeadTimeCompany", fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([itemId])
+  @@map("manufacturing_item_lead_times")
+}
+
+model ManufacturingSalesForecast {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  fromDate  DateTime? @map("from_date")
+  toDate    DateTime? @map("to_date")
+  status    String    @default("Draft")
+  items     Json      @default("[]")
+  notes     String?
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ManufacturingSalesForecastCompany", fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("manufacturing_sales_forecasts")
+}
+
+model ManufacturingBomCreator {
+  id           String  @id @default(uuid())
+  name         String  @unique
+  designName  String? @map("design_name")
+  itemId       String? @map("item_id")
+  itemName     String  @default("") @map("item_name")
+  qty          Float   @default(1)
+  status       String  @default("Draft")
+  routingId    String? @map("routing_id")
+  items        Json    @default("[]")
+  operations   Json    @default("[]")
+  remarks      String?
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ManufacturingBomCreatorCompany", fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("manufacturing_bom_creators")
+}
+
+model ManufacturingBomUpdateTool {
+  id            String  @id @default(uuid())
+  name          String  @unique
+  currentBomId  String? @map("current_bom_id")
+  newBomId      String? @map("new_bom_id")
+  replaceBom    Boolean @default(false) @map("replace_bom")
+  status        String  @default("Draft")
+  notes         String?
+
+  createdBy String? @map("created_by")
+  updatedBy String? @map("updated_by")
+  companyId String  @map("company_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation("ManufacturingBomUpdateToolCompany", fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("manufacturing_bom_update_tools")
 }
 
 model ManufacturingSetting {
@@ -9141,4 +9847,1745 @@ model ExportIdempotency {
   @@unique([companyId, key])
   @@index([companyId, createdAt])
   @@map("export_idempotencies")
+}
+
+// ============================================================
+// HRMS DOCUMENTS (ERPNext-aligned: payroll, leaves, shift/attendance,
+// tenure, recruitment, performance). Managed through the generic HR
+// document layer in services/hrDocumentService.js — companyId is always
+// enforced there, and these tables intentionally carry no Company
+// back-relation so the existing company models stay untouched.
+// ============================================================
+
+model HrSalaryComponent {
+  id                    String   @id @default(uuid())
+  companyId             String   @map("company_id")
+  name                  String
+  abbr                  String   @default("") @map("abbr")
+  type                  String   @default("Earning")
+  componentCategory     String   @default("") @map("component_category")
+  description           String   @default("")
+  dependsOnPaymentDays  Boolean  @default(true) @map("depends_on_payment_days")
+  isTaxableComponent    Boolean  @default(true) @map("is_taxable_component")
+  isFinancialComponent  Boolean  @default(true) @map("is_financial_component")
+  statisticalComponent  Boolean  @default(false) @map("statistical_component")
+  roundToNearestIntegral Boolean @default(false) @map("round_to_nearest_integral")
+  deductFullTaxOnSelectedPayrollDate Boolean @default(false) @map("deduct_full_tax_on_selected_payroll_date")
+  variableBasedOnTaxableSalary Boolean @default(false) @map("variable_based_on_taxable_salary")
+  isIncomeTaxComponent  Boolean  @default(false) @map("is_income_tax_component")
+  exemptedFromIncomeTax Boolean  @default(false) @map("exempted_from_income_tax")
+  accrualComponent      Boolean  @default(false) @map("accrual_component")
+  doNotIncludeInTotal   Boolean  @default(false) @map("do_not_include_in_total")
+  doNotIncludeInAccounts Boolean @default(false) @map("do_not_include_in_accounts")
+  removeIfZeroValued    Boolean  @default(true) @map("remove_if_zero_valued")
+  arrearComponent       Boolean  @default(false) @map("arrear_component")
+  accounts              Json     @default("[]")
+  condition             String   @default("") @db.Text
+  amount                Float    @default(0)
+  amountBasedOnFormula  Boolean  @default(false) @map("amount_based_on_formula")
+  formula               String   @default("") @db.Text
+  isFlexibleBenefit     Boolean  @default(false) @map("is_flexible_benefit")
+  payoutMethod          String   @default("") @map("payout_method")
+  finalCycleAccrualPayout Boolean @default(false) @map("final_cycle_accrual_payout")
+  maxBenefitAmount      Float    @default(0) @map("max_benefit_amount")
+  expenseAccount        String   @default("") @map("expense_account")
+  payableAccount        String   @default("") @map("payable_account")
+  disabled              Boolean  @default(false)
+  sortOrder             Int      @default(0) @map("sort_order")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_salary_components")
+}
+
+model HrSalaryStructure {
+  salarySlips       HrPayrollItem[] @relation("HrStructureSalarySlips")
+  id                   String   @id @default(uuid())
+  companyId            String   @map("company_id")
+  name                 String
+  currency             String   @default("")
+  payrollFrequencyType String   @default("Monthly") @map("payroll_frequency_type")
+  modeOfPayment        String   @default("") @map("mode_of_payment")
+  paymentAccount       String   @default("") @map("payment_account")
+  leaveEncashmentComponentId String? @map("leave_encashment_component_id")
+  maxBenefits          Float    @default(0) @map("max_benefits")
+  earnings             Json     @default("[]")
+  deductions           Json     @default("[]")
+  employerContributions Json    @default("[]") @map("employer_contributions")
+  notes                String   @default("")
+  assignments          HrSalaryStructureAssignment[]
+  jobOffers            HrJobOffer[]
+  promotions           HrEmployeePromotion[]
+  docStatus            Int      @default(0) @map("doc_status")
+  status               String   @default("Draft")
+  disabled             Boolean  @default(false)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_salary_structures")
+}
+
+model HrSalaryStructureAssignment {
+  salarySlips  HrPayrollItem[] @relation("HrAssignmentSalarySlips")
+  id                  String   @id @default(uuid())
+  companyId           String   @map("company_id")
+  employeeId          String   @map("employee_id")
+  salaryStructureId   String?  @map("salary_structure_id")
+  incomeTaxSlabId     String?  @map("income_tax_slab_id")
+  base                Float    @default(0)
+  variable            Json     @default("{}")
+  currency            String   @default("")
+  payableAccount      String   @default("") @map("payable_account")
+  costCenter          String   @default("") @map("cost_center")
+  fromDate            DateTime @map("from_date") @db.Date
+  employee            HrEmployee?                @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  salaryStructure     HrSalaryStructure?         @relation(fields: [salaryStructureId], references: [id], onDelete: SetNull)
+  incomeTaxSlab       HrIncomeTaxSlab?           @relation(fields: [incomeTaxSlabId], references: [id], onDelete: SetNull)
+  docStatus           Int      @default(0) @map("doc_status")
+  status              String   @default("Draft")
+  notes               String   @default("")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@index([companyId, salaryStructureId])
+  @@map("hr_salary_structure_assignments")
+}
+
+model HrIncomeTaxSlab {
+  assignments                     HrSalaryStructureAssignment[]
+  id                           String   @id @default(uuid())
+  companyId                    String   @map("company_id")
+  name                         String
+  effectiveDate                DateTime @map("effective_date") @db.Date
+  currency                     String   @default("")
+  standardTaxExemptionAmount   Float    @default(0) @map("standard_tax_exemption_amount")
+  slabs                        Json     @default("[]")
+  otherCharges                 Json     @default("[]") @map("other_charges")
+  considerGrossPayAsTaxable    Boolean  @default(true) @map("consider_gross_pay_as_taxable")
+  disabled                     Boolean  @default(false)
+  docStatus                    Int      @default(0) @map("doc_status")
+  status                       String   @default("Draft")
+  createdAt                    DateTime @default(now()) @map("created_at")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_income_tax_slabs")
+}
+
+model HrLeavePeriod {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  name        String
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime @map("end_date") @db.Date
+  leaves      HrLeave[]
+  balances    HrLeaveBalance[]
+  assignments HrLeavePolicyAssignment[]
+  encashments HrLeaveEncashment[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_leave_periods")
+}
+
+model HrLeavePolicy {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  name        String
+  description String   @default("")
+  details     Json     @default("[]")
+  assignments HrLeavePolicyAssignment[]
+  docStatus   Int      @default(0) @map("doc_status")
+  status      String   @default("Draft")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_leave_policies")
+}
+
+model HrLeavePolicyAssignment {
+  id                        String   @id @default(uuid())
+  companyId                 String   @map("company_id")
+  employeeId                String   @map("employee_id")
+  leavePolicyId             String?  @map("leave_policy_id")
+  leavePeriodId             String?  @map("leave_period_id")
+  holidayListId             String?  @map("holiday_list_id")
+  allocateOnDaysBeforeStart Int      @default(0) @map("allocate_on_days_before_start")
+  fromDate                  DateTime? @map("from_date") @db.Date
+  toDate                    DateTime? @map("to_date") @db.Date
+  newLeaves                 Int      @default(0) @map("new_leaves")
+  carryForwardLeaves        Int      @default(0) @map("carry_forward_leaves")
+  balances                  HrLeaveBalance[]
+  employee                  HrEmployee?             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leavePolicy               HrLeavePolicy?          @relation(fields: [leavePolicyId], references: [id], onDelete: SetNull)
+  leavePeriod               HrLeavePeriod?          @relation(fields: [leavePeriodId], references: [id], onDelete: SetNull)
+  docStatus                 Int      @default(0) @map("doc_status")
+  status                    String   @default("Draft")
+  notes                     String   @default("")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_leave_policy_assignments")
+}
+
+model HrLeaveEncashment {
+  id                 String   @id @default(uuid())
+  companyId          String   @map("company_id")
+  employeeId         String   @map("employee_id")
+  employeeName       String   @default("") @map("employee_name")
+  department         String   @default("")
+  leaveTypeId        String?  @map("leave_type_id")
+  leavePeriodId      String?  @map("leave_period_id")
+  leaveBalanceId     String?  @map("leave_balance_id")
+  allocatableLeave   Float    @default(0) @map("allocatable_leave")
+  actualEncashableDays Float  @default(0) @map("actual_encashable_days")
+  encashmentDays     Float    @default(0) @map("encashment_days")
+  dailyRate          Float    @default(0) @map("daily_rate")
+  payableAmount      Float    @default(0) @map("payable_amount")
+  payViaPaymentEntry Boolean  @default(false) @map("pay_via_payment_entry")
+  postingDate        DateTime? @map("posting_date") @db.Date
+  currency           String   @default("") 
+  paidAmount         Float    @default(0) @map("paid_amount")
+  costCenter         String   @default("") @map("cost_center")
+  effectiveDate      DateTime @map("effective_date") @db.Date
+  salaryComponentId  String?  @map("salary_component_id")
+  additionalSalaryId String?  @map("additional_salary_id")
+  expenseAccount     String   @default("") @map("expense_account")
+  payableAccount     String   @default("") @map("payable_account")
+  reason             String   @default("")
+  payrollItemId      String?  @map("payroll_item_id")
+  employee           HrEmployee?              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType          HrLeaveType?             @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  leavePeriod        HrLeavePeriod?           @relation(fields: [leavePeriodId], references: [id], onDelete: SetNull)
+  leaveBalance       HrLeaveBalance?          @relation(fields: [leaveBalanceId], references: [id], onDelete: SetNull)
+  docStatus          Int      @default(0) @map("doc_status")
+  status             String   @default("Draft")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_leave_encashments")
+}
+
+model HrLeaveBlockList {
+  id                 String   @id @default(uuid())
+  companyId          String   @map("company_id")
+  name               String
+  fromDate           DateTime @map("from_date") @db.Date
+  toDate             DateTime @map("to_date") @db.Date
+  blockDescription   String   @default("") @map("block_description")
+  dates              Json     @default("[]")
+  allowedEmployeeIds Json     @default("[]") @map("allowed_employee_ids")
+  applyOnLeaveTypes  Json     @default("[]") @map("apply_on_leave_types")
+  locked             Boolean  @default(false)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_leave_block_lists")
+}
+
+model HrEmployeeCheckin {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  employeeId  String   @map("employee_id")
+  logTime     DateTime @map("log_time")
+  logType     String   @default("IN") @map("log_type")
+  latitude    Float?
+  longitude   Float?
+  accuracy    Float?
+  deviceInfo  String   @default("") @map("device_info")
+  source      String   @default("mobile")
+  shiftId     String?  @map("shift_id")
+  attendanceId String? @map("attendance_id")
+  employee    HrEmployee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift       HrShift?               @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  attendance  HrAttendance?          @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([companyId, employeeId, logTime])
+  @@index([companyId, logTime])
+  @@map("hr_employee_checkins")
+}
+
+model HrShiftRequest {
+  id           String    @id @default(uuid())
+  companyId    String    @map("company_id")
+  employeeId   String    @map("employee_id")
+  shiftId      String?   @map("shift_id")
+  fromDate     DateTime  @map("from_date") @db.Date
+  toDate       DateTime  @map("to_date") @db.Date
+  reason       String    @default("")
+  approverId   String?   @map("approver_id")
+  approverName String    @default("") @map("approver_name")
+  department   String    @default("")
+  assignedBy   String?   @map("assigned_by")
+  assignedAt   DateTime? @map("assigned_at")
+  employee     HrEmployee?        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift        HrShift?           @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  docStatus    Int       @default(0) @map("doc_status")
+  status       String    @default("Draft")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@index([companyId, employeeId])
+  @@map("hr_shift_requests")
+}
+
+model HrOvertimeType {
+  id                  String  @id @default(uuid())
+  companyId           String  @map("company_id")
+  name                String
+  maxHoursPerDay      Float   @default(0) @map("max_hours_per_day")
+  includeHolidays     Boolean @default(false) @map("include_holidays")
+  includeWeekOffDays  Boolean @default(false) @map("include_week_off_days")
+  salaryComponentId   String? @map("salary_component_id")
+  overtimeCalculationMethod String @default("Salary Component Based") @map("overtime_calculation_method")
+  applicableSalaryComponents Json @default("[]") @map("applicable_salary_components")
+  hourlyRate          Float   @default(0) @map("hourly_rate")
+  standardMultiplier  Float   @default(1) @map("standard_multiplier")
+  applicableForPublicHoliday Boolean @default(false) @map("applicable_for_public_holiday")
+  publicHolidayMultiplier Float @default(0) @map("public_holiday_multiplier")
+  applicableForWeekend Boolean @default(false) @map("applicable_for_weekend")
+  weekendMultiplier   Float   @default(0) @map("weekend_multiplier")
+  payRateMultipliers  Json    @default("{}") @map("pay_rate_multipliers")
+  disabled            Boolean @default(false)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_overtime_types")
+}
+
+model HrEmployeeGrade {
+  employees         HrEmployee[]
+  id                       String  @id @default(uuid())
+  companyId                String  @map("company_id")
+  name                     String
+  defaultSalaryStructureId String? @map("default_salary_structure_id")
+  currency                 String  @default("")
+  defaultBasePay           Float   @default(0) @map("default_base_pay")
+  defaultSalaryComponentId String? @map("default_salary_component_id")
+  defaultRole              String  @default("") @map("default_role")
+  disabled                 Boolean @default(false)
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_employee_grades")
+}
+
+model HrEmployeeGroup {
+  employees HrEmployee[]
+  id        String  @id @default(uuid())
+  companyId String  @map("company_id")
+  name      String
+  disabled  Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_employee_groups")
+}
+
+model HrEmploymentType {
+  employees               HrEmployee[]
+  id                    String  @id @default(uuid())
+  companyId             String  @map("company_id")
+  name                  String
+  enabledForLeavePolicy Boolean @default(true) @map("enabled_for_leave_policy")
+  includeHolidaysInTotalDays Boolean @default(false) @map("include_holidays_in_total_days")
+  leaveDaysPerYear      Float   @default(0) @map("leave_days_per_year")
+  disabled              Boolean @default(false)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_employment_types")
+}
+
+model HrJobOpening {
+  applicants        HrJobApplicant[]
+  id               String    @id @default(uuid())
+  companyId        String    @map("company_id")
+  title            String
+  department       String    @default("")
+  departmentId     String?   @map("department_id")
+  designation      String    @default("")
+  designationId    String?   @map("designation_id")
+  location         String    @default("")
+  employmentType   String    @default("") @map("employment_type")
+  status           String    @default("Open")
+  openings         Int       @default(1)
+  applied          Int       @default(0)
+  startDate        DateTime? @map("start_date") @db.Date
+  endDate          DateTime? @map("end_date") @db.Date
+  published        Boolean   @default(false)
+  description      String    @default("")
+  instructions     String    @default("")
+  hiringManager    String    @default("") @map("hiring_manager")
+  jobRequisitionId String?   @map("job_requisition_id")
+  lowerGrade       String    @default("") @map("lower_grade")
+  upperGrade       String    @default("") @map("upper_grade")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@map("hr_job_openings")
+}
+
+model HrJobApplicant {
+  interviews        HrInterview[]
+  offers            HrJobOffer[]
+  id                 String   @id @default(uuid())
+  companyId          String   @map("company_id")
+  applicantName      String   @map("applicant_name")
+  emailId            String   @default("") @map("email_id")
+  phoneNo            String   @default("") @map("phone_no")
+  jobOpeningId       String?  @map("job_opening_id")
+  jobTitle           String   @default("") @map("job_title")
+  designation        String   @default("")
+  status             String   @default("Open")
+  source             String   @default("")
+  country            String   @default("")
+  city               String   @default("")
+  resumeUrl          String   @default("") @map("resume_url")
+  note               String   @default("")
+  rating             Float    @default(0)
+  employeeReferralId String?  @map("employee_referral_id")
+  referredBy         String   @default("") @map("referred_by")
+  jobOpening         HrJobOpening?      @relation(fields: [jobOpeningId], references: [id], onDelete: SetNull)
+  appointmentLetters HrAppointmentLetter[]
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@index([companyId, jobOpeningId])
+  @@map("hr_job_applicants")
+}
+
+model HrInterview {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  jobApplicantId     String    @map("job_applicant_id")
+  jobOpeningId       String?   @map("job_opening_id")
+  designation        String    @default("")
+  scheduledOn        DateTime  @map("scheduled_on") @db.Date
+  fromTime           DateTime? @map("from_time")
+  toTime             DateTime? @map("to_time")
+  interviewType      String    @default("") @map("interview_type")
+  status             String    @default("Pending")
+  result             String    @default("")
+  averageRating      Float     @default(0) @map("average_rating")
+  interviewers       Json      @default("[]")
+  feedback           Json      @default("[]")
+  summary            String    @default("")
+  createdRound       Int       @default(0) @map("created_round")
+  jobApplicant       HrJobApplicant?      @relation(fields: [jobApplicantId], references: [id], onDelete: Cascade)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@index([companyId, jobApplicantId])
+  @@map("hr_interviews")
+}
+
+model HrJobOffer {
+  onboardings       HrEmployeeOnboarding[]
+  id                  String    @id @default(uuid())
+  companyId           String    @map("company_id")
+  jobApplicantId      String    @map("job_applicant_id")
+  offerDate           DateTime? @map("offer_date") @db.Date
+  expectedJoiningDate DateTime? @map("expected_joining_date") @db.Date
+  designation         String    @default("")
+  department          String    @default("")
+  grade               String    @default("")
+  employmentType      String    @default("") @map("employment_type")
+  branch              String    @default("")
+  reportsTo           String    @default("") @map("reports_to")
+  salaryStructureId   String?   @map("salary_structure_id")
+  ctc                 Float     @default(0)
+  components          Json      @default("[]")
+  terms               Json      @default("[]")
+  offerTerms          String    @default("") @map("offer_terms")
+  status              String    @default("Draft")
+  employeeId          String?   @map("employee_id")
+  onboardingId        String?   @map("onboarding_id")
+  jobApplicant        HrJobApplicant?          @relation(fields: [jobApplicantId], references: [id], onDelete: Cascade)
+  salaryStructure     HrSalaryStructure?       @relation(fields: [salaryStructureId], references: [id], onDelete: SetNull)
+  docStatus           Int       @default(0) @map("doc_status")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@map("hr_job_offers")
+}
+
+model HrJobRequisition {
+  id              String    @id @default(uuid())
+  companyId       String    @map("company_id")
+  subject         String
+  department      String    @default("")
+  designation     String    @default("")
+  employmentType  String    @default("") @map("employment_type")
+  noOfPositions   Int       @default(1) @map("no_of_positions")
+  expectedBy      DateTime? @map("expected_by") @db.Date
+  closingOn       DateTime? @map("closing_on") @db.Date
+  status          String    @default("Pending")
+  requestedBy     String    @default("") @map("requested_by")
+  requestedById   String?   @map("requested_by_id")
+  description     String    @default("")
+  jobDescription  String    @default("") @map("job_description")
+  reason          String    @default("")
+  staffingPlan    String    @default("") @map("staffing_plan")
+  approvedBy      String    @default("") @map("approved_by")
+  approvedOn      DateTime? @map("approved_on") @db.Date
+  jobOpeningId    String?   @map("job_opening_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@map("hr_job_requisitions")
+}
+
+model HrEmployeeOnboarding {
+  id              String    @id @default(uuid())
+  companyId       String    @map("company_id")
+  firstName       String    @map("first_name")
+  lastName        String    @default("") @map("last_name")
+  email           String    @default("")
+  designation     String    @default("")
+  department      String    @default("")
+  grade           String    @default("")
+  employmentType  String    @default("") @map("employment_type")
+  dateOfJoining   DateTime? @map("date_of_joining") @db.Date
+  offerDate       DateTime? @map("offer_date") @db.Date
+  jobOfferId      String?   @map("job_offer_id")
+  employeeId      String?   @map("employee_id")
+  activities      Json      @default("[]")
+  boardingStatus  String    @default("Pending") @map("boarding_status")
+  status          String    @default("Draft")
+  docStatus       Int       @default(0) @map("doc_status")
+  jobOffer        HrJobOffer?            @relation(fields: [jobOfferId], references: [id], onDelete: SetNull)
+  employee        HrEmployee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@map("hr_employee_onboardings")
+}
+
+model HrEmployeeSeparation {
+  id              String    @id @default(uuid())
+  companyId       String    @map("company_id")
+  employeeId      String    @map("employee_id")
+  separationDate  DateTime? @map("separation_date") @db.Date
+  department      String    @default("")
+  designation     String    @default("")
+  reason          String    @default("")
+  activities      Json      @default("[]")
+  boardingStatus  String    @default("Pending") @map("boarding_status")
+  status          String    @default("Draft")
+  docStatus       Int       @default(0) @map("doc_status")
+  employee        HrEmployee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@map("hr_employee_separations")
+}
+
+model HrGrievanceType {
+  id          String  @id @default(uuid())
+  companyId   String  @map("company_id")
+  name        String
+  documentType String @default("") @map("document_type")
+  disabled    Boolean @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_grievance_types")
+}
+
+model HrEmployeeGrievance {
+  id                  String    @id @default(uuid())
+  companyId           String    @map("company_id")
+  subject             String
+  grievanceType       String    @default("") @map("grievance_type")
+  raisedByEmployeeId  String?   @map("raised_by_employee_id")
+  employeeAgainstId   String?   @map("employee_against_id")
+  reportedTo          String    @default("") @map("reported_to")
+  fillingDate         DateTime  @map("filling_date") @db.Date
+  date                DateTime? @db.Date
+  description         String    @default("")
+  status              String    @default("Open")
+  resolvedBy          String    @default("") @map("resolved_by")
+  resolutionDate      DateTime? @map("resolution_date") @db.Date
+  resolutionDetails   String    @default("") @map("resolution_details")
+  docStatus           Int       @default(0) @map("doc_status")
+  raisedBy            HrEmployee?             @relation("HrGrievanceRaisedBy", fields: [raisedByEmployeeId], references: [id], onDelete: SetNull)
+  employeeAgainst     HrEmployee?             @relation("HrGrievanceAgainst", fields: [employeeAgainstId], references: [id], onDelete: SetNull)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@map("hr_employee_grievances")
+}
+
+model HrKra {
+  id        String  @id @default(uuid())
+  companyId String  @map("company_id")
+  name      String
+  type      String  @default("Goal")
+  unit      String  @default("")
+  isActive  Boolean @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_kras")
+}
+
+model HrAppraisalTemplate {
+  id              String  @id @default(uuid())
+  companyId       String  @map("company_id")
+  name            String
+  description     String  @default("")
+  appraisalCriteria String @default("KRA-based") @map("appraisal_criteria")
+  goals           Json    @default("[]")
+  kras            Json    @default("[]")
+  disabled        Boolean @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_appraisal_templates")
+}
+
+model HrAppraisalCycle {
+  appraisals   HrPerformanceReview[] @relation("HrAppraisalCycleAppraisals")
+  id                       String    @id @default(uuid())
+  companyId                String    @map("company_id")
+  name                     String
+  startDate                DateTime  @map("start_date") @db.Date
+  endDate                  DateTime  @map("end_date") @db.Date
+  appraisalTemplateId      String?   @map("appraisal_template_id")
+  ratingMethod             String    @default("Out of 5") @map("rating_method")
+  department               String    @default("")
+  designation              String    @default("")
+  branch                   String    @default("")
+  kraBasedOn               String    @default("Appraisal Template") @map("kra_based_on")
+  createAppraisalsForAll   Boolean   @default(false) @map("create_appraisals_for_all")
+  includeHeldEmployees     Boolean   @default(false) @map("include_held_employees")
+  perDayGoalsAllocation    Boolean   @default(true) @map("per_day_goals_allocation")
+  feedbackReminderDays     Int       @default(0) @map("feedback_reminder_days")
+  employeeAppraisalDate    Json      @default("[]") @map("employee_appraisal_date")
+  appraisees               Json      @default("[]")
+  status                   String    @default("Not Started")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId, status])
+  @@map("hr_appraisal_cycles")
+}
+
+model HrEmployeeTransfer {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  employeeId        String   @map("employee_id")
+  transferDate      DateTime @map("transfer_date") @db.Date
+  fromDepartment    String   @default("") @map("from_department")
+  toDepartment      String   @default("") @map("to_department")
+  fromDesignation   String   @default("") @map("from_designation")
+  toDesignation     String   @default("") @map("to_designation")
+  fromBranch        String   @default("") @map("from_branch")
+  toBranch          String   @default("") @map("to_branch")
+  reason            String   @default("")
+  remark            String   @default("")
+  newEmployeeId     String   @default("") @map("new_employee_id")
+  propertyHistory   Json     @default("[]") @map("property_history")
+  employee          HrEmployee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  docStatus         Int      @default(0) @map("doc_status")
+  status            String   @default("Draft")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_employee_transfers")
+}
+
+model HrEmployeePromotion {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  employeeId        String   @map("employee_id")
+  promotionDate     DateTime @map("promotion_date") @db.Date
+  promotionFor      String   @default("") @map("promotion_for")
+  promotionBy       String   @default("") @map("promotion_by")
+  fromDepartment    String   @default("") @map("from_department")
+  toDepartment      String   @default("") @map("to_department")
+  fromDesignation   String   @default("") @map("from_designation")
+  toDesignation     String   @default("") @map("to_designation")
+  fromGrade         String   @default("") @map("from_grade")
+  toGrade           String   @default("") @map("to_grade")
+  ctc               Float    @default(0)
+  salaryStructureId String?  @map("salary_structure_id")
+  voucherNumber     String   @default("") @map("voucher_number")
+  reason            String   @default("")
+  propertyHistory   Json     @default("[]") @map("property_history")
+  employee          HrEmployee?             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  salaryStructure   HrSalaryStructure?      @relation(fields: [salaryStructureId], references: [id], onDelete: SetNull)
+  docStatus         Int      @default(0) @map("doc_status")
+  status            String   @default("Draft")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_employee_promotions")
+}
+
+model HrEmployeeSkillMap {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  employeeId String   @unique @map("employee_id")
+  skills     Json     @default("[]")
+  trainings  Json     @default("[]")
+  employee   HrEmployee?          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@map("hr_employee_skill_maps")
+}
+
+model HrTrainingProgram {
+  events          HrTrainingEvent[]
+  id          String  @id @default(uuid())
+  companyId   String  @map("company_id")
+  name        String
+  trainerName String  @default("") @map("trainer_name")
+  trainerEmail String @default("") @map("trainer_email")
+  description String  @default("")
+  disabled    Boolean @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_training_programs")
+}
+
+model HrTrainingEvent {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  eventName          String    @map("event_name")
+  trainingProgramId  String?   @map("training_program_id")
+  startTime          DateTime? @map("start_time")
+  endTime            DateTime? @map("end_time")
+  location           String    @default("")
+  status             String    @default("Scheduled")
+  courseFee          Float     @default(0) @map("course_fee")
+  trainerName        String    @default("") @map("trainer_name")
+  description        String    @default("")
+  employees          Json      @default("[]")
+  trainingProgram    HrTrainingProgram?       @relation(fields: [trainingProgramId], references: [id], onDelete: SetNull)
+  feedbackRecords    HrTrainingFeedback[]
+  resultRecords      HrTrainingResult[]
+  docStatus          Int       @default(0) @map("doc_status")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@unique([companyId, eventName])
+  @@index([companyId, status])
+  @@map("hr_training_events")
+}
+
+model HrEmployeeBenefit {
+  id           String  @id @default(uuid())
+  companyId    String  @map("company_id")
+  name         String
+  salaryComponentId String? @map("salary_component_id")
+  maxAmount    Float   @default(0) @map("max_amount")
+  maxAmountBasedOn Float @default(0) @map("max_amount_based_on")
+  type         String  @default("cash")
+  disabled     Boolean @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_employee_benefits")
+}
+
+model HrEmployeeBenefitApplication {
+  claims          HrEmployeeBenefitClaim[]
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  employeeId      String   @map("employee_id")
+  payrollPeriodId String?  @map("payroll_period_id")
+  maxBenefits     Float    @default(0) @map("max_benefits")
+  totalAmount     Float    @default(0) @map("total_amount")
+  benefits        Json     @default("[]")
+  currency        String   @default("")
+  status          String   @default("Draft")
+  docStatus       Int      @default(0) @map("doc_status")
+  employee        HrEmployee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_employee_benefit_applications")
+}
+
+model HrEmployeeBenefitClaim {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  employeeId        String   @map("employee_id")
+  benefitApplicationId String? @map("benefit_application_id")
+  component         String   @default("")
+  salaryComponentId String?  @map("salary_component_id")
+  amount            Float    @default(0)
+  claimedOn         DateTime @map("claimed_on") @db.Date
+  isPaid            Boolean  @default(false) @map("is_paid")
+  payrollItemId     String?  @map("payroll_item_id")
+  expenseProof      String   @default("") @map("expense_proof")
+  status            String   @default("Draft")
+  docStatus         Int      @default(0) @map("doc_status")
+  employee          HrEmployee?              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  application       HrEmployeeBenefitApplication? @relation(fields: [benefitApplicationId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_employee_benefit_claims")
+}
+
+model HrTaxExemptionDeclaration {
+  proofs          HrTaxExemptionProofSubmission[]
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  employeeId      String   @map("employee_id")
+  payrollPeriodId String?  @map("payroll_period_id")
+  declarations    Json     @default("[]")
+  totalExemption  Float    @default(0) @map("total_exemption")
+  currency        String   @default("")
+  notes           String   @default("")
+  status          String   @default("Draft")
+  docStatus       Int      @default(0) @map("doc_status")
+  employee        HrEmployee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_tax_exemption_declarations")
+}
+
+model HrTaxExemptionProofSubmission {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  employeeId        String   @map("employee_id")
+  declarationId     String?  @map("declaration_id")
+  payrollPeriodId   String?  @map("payroll_period_id")
+  submissions       Json     @default("[]")
+  totalSubmitted    Float    @default(0) @map("total_submitted")
+  status            String   @default("Draft")
+  docStatus         Int      @default(0) @map("doc_status")
+  employee          HrEmployee?              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  declaration       HrTaxExemptionDeclaration? @relation(fields: [declarationId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_tax_exemption_proof_submissions")
+}
+
+model HrTaxExemptionCategory {
+  id                        String  @id @default(uuid())
+  companyId                 String  @map("company_id")
+  name                      String
+  maxExemptionAmount        Float   @default(0) @map("max_exemption_amount")
+  maxExemptionAmountBasedOn String  @default("Amount") @map("max_exemption_amount_based_on")
+  declarationSection        String  @default("Employee Tax Exemption Declaration") @map("declaration_section")
+  disabled                  Boolean @default(false)
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_tax_exemption_categories")
+}
+
+model HrExpenseClaim {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  employeeId        String   @map("employee_id")
+  expenseApproverId String?  @map("expense_approver_id")
+  claimDate         DateTime @map("claim_date") @db.Date
+  expenses          Json     @default("[]")
+  advances          Json     @default("[]")
+  totalClaimed      Float    @default(0) @map("total_claimed")
+  approvedAmount    Float    @default(0) @map("approved_amount")
+  paidAmount        Float    @default(0) @map("paid_amount")
+  sanctionedAmount  Float    @default(0) @map("sanctioned_amount")
+  totalAdvance      Float    @default(0) @map("total_advance")
+  reimbursement     Float    @default(0)
+  currency          String   @default("")
+  payableAccount    String   @default("") @map("payable_account")
+  expenseAccount    String   @default("") @map("expense_account")
+  costCenter        String   @default("") @map("cost_center")
+  project           String   @default("")
+  reasonForRejection String  @default("") @map("reason_for_rejection")
+  journalEntryId    String?  @map("journal_entry_id")
+  status            String   @default("Draft")
+  docStatus         Int      @default(0) @map("doc_status")
+  employee          HrEmployee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@index([companyId, employeeId])
+  @@map("hr_expense_claims")
+}
+
+model HrExpenseClaimType {
+  id            String  @id @default(uuid())
+  companyId     String  @map("company_id")
+  name          String
+  description   String  @default("")
+  expenseAccount String @default("") @map("expense_account")
+  requiresProof Boolean @default(true) @map("requires_proof")
+  isAdvance     Boolean @default(false) @map("is_advance")
+  disabled      Boolean @default(false)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_expense_claim_types")
+}
+
+model HrPayrollSettings {
+  id                    String  @id @default(uuid())
+  companyId             String  @unique @map("company_id")
+  deductionMaxLeaveDays Int     @default(0) @map("deduction_max_leave_days")
+  considerUnmarkedAttendance Boolean @default(true) @map("consider_unmarked_attendance")
+  includeHolidaysInLeaveBalance Boolean @default(false) @map("include_holidays_in_leave_balance")
+  emailSalarySlip       Boolean @default(true) @map("email_salary_slip")
+  roleToPayrollManager  String  @default("") @map("role_to_payroll_manager")
+  processPayrollAccount String  @default("") @map("process_payroll_account")
+  sendSummaryEmail      Boolean @default(false) @map("send_summary_email")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("hr_payroll_settings")
+}
+
+model HrInterviewType {
+  id        String  @id @default(uuid())
+  companyId String  @map("company_id")
+  name      String
+  disabled  Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_interview_types")
+}
+
+// ============================================================
+// ERPNext HR — recruitment, lifecycle and training documents
+// ============================================================
+
+model HrSkill {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  skillName   String   @map("skill_name")
+  description String   @default("")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, skillName])
+  @@index([companyId])
+  @@map("hr_skills")
+}
+
+model HrOfferTerm {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  offerTerm  String   @map("offer_term")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, offerTerm])
+  @@index([companyId])
+  @@map("hr_offer_terms")
+}
+
+model HrJobOpeningTemplate {
+  id                   String   @id @default(uuid())
+  companyId            String   @map("company_id")
+  templateTitle        String   @map("template_title")
+  departmentId         String?  @map("department_id")
+  designationId        String?  @map("designation_id")
+  employmentTypeId     String?  @map("employment_type_id")
+  locationId           String?  @map("location_id")
+  currency             String   @default("")
+  upperRange           Float    @default(0) @map("upper_range")
+  lowerRange           Float    @default(0) @map("lower_range")
+  salaryPer            String   @default("Month") @map("salary_per")
+  publishSalaryRange   Boolean  @default(false) @map("publish_salary_range")
+  description          String   @default("")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, templateTitle])
+  @@index([companyId])
+  @@map("hr_job_opening_templates")
+}
+
+model HrJobOfferTermTemplate {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  title      String
+  offerTerms Json     @default("[]") @map("offer_terms")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, title])
+  @@index([companyId])
+  @@map("hr_job_offer_term_templates")
+}
+
+model HrAppointmentLetterTemplate {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  templateName  String   @map("template_name")
+  introduction  String   @default("")
+  terms         Json     @default("[]")
+  closingNotes  String   @default("") @map("closing_notes")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  letters HrAppointmentLetter[]
+
+  @@unique([companyId, templateName])
+  @@index([companyId])
+  @@map("hr_appointment_letter_templates")
+}
+
+model HrAppointmentLetter {
+  id             String    @id @default(uuid())
+  companyId      String    @map("company_id")
+  jobApplicantId String    @map("job_applicant_id")
+  applicantName  String    @default("") @map("applicant_name")
+  appointmentDate DateTime? @map("appointment_date") @db.Date
+  templateId     String?   @map("template_id")
+  introduction   String    @default("")
+  terms          Json      @default("[]")
+  closingNotes   String    @default("") @map("closing_notes")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  jobApplicant HrJobApplicant?           @relation(fields: [jobApplicantId], references: [id], onDelete: Cascade)
+  template     HrAppointmentLetterTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@map("hr_appointment_letters")
+}
+
+model HrStaffingPlan {
+  id                   String   @id @default(uuid())
+  companyId            String   @map("company_id")
+  departmentId         String?  @map("department_id")
+  fromDate             DateTime @map("from_date") @db.Date
+  toDate               DateTime @map("to_date") @db.Date
+  staffingDetails      Json     @default("[]") @map("staffing_details")
+  totalEstimatedBudget Float    @default(0) @map("total_estimated_budget")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@map("hr_staffing_plans")
+}
+
+model HrEmployeeReferral {
+  id                          String    @id @default(uuid())
+  companyId                   String    @map("company_id")
+  firstName                   String    @map("first_name")
+  lastName                    String    @default("") @map("last_name")
+  fullName                    String    @default("") @map("full_name")
+  date                        DateTime? @db.Date
+  status                      String    @default("Pending")
+  forDesignationId            String?   @map("for_designation_id")
+  email                       String    @default("")
+  contactNo                   String    @default("") @map("contact_no")
+  resumeLink                  String    @default("") @map("resume_link")
+  currentEmployer             String    @default("") @map("current_employer")
+  currentJobTitle             String    @default("") @map("current_job_title")
+  resume                      String    @default("")
+  referrerEmployeeId          String?   @map("referrer_employee_id")
+  referrerName                String    @default("") @map("referrer_name")
+  isApplicableForReferralBonus Boolean  @default(true) @map("is_applicable_for_referral_bonus")
+  referralPaymentStatus       String    @default("") @map("referral_payment_status")
+  departmentId                String?   @map("department_id")
+  qualificationReason         String    @default("") @map("qualification_reason")
+  workReferences              String    @default("") @map("work_references")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@map("hr_employee_referrals")
+}
+
+model HrEmployeeOnboardingTemplate {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  title           String
+  departmentId    String?  @map("department_id")
+  designationId   String?  @map("designation_id")
+  employeeGradeId String?  @map("employee_grade_id")
+  activities      Json     @default("[]")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, title])
+  @@index([companyId])
+  @@map("hr_employee_onboarding_templates")
+}
+
+model HrEmployeeSeparationTemplate {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  title           String
+  departmentId    String?  @map("department_id")
+  designationId   String?  @map("designation_id")
+  employeeGradeId String?  @map("employee_grade_id")
+  activities      Json     @default("[]")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, title])
+  @@index([companyId])
+  @@map("hr_employee_separation_templates")
+}
+
+model HrTrainingFeedback {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  employeeId      String   @map("employee_id")
+  employeeName    String   @default("") @map("employee_name")
+  department      String   @default("")
+  course          String   @default("")
+  trainingEventId String   @map("training_event_id")
+  eventName       String   @default("") @map("event_name")
+  trainerName     String   @default("") @map("trainer_name")
+  feedback        String   @default("")
+  status          String   @default("Draft")
+  docStatus       Int      @default(0) @map("doc_status")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  trainingEvent HrTrainingEvent? @relation(fields: [trainingEventId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, trainingEventId])
+  @@map("hr_training_feedbacks")
+}
+
+model HrTrainingResult {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  trainingEventId String   @map("training_event_id")
+  employees       Json     @default("[]")
+  employeeEmails  String   @default("") @map("employee_emails")
+  status          String   @default("Draft")
+  docStatus       Int      @default(0) @map("doc_status")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  trainingEvent HrTrainingEvent? @relation(fields: [trainingEventId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, trainingEventId])
+  @@map("hr_training_results")
+}
+
+model HrHolidayListAssignment {
+  id                String    @id @default(uuid())
+  companyId         String    @map("company_id")
+  applicableFor     String    @default("Employee") @map("applicable_for")
+  assignedToId      String    @default("") @map("assigned_to_id")
+  assignedToCompanyId String  @default("") @map("assigned_to_company_id")
+  employeeName      String    @default("") @map("employee_name")
+  employeeCompanyId String    @default("") @map("employee_company_id")
+  holidayListId     String    @map("holiday_list_id")
+  fromDate          DateTime  @map("from_date") @db.Date
+  holidayListStart  DateTime? @map("holiday_list_start") @db.Date
+  holidayListEnd    DateTime? @map("holiday_list_end") @db.Date
+  status            String    @default("Draft")
+  docStatus         Int       @default(0) @map("doc_status")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  holidayList HrHolidayList @relation(fields: [holidayListId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, assignedToId])
+  @@map("hr_holiday_list_assignments")
+}
+
+model HrEmployeeFeedbackCriteria {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  criteria  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, criteria])
+  @@index([companyId])
+  @@map("hr_employee_feedback_criteria")
+}
+
+// ── Parity gap DocTypes (generated) ─────────────────────────────────
+
+model HrShiftSchedule {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  name         String
+  shiftTypeId  String?  @map("shift_type_id")
+  frequency    String   @default("Every Week")
+  repeatOnDays Json     @default("[]") @map("repeat_on_days")
+  status       String   @default("Draft")
+  docStatus    Int      @default(0) @map("doc_status")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_shift_schedules")
+}
+
+model HrShiftScheduleAssignment {
+  id               String    @id @default(uuid())
+  companyId        String    @map("company_id")
+  employeeId       String    @map("employee_id")
+  employeeName     String    @default("") @map("employee_name")
+  shiftScheduleId  String?   @map("shift_schedule_id")
+  shiftLocationId  String?   @map("shift_location_id")
+  shiftStatus      String    @default("Active") @map("shift_status")
+  enabled          Boolean   @default(true)
+  createShiftsAfter DateTime? @map("create_shifts_after") @db.Date
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_shift_schedule_assignments")
+}
+
+model HrPurposeOfTravel {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  purposeOfTravel String   @map("purpose_of_travel")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, purposeOfTravel])
+  @@index([companyId])
+  @@map("hr_purposes_of_travel")
+}
+
+model HrTravelRequest {
+  id                 String   @id @default(uuid())
+  companyId          String   @map("company_id")
+  employeeId         String   @map("employee_id")
+  employeeName       String   @default("") @map("employee_name")
+  travelType         String   @default("Domestic") @map("travel_type")
+  travelFunding      String   @default("") @map("travel_funding")
+  travelProof        String   @default("") @map("travel_proof")
+  purposeOfTravelId  String?  @map("purpose_of_travel_id")
+  detailsOfSponsor   String   @default("") @map("details_of_sponsor")
+  description        String   @default("")
+  itinerary          Json     @default("[]")
+  costings           Json     @default("[]")
+  costCenter         String   @default("") @map("cost_center")
+  personalIdType     String   @default("") @map("personal_id_type")
+  personalIdNumber   String   @default("") @map("personal_id_number")
+  nameOfOrganizer    String   @default("") @map("name_of_organizer")
+  addressOfOrganizer String   @default("") @map("address_of_organizer")
+  otherDetails       String   @default("") @map("other_details")
+  status             String   @default("Draft")
+  docStatus          Int      @default(0) @map("doc_status")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_travel_requests")
+}
+
+model HrVehicle {
+  id              String    @id @default(uuid())
+  companyId       String    @map("company_id")
+  licensePlate    String    @map("license_plate")
+  make            String    @default("")
+  model           String    @default("")
+  employeeId      String?   @map("employee_id")
+  odometer        Float     @default(0)
+  fuelType        String    @default("") @map("fuel_type")
+  uom             String    @default("Litre")
+  location        String    @default("")
+  chassisNo       String    @default("") @map("chassis_no")
+  acquisitionDate DateTime? @map("acquisition_date") @db.Date
+  disabled        Boolean   @default(false)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([companyId, licensePlate])
+  @@index([companyId])
+  @@map("hr_vehicles")
+}
+
+model HrDriver {
+  id            String    @id @default(uuid())
+  companyId     String    @map("company_id")
+  fullName      String    @map("full_name")
+  employeeId    String?   @map("employee_id")
+  cellNumber    String    @default("") @map("cell_number")
+  licenseNumber String    @default("") @map("license_number")
+  issuingDate   DateTime? @map("issuing_date") @db.Date
+  expiryDate    DateTime? @map("expiry_date") @db.Date
+  address       String    @default("")
+  status        String    @default("Active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([companyId, fullName])
+  @@index([companyId])
+  @@map("hr_drivers")
+}
+
+model HrVehicleLog {
+  id            String    @id @default(uuid())
+  companyId     String    @map("company_id")
+  namingSeries  String    @default("HR-VLOG-.YYYY.-") @map("naming_series")
+  vehicleId     String?   @map("vehicle_id")
+  employeeId    String?   @map("employee_id")
+  model         String    @default("")
+  make          String    @default("")
+  date          DateTime? @db.Date
+  odometer      Float     @default(0)
+  lastOdometer  Float     @default(0) @map("last_odometer")
+  fuelQty       Float     @default(0) @map("fuel_qty")
+  price         Float     @default(0)
+  supplier      String    @default("")
+  invoice       String    @default("")
+  serviceDetail Json      @default("[]") @map("service_detail")
+  status        String    @default("Draft")
+  docStatus     Int       @default(0) @map("doc_status")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@map("hr_vehicle_logs")
+}
+
+model HrSalaryWithholding {
+  id                         String    @id @default(uuid())
+  companyId                  String    @map("company_id")
+  employeeId                 String    @map("employee_id")
+  employeeName               String    @default("") @map("employee_name")
+  postingDate                DateTime? @map("posting_date") @db.Date
+  fromDate                   DateTime? @map("from_date") @db.Date
+  toDate                     DateTime? @map("to_date") @db.Date
+  status                     String    @default("Draft")
+  docStatus                  Int       @default(0) @map("doc_status")
+  reason                     String    @default("")
+  areWithheldSalariesReleased Boolean  @default(false) @map("are_withheld_salaries_released")
+  cycles                     Json      @default("[]")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_salary_withholdings")
+}
+
+model HrEmployeeBenefitLedger {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  postingDate        DateTime? @map("posting_date") @db.Date
+  employeeId         String?   @map("employee_id")
+  employeeName       String    @default("") @map("employee_name")
+  salaryComponentId  String?   @map("salary_component_id")
+  payrollPeriod      String    @default("") @map("payroll_period")
+  referenceDoctype   String    @default("") @map("reference_doctype")
+  referenceDocument  String    @default("") @map("reference_document")
+  salarySlip         String    @default("") @map("salary_slip")
+  transactionType    String    @default("") @map("transaction_type")
+  amount             Float     @default(0)
+  remarks            String    @default("")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_employee_benefit_ledgers")
+}
+
+model HrGratuityRule {
+  id                               String   @id @default(uuid())
+  companyId                        String   @map("company_id")
+  name                             String
+  disable                          Boolean  @default(false)
+  calculateGratuityAmountBasedOn   String   @default("Current Slab") @map("calculate_gratuity_amount_based_on")
+  totalWorkingDaysPerYear          Float    @default(365) @map("total_working_days_per_year")
+  workExperienceCalculationFunction String  @default("Round off Work Experience") @map("work_experience_calculation_function")
+  minimumYearForGratuity           Int      @default(0) @map("minimum_year_for_gratuity")
+  applicableEarningsComponent      Json     @default("[]") @map("applicable_earnings_component")
+  gratuityRuleSlabs                Json     @default("[]") @map("gratuity_rule_slabs")
+  createdAt                        DateTime @default(now()) @map("created_at")
+  updatedAt                        DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_gratuity_rules")
+}
+
+model HrGratuity {
+  id                    String    @id @default(uuid())
+  companyId             String    @map("company_id")
+  employeeId            String    @map("employee_id")
+  employeeName          String    @default("") @map("employee_name")
+  department            String    @default("")
+  designation           String    @default("")
+  currentWorkExperience Float     @default(0) @map("current_work_experience")
+  postingDate           DateTime? @map("posting_date") @db.Date
+  gratuityRuleId        String?   @map("gratuity_rule_id")
+  amount                Float     @default(0)
+  salaryComponentId     String?   @map("salary_component_id")
+  payViaSalarySlip      Boolean   @default(true) @map("pay_via_salary_slip")
+  costCenter            String    @default("") @map("cost_center")
+  modeOfPayment         String    @default("") @map("mode_of_payment")
+  expenseAccount        String    @default("") @map("expense_account")
+  payableAccount        String    @default("") @map("payable_account")
+  paidAmount            Float     @default(0) @map("paid_amount")
+  status                String    @default("Draft")
+  docStatus             Int       @default(0) @map("doc_status")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_gratuities")
+}
+
+model HrExitInterview {
+  id                      String    @id @default(uuid())
+  companyId               String    @map("company_id")
+  namingSeries            String    @default("HR-EXIT-INT-") @map("naming_series")
+  employeeId              String    @map("employee_id")
+  employeeName            String    @default("") @map("employee_name")
+  email                   String    @default("")
+  status                  String    @default("Pending")
+  date                    DateTime? @db.Date
+  department              String    @default("")
+  designation             String    @default("")
+  reportsTo               String    @default("") @map("reports_to")
+  dateOfJoining           DateTime? @map("date_of_joining") @db.Date
+  relievingDate           DateTime? @map("relieving_date") @db.Date
+  refDoctype              String    @default("") @map("ref_doctype")
+  questionnaireEmailSent  Boolean   @default(false) @map("questionnaire_email_sent")
+  referenceDocumentName   String    @default("") @map("reference_document_name")
+  interviewers            Json      @default("[]")
+  interviewSummary        String    @default("") @map("interview_summary")
+  employeeStatus          String    @default("") @map("employee_status")
+  docStatus               Int       @default(0) @map("doc_status")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_exit_interviews")
+}
+
+model HrFullAndFinalStatement {
+  id                      String    @id @default(uuid())
+  companyId               String    @map("company_id")
+  employeeId              String    @map("employee_id")
+  employeeName            String    @default("") @map("employee_name")
+  transactionDate         DateTime? @map("transaction_date") @db.Date
+  status                  String    @default("Draft")
+  docStatus               Int       @default(0) @map("doc_status")
+  dateOfJoining           DateTime? @map("date_of_joining") @db.Date
+  relievingDate           DateTime? @map("relieving_date") @db.Date
+  designation             String    @default("")
+  department              String    @default("")
+  payables                Json      @default("[]")
+  receivables             Json      @default("[]")
+  assetsAllocated         Json      @default("[]") @map("assets_allocated")
+  totalAssetRecoveryCost  Float     @default(0) @map("total_asset_recovery_cost")
+  totalPayableAmount      Float     @default(0) @map("total_payable_amount")
+  totalReceivableAmount   Float     @default(0) @map("total_receivable_amount")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_full_and_final_statements")
+}
+
+model HrCompensatoryLeaveRequest {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  employeeId         String    @map("employee_id")
+  employeeName       String    @default("") @map("employee_name")
+  department         String    @default("")
+  leaveTypeId        String?   @map("leave_type_id")
+  leaveAllocationId  String?   @map("leave_allocation_id")
+  workFromDate       DateTime? @map("work_from_date") @db.Date
+  workEndDate        DateTime? @map("work_end_date") @db.Date
+  halfDay            Boolean   @default(false) @map("half_day")
+  halfDayDate        DateTime? @map("half_day_date") @db.Date
+  reason             String    @default("")
+  status             String    @default("Draft")
+  docStatus          Int       @default(0) @map("doc_status")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_compensatory_leave_requests")
+}
+
+model HrLeaveAdjustment {
+  id                   String    @id @default(uuid())
+  companyId            String    @map("company_id")
+  namingSeries         String    @default("HR-LAD-.YYYY.-") @map("naming_series")
+  employeeId           String    @map("employee_id")
+  employeeName         String    @default("") @map("employee_name")
+  leaveTypeId          String?   @map("leave_type_id")
+  leaveAllocationId    String?   @map("leave_allocation_id")
+  leavesToAdjust       Float     @default(0) @map("leaves_to_adjust")
+  postingDate          DateTime? @map("posting_date") @db.Date
+  reasonForAdjustment  String    @default("") @map("reason_for_adjustment")
+  status               String    @default("Draft")
+  docStatus            Int       @default(0) @map("doc_status")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_leave_adjustments")
+}
+
+model HrDailyWorkSummaryGroup {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  name          String
+  enabled       Boolean  @default(true)
+  users         Json     @default("[]")
+  sendEmailsAt  String   @default("17:00") @map("send_emails_at")
+  holidayListId String?  @map("holiday_list_id")
+  subject       String   @default("What did you work on today?")
+  message       String   @default("")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("hr_daily_work_summary_groups")
+}
+
+model HrDailyWorkSummary {
+  id                        String   @id @default(uuid())
+  companyId                 String   @map("company_id")
+  dailyWorkSummaryGroupId   String?  @map("daily_work_summary_group_id")
+  status                    String   @default("Open")
+  emailSentTo               String   @default("") @map("email_sent_to")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@map("hr_daily_work_summaries")
+}
+
+// ── Settings / Timesheet / Activity Type (generated) ─────────────────
+
+model HrSettingsDoc {
+  id                          String   @id @default(uuid())
+  companyId                   String   @unique @map("company_id")
+  empCreatedBy                String   @default("Naming Series") @map("emp_created_by")
+  employeeNameFormat          String   @default("") @map("employee_name_format")
+  standardWorkingHours        Float    @default(0) @map("standard_working_hours")
+  retirementAge               Float    @default(60) @map("retirement_age")
+  empCreatedOn                String   @default("") @map("emp_created_on")
+  sendWorkAnniversaryReminders Boolean @default(false) @map("send_work_anniversary_reminders")
+  sendBirthdayReminders       Boolean  @default(false) @map("send_birthday_reminders")
+  sendHolidayReminders        Boolean  @default(false) @map("send_holiday_reminders")
+  frequency                   String   @default("Monthly")
+  leaveApprovalNotification   Boolean  @default(true) @map("leave_approval_notification")
+  leaveStatusNotification     Boolean  @default(true) @map("leave_status_notification")
+  allowMultipleLeaveApps      Boolean  @default(false) @map("allow_multiple_leave_apps")
+  restrictBackdatedLeave      Boolean  @default(false) @map("restrict_backdated_leave")
+  showLeavesOfPastYears       Boolean  @default(false) @map("show_leaves_of_past_years")
+  expenseApproverMandatory    Boolean  @default(true) @map("expense_approver_mandatory")
+  allowEmployeeCheckin        Boolean  @default(true) @map("allow_employee_checkin")
+  allowGeolocation            Boolean  @default(true) @map("allow_geolocation")
+  autoAttendance              Boolean  @default(false) @map("auto_attendance")
+  checkinRadius               Float    @default(0) @map("checkin_radius")
+  exitQuestionnaireWebhook    String   @default("") @map("exit_questionnaire_webhook")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  @@map("hr_settings_docs")
+}
+
+model HrActivityType {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  activityType String   @map("activity_type")
+  costingRate  Float    @default(0) @map("costing_rate")
+  billingRate  Float    @default(0) @map("billing_rate")
+  disabled     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, activityType])
+  @@index([companyId])
+  @@map("hr_activity_types")
+}
+
+model HrTimesheet {
+  id           String    @id @default(uuid())
+  companyId    String    @map("company_id")
+  namingSeries String    @default("TS-.YYYY.-") @map("naming_series")
+  employeeId   String?   @map("employee_id")
+  employeeName String    @default("") @map("employee_name")
+  department   String    @default("")
+  userId       String?   @map("user_id")
+  parentProject String   @default("") @map("parent_project")
+  customer     String    @default("")
+  currency     String    @default("")
+  exchangeRate Float     @default(1) @map("exchange_rate")
+  salesInvoice String    @default("") @map("sales_invoice")
+  startDate    DateTime? @map("start_date") @db.Date
+  endDate      DateTime? @map("end_date") @db.Date
+  title        String    @default("")
+  status       String    @default("Draft")
+  docStatus    Int       @default(0) @map("doc_status")
+  totalHours   Float     @default(0) @map("total_hours")
+  totalBillableHours  Float @default(0) @map("total_billable_hours")
+  totalBillableAmount Float @default(0) @map("total_billable_amount")
+  totalCostingAmount  Float @default(0) @map("total_costing_amount")
+  totalBilledHours    Float @default(0) @map("total_billed_hours")
+  totalBilledAmount   Float @default(0) @map("total_billed_amount")
+  perBilled           Float @default(0) @map("per_billed")
+  note         String    @default("")
+  timeLogs     Json      @default("[]") @map("time_logs")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@map("hr_timesheets")
+}
+
+// ── ERPNext Payroll Entry / Salary Slip (generated) ─────────────────
+
+model HrPayrollEntry {
+  id                              String    @id @default(uuid())
+  companyId                       String    @map("company_id")
+  namingSeries                    String    @default("HR-PRUN-.YYYY.-") @map("naming_series")
+  postingDate                     DateTime? @map("posting_date") @db.Date
+  currency                        String    @default("")
+  exchangeRate                    Float     @default(1) @map("exchange_rate")
+  payrollPayableAccount           String    @default("") @map("payroll_payable_account")
+  status                          String    @default("Draft")
+  docStatus                       Int       @default(0) @map("doc_status")
+  salarySlipBasedOnTimesheet      Boolean   @default(false) @map("salary_slip_based_on_timesheet")
+  payrollFrequency                String    @default("Monthly") @map("payroll_frequency")
+  startDate                       DateTime? @map("start_date") @db.Date
+  endDate                         DateTime? @map("end_date") @db.Date
+  deductTaxForUnsubmittedProof    Boolean   @default(false) @map("deduct_tax_for_unsubmitted_proof")
+  branchId                        String?   @map("branch_id")
+  departmentId                    String?   @map("department_id")
+  designationId                   String?   @map("designation_id")
+  gradeId                         String?   @map("grade_id")
+  numberOfEmployees               Int       @default(0) @map("number_of_employees")
+  employees                       Json      @default("[]")
+  validateAttendance              Boolean   @default(false) @map("validate_attendance")
+  costCenter                      String    @default("") @map("cost_center")
+  project                         String    @default("")
+  paymentAccount                  String    @default("") @map("payment_account")
+  bankAccount                     String    @default("") @map("bank_account")
+  salarySlipsCreated              Boolean   @default(false) @map("salary_slips_created")
+  salarySlipsSubmitted            Boolean   @default(false) @map("salary_slips_submitted")
+  errorMessage                    String    @default("") @map("error_message")
+  createdAt                       DateTime  @default(now()) @map("created_at")
+  updatedAt                       DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status])
+  @@index([companyId, startDate, endDate])
+  @@map("hr_payroll_entries")
+}
+
+model HrSalarySlip {
+  id                              String    @id @default(uuid())
+  companyId                       String    @map("company_id")
+  namingSeries                    String    @default("Sal Slip/") @map("naming_series")
+  employeeId                      String    @map("employee_id")
+  employeeName                    String    @default("") @map("employee_name")
+  department                      String    @default("")
+  designation                     String    @default("")
+  branch                          String    @default("")
+  postingDate                     DateTime? @map("posting_date") @db.Date
+  status                          String    @default("Draft")
+  docStatus                       Int       @default(0) @map("doc_status")
+  currency                        String    @default("")
+  exchangeRate                    Float     @default(1) @map("exchange_rate")
+  payrollFrequency                String    @default("Monthly") @map("payroll_frequency")
+  startDate                       DateTime? @map("start_date") @db.Date
+  endDate                         DateTime? @map("end_date") @db.Date
+  salaryStructureId               String?   @map("salary_structure_id")
+  payrollEntryId                  String?   @map("payroll_entry_id")
+  salaryWithholdingId             String?   @map("salary_withholding_id")
+  modeOfPayment                   String    @default("") @map("mode_of_payment")
+  salarySlipBasedOnTimesheet      Boolean   @default(false) @map("salary_slip_based_on_timesheet")
+  totalWorkingDays                Float     @default(0) @map("total_working_days")
+  unmarkedDays                    Float     @default(0) @map("unmarked_days")
+  leaveWithoutPay                 Float     @default(0) @map("leave_without_pay")
+  absentDays                      Float     @default(0) @map("absent_days")
+  paymentDays                     Float     @default(0) @map("payment_days")
+  totalWorkingHours               Float     @default(0) @map("total_working_hours")
+  hourRate                        Float     @default(0) @map("hour_rate")
+  earnings                        Json      @default("[]")
+  deductions                      Json      @default("[]")
+  grossPay                        Float     @default(0) @map("gross_pay")
+  totalDeduction                  Float     @default(0) @map("total_deduction")
+  netPay                          Float     @default(0) @map("net_pay")
+  roundedTotal                    Float     @default(0) @map("rounded_total")
+  yearToDate                      Float     @default(0) @map("year_to_date")
+  monthToDate                     Float     @default(0) @map("month_to_date")
+  totalInWords                    String    @default("") @map("total_in_words")
+  bankName                        String    @default("") @map("bank_name")
+  bankAccountNo                   String    @default("") @map("bank_account_no")
+  leaveDetails                    Json      @default("[]") @map("leave_details")
+  timesheets                      Json      @default("[]")
+  createdAt                       DateTime  @default(now()) @map("created_at")
+  updatedAt                       DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, employeeId])
+  @@index([companyId, status])
+  @@index([payrollEntryId])
+  @@map("hr_salary_slips")
 }

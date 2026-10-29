@@ -1,0 +1,205 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Appraisal Cycle",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:cycle_name",
+  "naming_rule": "By fieldname",
+  "is_tree": 0,
+  "track_changes": 1,
+  "states": [
+    {
+      "idx": 1,
+      "title": "Not Started",
+      "color": "Gray"
+    },
+    {
+      "idx": 2,
+      "title": "In Progress",
+      "color": "Orange"
+    },
+    {
+      "idx": 3,
+      "title": "Completed",
+      "color": "Green"
+    }
+  ],
+  "documentation": "https://docs.frappe.io/hr/appraisal-cycle",
+  "search_fields": "start_date, end_date",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Overview",
+      "fieldname": "overview_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Description",
+      "fieldname": "section_break_4",
+      "type": "Section Break"
+    },
+    {
+      "label": "Settings",
+      "fieldname": "settings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_zykh",
+      "fieldname": "section_break_zykh",
+      "type": "Section Break"
+    },
+    {
+      "label": "Applicable For",
+      "fieldname": "applicable_for_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Filters",
+      "fieldname": "filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Employees",
+      "fieldname": "employees_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "branch",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "appraisees",
+      "child_doctype": "Appraisee"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "cycle_name",
+      "label": "Cycle Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Not Started",
+      "options": "Not Started\nIn Progress\nCompleted",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Text Editor",
+      "section": "Description"
+    },
+    {
+      "fieldname": "kra_evaluation_method",
+      "label": "KRA Evaluation Method",
+      "fieldtype": "Select",
+      "default": "Automated Based on Goal Progress",
+      "options": "Automated Based on Goal Progress\nManual Rating",
+      "section": "Settings"
+    },
+    {
+      "fieldname": "calculate_final_score_based_on_formula",
+      "label": "Calculate Final Score based on Formula",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "By default, the Final Score is calculated as the average of Goal Score, Feedback Score, and Self Appraisal Score. Enable this to set a different formula",
+      "section": "section_break_zykh"
+    },
+    {
+      "fieldname": "final_score_formula",
+      "label": "Final Score Formula",
+      "fieldtype": "Code",
+      "options": "PythonExpression",
+      "depends_on": "calculate_final_score_based_on_formula",
+      "mandatory_depends_on": "calculate_final_score_based_on_formula",
+      "section": "section_break_zykh"
+    },
+    {
+      "fieldname": "branch",
+      "label": "Branch",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "section": "Filters"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "section": "Filters"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "section": "Filters"
+    },
+    {
+      "fieldname": "appraisees",
+      "fieldtype": "Table",
+      "options": "Appraisee",
+      "section": "Employees"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

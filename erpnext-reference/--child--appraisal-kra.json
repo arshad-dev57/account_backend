@@ -1,0 +1,61 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Appraisal KRA",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "autoname": "hash",
+  "naming_rule": "Random",
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "kra",
+      "target": "KRA"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "kra",
+      "label": "KRA",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "KRA",
+      "in_list_view": 1,
+      "description": "Key Performance Area",
+      "section": null
+    },
+    {
+      "fieldname": "per_weightage",
+      "label": "Weightage (%)",
+      "fieldtype": "Percent",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "goal_completion",
+      "label": "Goal Completion (%)",
+      "fieldtype": "Percent",
+      "read_only": 1,
+      "in_list_view": 1,
+      "precision": "2",
+      "section": null
+    },
+    {
+      "fieldname": "goal_score",
+      "label": "Goal Score (weighted)",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "precision": "2",
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

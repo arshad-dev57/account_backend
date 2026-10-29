@@ -1,0 +1,106 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Full and Final Asset",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [
+    {
+      "label": "section_break_hudu",
+      "fieldname": "section_break_hudu",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "reference",
+      "target": "Asset Movement"
+    },
+    {
+      "fieldname": "account",
+      "target": "Account"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "reference",
+      "label": "Reference",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Asset Movement",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "asset_name",
+      "label": "Asset Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "date",
+      "label": "Date",
+      "fieldtype": "Datetime",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "actual_cost",
+      "label": "Actual Cost",
+      "fieldtype": "Currency",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "cost",
+      "label": "Cost",
+      "fieldtype": "Currency",
+      "mandatory_depends_on": "eval:doc.action == \"Recover Cost\"",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "account",
+      "label": "Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "action",
+      "label": "Action",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "Return",
+      "options": "Return\nRecover Cost",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Owned\nReturned",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Small Text",
+      "section": "section_break_hudu"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

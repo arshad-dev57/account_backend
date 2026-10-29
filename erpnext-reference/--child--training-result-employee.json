@@ -1,0 +1,82 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Training Result Employee",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [
+    {
+      "label": "section_break_5",
+      "fieldname": "section_break_5",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Read Only",
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "hours",
+      "label": "Hours",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": "section_break_5"
+    },
+    {
+      "fieldname": "grade",
+      "label": "Grade",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": "section_break_5"
+    },
+    {
+      "fieldname": "comments",
+      "label": "Comments",
+      "fieldtype": "Text",
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": "section_break_5"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

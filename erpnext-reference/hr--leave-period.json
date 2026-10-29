@@ -1,0 +1,72 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Period",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "HR-LPR-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/leave-period",
+  "search_fields": "from_date, to_date, company",
+  "allow_import": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "optional_holiday_list",
+      "target": "Holiday List"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "is_active",
+      "label": "Is Active",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "optional_holiday_list",
+      "label": "Holiday List for Optional Leave",
+      "fieldtype": "Link",
+      "options": "Holiday List",
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

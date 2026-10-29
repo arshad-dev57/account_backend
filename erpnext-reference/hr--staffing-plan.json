@@ -1,0 +1,108 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Staffing Plan",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/staffing-plan",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Details",
+      "fieldname": "staffing_plan_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_8",
+      "fieldname": "section_break_8",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Staffing Plan"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "staffing_details",
+      "child_doctype": "Staffing Plan Detail"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "section": null
+    },
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "staffing_details",
+      "label": "Staffing Details",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Staffing Plan Detail",
+      "section": "Details"
+    },
+    {
+      "fieldname": "total_estimated_budget",
+      "label": "Total Estimated Budget",
+      "fieldtype": "Currency",
+      "default": "0.00",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": "section_break_8"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Staffing Plan",
+      "read_only": 1,
+      "section": "section_break_8"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

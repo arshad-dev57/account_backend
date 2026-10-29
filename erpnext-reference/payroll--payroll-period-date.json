@@ -1,0 +1,35 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Payroll Period Date",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

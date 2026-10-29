@@ -1,0 +1,212 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Goal",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "format:HR-GOAL-{YYYY}-{####}",
+  "naming_rule": "Expression",
+  "title_field": "goal_name",
+  "is_tree": 1,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/goal",
+  "search_fields": "employee, goal_name",
+  "sections": [
+    {
+      "label": "section_break_nf0j",
+      "fieldname": "section_break_nf0j",
+      "type": "Section Break"
+    },
+    {
+      "label": "Appraisal Linking",
+      "fieldname": "section_break_cycle",
+      "type": "Section Break"
+    },
+    {
+      "label": "Description",
+      "fieldname": "section_break_12",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "parent_goal",
+      "target": "Goal"
+    },
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "appraisal_cycle",
+      "target": "Appraisal Cycle"
+    },
+    {
+      "fieldname": "kra",
+      "target": "KRA"
+    },
+    {
+      "fieldname": "old_parent",
+      "target": "Goal"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "goal_name",
+      "label": "Goal",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "is_group",
+      "label": "Is Group",
+      "fieldtype": "Check",
+      "default": "0",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "parent_goal",
+      "label": "Parent Goal",
+      "fieldtype": "Link",
+      "options": "Goal",
+      "depends_on": "employee",
+      "section": null
+    },
+    {
+      "fieldname": "progress",
+      "label": "Progress",
+      "fieldtype": "Percent",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Pending",
+      "options": "\nPending\nIn Progress\nCompleted\nArchived\nClosed",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "section": "section_break_nf0j"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "section_break_nf0j"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": "section_break_nf0j"
+    },
+    {
+      "fieldname": "user",
+      "label": "User",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.user_id",
+      "section": "section_break_nf0j"
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "depends_on": "employee",
+      "in_standard_filter": 1,
+      "fetch_from": "appraisal_cycle.start_date",
+      "section": "section_break_nf0j"
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "depends_on": "employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "appraisal_cycle.end_date",
+      "section": "section_break_nf0j"
+    },
+    {
+      "fieldname": "appraisal_cycle",
+      "label": "Appraisal Cycle",
+      "fieldtype": "Link",
+      "options": "Appraisal Cycle",
+      "depends_on": "employee",
+      "in_standard_filter": 1,
+      "fetch_from": "parent_goal.appraisal_cycle",
+      "section": "Appraisal Linking"
+    },
+    {
+      "fieldname": "kra",
+      "label": "KRA",
+      "fieldtype": "Link",
+      "options": "KRA",
+      "depends_on": "employee",
+      "mandatory_depends_on": "eval: !doc.parent_goal && doc.appraisal_cycle",
+      "fetch_from": "parent_goal.kra",
+      "section": "Appraisal Linking"
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text Editor",
+      "section": "Description"
+    },
+    {
+      "fieldname": "lft",
+      "label": "Left",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "Description"
+    },
+    {
+      "fieldname": "rgt",
+      "label": "Right",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "Description"
+    },
+    {
+      "fieldname": "old_parent",
+      "label": "Old Parent",
+      "fieldtype": "Link",
+      "options": "Goal",
+      "hidden": 1,
+      "section": "Description"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

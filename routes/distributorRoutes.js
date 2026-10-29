@@ -17,6 +17,7 @@ router.post("/salespersons/:id/assign-customers", distributorController.assignCu
 
 // 3. Customer 360, Credit & Collections, Ledger, Statement
 router.get("/customers/:id/360", distributorController.getCustomer360);
+router.get("/customers/:id/account", distributorController.getCustomerAccount);
 router.get("/customers/:id/ledger", distributorController.getCustomerLedger);
 router.get("/customers/:id/statement", distributorController.getCustomerStatement);
 router.post("/customers/check-credit-limit", distributorController.checkCreditLimit);

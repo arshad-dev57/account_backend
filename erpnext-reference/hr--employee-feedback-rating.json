@@ -1,0 +1,50 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Feedback Rating",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "autoname": "hash",
+  "naming_rule": "Random",
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "criteria",
+      "target": "Employee Feedback Criteria"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "criteria",
+      "label": "Criteria",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee Feedback Criteria",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "per_weightage",
+      "label": "Weightage (%)",
+      "fieldtype": "Percent",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "rating",
+      "label": "Rating",
+      "fieldtype": "Rating",
+      "depends_on": "eval: doc.parenttype != \"Appraisal Template\"",
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

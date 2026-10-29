@@ -1,0 +1,224 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Onboarding",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-EMP-ONB-.YYYY.-.#####",
+  "naming_rule": "Expression",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-onboarding",
+  "sections": [
+    {
+      "label": "Employee Details",
+      "fieldname": "details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Onboarding Activities",
+      "fieldname": "table_for_activity",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "job_offer",
+      "target": "Job Offer"
+    },
+    {
+      "fieldname": "job_applicant",
+      "target": "Job Applicant"
+    },
+    {
+      "fieldname": "employee_onboarding_template",
+      "target": "Employee Onboarding Template"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "project",
+      "target": "Project"
+    },
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "employee_grade",
+      "target": "Employee Grade"
+    },
+    {
+      "fieldname": "holiday_list",
+      "target": "Holiday List"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Onboarding"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "activities",
+      "child_doctype": "Employee Boarding Activity"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "job_offer",
+      "label": "Job Offer",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Job Offer",
+      "section": null
+    },
+    {
+      "fieldname": "job_applicant",
+      "label": "Job Applicant",
+      "fieldtype": "Link",
+      "options": "Job Applicant",
+      "depends_on": "eval:doc.job_applicant",
+      "fetch_from": "job_offer.job_applicant",
+      "section": null
+    },
+    {
+      "fieldname": "employee_onboarding_template",
+      "label": "Employee Onboarding Template",
+      "fieldtype": "Link",
+      "options": "Employee Onboarding Template",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "fetch_from": "employee_onboarding_template.company",
+      "section": null
+    },
+    {
+      "fieldname": "boarding_status",
+      "label": "Boarding Status",
+      "fieldtype": "Select",
+      "default": "Pending",
+      "options": "Pending\nIn Process\nCompleted",
+      "read_only": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "project",
+      "label": "Project",
+      "fieldtype": "Link",
+      "options": "Project",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "read_only": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "fetch_from": "job_offer.applicant_name",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "in_list_view": 1,
+      "fetch_from": "employee_onboarding_template.department",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "in_list_view": 1,
+      "fetch_from": "employee_onboarding_template.designation",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "employee_grade",
+      "label": "Employee Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "fetch_from": "employee_onboarding_template.employee_grade",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "holiday_list",
+      "label": "Holiday List",
+      "fieldtype": "Link",
+      "options": "Holiday List",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "date_of_joining",
+      "label": "Date of Joining",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "boarding_begins_on",
+      "label": "Onboarding Begins On",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "activities",
+      "label": "Activities",
+      "fieldtype": "Table",
+      "options": "Employee Boarding Activity",
+      "allow_on_submit": 1,
+      "section": "Onboarding Activities"
+    },
+    {
+      "fieldname": "notify_users_by_email",
+      "label": "Notify users by email",
+      "fieldtype": "Check",
+      "default": "0",
+      "allow_on_submit": 1,
+      "section": "Onboarding Activities"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Onboarding",
+      "read_only": 1,
+      "section": "Onboarding Activities"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

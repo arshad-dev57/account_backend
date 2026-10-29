@@ -1,0 +1,78 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Training Event Employee",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Read Only",
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Open",
+      "options": "Open\nInvited\nCompleted\nFeedback Submitted",
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "attendance",
+      "label": "Attendance",
+      "fieldtype": "Select",
+      "options": "Present\nAbsent",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "is_mandatory",
+      "label": "Is Mandatory",
+      "fieldtype": "Check",
+      "default": "1",
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

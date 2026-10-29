@@ -1,0 +1,157 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Attendance Tool",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/employee-attendance-tool",
+  "sections": [
+    {
+      "label": "Get Employees",
+      "fieldname": "section_break_ackd",
+      "type": "Section Break"
+    },
+    {
+      "label": "Select Employees",
+      "fieldname": "select_employees_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Marked Attendance",
+      "fieldname": "marked_attendance_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "shift",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "branch",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "employment_type",
+      "target": "Employment Type"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "employee_grade",
+      "target": "Employee Grade"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "date",
+      "label": "Date",
+      "fieldtype": "Date",
+      "default": "Today",
+      "section": null
+    },
+    {
+      "fieldname": "shift",
+      "label": "Shift",
+      "fieldtype": "Link",
+      "options": "Shift Type",
+      "mandatory_depends_on": "filter_by_shift",
+      "section": null
+    },
+    {
+      "fieldname": "late_entry",
+      "label": "Late Entry",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "early_exit",
+      "label": "Early Exit",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "section": "Get Employees"
+    },
+    {
+      "fieldname": "branch",
+      "label": "Branch",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "section": "Get Employees"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "section": "Get Employees"
+    },
+    {
+      "fieldname": "filter_by_shift",
+      "label": "Filter by Shift",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Get Employees"
+    },
+    {
+      "fieldname": "employment_type",
+      "label": "Employment Type",
+      "fieldtype": "Link",
+      "options": "Employment Type",
+      "section": "Get Employees"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "section": "Get Employees"
+    },
+    {
+      "fieldname": "employee_grade",
+      "label": "Employee Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "section": "Get Employees"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "\nPresent\nAbsent\nHalf Day\nWork From Home",
+      "in_list_view": 1,
+      "section": "Select Employees"
+    },
+    {
+      "fieldname": "half_day_status",
+      "label": "Status for Other Half",
+      "fieldtype": "Select",
+      "options": "Present\nAbsent",
+      "section": "Select Employees"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "is_virtual": 1
+}

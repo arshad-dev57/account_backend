@@ -284,6 +284,15 @@ exports.createCompany = async (req, res) => {
       console.error('createCompany FX account warning:', fxErr.message);
     }
 
+    // ERPNext seeds default Departments / Designations (and related HR masters)
+    // when a company is created — same fixtures, company-scoped.
+    try {
+      const { ensureHrMasterFixtures } = require('../services/hrMasterFixtures');
+      await ensureHrMasterFixtures(company.id);
+    } catch (hrFixtureErr) {
+      console.error('createCompany HR master fixtures warning:', hrFixtureErr.message);
+    }
+
     // Business model config: children inherit parent; root uses request or defaults
     let businessConfig = null;
     try {

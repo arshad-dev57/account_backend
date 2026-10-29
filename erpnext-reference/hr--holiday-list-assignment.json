@@ -1,0 +1,127 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Holiday List Assignment",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "naming_series:",
+  "naming_rule": "By \"Naming Series\" field",
+  "naming_series_options": "HR-HLA-.YYYY.-",
+  "title_field": "assigned_to",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/hr/leave-management/holiday-list-assignment",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_wnwa",
+      "fieldname": "section_break_wnwa",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "assigned_to",
+      "target": "applicable_for"
+    },
+    {
+      "fieldname": "employee_company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Holiday List Assignment"
+    },
+    {
+      "fieldname": "holiday_list",
+      "target": "Holiday List"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "label": "Naming Series",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "HR-HLA-.YYYY.-",
+      "in_list_view": 1,
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "applicable_for",
+      "label": "Applicable For",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Employee\nCompany",
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "assigned_to",
+      "label": "Assigned To",
+      "fieldtype": "Dynamic Link",
+      "reqd": 1,
+      "options": "applicable_for",
+      "in_list_view": 1,
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "hidden": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "employee_company",
+      "label": "Employee Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Holiday List Assignment",
+      "read_only": 1,
+      "search_index": 1,
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "holiday_list",
+      "label": "Holiday List",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Holiday List",
+      "in_list_view": 1,
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "from_date",
+      "label": "Assignment Starts From",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "holiday_list_start",
+      "label": "Holiday List Start",
+      "fieldtype": "Date",
+      "section": "section_break_wnwa"
+    },
+    {
+      "fieldname": "holiday_list_end",
+      "label": "Holiday List End",
+      "fieldtype": "Date",
+      "section": "section_break_wnwa"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

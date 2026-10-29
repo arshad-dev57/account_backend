@@ -1,0 +1,78 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Training Result",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-TRR-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "training_event",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/training-result",
+  "search_fields": "training_event",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_3",
+      "fieldname": "section_break_3",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "training_event",
+      "target": "Training Event"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Training Result"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "employees",
+      "child_doctype": "Training Result Employee"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "training_event",
+      "label": "Training Event",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Training Event",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employees",
+      "label": "Employees",
+      "fieldtype": "Table",
+      "options": "Training Result Employee",
+      "section": "section_break_3"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Training Result",
+      "read_only": 1,
+      "section": "section_break_3"
+    },
+    {
+      "fieldname": "employee_emails",
+      "label": "Employee Emails",
+      "fieldtype": "Small Text",
+      "options": "Email",
+      "hidden": 1,
+      "section": "section_break_3"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

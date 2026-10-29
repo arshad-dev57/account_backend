@@ -1,0 +1,86 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Daily Work Summary Group",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "Prompt",
+  "is_tree": 0,
+  "track_changes": 0,
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Select Users",
+      "fieldname": "select_users",
+      "type": "Section Break"
+    },
+    {
+      "label": "Reminder",
+      "fieldname": "mail_details",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "holiday_list",
+      "target": "Holiday List"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "users",
+      "child_doctype": "Daily Work Summary Group User"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "enabled",
+      "label": "Enabled",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": null
+    },
+    {
+      "fieldname": "users",
+      "label": "Users",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Daily Work Summary Group User",
+      "section": "Select Users"
+    },
+    {
+      "fieldname": "send_emails_at",
+      "label": "Send Emails At",
+      "fieldtype": "Select",
+      "options": "00:00\n01:00\n02:00\n03:00\n04:00\n05:00\n06:00\n07:00\n08:00\n09:00\n10:00\n11:00\n12:00\n13:00\n14:00\n15:00\n16:00\n17:00\n18:00\n19:00\n20:00\n21:00\n22:00\n23:00",
+      "section": "Select Users"
+    },
+    {
+      "fieldname": "holiday_list",
+      "label": "Holiday List",
+      "fieldtype": "Link",
+      "options": "Holiday List",
+      "section": "Select Users"
+    },
+    {
+      "fieldname": "subject",
+      "label": "Subject",
+      "fieldtype": "Data",
+      "default": "What did you work on today?",
+      "section": "Reminder"
+    },
+    {
+      "fieldname": "message",
+      "label": "Message",
+      "fieldtype": "Text Editor",
+      "default": "<p>Please share what did you do today. If you reply by midnight, your response will be recorded!</p>",
+      "section": "Reminder"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

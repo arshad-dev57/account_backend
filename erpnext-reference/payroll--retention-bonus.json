@@ -1,0 +1,145 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Retention Bonus",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-RTB-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/retention-bonus",
+  "search_fields": "employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Employee",
+      "fieldname": "employee_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Bonus",
+      "fieldname": "bonus_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "salary_component",
+      "target": "Salary Component"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Retention Bonus"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": "Employee"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "date_of_joining",
+      "label": "Date of Joining",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.date_of_joining",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "salary_component",
+      "label": "Salary Component",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Salary Component",
+      "section": "Bonus"
+    },
+    {
+      "fieldname": "bonus_amount",
+      "label": "Bonus Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "currency",
+      "section": "Bonus"
+    },
+    {
+      "fieldname": "bonus_payment_date",
+      "label": "Bonus Payment Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "Bonus"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "read_only": 1,
+      "depends_on": "eval:(doc.docstatus==1 || doc.employee)",
+      "section": "Bonus"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Retention Bonus",
+      "read_only": 1,
+      "section": "Bonus"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

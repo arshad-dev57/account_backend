@@ -1,0 +1,34 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employment Type",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:employee_type_name",
+  "naming_rule": "By fieldname",
+  "is_tree": 0,
+  "track_changes": 0,
+  "document_type": "Setup",
+  "documentation": "https://docs.frappe.io/hr/employment-type",
+  "allow_import": 1,
+  "sections": [],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "employee_type_name",
+      "label": "Employment Type",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "show_name_in_global_search": 1
+}

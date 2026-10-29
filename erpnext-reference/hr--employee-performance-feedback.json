@@ -1,0 +1,226 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Performance Feedback",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "format:HR-PF-{YYYY}-{#####}",
+  "naming_rule": "Expression",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/employee-performance-feedback",
+  "search_fields": "employee_name, reviewer_name, appraisal_cycle",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Employee Details",
+      "fieldname": "employee_details_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_3",
+      "fieldname": "section_break_3",
+      "type": "Section Break"
+    },
+    {
+      "label": "Feedback",
+      "fieldname": "feedback_tab",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "reviewer",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "reviewer_designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "user",
+      "target": "User"
+    },
+    {
+      "fieldname": "appraisal_cycle",
+      "target": "Appraisal Cycle"
+    },
+    {
+      "fieldname": "appraisal",
+      "target": "Appraisal"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Performance Feedback"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "feedback_ratings",
+      "child_doctype": "Employee Feedback Rating"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "For Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "fetch_from": "employee.designation",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "reviewer",
+      "label": "Reviewer",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "reviewer_name",
+      "label": "Reviewer Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "reviewer.employee_name",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "reviewer_designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "fetch_from": "reviewer.designation",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "user",
+      "label": "User",
+      "fieldtype": "Link",
+      "options": "User",
+      "read_only": 1,
+      "fetch_from": "reviewer.user_id",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "added_on",
+      "label": "Added On",
+      "fieldtype": "Datetime",
+      "reqd": 1,
+      "default": "Now",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "appraisal_cycle",
+      "label": "Appraisal Cycle",
+      "fieldtype": "Link",
+      "options": "Appraisal Cycle",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "appraisal.appraisal_cycle",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "appraisal",
+      "label": "Appraisal",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Appraisal",
+      "section": "section_break_3"
+    },
+    {
+      "fieldname": "feedback_ratings",
+      "label": "Feedback Ratings",
+      "fieldtype": "Table",
+      "options": "Employee Feedback Rating",
+      "section": "section_break_3"
+    },
+    {
+      "fieldname": "total_score",
+      "label": "Total Score",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "section_break_3"
+    },
+    {
+      "fieldname": "feedback",
+      "fieldtype": "Text Editor",
+      "reqd": 1,
+      "section": "Feedback"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Performance Feedback",
+      "read_only": 1,
+      "section": "Feedback"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

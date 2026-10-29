@@ -1,0 +1,311 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Appraisal",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "naming_series:",
+  "naming_rule": "By \"Naming Series\" field",
+  "naming_series_options": "HR-APR-.YYYY.-",
+  "title_field": "employee_name",
+  "timeline_field": "employee",
+  "is_tree": 0,
+  "track_changes": 1,
+  "document_type": "Setup",
+  "documentation": "https://docs.frappe.io/hr/appraisal",
+  "search_fields": "employee, employee_name, appraisal_cycle",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Overview",
+      "fieldname": "employee_details_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_aeb0",
+      "fieldname": "section_break_aeb0",
+      "type": "Section Break"
+    },
+    {
+      "label": "KRAs",
+      "fieldname": "kra_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_kras",
+      "fieldname": "section_break_kras",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_goals",
+      "fieldname": "section_break_goals",
+      "type": "Section Break"
+    },
+    {
+      "label": "total_section",
+      "fieldname": "total_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Feedback",
+      "fieldname": "feedback_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_20",
+      "fieldname": "section_break_20",
+      "type": "Section Break"
+    },
+    {
+      "label": "Self Appraisal",
+      "fieldname": "self_appraisal_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Ratings",
+      "fieldname": "section_break_23",
+      "type": "Section Break"
+    },
+    {
+      "label": "Reflections",
+      "fieldname": "reflections_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "appraisal_cycle",
+      "target": "Appraisal Cycle"
+    },
+    {
+      "fieldname": "appraisal_template",
+      "target": "Appraisal Template"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Appraisal"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "appraisal_kra",
+      "child_doctype": "Appraisal KRA"
+    },
+    {
+      "fieldname": "goals",
+      "child_doctype": "Appraisal Goal"
+    },
+    {
+      "fieldname": "self_ratings",
+      "child_doctype": "Employee Feedback Rating"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "label": "Series",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "HR-APR-.YYYY.-",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "fetch_from": "employee.designation",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "employee_image",
+      "label": "Employee Image",
+      "fieldtype": "Attach Image",
+      "hidden": 1,
+      "fetch_from": "employee.image",
+      "allow_on_submit": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "appraisal_cycle",
+      "label": "Appraisal Cycle",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Appraisal Cycle",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "final_score",
+      "label": "Final Score",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "depends_on": "appraisal_cycle",
+      "in_list_view": 1,
+      "description": "Average of Goal Score, Feedback Score, and Self Appraisal Score",
+      "section": "section_break_aeb0"
+    },
+    {
+      "fieldname": "appraisal_template",
+      "label": "Appraisal Template",
+      "fieldtype": "Link",
+      "options": "Appraisal Template",
+      "mandatory_depends_on": "eval:!doc.__islocal",
+      "in_standard_filter": 1,
+      "section": "KRAs"
+    },
+    {
+      "fieldname": "rate_goals_manually",
+      "label": "Rate Goals Manually",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "section": "KRAs"
+    },
+    {
+      "fieldname": "appraisal_kra",
+      "label": "KRA vs Goals",
+      "fieldtype": "Table",
+      "options": "Appraisal KRA",
+      "depends_on": "eval: !doc.rate_goals_manually",
+      "section": "section_break_kras"
+    },
+    {
+      "fieldname": "goal_score_percentage",
+      "label": "Goal Score (%)",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "depends_on": "eval: !doc.rate_goals_manually",
+      "section": "section_break_kras"
+    },
+    {
+      "fieldname": "goals",
+      "label": "Goals",
+      "fieldtype": "Table",
+      "options": "Appraisal Goal",
+      "depends_on": "rate_goals_manually",
+      "section": "section_break_goals"
+    },
+    {
+      "fieldname": "remarks",
+      "label": "Remarks",
+      "fieldtype": "Text",
+      "depends_on": "rate_goals_manually",
+      "description": "Any other remarks, noteworthy effort that should go in the records",
+      "section": "section_break_goals"
+    },
+    {
+      "fieldname": "total_score",
+      "label": "Total Goal Score",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "total_section"
+    },
+    {
+      "fieldname": "avg_feedback_score",
+      "label": "Average Feedback Score",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "section_break_20"
+    },
+    {
+      "fieldname": "self_ratings",
+      "fieldtype": "Table",
+      "options": "Employee Feedback Rating",
+      "section": "Ratings"
+    },
+    {
+      "fieldname": "self_score",
+      "label": "Total Self Score",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "section": "Ratings"
+    },
+    {
+      "fieldname": "reflections",
+      "fieldtype": "Text Editor",
+      "section": "Reflections"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Appraisal",
+      "read_only": 1,
+      "section": "Reflections"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

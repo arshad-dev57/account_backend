@@ -1,0 +1,46 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Gratuity Rule Slab",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "from_year",
+      "label": "From(Year)",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "default": "0",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "to_year",
+      "label": "To(Year)",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "default": "0",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "fraction_of_applicable_earnings",
+      "label": "Fraction of Applicable Earnings ",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

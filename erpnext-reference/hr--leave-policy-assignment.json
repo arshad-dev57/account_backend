@@ -1,0 +1,134 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Policy Assignment",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-LPOL-ASSGN-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/leave-policy-assignment",
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "leave_policy",
+      "target": "Leave Policy"
+    },
+    {
+      "fieldname": "leave_period",
+      "target": "Leave Period"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Leave Policy Assignment"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "read_only": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "leave_policy",
+      "label": "Leave Policy",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Leave Policy",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "carry_forward",
+      "label": "Add unused leaves from previous allocations",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "assignment_based_on",
+      "label": "Assignment based on",
+      "fieldtype": "Select",
+      "options": "\nLeave Period\nJoining Date",
+      "section": null
+    },
+    {
+      "fieldname": "leave_period",
+      "label": "Leave Period",
+      "fieldtype": "Link",
+      "options": "Leave Period",
+      "depends_on": "eval:doc.assignment_based_on == \"Leave Period\"",
+      "mandatory_depends_on": "eval:doc.assignment_based_on == \"Leave Period\"",
+      "section": null
+    },
+    {
+      "fieldname": "effective_from",
+      "label": "Effective From",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "effective_to",
+      "label": "Effective To",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "leaves_allocated",
+      "label": "Leaves Allocated",
+      "fieldtype": "Check",
+      "default": "0",
+      "hidden": 1,
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Leave Policy Assignment",
+      "read_only": 1,
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

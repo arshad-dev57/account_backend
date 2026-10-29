@@ -579,6 +579,7 @@ const getSalesOrders = async (req, res) => {
       search,
       status,
       paymentStatus,
+      customerId,
       fromDate,
       toDate,
       sortBy = 'orderDate',
@@ -608,6 +609,7 @@ const getSalesOrders = async (req, res) => {
 
     if (status && status !== 'all') filter.orderStatus = status;
     if (paymentStatus && paymentStatus !== 'all') filter.paymentStatus = paymentStatus;
+    if (customerId) filter.customerId = customerId;
 
     if (fromDate || toDate) {
       filter.orderDate = {};
@@ -1203,11 +1205,127 @@ const getOrderKPI = async (req, res) => {
   }
 };
 
+// ============================================================
+// ─── WHATSAPP DELIVERY (SALES ORDER DOCUMENT) ───────────────
+// ============================================================
+
+const WHATSAPP_API_VERSION = 'v18.0';
+
+function normalizeWhatsAppNumber(raw) {
+  if (!raw) return '';
+  let digits = String(raw).replace(/[^0-9]/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  // Pakistani local mobile 03XXXXXXXXX -> 923XXXXXXXXX
+  if (digits.startsWith('0') && digits.length >= 10) digits = `92${digits.slice(1)}`;
+  return digits;
+}
+
+const sendWhatsAppOrder = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { to, format, fileBase64, filename, mimeType, caption } = req.body || {};
+
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, companyId, isActive: true },
+      select: { id: true, orderNumber: true, customerName: true }
+    });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Sales order not found' });
+    }
+
+    const digits = normalizeWhatsAppNumber(to);
+    if (!/^[1-9]\d{6,14}$/.test(digits)) {
+      return res.status(400).json({ success: false, message: 'Invalid WhatsApp number' });
+    }
+
+    if (!fileBase64 || !filename || !['pdf', 'jpeg'].includes(format)) {
+      return res.status(400).json({ success: false, message: 'A valid file payload (pdf or jpeg) is required' });
+    }
+
+    const token = process.env.WHATSAPP_API_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!token || !phoneNumberId) {
+      return res.status(200).json({
+        success: true,
+        whatsappConfigured: false,
+        message: 'WhatsApp Business Cloud API is not configured on this server. The file was not delivered automatically.'
+      });
+    }
+
+    const buffer = Buffer.from(String(fileBase64), 'base64');
+    const maxBytes = format === 'pdf' ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (!buffer.length || buffer.length > maxBytes) {
+      return res.status(400).json({
+        success: false,
+        message: `File exceeds the ${format === 'pdf' ? '20 MB' : '5 MB'} WhatsApp limit`
+      });
+    }
+
+    // 1) Upload media to the WhatsApp Business Cloud API
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('file', new Blob([buffer], { type: mimeType }), filename);
+    const mediaRes = await fetch(
+      `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/media`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form }
+    );
+    const mediaJson = await mediaRes.json().catch(() => ({}));
+    if (!mediaRes.ok || !mediaJson.id) {
+      console.error('[whatsapp] media upload failed', mediaRes.status, JSON.stringify(mediaJson).slice(0, 300));
+      return res.status(502).json({
+        success: false,
+        message: 'WhatsApp media upload failed',
+        detail: mediaJson?.error?.message
+      });
+    }
+
+    // 2) Send document/image message with the uploaded media
+    const type = format === 'pdf' ? 'document' : 'image';
+    const media = { id: mediaJson.id };
+    if (type === 'document') media.filename = filename;
+    if (caption) media.caption = String(caption).slice(0, 1024);
+
+    const sendRes = await fetch(
+      `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: digits,
+          type,
+          [type]: media
+        })
+      }
+    );
+    const sendJson = await sendRes.json().catch(() => ({}));
+    if (!sendRes.ok) {
+      console.error('[whatsapp] message send failed', sendRes.status, JSON.stringify(sendJson).slice(0, 300));
+      return res.status(502).json({
+        success: false,
+        message: 'WhatsApp message send failed',
+        detail: sendJson?.error?.message
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      whatsappConfigured: true,
+      message: `Sales order ${order.orderNumber} sent to ${digits} on WhatsApp`,
+      data: { messageId: sendJson?.messages?.[0]?.id || null }
+    });
+  } catch (error) {
+    console.error('[whatsapp] sendSalesOrder error', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   // Sales Orders
   createSalesOrder,
   updateSalesOrder,
   getSalesOrders,
+  sendWhatsAppOrder,
   
   // Purchase Orders
   createPurchaseOrder,

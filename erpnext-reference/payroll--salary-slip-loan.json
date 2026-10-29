@@ -1,0 +1,110 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Salary Slip Loan",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "loan",
+      "target": "Loan"
+    },
+    {
+      "fieldname": "loan_product",
+      "target": "Loan Product"
+    },
+    {
+      "fieldname": "loan_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "interest_income_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "loan_repayment_entry",
+      "target": "Loan Repayment"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "loan",
+      "label": "Loan",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Loan",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "loan_product",
+      "label": "Loan Product",
+      "fieldtype": "Link",
+      "options": "Loan Product",
+      "read_only": 1,
+      "fetch_from": "loan.loan_product",
+      "section": null
+    },
+    {
+      "fieldname": "loan_account",
+      "label": "Loan Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "interest_income_account",
+      "label": "Interest Income Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "principal_amount",
+      "label": "Principal Amount",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "interest_amount",
+      "label": "Interest Amount",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "total_payment",
+      "label": "Total Payment",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "loan_repayment_entry",
+      "label": "Loan Repayment Entry",
+      "fieldtype": "Link",
+      "options": "Loan Repayment",
+      "read_only": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

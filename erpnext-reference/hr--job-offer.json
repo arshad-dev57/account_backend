@@ -1,0 +1,193 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Job Offer",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-OFF-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "applicant_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "document_type": "Document",
+  "documentation": "https://docs.frappe.io/hr/job-offer",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_4",
+      "fieldname": "section_break_4",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_14",
+      "fieldname": "section_break_14",
+      "type": "Section Break"
+    },
+    {
+      "label": "Printing Details",
+      "fieldname": "printing_details",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "job_applicant",
+      "target": "Job Applicant"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "job_offer_term_template",
+      "target": "Job Offer Term Template"
+    },
+    {
+      "fieldname": "select_terms",
+      "target": "Terms and Conditions"
+    },
+    {
+      "fieldname": "letter_head",
+      "target": "Letter Head"
+    },
+    {
+      "fieldname": "select_print_heading",
+      "target": "Print Heading"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Job Offer"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "offer_terms",
+      "child_doctype": "Job Offer Term"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "job_applicant",
+      "label": "Job Applicant",
+      "fieldtype": "Link",
+      "options": "Job Applicant",
+      "depends_on": "eval:doc.job_applicant",
+      "link_filters": "[[\"Job Applicant\",\"status\",\"!=\",\"Rejected\"]]",
+      "section": null
+    },
+    {
+      "fieldname": "applicant_name",
+      "label": "Applicant Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "fetch_from": "job_applicant.applicant_name",
+      "section": null
+    },
+    {
+      "fieldname": "applicant_email",
+      "label": "Applicant Email Address",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "options": "Email",
+      "fetch_from": "job_applicant.email_id",
+      "section": null
+    },
+    {
+      "fieldname": "offer_date",
+      "label": "Offer Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Designation",
+      "in_list_view": 1,
+      "fetch_from": "job_applicant.designation",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "Awaiting Response\nAccepted\nRejected\nCancelled",
+      "in_standard_filter": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "job_offer_term_template",
+      "label": "Job Offer Term Template",
+      "fieldtype": "Link",
+      "options": "Job Offer Term Template",
+      "section": "section_break_4"
+    },
+    {
+      "fieldname": "offer_terms",
+      "label": "Job Offer Terms",
+      "fieldtype": "Table",
+      "options": "Job Offer Term",
+      "section": "section_break_4"
+    },
+    {
+      "fieldname": "select_terms",
+      "label": "Select Terms and Conditions",
+      "fieldtype": "Link",
+      "options": "Terms and Conditions",
+      "section": "section_break_14"
+    },
+    {
+      "fieldname": "terms",
+      "label": "Terms and Conditions",
+      "fieldtype": "Text Editor",
+      "section": "section_break_14"
+    },
+    {
+      "fieldname": "letter_head",
+      "label": "Letter Head",
+      "fieldtype": "Link",
+      "options": "Letter Head",
+      "fetch_from": "company.default_letter_head",
+      "allow_on_submit": 1,
+      "section": "Printing Details"
+    },
+    {
+      "fieldname": "select_print_heading",
+      "label": "Print Heading",
+      "fieldtype": "Link",
+      "options": "Print Heading",
+      "allow_on_submit": 1,
+      "section": "Printing Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Job Offer",
+      "read_only": 1,
+      "section": "Printing Details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "show_name_in_global_search": 1
+}

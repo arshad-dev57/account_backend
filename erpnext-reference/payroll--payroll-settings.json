@@ -1,0 +1,199 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Payroll Settings",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "document_type": "Other",
+  "documentation": "https://docs.frappe.io/hr/payroll-settings",
+  "sections": [
+    {
+      "label": "Working Days and Hours",
+      "fieldname": "working_days_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Salary Slip",
+      "fieldname": "column_break_rnoq",
+      "type": "Section Break"
+    },
+    {
+      "label": "Email",
+      "fieldname": "email_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Other Settings",
+      "fieldname": "other_settings_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "sender",
+      "target": "Email Account"
+    },
+    {
+      "fieldname": "sender_copy",
+      "target": "Email Account"
+    },
+    {
+      "fieldname": "email_template",
+      "target": "Email Template"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "payroll_based_on",
+      "label": "Calculate Payroll Working Days Based On",
+      "fieldtype": "Select",
+      "default": "Leave",
+      "options": "Leave\nAttendance",
+      "section": "Working Days and Hours"
+    },
+    {
+      "fieldname": "consider_unmarked_attendance_as",
+      "label": "Consider Unmarked Attendance As",
+      "fieldtype": "Select",
+      "options": "Present\nAbsent",
+      "depends_on": "eval:doc.payroll_based_on == 'Attendance'",
+      "section": "Working Days and Hours"
+    },
+    {
+      "fieldname": "include_holidays_in_total_working_days",
+      "label": "Include holidays in Total no. of Working Days",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "If enabled, total no. of working days will include holidays, and this will reduce the value of Salary Per Day",
+      "section": "Working Days and Hours"
+    },
+    {
+      "fieldname": "consider_marked_attendance_on_holidays",
+      "label": "Consider Marked Attendance on Holidays",
+      "fieldtype": "Check",
+      "default": "0",
+      "depends_on": "include_holidays_in_total_working_days",
+      "description": "If enabled, deducts payment days for absent attendance on holidays. By default, holidays are considered as paid",
+      "section": "Working Days and Hours"
+    },
+    {
+      "fieldname": "max_working_hours_against_timesheet",
+      "label": "Max working hours against Timesheet",
+      "fieldtype": "Float",
+      "section": "Working Days and Hours"
+    },
+    {
+      "fieldname": "daily_wages_fraction_for_half_day",
+      "label": "Fraction of Daily Salary for Half Day",
+      "fieldtype": "Float",
+      "default": "0.5",
+      "description": "The fraction of daily wages to be paid for half-day attendance",
+      "section": "Working Days and Hours"
+    },
+    {
+      "fieldname": "disable_rounded_total",
+      "label": "Disable Rounded Total",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "If checked, hides and disables Rounded Total field in Salary Slips",
+      "section": "Salary Slip"
+    },
+    {
+      "fieldname": "show_leave_balances_in_salary_slip",
+      "label": "Show Leave Balances in Salary Slip",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Salary Slip"
+    },
+    {
+      "fieldname": "email_salary_slip_to_employee",
+      "label": "Email Salary Slip to Employee",
+      "fieldtype": "Check",
+      "default": "1",
+      "description": "Emails salary slip to employee based on preferred email selected in Employee",
+      "section": "Email"
+    },
+    {
+      "fieldname": "sender",
+      "label": "Sender",
+      "fieldtype": "Link",
+      "options": "Email Account",
+      "depends_on": "eval:doc.email_salary_slip_to_employee",
+      "section": "Email"
+    },
+    {
+      "fieldname": "sender_copy",
+      "label": "Sender Copy",
+      "fieldtype": "Link",
+      "options": "Email Account",
+      "depends_on": "eval:doc.email_salary_slip_to_employee",
+      "section": "Email"
+    },
+    {
+      "fieldname": "sender_email",
+      "label": "Sender Email",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "depends_on": "eval:doc.sender",
+      "fetch_from": "sender.email_id",
+      "section": "Email"
+    },
+    {
+      "fieldname": "email_template",
+      "label": "Email Template",
+      "fieldtype": "Link",
+      "options": "Email Template",
+      "depends_on": "eval:doc.email_salary_slip_to_employee",
+      "section": "Email"
+    },
+    {
+      "fieldname": "encrypt_salary_slips_in_emails",
+      "label": "Encrypt Salary Slips in Emails",
+      "fieldtype": "Check",
+      "default": "0",
+      "depends_on": "eval: doc.email_salary_slip_to_employee == 1;",
+      "description": "The salary slip emailed to the employee will be password protected, the password will be generated based on the password policy.",
+      "section": "Email"
+    },
+    {
+      "fieldname": "password_policy",
+      "label": "Password Policy",
+      "fieldtype": "Data",
+      "depends_on": "eval: doc.encrypt_salary_slips_in_emails == 1",
+      "in_list_view": 1,
+      "description": "<b>Example:</b> SAL-{first_name}-{date_of_birth.year} <br>This will generate a password like SAL-Jane-1972",
+      "section": "Email"
+    },
+    {
+      "fieldname": "process_payroll_accounting_entry_based_on_employee",
+      "label": "Process Payroll Accounting Entry based on Employee",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "If checked, Payroll Payable will be booked against each employee",
+      "section": "Other Settings"
+    },
+    {
+      "fieldname": "mandatory_benefit_application",
+      "label": "Mandatory Benefit Application",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "If checked, flexible benefits are considered only if benefit application exists",
+      "section": "Other Settings"
+    },
+    {
+      "fieldname": "create_overtime_slip",
+      "label": "Create Overtime Slip For Eligible Employee(s)",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "If checked, overtime slip creation can be handled as part of payroll processing",
+      "section": "Other Settings"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "ASC",
+  "editable_grid": 1
+}

@@ -1,0 +1,72 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Salary Slip Leave",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "options": "Leave Type",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "total_allocated_leaves",
+      "label": "Total Allocated Leave(s)",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "expired_leaves",
+      "label": "Expired Leave(s)",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "used_leaves",
+      "label": "Used Leave(s)",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "pending_leaves",
+      "label": "Leave(s) Pending Approval",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "available_leaves",
+      "label": "Available Leave(s)",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

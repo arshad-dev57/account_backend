@@ -1,0 +1,57 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Income Tax Slab Other Charges",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [
+    {
+      "label": "Conditions",
+      "fieldname": "conditions_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "percent",
+      "label": "Percent",
+      "fieldtype": "Percent",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "min_taxable_income",
+      "label": "Min Taxable Income",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "in_list_view": 1,
+      "section": "Conditions"
+    },
+    {
+      "fieldname": "max_taxable_income",
+      "label": "Max Taxable Income",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "in_list_view": 1,
+      "section": "Conditions"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

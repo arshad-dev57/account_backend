@@ -4,8 +4,29 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const mfg = require('../controllers/manufacturingController');
+const mfgDocs = require('../controllers/mfgDocumentController');
+const mfgReports = require('../controllers/mfgReportController');
 
 router.use(protect);
+
+// ERPNext-shaped Manufacturing workspace + document API (mirrors /api/hr/docs)
+router.get('/workspaces', mfgDocs.workspaces);
+router.get('/workspaces/:slug/dashboard', mfgDocs.dashboard);
+router.get('/workspaces/:slug/charts', mfgDocs.charts);
+router.get('/docs', mfgDocs.documents);
+router.get('/link-options/:target', mfgDocs.options);
+router.get('/docs/:resource/meta', mfgDocs.document);
+router.get('/docs/:resource', mfgDocs.list);
+router.post('/docs/:resource', mfgDocs.create);
+router.get('/docs/:resource/:id', mfgDocs.detail);
+router.put('/docs/:resource/:id', mfgDocs.update);
+router.delete('/docs/:resource/:id', mfgDocs.remove);
+router.get('/docs/:resource/:id/timeline', mfgDocs.timeline);
+router.post('/docs/:resource/:id/comment', mfgDocs.comment);
+router.post('/docs/:resource/:id/action/:key', mfgDocs.action);
+router.post('/docs/:resource/:id/button/:key', mfgDocs.button);
+router.get('/reports', mfgReports.index);
+router.get('/reports/:report', mfgReports.run);
 
 router.get('/dashboard', mfg.dashboard);
 router.get('/settings', mfg.settingsGet);

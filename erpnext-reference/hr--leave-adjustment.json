@@ -1,0 +1,180 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Adjustment",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "naming_series:",
+  "naming_rule": "By \"Naming Series\" field",
+  "naming_series_options": "HR-LAD-.YYYY.-",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/hr/leave-management/leave-adjustment",
+  "sections": [
+    {
+      "label": "section_break_wjxt",
+      "fieldname": "section_break_wjxt",
+      "type": "Section Break"
+    },
+    {
+      "label": "Allocation Details",
+      "fieldname": "section_break_etvg",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_ukzy",
+      "fieldname": "section_break_ukzy",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Leave Adjustment"
+    },
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    },
+    {
+      "fieldname": "leave_allocation",
+      "target": "Leave Allocation"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "label": "Series",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "HR-LAD-.YYYY.-",
+      "in_list_view": 1,
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Leave Adjustment",
+      "read_only": 1,
+      "search_index": 1,
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Leave Type",
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "adjustment_type",
+      "label": "Adjustment Type",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "\nAllocate\nReduce",
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "leaves_to_adjust",
+      "label": "Leaves to Adjust",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "section": "section_break_wjxt"
+    },
+    {
+      "fieldname": "leave_allocation",
+      "label": "Allocation to Adjust",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Leave Allocation",
+      "read_only": 1,
+      "section": "Allocation Details"
+    },
+    {
+      "fieldname": "allocated_leaves",
+      "label": "Allocated Leaves",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "fetch_from": "leave_allocation.total_leaves_allocated",
+      "section": "Allocation Details"
+    },
+    {
+      "fieldname": "leaves_after_adjustment",
+      "label": "Leaves After Adjustment",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "section": "Allocation Details"
+    },
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "fetch_from": "leave_allocation.from_date",
+      "section": "Allocation Details"
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "fetch_from": "leave_allocation.to_date",
+      "section": "Allocation Details"
+    },
+    {
+      "fieldname": "reason_for_adjustment",
+      "label": "Reason for Adjustment",
+      "fieldtype": "Small Text",
+      "depends_on": "eval:doc.leave_allocation;",
+      "section": "section_break_ukzy"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

@@ -1,0 +1,209 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Job Requisition",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "naming_series:",
+  "naming_rule": "By \"Naming Series\" field",
+  "naming_series_options": "HR-HIREQ-",
+  "title_field": "designation",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/job-requisition",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Requested By",
+      "fieldname": "section_break_7",
+      "type": "Section Break"
+    },
+    {
+      "label": "Timelines",
+      "fieldname": "timelines_tab",
+      "type": "Section Break"
+    },
+    {
+      "label": "Job Description",
+      "fieldname": "job_description_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Connections",
+      "fieldname": "connections_tab",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "requested_by",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "requested_by_dept",
+      "target": "Department"
+    },
+    {
+      "fieldname": "requested_by_designation",
+      "target": "Designation"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "label": "Naming Series",
+      "fieldtype": "Select",
+      "options": "HR-HIREQ-",
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Designation",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "section": null
+    },
+    {
+      "fieldname": "no_of_positions",
+      "label": "No of. Positions",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "expected_compensation",
+      "label": "Expected Compensation",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "Company:company:default_currency",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Pending\nOpen & Approved\nRejected\nFilled\nOn Hold\nCancelled",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "requested_by",
+      "label": "Requested By",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "section": "Requested By"
+    },
+    {
+      "fieldname": "requested_by_name",
+      "label": "Requested By (Name)",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "requested_by.employee_name",
+      "section": "Requested By"
+    },
+    {
+      "fieldname": "requested_by_dept",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "requested_by.department",
+      "section": "Requested By"
+    },
+    {
+      "fieldname": "requested_by_designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "fetch_from": "requested_by.designation",
+      "section": "Requested By"
+    },
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "section": "Timelines"
+    },
+    {
+      "fieldname": "completed_on",
+      "label": "Completed On",
+      "fieldtype": "Date",
+      "depends_on": "eval:doc.status==\"Filled\"",
+      "mandatory_depends_on": "eval:doc.status==\"Filled\"",
+      "section": "Timelines"
+    },
+    {
+      "fieldname": "expected_by",
+      "label": "Expected By",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "section": "Timelines"
+    },
+    {
+      "fieldname": "time_to_fill",
+      "label": "Time to Fill",
+      "fieldtype": "Duration",
+      "read_only": 1,
+      "description": "Time taken to fill the open positions",
+      "section": "Timelines"
+    },
+    {
+      "fieldname": "description",
+      "label": "Job Description",
+      "fieldtype": "Text Editor",
+      "reqd": 1,
+      "fetch_from": "designation.description",
+      "section": "Job Description"
+    },
+    {
+      "fieldname": "reason_for_requesting",
+      "label": "Reason for Requesting",
+      "fieldtype": "Text",
+      "section": "Job Description"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

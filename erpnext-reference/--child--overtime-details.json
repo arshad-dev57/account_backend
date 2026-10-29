@@ -1,0 +1,78 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Overtime Details",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "reference_document",
+      "target": "Attendance"
+    },
+    {
+      "fieldname": "overtime_type",
+      "target": "Overtime Type"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "reference_document",
+      "label": "Reference Document",
+      "fieldtype": "Link",
+      "options": "Attendance",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "date",
+      "label": "Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "overtime_type",
+      "label": "Overtime Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Overtime Type",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "overtime_duration",
+      "label": "Overtime Duration",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "in_list_view": 1,
+      "precision": "2",
+      "section": null
+    },
+    {
+      "fieldname": "standard_working_hours",
+      "label": "Standard Working Hours",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "maximum_overtime_hours_allowed",
+      "label": "Maximum Overtime Hours Allowed",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "fetch_from": "overtime_type.maximum_overtime_hours_allowed",
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

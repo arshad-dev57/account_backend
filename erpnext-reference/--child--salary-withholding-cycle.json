@@ -1,0 +1,58 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Salary Withholding Cycle",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "journal_entry",
+      "target": "Journal Entry"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "is_salary_released",
+      "label": "Is Salary Released",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "journal_entry",
+      "label": "Journal Entry",
+      "fieldtype": "Link",
+      "options": "Journal Entry",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

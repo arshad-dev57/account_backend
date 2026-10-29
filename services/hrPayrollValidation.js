@@ -107,14 +107,14 @@ async function validatePayPeriod({
       prisma.hrOvertime.findMany({
         where: {
           companyId,
-          status: { in: ['Pending', 'pending'] },
+          status: { in: ['Pending', 'pending', 'Draft', 'Submitted'] },
           workDate: { gte: start, lt: endExclusive }
         }
       }),
       prisma.hrBonus.findMany({
         where: {
           companyId,
-          status: { in: ['Pending', 'pending'] },
+          status: { in: ['Pending', 'pending', 'Draft', 'Submitted'] },
           period: periodKey
         }
       })
@@ -222,7 +222,7 @@ async function validatePayPeriod({
       where: {
         companyId,
         employeeId: emp.id,
-        status: { in: ['Pending', 'pending'] },
+        status: { in: ['Pending', 'pending', 'Open'] },
         fromDate: { lte: endExclusive },
         toDate: { gte: start }
       }

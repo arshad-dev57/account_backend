@@ -1,0 +1,79 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Shift Schedule",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/shift-schedule",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "schedule_settings_section",
+      "fieldname": "schedule_settings_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "shift_type",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Shift Schedule"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "repeat_on_days",
+      "child_doctype": "Assignment Rule Day"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "shift_type",
+      "label": "Shift Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Shift Type",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "schedule_settings_section"
+    },
+    {
+      "fieldname": "frequency",
+      "label": "Frequency",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Every Week\nEvery 2 Weeks\nEvery 3 Weeks\nEvery 4 Weeks",
+      "in_list_view": 1,
+      "section": "schedule_settings_section"
+    },
+    {
+      "fieldname": "repeat_on_days",
+      "label": "Repeat On Days",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Assignment Rule Day",
+      "section": "schedule_settings_section"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Shift Schedule",
+      "read_only": 1,
+      "search_index": 1,
+      "section": "schedule_settings_section"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

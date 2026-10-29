@@ -1,0 +1,95 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Full and Final Outstanding Statement",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "reference_document_type",
+      "target": "DocType"
+    },
+    {
+      "fieldname": "reference_document",
+      "target": "reference_document_type"
+    },
+    {
+      "fieldname": "account",
+      "target": "Account"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "component",
+      "label": "Component",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "reference_document_type",
+      "label": "Reference Document Type",
+      "fieldtype": "Link",
+      "options": "DocType",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "reference_document",
+      "label": "Reference Document",
+      "fieldtype": "Dynamic Link",
+      "options": "reference_document_type",
+      "depends_on": "reference_document_type",
+      "mandatory_depends_on": "reference_document_type",
+      "in_list_view": 1,
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "account",
+      "label": "Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "paid_via_salary_slip",
+      "label": "Paid via Salary Slip",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "amount",
+      "label": "Amount",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Unsettled",
+      "options": "Settled\nUnsettled",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "remark",
+      "label": "Remark",
+      "fieldtype": "Small Text",
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

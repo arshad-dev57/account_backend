@@ -1,0 +1,238 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Grievance",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-GRIEV-.YYYY.-.#####",
+  "title_field": "subject",
+  "is_tree": 0,
+  "track_changes": 1,
+  "search_fields": "subject,raised_by,grievance_against_party",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Grievance Details",
+      "fieldname": "grievance_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_14",
+      "fieldname": "section_break_14",
+      "type": "Section Break"
+    },
+    {
+      "label": "Investigation Details",
+      "fieldname": "investigation_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Resolution Details",
+      "fieldname": "resolution_details_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "raised_by",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "reports_to",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "grievance_against_party",
+      "target": "DocType"
+    },
+    {
+      "fieldname": "grievance_against",
+      "target": "grievance_against_party"
+    },
+    {
+      "fieldname": "grievance_type",
+      "target": "Grievance Type"
+    },
+    {
+      "fieldname": "associated_document_type",
+      "target": "DocType"
+    },
+    {
+      "fieldname": "associated_document",
+      "target": "associated_document_type"
+    },
+    {
+      "fieldname": "resolved_by",
+      "target": "User"
+    },
+    {
+      "fieldname": "employee_responsible",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Grievance"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "subject",
+      "label": "Subject",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "raised_by",
+      "label": "Raised By",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "raised_by.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "fetch_from": "raised_by.designation",
+      "section": null
+    },
+    {
+      "fieldname": "date",
+      "label": "Date ",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "Open",
+      "options": "Open\nInvestigated\nResolved\nInvalid\nCancelled",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "reports_to",
+      "label": "Reports To",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "read_only": 1,
+      "fetch_from": "raised_by.reports_to",
+      "section": null
+    },
+    {
+      "fieldname": "grievance_against_party",
+      "label": "Grievance Against Party",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "DocType",
+      "in_list_view": 1,
+      "section": "Grievance Details"
+    },
+    {
+      "fieldname": "grievance_against",
+      "label": "Grievance Against",
+      "fieldtype": "Dynamic Link",
+      "reqd": 1,
+      "options": "grievance_against_party",
+      "section": "Grievance Details"
+    },
+    {
+      "fieldname": "grievance_type",
+      "label": "Grievance Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Grievance Type",
+      "in_list_view": 1,
+      "section": "Grievance Details"
+    },
+    {
+      "fieldname": "associated_document_type",
+      "label": "Associated Document Type",
+      "fieldtype": "Link",
+      "options": "DocType",
+      "section": "Grievance Details"
+    },
+    {
+      "fieldname": "associated_document",
+      "label": "Associated Document",
+      "fieldtype": "Dynamic Link",
+      "options": "associated_document_type",
+      "section": "Grievance Details"
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text",
+      "reqd": 1,
+      "section": "section_break_14"
+    },
+    {
+      "fieldname": "cause_of_grievance",
+      "label": "Cause of Grievance",
+      "fieldtype": "Text",
+      "mandatory_depends_on": "eval: doc.status == \"Investigated\" || doc.status ==  \"Resolved\"",
+      "section": "Investigation Details"
+    },
+    {
+      "fieldname": "resolved_by",
+      "label": "Resolved By",
+      "fieldtype": "Link",
+      "options": "User",
+      "mandatory_depends_on": "eval: doc.status == \"Resolved\"",
+      "section": "Resolution Details"
+    },
+    {
+      "fieldname": "resolution_date",
+      "label": "Resolution Date",
+      "fieldtype": "Date",
+      "mandatory_depends_on": "eval: doc.status == \"Resolved\"",
+      "section": "Resolution Details"
+    },
+    {
+      "fieldname": "employee_responsible",
+      "label": "Employee Responsible ",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "section": "Resolution Details"
+    },
+    {
+      "fieldname": "resolution_detail",
+      "label": "Resolution Details",
+      "fieldtype": "Small Text",
+      "mandatory_depends_on": "eval: doc.status == \"Resolved\"",
+      "section": "Resolution Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Grievance",
+      "read_only": 1,
+      "section": "Resolution Details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

@@ -1,0 +1,261 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Attendance",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "naming_series:",
+  "naming_rule": "By \"Naming Series\" field",
+  "naming_series_options": "HR-ATT-.YYYY.-",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "document_type": "Setup",
+  "documentation": "https://docs.frappe.io/hr/attendance",
+  "search_fields": "employee,employee_name,attendance_date,status",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "attendance_details",
+      "fieldname": "attendance_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "Details",
+      "fieldname": "details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Overtime",
+      "fieldname": "overtime_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    },
+    {
+      "fieldname": "leave_application",
+      "target": "Leave Application"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "attendance_request",
+      "target": "Attendance Request"
+    },
+    {
+      "fieldname": "shift",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Attendance"
+    },
+    {
+      "fieldname": "overtime_type",
+      "target": "Overtime Type"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "label": "Series",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "HR-ATT-.YYYY.-",
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "working_hours",
+      "label": "Working Hours",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "depends_on": "working_hours",
+      "precision": "2",
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "Present",
+      "options": "\nPresent\nAbsent\nOn Leave\nHalf Day\nWork From Home",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "options": "Leave Type",
+      "depends_on": "eval:in_list([\"On Leave\", \"Half Day\"], doc.status)",
+      "mandatory_depends_on": "eval:in_list([\"On Leave\", \"Half Day\"], doc.status)",
+      "in_standard_filter": 1,
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "leave_application",
+      "label": "Leave Application",
+      "fieldtype": "Link",
+      "options": "Leave Application",
+      "read_only": 1,
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "attendance_date",
+      "label": "Attendance Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "search_index": 1,
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "attendance_request",
+      "label": "Attendance Request",
+      "fieldtype": "Link",
+      "options": "Attendance Request",
+      "read_only": 1,
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "half_day_status",
+      "label": "Status for Other Half",
+      "fieldtype": "Select",
+      "options": "\nPresent\nAbsent",
+      "depends_on": "eval:doc.status==\"Half Day\";",
+      "section": "attendance_details"
+    },
+    {
+      "fieldname": "shift",
+      "label": "Shift",
+      "fieldtype": "Link",
+      "options": "Shift Type",
+      "section": "Details"
+    },
+    {
+      "fieldname": "in_time",
+      "label": "In Time",
+      "fieldtype": "Datetime",
+      "read_only": 1,
+      "depends_on": "shift",
+      "section": "Details"
+    },
+    {
+      "fieldname": "out_time",
+      "label": "Out Time",
+      "fieldtype": "Datetime",
+      "read_only": 1,
+      "depends_on": "shift",
+      "section": "Details"
+    },
+    {
+      "fieldname": "late_entry",
+      "label": "Late Entry",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Details"
+    },
+    {
+      "fieldname": "early_exit",
+      "label": "Early Exit",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Attendance",
+      "read_only": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "modify_half_day_status",
+      "label": "modify_half_day_status",
+      "fieldtype": "Check",
+      "default": "0",
+      "hidden": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "overtime_type",
+      "label": "Overtime Type",
+      "fieldtype": "Link",
+      "options": "Overtime Type",
+      "read_only": 1,
+      "section": "Overtime"
+    },
+    {
+      "fieldname": "actual_overtime_duration",
+      "label": "Actual Overtime Duration",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "section": "Overtime"
+    },
+    {
+      "fieldname": "standard_working_hours",
+      "label": "Standard Working Hours",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "section": "Overtime"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

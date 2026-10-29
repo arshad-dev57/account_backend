@@ -1,0 +1,222 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Payroll Correction",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "format:PAYCORR-{payroll_period}-{#####}",
+  "naming_rule": "Expression",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/payroll-correction",
+  "sections": [
+    {
+      "label": "section_break_vvay",
+      "fieldname": "section_break_vvay",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_xdag",
+      "fieldname": "section_break_xdag",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_giud",
+      "fieldname": "section_break_giud",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "amended_from",
+      "target": "Payroll Correction"
+    },
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "payroll_period",
+      "target": "Payroll Period"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "salary_slip_reference",
+      "target": "Salary Slip"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "earning_arrears",
+      "child_doctype": "Payroll Correction Child"
+    },
+    {
+      "fieldname": "deduction_arrears",
+      "child_doctype": "Payroll Correction Child"
+    },
+    {
+      "fieldname": "accrual_arrears",
+      "child_doctype": "Payroll Correction Child"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Payroll Correction",
+      "read_only": 1,
+      "search_index": 1,
+      "section": "section_break_vvay"
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "section_break_vvay"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "section_break_vvay"
+    },
+    {
+      "fieldname": "payroll_date",
+      "label": "Payroll Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "description": "Choose the date on which you want to create these components as arrears.",
+      "section": "section_break_vvay"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": "section_break_vvay"
+    },
+    {
+      "fieldname": "payroll_period",
+      "label": "Payroll Period",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Payroll Period",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "section_break_vvay"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "depends_on": "eval: doc.company && doc.employee",
+      "fetch_from": "company.default_currency",
+      "section": "section_break_vvay"
+    },
+    {
+      "fieldname": "month_for_lwp_reversal",
+      "label": "Select Month for LWP Reversal",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "depends_on": "payroll_period",
+      "in_list_view": 1,
+      "section": "section_break_xdag"
+    },
+    {
+      "fieldname": "working_days",
+      "label": "Working Days",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "depends_on": "salary_slip_reference",
+      "section": "section_break_xdag"
+    },
+    {
+      "fieldname": "payment_days",
+      "label": "Payment Days",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "depends_on": "salary_slip_reference",
+      "section": "section_break_xdag"
+    },
+    {
+      "fieldname": "lwp_days",
+      "label": "Total Days Without Pay",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "depends_on": "salary_slip_reference",
+      "section": "section_break_xdag"
+    },
+    {
+      "fieldname": "salary_slip_reference",
+      "label": "Salary Slip Reference",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Salary Slip",
+      "read_only": 1,
+      "depends_on": "month_for_lwp_reversal",
+      "section": "section_break_xdag"
+    },
+    {
+      "fieldname": "days_to_reverse",
+      "label": "Days to Reverse",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "depends_on": "salary_slip_reference",
+      "in_list_view": 1,
+      "description": "Enter the number of Leave Without Pay (LWP) days you want to reverse. This value cannot exceed the total LWP days recorded for the selected month",
+      "section": "section_break_xdag"
+    },
+    {
+      "fieldname": "earning_arrears",
+      "label": "Earning Arrears",
+      "fieldtype": "Table",
+      "options": "Payroll Correction Child",
+      "read_only": 1,
+      "depends_on": "earning_arrears",
+      "section": "section_break_giud"
+    },
+    {
+      "fieldname": "deduction_arrears",
+      "label": "Deduction Arrears",
+      "fieldtype": "Table",
+      "options": "Payroll Correction Child",
+      "read_only": 1,
+      "depends_on": "deduction_arrears",
+      "section": "section_break_giud"
+    },
+    {
+      "fieldname": "accrual_arrears",
+      "label": "Accrual Arrears",
+      "fieldtype": "Table",
+      "options": "Payroll Correction Child",
+      "read_only": 1,
+      "depends_on": "accrual_arrears",
+      "section": "section_break_giud"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

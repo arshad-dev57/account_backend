@@ -1,0 +1,35 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Grievance Type",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "Prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 0,
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_5",
+      "fieldname": "section_break_5",
+      "type": "Section Break"
+    }
+  ],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text",
+      "section": "section_break_5"
+    }
+  ],
+  "allow_rename": 1,
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

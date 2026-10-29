@@ -1,0 +1,72 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Payroll Employee Detail",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.designation",
+      "section": null
+    },
+    {
+      "fieldname": "is_salary_withheld",
+      "label": "Is Salary Withheld",
+      "fieldtype": "Check",
+      "default": "0",
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

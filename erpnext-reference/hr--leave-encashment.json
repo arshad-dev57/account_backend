@@ -1,0 +1,301 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Encashment",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-ENC-.YYYY.-.#####",
+  "naming_rule": "Expression",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "states": [
+    {
+      "idx": 1,
+      "title": "Draft",
+      "color": "Red"
+    },
+    {
+      "idx": 2,
+      "title": "Paid",
+      "color": "Green"
+    },
+    {
+      "idx": 3,
+      "title": "Unpaid",
+      "color": "Orange"
+    },
+    {
+      "idx": 4,
+      "title": "Cancelled",
+      "color": "Red"
+    }
+  ],
+  "documentation": "https://docs.frappe.io/hr/leave-encashment",
+  "search_fields": "employee,employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Accounting",
+      "fieldname": "accounting_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Accounting Dimensions",
+      "fieldname": "accounting_dimensions_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Payroll",
+      "fieldname": "payroll",
+      "type": "Section Break"
+    },
+    {
+      "label": "More Info",
+      "fieldname": "section_break_svbb",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "leave_period",
+      "target": "Leave Period"
+    },
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    },
+    {
+      "fieldname": "leave_allocation",
+      "target": "Leave Allocation"
+    },
+    {
+      "fieldname": "expense_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "payable_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    },
+    {
+      "fieldname": "additional_salary",
+      "target": "Additional Salary"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Leave Encashment"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "leave_period",
+      "label": "Leave Period",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Leave Period",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Leave Type",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "leave_allocation",
+      "label": "Leave Allocation",
+      "fieldtype": "Link",
+      "options": "Leave Allocation",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "leave_balance",
+      "label": "Leave Balance",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "actual_encashable_days",
+      "label": "Actual Encashable Days",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "description": "Number of leaves eligible for encashment based on leave type settings",
+      "section": null
+    },
+    {
+      "fieldname": "encashment_days",
+      "label": "Encashment Days",
+      "fieldtype": "Float",
+      "section": null
+    },
+    {
+      "fieldname": "encashment_amount",
+      "label": "Encashment Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "pay_via_payment_entry",
+      "label": "Pay via Payment Entry",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "Process leave encashment via a separate Payment Entry instead of Salary Slip",
+      "section": "Accounting"
+    },
+    {
+      "fieldname": "expense_account",
+      "label": "Expense Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "depends_on": "pay_via_payment_entry",
+      "mandatory_depends_on": "pay_via_payment_entry",
+      "section": "Accounting"
+    },
+    {
+      "fieldname": "payable_account",
+      "label": "Payable Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "depends_on": "pay_via_payment_entry",
+      "mandatory_depends_on": "pay_via_payment_entry",
+      "section": "Accounting"
+    },
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "default": "Today",
+      "depends_on": "pay_via_payment_entry",
+      "section": "Accounting"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "read_only": 1,
+      "depends_on": "eval:(doc.docstatus==1 || doc.employee)",
+      "section": "Accounting"
+    },
+    {
+      "fieldname": "paid_amount",
+      "label": "Paid Amount",
+      "fieldtype": "Currency",
+      "default": "0.0",
+      "read_only": 1,
+      "depends_on": "pay_via_payment_entry",
+      "description": "Amount paid against this encashment",
+      "section": "Accounting"
+    },
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "options": "Cost Center",
+      "mandatory_depends_on": "pay_via_payment_entry",
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "encashment_date",
+      "label": "Encashment Date",
+      "fieldtype": "Date",
+      "default": "Today",
+      "section": "Payroll"
+    },
+    {
+      "fieldname": "additional_salary",
+      "label": "Additional Salary",
+      "fieldtype": "Link",
+      "options": "Additional Salary",
+      "read_only": 1,
+      "section": "Payroll"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Leave Encashment",
+      "read_only": 1,
+      "section": "More Info"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "Draft\nUnpaid\nPaid\nSubmitted\nCancelled",
+      "read_only": 1,
+      "section": "More Info"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

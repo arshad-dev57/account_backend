@@ -1,0 +1,45 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Expense Claim Account",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "default_account",
+      "target": "Account"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "default_account",
+      "label": "Default Account",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Account",
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

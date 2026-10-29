@@ -1,0 +1,132 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Job Opening Template",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:template_title",
+  "naming_rule": "By fieldname",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/job-opening",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Pay Details",
+      "fieldname": "pay_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_dwfh",
+      "fieldname": "section_break_dwfh",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "employment_type",
+      "target": "Employment Type"
+    },
+    {
+      "fieldname": "location",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "template_title",
+      "label": "Template Title",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "section": null
+    },
+    {
+      "fieldname": "employment_type",
+      "label": "Employment Type",
+      "fieldtype": "Link",
+      "options": "Employment Type",
+      "section": null
+    },
+    {
+      "fieldname": "location",
+      "label": "Location",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "section": null
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "upper_range",
+      "label": "Upper Range",
+      "fieldtype": "Currency",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "lower_range",
+      "label": "Lower Range",
+      "fieldtype": "Currency",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "salary_per",
+      "label": "Salary Paid Per",
+      "fieldtype": "Select",
+      "default": "Month",
+      "options": "Month\nYear",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "publish_salary_range",
+      "label": "Publish Salary Range",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text Editor",
+      "section": "section_break_dwfh"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

@@ -1,0 +1,130 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Shift Request",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-SHR-.YY.-.MM.-.#####",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/shift-request",
+  "allow_import": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "shift_type",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "approver",
+      "target": "User"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Shift Request"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "shift_type",
+      "label": "Shift Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Shift Type",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "Draft",
+      "options": "Draft\nApproved\nRejected",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "approver",
+      "label": "Approver",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "User",
+      "fetch_from": "employee.shift_request_approver",
+      "section": null
+    },
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Shift Request",
+      "read_only": 1,
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

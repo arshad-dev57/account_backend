@@ -1,0 +1,58 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Tax Exemption Sub Category",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "Prompt",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/employee-tax-exemption-declaration",
+  "allow_import": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "exemption_category",
+      "target": "Employee Tax Exemption Category"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "exemption_category",
+      "label": "Tax Exemption Category",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee Tax Exemption Category",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "max_amount",
+      "label": "Max Exemption Amount",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "fetch_from": "exemption_category.max_amount",
+      "section": null
+    },
+    {
+      "fieldname": "is_active",
+      "label": "Is Active",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": null
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Small Text",
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

@@ -1,0 +1,198 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Separation",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-EMP-SEP-.YYYY.-.#####",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-separation",
+  "sections": [
+    {
+      "label": "Separation Activities",
+      "fieldname": "table_for_activity",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_14",
+      "fieldname": "section_break_14",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "employee_grade",
+      "target": "Employee Grade"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "project",
+      "target": "Project"
+    },
+    {
+      "fieldname": "employee_separation_template",
+      "target": "Employee Separation Template"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Separation"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "activities",
+      "child_doctype": "Employee Boarding Activity"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.designation",
+      "section": null
+    },
+    {
+      "fieldname": "employee_grade",
+      "label": "Employee Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "read_only": 1,
+      "fetch_from": "employee.grade",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "boarding_status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Pending",
+      "options": "Pending\nIn Process\nCompleted",
+      "read_only": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "resignation_letter_date",
+      "label": "Resignation Letter Date",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "employee.resignation_letter_date",
+      "section": null
+    },
+    {
+      "fieldname": "boarding_begins_on",
+      "label": "Separation Begins On",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "project",
+      "label": "Project",
+      "fieldtype": "Link",
+      "options": "Project",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_separation_template",
+      "label": "Employee Separation Template",
+      "fieldtype": "Link",
+      "options": "Employee Separation Template",
+      "section": "Separation Activities"
+    },
+    {
+      "fieldname": "activities",
+      "label": "Activities",
+      "fieldtype": "Table",
+      "options": "Employee Boarding Activity",
+      "allow_on_submit": 1,
+      "section": "Separation Activities"
+    },
+    {
+      "fieldname": "notify_users_by_email",
+      "label": "Notify users by email",
+      "fieldtype": "Check",
+      "default": "0",
+      "allow_on_submit": 1,
+      "section": "Separation Activities"
+    },
+    {
+      "fieldname": "exit_interview",
+      "label": "Exit Interview Summary",
+      "fieldtype": "Text Editor",
+      "section": "section_break_14"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Separation",
+      "read_only": 1,
+      "section": "section_break_14"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

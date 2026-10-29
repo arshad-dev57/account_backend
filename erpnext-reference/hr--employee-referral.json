@@ -1,0 +1,210 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Referral",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "format:HR-REF-{####}",
+  "title_field": "full_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/employee-referral",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Referral Details",
+      "fieldname": "referral_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Referrer Details",
+      "fieldname": "referrer_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Additional Information ",
+      "fieldname": "additional_information_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "for_designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "referrer",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Referral"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "first_name",
+      "label": "First Name ",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "last_name",
+      "label": "Last Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "full_name",
+      "label": "Full Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "date",
+      "label": "Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Pending\nIn Process\nAccepted\nRejected\nCancelled",
+      "read_only": 1,
+      "in_standard_filter": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "for_designation",
+      "label": "For Designation ",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Designation",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "email",
+      "label": "Email",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "options": "Email",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Referral Details"
+    },
+    {
+      "fieldname": "contact_no",
+      "label": "Contact No.",
+      "fieldtype": "Data",
+      "options": "Phone",
+      "in_standard_filter": 1,
+      "section": "Referral Details"
+    },
+    {
+      "fieldname": "resume_link",
+      "label": "Resume Link",
+      "fieldtype": "Data",
+      "section": "Referral Details"
+    },
+    {
+      "fieldname": "current_employer",
+      "label": "Current Employer ",
+      "fieldtype": "Data",
+      "section": "Referral Details"
+    },
+    {
+      "fieldname": "current_job_title",
+      "label": "Current Job Title",
+      "fieldtype": "Data",
+      "section": "Referral Details"
+    },
+    {
+      "fieldname": "resume",
+      "label": "Resume",
+      "fieldtype": "Attach",
+      "section": "Referral Details"
+    },
+    {
+      "fieldname": "referrer",
+      "label": "Referrer",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "section": "Referrer Details"
+    },
+    {
+      "fieldname": "referrer_name",
+      "label": "Referrer Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "referrer.employee_name",
+      "section": "Referrer Details"
+    },
+    {
+      "fieldname": "is_applicable_for_referral_bonus",
+      "label": "Is Applicable for Referral Bonus",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Referrer Details"
+    },
+    {
+      "fieldname": "referral_payment_status",
+      "label": "Referral Bonus Payment Status",
+      "fieldtype": "Select",
+      "options": "\nUnpaid\nPaid",
+      "read_only": 1,
+      "section": "Referrer Details"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Referrer Details"
+    },
+    {
+      "fieldname": "qualification_reason",
+      "label": "Why is this Candidate Qualified for this Position?",
+      "fieldtype": "Text Editor",
+      "section": "Additional Information "
+    },
+    {
+      "fieldname": "work_references",
+      "label": "Work References",
+      "fieldtype": "Text Editor",
+      "section": "Additional Information "
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Referral",
+      "read_only": 1,
+      "section": "Additional Information "
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

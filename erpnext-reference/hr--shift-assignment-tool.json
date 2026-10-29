@@ -1,0 +1,221 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Shift Assignment Tool",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/shift-assignment-tool",
+  "sections": [
+    {
+      "label": "Shift Assignment Details",
+      "fieldname": "shift_assignment_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Shift Request Filters",
+      "fieldname": "shift_request_filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Quick Filters",
+      "fieldname": "quick_filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Advanced Filters",
+      "fieldname": "advanced_filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Select Employees",
+      "fieldname": "select_rows_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "shift_type",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "shift_schedule",
+      "target": "Shift Schedule"
+    },
+    {
+      "fieldname": "shift_location",
+      "target": "Shift Location"
+    },
+    {
+      "fieldname": "shift_type_filter",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "approver",
+      "target": "User"
+    },
+    {
+      "fieldname": "branch",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "grade",
+      "target": "Employee Grade"
+    },
+    {
+      "fieldname": "employment_type",
+      "target": "Employment Type"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "action",
+      "label": "Action",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "Assign Shift",
+      "options": "Assign Shift\nAssign Shift Schedule\nProcess Shift Requests",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "shift_type",
+      "label": "Shift Type",
+      "fieldtype": "Link",
+      "options": "Shift Type",
+      "depends_on": "eval:doc.action === \"Assign Shift\"",
+      "mandatory_depends_on": "eval:doc.action === \"Assign Shift\"",
+      "in_list_view": 1,
+      "section": "Shift Assignment Details"
+    },
+    {
+      "fieldname": "shift_schedule",
+      "label": "Shift Schedule",
+      "fieldtype": "Link",
+      "options": "Shift Schedule",
+      "depends_on": "eval:doc.action === \"Assign Shift Schedule\"",
+      "mandatory_depends_on": "eval:doc.action === \"Assign Shift Schedule\"",
+      "section": "Shift Assignment Details"
+    },
+    {
+      "fieldname": "shift_location",
+      "label": "Shift Location",
+      "fieldtype": "Link",
+      "options": "Shift Location",
+      "section": "Shift Assignment Details"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Active",
+      "options": "Active\nInactive",
+      "description": "When set to 'Inactive', employees with conflicting active shifts will not be excluded.",
+      "section": "Shift Assignment Details"
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "mandatory_depends_on": "eval:doc.action === \"Assign Shift\" || doc.action === \"Assign Shift Schedule\"",
+      "in_list_view": 1,
+      "section": "Shift Assignment Details"
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "section": "Shift Assignment Details"
+    },
+    {
+      "fieldname": "shift_type_filter",
+      "label": "Shift Type",
+      "fieldtype": "Link",
+      "options": "Shift Type",
+      "section": "Shift Request Filters"
+    },
+    {
+      "fieldname": "approver",
+      "label": "Approver",
+      "fieldtype": "Link",
+      "options": "User",
+      "section": "Shift Request Filters"
+    },
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "description": "Shift Requests ending before this date will be excluded.",
+      "section": "Shift Request Filters"
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "description": "Shift Requests starting after this date will be excluded.",
+      "section": "Shift Request Filters"
+    },
+    {
+      "fieldname": "branch",
+      "label": "Branch",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "grade",
+      "label": "Employee Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "employment_type",
+      "label": "Employment Type",
+      "fieldtype": "Link",
+      "options": "Employment Type",
+      "section": "Quick Filters"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

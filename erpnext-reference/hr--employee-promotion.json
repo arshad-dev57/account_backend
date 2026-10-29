@@ -1,0 +1,142 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Promotion",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-EMP-PRO-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-promotion",
+  "sections": [
+    {
+      "label": "Employee Promotion Details",
+      "fieldname": "details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Salary Details",
+      "fieldname": "salary_details_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "salary_currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Promotion"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "promotion_details",
+      "child_doctype": "Employee Property History"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "salary_currency",
+      "label": "Salary Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "read_only": 1,
+      "fetch_from": "employee.salary_currency",
+      "section": null
+    },
+    {
+      "fieldname": "promotion_date",
+      "label": "Promotion Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "promotion_details",
+      "fieldtype": "Table",
+      "options": "Employee Property History",
+      "section": "Employee Promotion Details"
+    },
+    {
+      "fieldname": "current_ctc",
+      "label": "Current CTC",
+      "fieldtype": "Currency",
+      "options": "salary_currency",
+      "mandatory_depends_on": "revised_ctc",
+      "fetch_from": "employee.ctc",
+      "section": "Salary Details"
+    },
+    {
+      "fieldname": "revised_ctc",
+      "label": "Revised CTC",
+      "fieldtype": "Currency",
+      "options": "salary_currency",
+      "depends_on": "current_ctc",
+      "section": "Salary Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Promotion",
+      "read_only": 1,
+      "section": "Salary Details"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

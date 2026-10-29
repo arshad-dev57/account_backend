@@ -1,0 +1,68 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Tax Exemption Declaration Category",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "exemption_sub_category",
+      "target": "Employee Tax Exemption Sub Category"
+    },
+    {
+      "fieldname": "exemption_category",
+      "target": "Employee Tax Exemption Category"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "exemption_sub_category",
+      "label": "Exemption Sub Category",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee Tax Exemption Sub Category",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "exemption_category",
+      "label": "Exemption Category",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee Tax Exemption Category",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "exemption_sub_category.exemption_category",
+      "section": null
+    },
+    {
+      "fieldname": "max_amount",
+      "label": "Maximum Exempted Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "exemption_sub_category.max_amount",
+      "section": null
+    },
+    {
+      "fieldname": "amount",
+      "label": "Declared Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "currency",
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

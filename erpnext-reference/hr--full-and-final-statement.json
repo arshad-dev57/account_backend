@@ -1,0 +1,211 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Full and Final Statement",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-FNF-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/full-and-final-statement",
+  "sections": [
+    {
+      "label": "Employee Details",
+      "fieldname": "employee_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Payables",
+      "fieldname": "section_break_8",
+      "type": "Section Break"
+    },
+    {
+      "label": "Receivables",
+      "fieldname": "section_break_10",
+      "type": "Section Break"
+    },
+    {
+      "label": "Assets Allocated",
+      "fieldname": "section_break_15",
+      "type": "Section Break"
+    },
+    {
+      "label": "Totals",
+      "fieldname": "totals_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Full and Final Statement"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "payables",
+      "child_doctype": "Full and Final Outstanding Statement"
+    },
+    {
+      "fieldname": "receivables",
+      "child_doctype": "Full and Final Outstanding Statement"
+    },
+    {
+      "fieldname": "assets_allocated",
+      "child_doctype": "Full and Final Asset"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "transaction_date",
+      "label": "Transaction Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Unpaid",
+      "options": "Paid\nUnpaid\nCancelled",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Full and Final Statement",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "date_of_joining",
+      "label": "Date of Joining",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "fetch_from": "employee.date_of_joining",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "relieving_date",
+      "label": "Relieving Date ",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "fetch_from": "employee.relieving_date",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "fetch_from": "employee.designation",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "payables",
+      "fieldtype": "Table",
+      "options": "Full and Final Outstanding Statement",
+      "section": "Payables"
+    },
+    {
+      "fieldname": "receivables",
+      "fieldtype": "Table",
+      "options": "Full and Final Outstanding Statement",
+      "section": "Receivables"
+    },
+    {
+      "fieldname": "assets_allocated",
+      "fieldtype": "Table",
+      "options": "Full and Final Asset",
+      "section": "Assets Allocated"
+    },
+    {
+      "fieldname": "total_asset_recovery_cost",
+      "label": "Total Asset Recovery Cost",
+      "fieldtype": "Currency",
+      "read_only": 1,
+      "section": "Assets Allocated"
+    },
+    {
+      "fieldname": "total_payable_amount",
+      "label": "Total Payable Amount",
+      "fieldtype": "Currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "Totals"
+    },
+    {
+      "fieldname": "total_receivable_amount",
+      "label": "Total Receivable Amount",
+      "fieldtype": "Currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "Totals"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

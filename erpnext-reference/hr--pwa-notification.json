@@ -1,0 +1,96 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "PWA Notification",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "autoincrement",
+  "naming_rule": "Autoincrement",
+  "title_field": "message",
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [
+    {
+      "label": "section_break_wsgn",
+      "fieldname": "section_break_wsgn",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_xdby",
+      "fieldname": "section_break_xdby",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "to_user",
+      "target": "User"
+    },
+    {
+      "fieldname": "from_user",
+      "target": "User"
+    },
+    {
+      "fieldname": "reference_document_type",
+      "target": "DocType"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "to_user",
+      "label": "To User",
+      "fieldtype": "Link",
+      "options": "User",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "to_employee.user_id",
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "from_user",
+      "label": "From User",
+      "fieldtype": "Link",
+      "options": "User",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "from_employee.user_id",
+      "section": null
+    },
+    {
+      "fieldname": "message",
+      "label": "Message",
+      "fieldtype": "Text Editor",
+      "section": "section_break_wsgn"
+    },
+    {
+      "fieldname": "read",
+      "label": "Read",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "section_break_wsgn"
+    },
+    {
+      "fieldname": "reference_document_type",
+      "label": "Reference Document Type",
+      "fieldtype": "Link",
+      "options": "DocType",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "section_break_xdby"
+    },
+    {
+      "fieldname": "reference_document_name",
+      "label": "Reference Document Name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "section_break_xdby"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

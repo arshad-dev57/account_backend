@@ -1,0 +1,203 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Control Panel",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/leave-control-panel",
+  "sections": [
+    {
+      "label": "Set Leave Details",
+      "fieldname": "allocate_leaves_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Quick Filters",
+      "fieldname": "quick_filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Advanced Filters",
+      "fieldname": "advanced_filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Select Employees",
+      "fieldname": "select_employees_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "leave_period",
+      "target": "Leave Period"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "leave_policy",
+      "target": "Leave Policy"
+    },
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    },
+    {
+      "fieldname": "branch",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "employment_type",
+      "target": "Employment Type"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "employee_grade",
+      "target": "Employee Grade"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "dates_based_on",
+      "label": "Dates Based On",
+      "fieldtype": "Select",
+      "default": "Leave Period",
+      "options": "Leave Period\nJoining Date\nCustom Range",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "leave_period",
+      "label": "Leave Period",
+      "fieldtype": "Link",
+      "options": "Leave Period",
+      "depends_on": "eval:doc.dates_based_on == 'Leave Period'",
+      "mandatory_depends_on": "eval:doc.dates_based_on == 'Leave Period'",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "default": "Today",
+      "depends_on": "eval:doc.dates_based_on != 'Joining Date'",
+      "mandatory_depends_on": "eval:doc.dates_based_on == 'Custom Range'",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "mandatory_depends_on": "eval:doc.dates_based_on != 'Leave Period'",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "leave_policy",
+      "label": "Leave Policy",
+      "fieldtype": "Link",
+      "options": "Leave Policy",
+      "depends_on": "eval:doc.allocate_based_on_leave_policy ",
+      "mandatory_depends_on": "eval:doc.allocate_based_on_leave_policy ",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "options": "Leave Type",
+      "depends_on": "eval:!doc.allocate_based_on_leave_policy",
+      "mandatory_depends_on": "eval:!doc.allocate_based_on_leave_policy",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "no_of_days",
+      "label": "New Leaves Allocated (In Days)",
+      "fieldtype": "Float",
+      "depends_on": "eval:!doc.allocate_based_on_leave_policy",
+      "mandatory_depends_on": "eval:!doc.allocate_based_on_leave_policy",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "allocate_based_on_leave_policy",
+      "label": "Allocate Based On Leave Policy",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "carry_forward",
+      "label": "Carry Forward",
+      "fieldtype": "Check",
+      "default": "1",
+      "description": "Add unused leaves from previous leave period's allocation to this allocation",
+      "section": "Set Leave Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "branch",
+      "label": "Branch",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "in_list_view": 1,
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "in_list_view": 1,
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "employment_type",
+      "label": "Employment Type",
+      "fieldtype": "Link",
+      "options": "Employment Type",
+      "in_list_view": 1,
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "in_list_view": 1,
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "employee_grade",
+      "label": "Employee Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "section": "Quick Filters"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

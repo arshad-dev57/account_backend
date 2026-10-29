@@ -1,0 +1,318 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Job Opening",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "HR-OPN-.YYYY.-.####",
+  "naming_rule": "Expression",
+  "title_field": "job_title",
+  "is_tree": 0,
+  "track_changes": 0,
+  "states": [
+    {
+      "idx": 1,
+      "title": "Open",
+      "color": "Green"
+    },
+    {
+      "idx": 2,
+      "title": "Closed",
+      "color": "Gray"
+    }
+  ],
+  "document_type": "Document",
+  "description": "Description of a Job Opening",
+  "documentation": "https://docs.frappe.io/hr/job-opening",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "job_details_section",
+      "fieldname": "job_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Company Details",
+      "fieldname": "section_break_nngy",
+      "type": "Section Break"
+    },
+    {
+      "label": "References",
+      "fieldname": "references_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_6",
+      "fieldname": "section_break_6",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_14",
+      "fieldname": "section_break_14",
+      "type": "Section Break"
+    },
+    {
+      "label": "Pay Details",
+      "fieldname": "pay_details_tab",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "job_opening_template",
+      "target": "Job Opening Template"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "employment_type",
+      "target": "Employment Type"
+    },
+    {
+      "fieldname": "location",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "staffing_plan",
+      "target": "Staffing Plan"
+    },
+    {
+      "fieldname": "job_requisition",
+      "target": "Job Requisition"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "job_opening_template",
+      "label": "Job Opening Template",
+      "fieldtype": "Link",
+      "options": "Job Opening Template",
+      "section": "job_details_section"
+    },
+    {
+      "fieldname": "job_title",
+      "label": "Job Title",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "job_details_section"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Designation",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "job_details_section"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "Open\nClosed",
+      "hidden": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "job_details_section"
+    },
+    {
+      "fieldname": "posted_on",
+      "label": "Posted On",
+      "fieldtype": "Datetime",
+      "default": "Now",
+      "section": "job_details_section"
+    },
+    {
+      "fieldname": "closes_on",
+      "label": "Closes On",
+      "fieldtype": "Date",
+      "depends_on": "eval:doc.status == 'Open'",
+      "description": "If set, the job opening will be closed automatically after this date",
+      "section": "job_details_section"
+    },
+    {
+      "fieldname": "closed_on",
+      "label": "Closed On",
+      "fieldtype": "Date",
+      "depends_on": "eval:doc.status == 'Closed'",
+      "section": "job_details_section"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Company Details"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Company Details"
+    },
+    {
+      "fieldname": "employment_type",
+      "label": "Employment Type",
+      "fieldtype": "Link",
+      "options": "Employment Type",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Company Details"
+    },
+    {
+      "fieldname": "location",
+      "label": "Location",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "section": "Company Details"
+    },
+    {
+      "fieldname": "staffing_plan",
+      "label": "Staffing Plan",
+      "fieldtype": "Link",
+      "options": "Staffing Plan",
+      "read_only": 1,
+      "section": "References"
+    },
+    {
+      "fieldname": "planned_vacancies",
+      "label": "Planned number of Positions",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "depends_on": "staffing_plan",
+      "section": "References"
+    },
+    {
+      "fieldname": "job_requisition",
+      "label": "Job Requisition",
+      "fieldtype": "Link",
+      "options": "Job Requisition",
+      "read_only": 1,
+      "section": "References"
+    },
+    {
+      "fieldname": "vacancies",
+      "label": "Vacancies",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "depends_on": "job_requisition",
+      "fetch_from": "job_requisition.no_of_positions",
+      "section": "References"
+    },
+    {
+      "fieldname": "publish",
+      "label": "Publish on website",
+      "fieldtype": "Check",
+      "default": "0",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "section_break_6"
+    },
+    {
+      "fieldname": "prevent_duplicate_applicant",
+      "label": "Prevent Duplicate Applications",
+      "fieldtype": "Check",
+      "default": "0",
+      "depends_on": "publish",
+      "description": "If enabled, candidates who have already applied with the same email address will not be allowed to apply again",
+      "section": "section_break_6"
+    },
+    {
+      "fieldname": "route",
+      "label": "Route",
+      "fieldtype": "Data",
+      "depends_on": "publish",
+      "unique": 1,
+      "section": "section_break_6"
+    },
+    {
+      "fieldname": "publish_applications_received",
+      "label": "Publish Applications Received",
+      "fieldtype": "Check",
+      "default": "1",
+      "depends_on": "publish",
+      "description": "If enabled, the total no. of applications received for this opening will be displayed on the website",
+      "section": "section_break_6"
+    },
+    {
+      "fieldname": "job_application_route",
+      "label": "Application Web Form Route",
+      "fieldtype": "Data",
+      "depends_on": "publish",
+      "description": "Route to the custom Job Application Webform",
+      "section": "section_break_6"
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text Editor",
+      "in_list_view": 1,
+      "description": "Job profile, qualifications required etc.",
+      "section": "section_break_14"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "lower_range",
+      "label": "Lower Range",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "precision": "0",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "upper_range",
+      "label": "Upper Range",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "precision": "0",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "salary_per",
+      "label": "Salary Paid Per",
+      "fieldtype": "Select",
+      "default": "Month",
+      "options": "Month\nYear",
+      "section": "Pay Details"
+    },
+    {
+      "fieldname": "publish_salary_range",
+      "label": "Publish Salary Range",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Pay Details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "ASC"
+}

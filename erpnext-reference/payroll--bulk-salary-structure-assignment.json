@@ -1,0 +1,168 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Bulk Salary Structure Assignment",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/salary-structure-assignment-tool",
+  "sections": [
+    {
+      "label": "Set Assignment Details",
+      "fieldname": "set_assignment_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Quick Filters",
+      "fieldname": "quick_filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Advanced Filters",
+      "fieldname": "advanced_filters_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Select Employees",
+      "fieldname": "select_employees_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "salary_structure",
+      "target": "Salary Structure"
+    },
+    {
+      "fieldname": "income_tax_slab",
+      "target": "Income Tax Slab"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "payroll_payable_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "branch",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "grade",
+      "target": "Employee Grade"
+    },
+    {
+      "fieldname": "employment_type",
+      "target": "Employment Type"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "salary_structure",
+      "label": "Salary Structure",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Salary Structure",
+      "in_list_view": 1,
+      "section": "Set Assignment Details"
+    },
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "Set Assignment Details"
+    },
+    {
+      "fieldname": "income_tax_slab",
+      "label": "Income Tax Slab",
+      "fieldtype": "Link",
+      "options": "Income Tax Slab",
+      "depends_on": "salary_structure",
+      "section": "Set Assignment Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "salary_structure.company",
+      "section": "Set Assignment Details"
+    },
+    {
+      "fieldname": "payroll_payable_account",
+      "label": "Payroll Payable Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "fetch_from": ".default_payroll_payable_account",
+      "section": "Set Assignment Details"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "read_only": 1,
+      "depends_on": "salary_structure",
+      "fetch_from": "salary_structure.currency",
+      "section": "Set Assignment Details"
+    },
+    {
+      "fieldname": "branch",
+      "label": "Branch",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "grade",
+      "label": "Employee Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "section": "Quick Filters"
+    },
+    {
+      "fieldname": "employment_type",
+      "label": "Employment Type",
+      "fieldtype": "Link",
+      "options": "Employment Type",
+      "section": "Quick Filters"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

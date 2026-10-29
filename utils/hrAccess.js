@@ -78,6 +78,7 @@ function statusLabel(status) {
     active: 'Active',
     inactive: 'Inactive',
     on_leave: 'On Leave',
+    suspended: 'Suspended',
     terminated: 'Terminated',
     present: 'Present',
     late: 'Late',
@@ -92,8 +93,9 @@ function statusLabel(status) {
 
 function statusKey(label) {
   const key = String(label || '').toLowerCase().trim().replace(/\s+/g, '_');
-  if (['active', 'inactive', 'on_leave', 'terminated'].includes(key)) return key;
+  if (['active', 'inactive', 'on_leave', 'suspended', 'terminated'].includes(key)) return key;
   if (key === 'onleave') return 'on_leave';
+  if (key === 'left') return 'terminated';
   return 'active';
 }
 

@@ -1,0 +1,392 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "HR Settings",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "document_type": "Other",
+  "documentation": "https://docs.frappe.io/hr/hr-settings",
+  "sections": [
+    {
+      "label": "Employee",
+      "fieldname": "employee_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Employee Settings",
+      "fieldname": "employee_settings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Reminders",
+      "fieldname": "reminders_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Leaves",
+      "fieldname": "leaves_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Leave Settings",
+      "fieldname": "leave_settings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Expenses",
+      "fieldname": "expenses_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Expenses Settings",
+      "fieldname": "expenses_settings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Shift and Attendance",
+      "fieldname": "shift_and_attendance_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Shift Settings",
+      "fieldname": "shift_settings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Attendance Settings",
+      "fieldname": "attendance_settings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Tenure",
+      "fieldname": "tenure_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Employee Exit Settings",
+      "fieldname": "employee_exit_settings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Recruitment",
+      "fieldname": "recruitment_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Hiring Settings",
+      "fieldname": "hiring_settings_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "sender",
+      "target": "Email Account"
+    },
+    {
+      "fieldname": "leave_approval_notification_template",
+      "target": "Email Template"
+    },
+    {
+      "fieldname": "leave_status_notification_template",
+      "target": "Email Template"
+    },
+    {
+      "fieldname": "role_allowed_to_create_backdated_leave_application",
+      "target": "Role"
+    },
+    {
+      "fieldname": "exit_questionnaire_web_form",
+      "target": "Web Form"
+    },
+    {
+      "fieldname": "exit_questionnaire_notification_template",
+      "target": "Email Template"
+    },
+    {
+      "fieldname": "interview_reminder_template",
+      "target": "Email Template"
+    },
+    {
+      "fieldname": "feedback_reminder_notification_template",
+      "target": "Email Template"
+    },
+    {
+      "fieldname": "hiring_sender",
+      "target": "Email Account"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "emp_created_by",
+      "label": "Employee Naming By",
+      "fieldtype": "Select",
+      "default": "Naming Series",
+      "options": "Naming Series\nEmployee Number\nFull Name",
+      "description": "Employee records are created using the selected option",
+      "section": "Employee Settings"
+    },
+    {
+      "fieldname": "standard_working_hours",
+      "label": "Standard Working Hours",
+      "fieldtype": "Float",
+      "section": "Employee Settings"
+    },
+    {
+      "fieldname": "retirement_age",
+      "label": "Retirement Age (In Years)",
+      "fieldtype": "Data",
+      "section": "Employee Settings"
+    },
+    {
+      "fieldname": "send_work_anniversary_reminders",
+      "label": "Work Anniversaries ",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Reminders"
+    },
+    {
+      "fieldname": "send_birthday_reminders",
+      "label": "Birthdays",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Reminders"
+    },
+    {
+      "fieldname": "send_holiday_reminders",
+      "label": "Holidays",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Reminders"
+    },
+    {
+      "fieldname": "frequency",
+      "label": "Set the frequency for holiday reminders",
+      "fieldtype": "Select",
+      "default": "Weekly",
+      "options": "Weekly\nMonthly",
+      "depends_on": "eval:doc.send_holiday_reminders",
+      "mandatory_depends_on": "send_holiday_reminders",
+      "section": "Reminders"
+    },
+    {
+      "fieldname": "sender",
+      "label": "Sender",
+      "fieldtype": "Link",
+      "options": "Email Account",
+      "section": "Reminders"
+    },
+    {
+      "fieldname": "sender_email",
+      "label": "Sender Email",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "depends_on": "eval:doc.sender",
+      "fetch_from": "sender.email_id",
+      "section": "Reminders"
+    },
+    {
+      "fieldname": "auto_leave_encashment",
+      "label": "Auto Leave Encashment",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "leave_approver_mandatory_in_leave_application",
+      "label": "Leave Approver Mandatory In Leave Application",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "prevent_self_leave_approval",
+      "label": "Prevent self approval for leaves even if user has permissions",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "show_leaves_of_all_department_members_in_calendar",
+      "label": "Show Leaves Of All Department Members In Calendar",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "send_leave_notification",
+      "label": "Send Leave Notification",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "leave_approval_notification_template",
+      "label": "Leave Approval Notification Template",
+      "fieldtype": "Link",
+      "options": "Email Template",
+      "depends_on": "eval: doc.send_leave_notification == 1",
+      "mandatory_depends_on": "eval: doc.send_leave_notification == 1",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "leave_status_notification_template",
+      "label": "Leave Status Notification Template",
+      "fieldtype": "Link",
+      "options": "Email Template",
+      "depends_on": "eval: doc.send_leave_notification == 1",
+      "mandatory_depends_on": "eval: doc.send_leave_notification == 1",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "restrict_backdated_leave_application",
+      "label": "Restrict Backdated Leave Application",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "role_allowed_to_create_backdated_leave_application",
+      "label": "Role Allowed to Create Backdated Leave Application",
+      "fieldtype": "Link",
+      "options": "Role",
+      "depends_on": "eval:doc.restrict_backdated_leave_application == 1",
+      "mandatory_depends_on": "eval:doc.restrict_backdated_leave_application == 1",
+      "section": "Leave Settings"
+    },
+    {
+      "fieldname": "expense_approver_mandatory_in_expense_claim",
+      "label": "Expense Approver Mandatory In Expense Claim",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Expenses Settings"
+    },
+    {
+      "fieldname": "prevent_self_expense_approval",
+      "label": "Prevent self approval for expense claims even if user has permissions",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Expenses Settings"
+    },
+    {
+      "fieldname": "unlink_payment_on_cancellation_of_employee_advance",
+      "label": " Unlink Payment on Cancellation of Employee Advance",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Expenses Settings"
+    },
+    {
+      "fieldname": "enable_multi_currency_expense_claim",
+      "label": "Enable Multi-Currency Expense Claims",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "Allow expense claims to be raised in a currency other than the company currency",
+      "section": "Expenses Settings"
+    },
+    {
+      "fieldname": "allow_multiple_shift_assignments",
+      "label": "Allow Multiple Shift Assignments for Same Date",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Shift Settings"
+    },
+    {
+      "fieldname": "allow_employee_checkin_from_mobile_app",
+      "label": "Allow Employee Checkin from Mobile App",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Attendance Settings"
+    },
+    {
+      "fieldname": "allow_geolocation_tracking",
+      "label": "Allow Geolocation Tracking",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Attendance Settings"
+    },
+    {
+      "fieldname": "exit_questionnaire_web_form",
+      "label": "Exit Questionnaire Web Form",
+      "fieldtype": "Link",
+      "options": "Web Form",
+      "section": "Employee Exit Settings"
+    },
+    {
+      "fieldname": "exit_questionnaire_notification_template",
+      "label": "Exit Questionnaire Notification Template",
+      "fieldtype": "Link",
+      "options": "Email Template",
+      "section": "Employee Exit Settings"
+    },
+    {
+      "fieldname": "check_vacancies",
+      "label": "Check Vacancies On Job Offer Creation",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Hiring Settings"
+    },
+    {
+      "fieldname": "send_interview_reminder",
+      "label": "Send Interview Reminder",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Hiring Settings"
+    },
+    {
+      "fieldname": "interview_reminder_template",
+      "label": "Interview Reminder Notification Template",
+      "fieldtype": "Link",
+      "options": "Email Template",
+      "depends_on": "send_interview_reminder",
+      "mandatory_depends_on": "send_interview_reminder",
+      "section": "Hiring Settings"
+    },
+    {
+      "fieldname": "remind_before",
+      "label": "Remind Before",
+      "fieldtype": "Time",
+      "default": "00:15:00",
+      "depends_on": "send_interview_reminder",
+      "section": "Hiring Settings"
+    },
+    {
+      "fieldname": "send_interview_feedback_reminder",
+      "label": "Send Interview Feedback Reminder",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Hiring Settings"
+    },
+    {
+      "fieldname": "feedback_reminder_notification_template",
+      "label": "Feedback Reminder Notification Template",
+      "fieldtype": "Link",
+      "options": "Email Template",
+      "depends_on": "send_interview_feedback_reminder",
+      "mandatory_depends_on": "send_interview_feedback_reminder",
+      "section": "Hiring Settings"
+    },
+    {
+      "fieldname": "hiring_sender",
+      "label": "Sender",
+      "fieldtype": "Link",
+      "options": "Email Account",
+      "section": "Hiring Settings"
+    },
+    {
+      "fieldname": "hiring_sender_email",
+      "label": "Sender Email",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "depends_on": "eval:doc.hiring_sender",
+      "fetch_from": "hiring_sender.email_id",
+      "section": "Hiring Settings"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "ASC",
+  "editable_grid": 1
+}

@@ -1,0 +1,236 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Gratuity",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-GRA-PAY-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/gratuity",
+  "search_fields": "employee_name",
+  "sections": [
+    {
+      "label": "Gratuity",
+      "fieldname": "details_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Payment and Accounting",
+      "fieldname": "section_break_5",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "gratuity_rule",
+      "target": "Gratuity Rule"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Gratuity"
+    },
+    {
+      "fieldname": "salary_component",
+      "target": "Salary Component"
+    },
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    },
+    {
+      "fieldname": "mode_of_payment",
+      "target": "Mode of Payment"
+    },
+    {
+      "fieldname": "expense_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "payable_account",
+      "target": "Account"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "search_index": 1,
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.designation",
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "current_work_experience",
+      "label": "Current Work Experience",
+      "fieldtype": "Float",
+      "default": "0",
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "posting_date",
+      "label": "Posting date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "gratuity_rule",
+      "label": "Gratuity Rule",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Gratuity Rule",
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Draft",
+      "options": "Draft\nUnpaid\nPaid\nSubmitted\nCancelled",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Gratuity",
+      "read_only": 1,
+      "section": "Gratuity"
+    },
+    {
+      "fieldname": "pay_via_salary_slip",
+      "label": "Pay via Salary Slip",
+      "fieldtype": "Check",
+      "default": "1",
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "amount",
+      "label": "Total Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "default": "0",
+      "read_only": 1,
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "paid_amount",
+      "label": "Paid Amount",
+      "fieldtype": "Currency",
+      "default": "0",
+      "read_only": 1,
+      "depends_on": "eval:doc.pay_via_salary_slip == 0",
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "payroll_date",
+      "label": "Payroll Date",
+      "fieldtype": "Date",
+      "depends_on": "pay_via_salary_slip",
+      "mandatory_depends_on": "pay_via_salary_slip",
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "salary_component",
+      "label": "Salary Component",
+      "fieldtype": "Link",
+      "options": "Salary Component",
+      "depends_on": "pay_via_salary_slip",
+      "mandatory_depends_on": "pay_via_salary_slip",
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "options": "Cost Center",
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "mode_of_payment",
+      "label": "Mode of Payment",
+      "fieldtype": "Link",
+      "options": "Mode of Payment",
+      "depends_on": "eval: !doc.pay_via_salary_slip",
+      "mandatory_depends_on": "eval: !doc.pay_via_salary_slip",
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "expense_account",
+      "label": "Expense Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "depends_on": "eval: !doc.pay_via_salary_slip",
+      "mandatory_depends_on": "eval: !doc.pay_via_salary_slip",
+      "section": "Payment and Accounting"
+    },
+    {
+      "fieldname": "payable_account",
+      "label": "Payable Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "depends_on": "eval: !doc.pay_via_salary_slip",
+      "mandatory_depends_on": "eval: !doc.pay_via_salary_slip",
+      "section": "Payment and Accounting"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

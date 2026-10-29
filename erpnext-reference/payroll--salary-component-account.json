@@ -1,0 +1,58 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Salary Component Account",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "liability_account",
+      "target": "Account"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "account",
+      "label": "Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "in_list_view": 1,
+      "description": "Default Bank / Cash account will be automatically updated in Salary Journal Entry when this mode is selected.",
+      "section": null
+    },
+    {
+      "fieldname": "liability_account",
+      "label": "Liability Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "depends_on": "eval:parent.type == \"Employer Contribution\"",
+      "in_list_view": 1,
+      "description": "Liability account credited for employer contributions. Applicable only for Employer Contribution components, where Account is debited as the expense.",
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

@@ -1,0 +1,161 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Benefit Claim",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-BEN-CLM-.YY.-.MM.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-benefit-claim",
+  "search_fields": "employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Benefits",
+      "fieldname": "benefit_type_and_amount",
+      "type": "Section Break"
+    },
+    {
+      "label": "Expense Proof",
+      "fieldname": "section_break_9",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Benefit Claim"
+    },
+    {
+      "fieldname": "earning_component",
+      "target": "Salary Component"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "link_filters": "[[\"Employee\",\"status\",\"=\",\"Active\"]]",
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "payroll_date",
+      "label": "Payroll Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "section": null
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "read_only": 1,
+      "depends_on": "eval: doc.employee",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Benefit Claim",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "earning_component",
+      "label": "Claim Benefit For",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Salary Component",
+      "in_list_view": 1,
+      "section": "Benefits"
+    },
+    {
+      "fieldname": "yearly_benefit",
+      "label": "Yearly Amount",
+      "fieldtype": "Currency",
+      "read_only": 1,
+      "section": "Benefits"
+    },
+    {
+      "fieldname": "claimed_amount",
+      "label": "Claimed Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "currency",
+      "in_list_view": 1,
+      "section": "Benefits"
+    },
+    {
+      "fieldname": "max_amount_eligible",
+      "label": "Max Amount Eligible For Claim",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "Benefits"
+    },
+    {
+      "fieldname": "attachments",
+      "label": "Attachments",
+      "fieldtype": "Attach",
+      "section": "Expense Proof"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

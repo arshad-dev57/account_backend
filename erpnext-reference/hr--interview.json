@@ -1,0 +1,206 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Interview",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-INT-.YYYY.-.####",
+  "naming_rule": "Expression",
+  "title_field": "job_applicant",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/interview",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Details",
+      "fieldname": "interview_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_hqvh",
+      "fieldname": "section_break_hqvh",
+      "type": "Section Break"
+    },
+    {
+      "label": "Ratings",
+      "fieldname": "ratings_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Interview Summary",
+      "fieldname": "section_break_13",
+      "type": "Section Break"
+    },
+    {
+      "label": "Feedback",
+      "fieldname": "feedback_tab",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "interview_type",
+      "target": "Interview Type"
+    },
+    {
+      "fieldname": "job_applicant",
+      "target": "Job Applicant"
+    },
+    {
+      "fieldname": "job_opening",
+      "target": "Job Opening"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Interview"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "interview_details",
+      "child_doctype": "Interview Detail"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "interview_type",
+      "label": "Interview Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Interview Type",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "job_applicant",
+      "label": "Job Applicant",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Job Applicant",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "job_opening",
+      "label": "Job Opening",
+      "fieldtype": "Link",
+      "options": "Job Opening",
+      "read_only": 1,
+      "fetch_from": "job_applicant.job_title",
+      "section": "Details"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "interview_type.designation",
+      "section": "Details"
+    },
+    {
+      "fieldname": "resume_link",
+      "label": "Resume link",
+      "fieldtype": "Data",
+      "fetch_from": "job_applicant.resume_link",
+      "section": "Details"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "Pending",
+      "options": "Pending\nUnder Review\nCleared\nRejected\nCancelled",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "scheduled_on",
+      "label": "Scheduled On",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "from_time",
+      "label": "From Time",
+      "fieldtype": "Time",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "to_time",
+      "label": "To Time",
+      "fieldtype": "Time",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "interview_details",
+      "label": "Interviewers",
+      "fieldtype": "Table",
+      "options": "Interview Detail",
+      "allow_on_submit": 1,
+      "section": "section_break_hqvh"
+    },
+    {
+      "fieldname": "expected_average_rating",
+      "label": "Expected Average Rating",
+      "fieldtype": "Rating",
+      "read_only": 1,
+      "fetch_from": "interview_type.expected_average_rating",
+      "section": "Ratings"
+    },
+    {
+      "fieldname": "average_rating",
+      "label": "Obtained Average Rating",
+      "fieldtype": "Rating",
+      "read_only": 1,
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": "Ratings"
+    },
+    {
+      "fieldname": "interview_summary",
+      "fieldtype": "Text",
+      "allow_on_submit": 1,
+      "section": "Interview Summary"
+    },
+    {
+      "fieldname": "reminded",
+      "label": "Reminded",
+      "fieldtype": "Check",
+      "default": "0",
+      "hidden": 1,
+      "section": "Interview Summary"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Interview",
+      "read_only": 1,
+      "section": "Interview Summary"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

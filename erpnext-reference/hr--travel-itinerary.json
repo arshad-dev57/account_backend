@@ -1,0 +1,115 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Travel Itinerary",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [
+    {
+      "label": "section_break_14",
+      "fieldname": "section_break_14",
+      "type": "Section Break"
+    }
+  ],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "travel_from",
+      "label": "Travel From",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "travel_to",
+      "label": "Travel To",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "mode_of_travel",
+      "label": "Mode of Travel",
+      "fieldtype": "Select",
+      "options": "\nFlight\nTrain\nTaxi\nRented Car",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "meal_preference",
+      "label": "Meal Preference",
+      "fieldtype": "Select",
+      "options": "\nVegetarian\nNon-Vegetarian\nGluten Free\nNon Diary",
+      "section": null
+    },
+    {
+      "fieldname": "travel_advance_required",
+      "label": "Travel Advance Required",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "advance_amount",
+      "label": "Advance Amount",
+      "fieldtype": "Data",
+      "depends_on": "travel_advance_required",
+      "section": null
+    },
+    {
+      "fieldname": "departure_date",
+      "label": "Departure Datetime",
+      "fieldtype": "Datetime",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "arrival_date",
+      "label": "Arrival Datetime",
+      "fieldtype": "Datetime",
+      "section": null
+    },
+    {
+      "fieldname": "lodging_required",
+      "label": "Lodging Required",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "preferred_area_for_lodging",
+      "label": "Preferred Area for Lodging",
+      "fieldtype": "Data",
+      "depends_on": "lodging_required",
+      "section": null
+    },
+    {
+      "fieldname": "check_in_date",
+      "label": "Check-in Date",
+      "fieldtype": "Date",
+      "depends_on": "lodging_required",
+      "section": null
+    },
+    {
+      "fieldname": "check_out_date",
+      "label": "Check-out Date",
+      "fieldtype": "Date",
+      "depends_on": "lodging_required",
+      "section": null
+    },
+    {
+      "fieldname": "other_details",
+      "label": "Other Details",
+      "fieldtype": "Small Text",
+      "section": "section_break_14"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

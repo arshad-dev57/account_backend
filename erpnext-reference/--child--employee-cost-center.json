@@ -1,0 +1,42 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Cost Center",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Cost Center",
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "percentage",
+      "label": "Percentage (%)",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

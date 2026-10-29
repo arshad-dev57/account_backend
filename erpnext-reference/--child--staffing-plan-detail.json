@@ -1,0 +1,79 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Staffing Plan Detail",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Designation",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "vacancies",
+      "label": "Vacancies",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "estimated_cost_per_position",
+      "label": "Estimated Cost Per Position",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "total_estimated_cost",
+      "label": "Total Estimated Cost",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "current_count",
+      "label": "Current Count",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "current_openings",
+      "label": "Current Openings",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "number_of_positions",
+      "label": "Number Of Positions",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

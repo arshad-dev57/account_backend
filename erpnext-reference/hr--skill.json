@@ -1,0 +1,35 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Skill",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:skill_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-skill-map",
+  "allow_import": 1,
+  "sections": [],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "skill_name",
+      "label": "Skill Name",
+      "fieldtype": "Data",
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text",
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "ASC"
+}

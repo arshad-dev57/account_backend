@@ -1,0 +1,90 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Interview Type",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:interview_type_name",
+  "naming_rule": "By fieldname",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/interview-type",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "expected_skills_section",
+      "fieldname": "expected_skills_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_xlzv",
+      "fieldname": "section_break_xlzv",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "interviewers",
+      "child_doctype": "Interviewer"
+    },
+    {
+      "fieldname": "expected_skill_set",
+      "child_doctype": "Expected Skill Set"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "interview_type_name",
+      "label": "Interview Type Name",
+      "fieldtype": "Data",
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "interviewers",
+      "label": "Interviewers",
+      "fieldtype": "Table MultiSelect",
+      "options": "Interviewer",
+      "section": null
+    },
+    {
+      "fieldname": "expected_average_rating",
+      "label": "Expected Average Rating",
+      "fieldtype": "Rating",
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "section": "expected_skills_section"
+    },
+    {
+      "fieldname": "expected_skill_set",
+      "label": "Expected Skillset",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Expected Skill Set",
+      "section": "expected_skills_section"
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text",
+      "section": "section_break_xlzv"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

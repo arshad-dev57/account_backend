@@ -1,0 +1,117 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Training Program",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:training_program",
+  "title_field": "training_program",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/training-program",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_5",
+      "fieldname": "section_break_5",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_11",
+      "fieldname": "section_break_11",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "supplier",
+      "target": "Supplier"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Training Program"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "training_program",
+      "label": "Training Program",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Scheduled",
+      "options": "Scheduled\nCompleted\nCancelled",
+      "in_list_view": 1,
+      "bold": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "trainer_name",
+      "label": "Trainer Name",
+      "fieldtype": "Data",
+      "section": "section_break_5"
+    },
+    {
+      "fieldname": "trainer_email",
+      "label": "Trainer Email",
+      "fieldtype": "Data",
+      "section": "section_break_5"
+    },
+    {
+      "fieldname": "supplier",
+      "label": "Supplier",
+      "fieldtype": "Link",
+      "options": "Supplier",
+      "section": "section_break_5"
+    },
+    {
+      "fieldname": "contact_number",
+      "label": "Contact Number",
+      "fieldtype": "Data",
+      "section": "section_break_5"
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text Editor",
+      "reqd": 1,
+      "section": "section_break_11"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Training Program",
+      "read_only": 1,
+      "section": "section_break_11"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "show_name_in_global_search": 1,
+  "editable_grid": 1
+}

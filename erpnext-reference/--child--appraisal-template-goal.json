@@ -1,0 +1,43 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Appraisal Template Goal",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "autoname": "hash",
+  "naming_rule": "Random",
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "key_result_area",
+      "target": "KRA"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "key_result_area",
+      "label": "KRA",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "KRA",
+      "in_list_view": 1,
+      "description": "Key Result Area",
+      "section": null
+    },
+    {
+      "fieldname": "per_weightage",
+      "label": "Weightage (%)",
+      "fieldtype": "Percent",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

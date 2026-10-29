@@ -1,0 +1,133 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Compensatory Leave Request",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-CMP-.YY.-.MM.-.#####",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/compensatory-leave-request",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Worked On Holiday",
+      "fieldname": "worked_on",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    },
+    {
+      "fieldname": "leave_allocation",
+      "target": "Leave Allocation"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Compensatory Leave Request"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "options": "Leave Type",
+      "section": null
+    },
+    {
+      "fieldname": "leave_allocation",
+      "label": "Leave Allocation",
+      "fieldtype": "Link",
+      "options": "Leave Allocation",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "work_from_date",
+      "label": "Work From Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "Worked On Holiday"
+    },
+    {
+      "fieldname": "work_end_date",
+      "label": "Work End Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "Worked On Holiday"
+    },
+    {
+      "fieldname": "half_day",
+      "label": "Half Day",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "Worked On Holiday"
+    },
+    {
+      "fieldname": "half_day_date",
+      "label": "Half Day Date",
+      "fieldtype": "Date",
+      "depends_on": "half_day",
+      "section": "Worked On Holiday"
+    },
+    {
+      "fieldname": "reason",
+      "label": "Reason",
+      "fieldtype": "Small Text",
+      "reqd": 1,
+      "section": "Worked On Holiday"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Compensatory Leave Request",
+      "read_only": 1,
+      "section": "Worked On Holiday"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

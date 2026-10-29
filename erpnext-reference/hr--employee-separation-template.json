@@ -1,0 +1,98 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Separation Template",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "HR-EMP-STP-.#####",
+  "title_field": "title",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-separation",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Activities",
+      "fieldname": "section_break_7",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "employee_grade",
+      "target": "Employee Grade"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "activities",
+      "child_doctype": "Employee Boarding Activity"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "title",
+      "label": "Title",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "translatable": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_grade",
+      "label": "Employee Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "activities",
+      "label": "Activities",
+      "fieldtype": "Table",
+      "options": "Employee Boarding Activity",
+      "section": "Activities"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

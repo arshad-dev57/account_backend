@@ -1,0 +1,102 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Block List",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "field:leave_block_list_name",
+  "naming_rule": "By fieldname",
+  "is_tree": 0,
+  "track_changes": 0,
+  "document_type": "Setup",
+  "description": "Block Holidays on important days.",
+  "documentation": "https://docs.frappe.io/hr/leave-block-list",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Block Days",
+      "fieldname": "block_days",
+      "type": "Section Break"
+    },
+    {
+      "label": "Allow Users",
+      "fieldname": "allow_list",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "leave_block_list_dates",
+      "child_doctype": "Leave Block List Date"
+    },
+    {
+      "fieldname": "leave_block_list_allowed",
+      "child_doctype": "Leave Block List Allow"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "leave_block_list_name",
+      "label": "Leave Block List Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "options": "Leave Type",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "applies_to_all_departments",
+      "label": "Applies to Company",
+      "fieldtype": "Check",
+      "default": "0",
+      "in_list_view": 1,
+      "description": "If not checked, the list will have to be added to each Department where it has to be applied.",
+      "section": null
+    },
+    {
+      "fieldname": "leave_block_list_dates",
+      "label": "Leave Block List Dates",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Leave Block List Date",
+      "section": "Block Days"
+    },
+    {
+      "fieldname": "leave_block_list_allowed",
+      "label": "Leave Block List Allowed",
+      "fieldtype": "Table",
+      "options": "Leave Block List Allow",
+      "section": "Allow Users"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "ASC"
+}

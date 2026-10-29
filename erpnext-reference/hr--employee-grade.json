@@ -1,0 +1,57 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Grade",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "Prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-grade",
+  "allow_import": 1,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "default_salary_structure",
+      "target": "Salary Structure"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "default_salary_structure",
+      "label": "Default Salary Structure",
+      "fieldtype": "Link",
+      "options": "Salary Structure",
+      "section": null
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "read_only": 1,
+      "hidden": 1,
+      "fetch_from": "default_salary_structure.currency",
+      "section": null
+    },
+    {
+      "fieldname": "default_base_pay",
+      "label": "Default Base Pay",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "depends_on": "default_salary_structure",
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

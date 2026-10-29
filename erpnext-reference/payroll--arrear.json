@@ -1,0 +1,184 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Arrear",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "format:{Arrear}/{employee}/{#####}",
+  "naming_rule": "Expression",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/arrears",
+  "sections": [
+    {
+      "label": "Arrears",
+      "fieldname": "arrears_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_zegb",
+      "fieldname": "section_break_zegb",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_ubws",
+      "fieldname": "section_break_ubws",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "salary_structure",
+      "target": "Salary Structure"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "payroll_period",
+      "target": "Payroll Period"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Arrear"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "earning_arrears",
+      "child_doctype": "Payroll Correction Child"
+    },
+    {
+      "fieldname": "deduction_arrears",
+      "child_doctype": "Payroll Correction Child"
+    },
+    {
+      "fieldname": "accrual_arrears",
+      "child_doctype": "Payroll Correction Child"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "salary_structure",
+      "label": "Salary Structure",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Salary Structure",
+      "depends_on": "eval:doc.payroll_period;",
+      "section": null
+    },
+    {
+      "fieldname": "arrear_start_date",
+      "label": "Arrear Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "depends_on": "eval:doc.salary_structure;",
+      "description": " Salary slips starting on or after this date will be considered for arrear calculations",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_standard_filter": 1,
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "read_only": 1,
+      "depends_on": "eval:doc.employee;",
+      "section": null
+    },
+    {
+      "fieldname": "payroll_period",
+      "label": "Payroll Period",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Payroll Period",
+      "depends_on": "eval:doc.employee;",
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "payroll_date",
+      "label": "Payroll Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "depends_on": "eval:doc.salary_structure",
+      "section": null
+    },
+    {
+      "fieldname": "earning_arrears",
+      "label": "Earning Arrears",
+      "fieldtype": "Table",
+      "options": "Payroll Correction Child",
+      "depends_on": "earning_arrears",
+      "section": "section_break_zegb"
+    },
+    {
+      "fieldname": "deduction_arrears",
+      "label": "Deduction Arrears",
+      "fieldtype": "Table",
+      "options": "Payroll Correction Child",
+      "depends_on": "deduction_arrears",
+      "section": "section_break_zegb"
+    },
+    {
+      "fieldname": "accrual_arrears",
+      "label": "Accrual Arrears",
+      "fieldtype": "Table",
+      "options": "Payroll Correction Child",
+      "depends_on": "accrual_arrears",
+      "section": "section_break_zegb"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Arrear",
+      "read_only": 1,
+      "search_index": 1,
+      "section": "section_break_ubws"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

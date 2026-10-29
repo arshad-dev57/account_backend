@@ -499,68 +499,608 @@ exports.getCustomer360 = async (req, res) => {
   }
 };
 
-exports.getCustomerLedger = async (req, res) => {
+// -------------------------------------------------------------
+// 3b. CUSTOMER ACCOUNT — period-filtered 360 for the customer page
+// -------------------------------------------------------------
+function dayStart(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function dayEnd(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setHours(23, 59, 59, 999);
+  return parsed;
+}
+
+function dayRange(field, start, end) {
+  const filter = {};
+  if (start) filter.gte = start;
+  if (end) filter.lte = end;
+  return Object.keys(filter).length ? { [field]: filter } : {};
+}
+
+function round2(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function deliveryState(order, deliveries) {
+  if (!deliveries || deliveries.length === 0) {
+    const flags = [order.orderStatus, order.fulfillmentStatus].map((s) => String(s || "").toLowerCase());
+    return flags.includes("delivered") ? "Delivered" : "Not Delivered";
+  }
+  const states = deliveries.map((d) => String(d.deliveryStatus || "").toLowerCase());
+  const delivered = states.filter((s) => s === "delivered" || s === "completed").length;
+  if (delivered === states.length) return "Delivered";
+  if (delivered > 0 || states.some((s) => s.includes("partial"))) return "Partially Delivered";
+  return "Pending";
+}
+
+exports.getCustomerAccount = async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const { id } = req.params;
-    const { startDate, endDate, page = 1, limit = 50 } = req.query;
+    const start = dayStart(req.query.from);
+    const end = dayEnd(req.query.to);
 
     const customer = await prisma.customer.findFirst({
-      where: { id, companyId }
+      where: { id, companyId, isDeleted: false },
+      include: {
+        salesperson: { select: { id: true, name: true, phone: true } },
+        company: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            phone: true,
+            email: true,
+            logo: true,
+            baseCurrency: { select: { code: true, symbol: true } }
+          }
+        }
+      }
     });
 
     if (!customer) {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    const arEntries = await prisma.accountsReceivable.findMany({
-      where: {
-        customerId: id,
-        companyId,
-        ...(startDate && { invoiceDate: { gte: new Date(startDate) } }),
-        ...(endDate && { invoiceDate: { lte: new Date(endDate) } })
-      },
-      orderBy: { invoiceDate: "asc" }
+    const invoiceScope = {
+      customerId: id,
+      companyId,
+      isDeleted: false,
+      invoiceStatus: { not: "Cancelled" }
+    };
+    const paymentScope = { customerId: id, companyId, isDeleted: false };
+    const orderScope = { customerId: id, companyId, isDeleted: false };
+    const deliveryScope = { customerId: id, companyId, isDeleted: false };
+
+    const [invoices, allInvoices, payments, orders, deliveries, creditNotes] =
+      await Promise.all([
+        prisma.salesInvoice.findMany({
+          where: { ...invoiceScope, ...dayRange("invoiceDate", start, end) },
+          orderBy: { invoiceDate: "asc" },
+          take: 1000
+        }),
+        prisma.salesInvoice.findMany({
+          where: invoiceScope,
+          select: {
+            id: true,
+            dueDate: true,
+            grandTotal: true,
+            paidAmount: true,
+            outstanding: true
+          },
+          take: 5000
+        }),
+        prisma.salesPaymentReceived.findMany({
+          where: { ...paymentScope, ...dayRange("paymentDate", start, end) },
+          orderBy: { paymentDate: "asc" },
+          take: 1000
+        }),
+        prisma.order.findMany({
+          where: { ...orderScope, ...dayRange("orderDate", start, end) },
+          orderBy: { orderDate: "desc" },
+          take: 500,
+          include: {
+            items: {
+              select: {
+                productName: true,
+                sku: true,
+                quantity: true,
+                unitPrice: true,
+                totalPrice: true,
+                taxAmount: true
+              }
+            }
+          }
+        }),
+        prisma.delivery.findMany({
+          where: { ...deliveryScope, ...dayRange("deliveryDate", start, end) },
+          orderBy: { deliveryDate: "desc" },
+          take: 500,
+          include: {
+            items: {
+              select: {
+                productName: true,
+                sku: true,
+                unit: true,
+                orderedQuantity: true,
+                deliveredQuantity: true,
+                remainingQuantity: true
+              }
+            }
+          }
+        }),
+        prisma.creditNote.findMany({
+          where: { customerId: id, companyId, ...dayRange("date", start, end) },
+          orderBy: { date: "asc" },
+          take: 500
+        })
+      ]);
+
+    // Opening balance for the selected period
+    let openingBalance = 0;
+    if (start) {
+      const [priorInvoices, priorPayments, priorCredits] = await Promise.all([
+        prisma.salesInvoice.aggregate({
+          where: { ...invoiceScope, invoiceDate: { lt: start } },
+          _sum: { grandTotal: true }
+        }),
+        prisma.salesPaymentReceived.aggregate({
+          where: { ...paymentScope, paymentDate: { lt: start } },
+          _sum: { amount: true }
+        }),
+        prisma.creditNote.aggregate({
+          where: { customerId: id, companyId, date: { lt: start } },
+          _sum: { amount: true }
+        })
+      ]);
+      openingBalance =
+        (priorInvoices._sum.grandTotal || 0) -
+        (priorPayments._sum.amount || 0) -
+        (priorCredits._sum.amount || 0);
+    }
+
+    // Delivery + invoice state per order (dates outside the period still count)
+    const orderIds = orders.map((o) => o.id);
+    const [orderDeliveries, orderInvoices] = orderIds.length
+      ? await Promise.all([
+          prisma.delivery.findMany({
+            where: { salesOrderId: { in: orderIds }, companyId, isDeleted: false },
+            orderBy: { deliveryDate: "asc" }
+          }),
+          prisma.salesInvoice.findMany({
+            where: {
+              orderId: { in: orderIds },
+              companyId,
+              isDeleted: false,
+              invoiceStatus: { not: "Cancelled" }
+            },
+            select: {
+              id: true,
+              orderId: true,
+              invoiceNumber: true,
+              invoiceDate: true,
+              grandTotal: true,
+              paidAmount: true,
+              outstanding: true
+            }
+          })
+        ])
+      : [[], []];
+
+    const deliveriesByOrder = new Map();
+    for (const delivery of orderDeliveries) {
+      if (!deliveriesByOrder.has(delivery.salesOrderId)) deliveriesByOrder.set(delivery.salesOrderId, []);
+      deliveriesByOrder.get(delivery.salesOrderId).push(delivery);
+    }
+
+    const invoicesByOrder = new Map();
+    for (const invoice of orderInvoices) {
+      if (!invoicesByOrder.has(invoice.orderId)) invoicesByOrder.set(invoice.orderId, []);
+      invoicesByOrder.get(invoice.orderId).push(invoice);
+    }
+
+    const orderRows = orders.map((order) => {
+      const linkedDeliveries = deliveriesByOrder.get(order.id) || [];
+      const linkedInvoices = invoicesByOrder.get(order.id) || [];
+      const invoiced = linkedInvoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
+      const invoicePaid = linkedInvoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0);
+      const paid =
+        linkedInvoices.length > 0
+          ? invoicePaid
+          : String(order.paymentStatus || "").toLowerCase() === "paid"
+            ? order.grandTotal || 0
+            : 0;
+      const billed = linkedInvoices.length > 0 ? invoiced : order.grandTotal || 0;
+      const deliveredDates = linkedDeliveries
+        .filter((d) => ["delivered", "completed"].includes(String(d.deliveryStatus || "").toLowerCase()))
+        .map((d) => d.deliveryDate);
+
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderDate: order.orderDate,
+        expectedDeliveryDate: order.expectedDeliveryDate,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        fulfillmentStatus: order.fulfillmentStatus,
+        grandTotal: round2(order.grandTotal),
+        invoiced: round2(invoiced),
+        paid: round2(paid),
+        remaining: round2(Math.max(billed - paid, 0)),
+        deliveryStatus: deliveryState(order, linkedDeliveries),
+        deliveryDate: deliveredDates.length
+          ? deliveredDates[deliveredDates.length - 1]
+          : null,
+        deliveryNumbers: linkedDeliveries.map((d) => d.deliveryNumber),
+        invoiceNumbers: linkedInvoices.map((inv) => inv.invoiceNumber),
+        itemCount: order.items?.length || 0,
+        items: (order.items || []).map((item) => ({
+          productName: item.productName,
+          sku: item.sku,
+          quantity: item.quantity,
+          unitPrice: round2(item.unitPrice),
+          totalPrice: round2(item.totalPrice)
+        }))
+      };
     });
 
-    const payments = await prisma.salesPaymentReceived.findMany({
-      where: {
-        customerId: id,
-        companyId,
-        ...(startDate && { paymentDate: { gte: new Date(startDate) } }),
-        ...(endDate && { paymentDate: { lte: new Date(endDate) } })
-      },
-      orderBy: { paymentDate: "asc" }
+    // Receivable ledger for the period
+    const ledger = [
+      ...invoices.map((inv) => ({
+        date: inv.invoiceDate,
+        documentNumber: inv.invoiceNumber,
+        documentType: "Invoice",
+        description: `Sales Invoice #${inv.invoiceNumber}`,
+        dueDate: inv.dueDate,
+        debit: round2(inv.grandTotal),
+        credit: 0,
+        refId: inv.id
+      })),
+      ...payments.map((pay) => ({
+        date: pay.paymentDate,
+        documentNumber: pay.paymentNumber,
+        documentType: "Payment",
+        description: `Payment Received #${pay.paymentNumber} (${pay.paymentMethod || "Cash"})`,
+        dueDate: null,
+        debit: 0,
+        credit: round2(pay.amount),
+        refId: pay.id
+      })),
+      ...creditNotes.map((cn) => ({
+        date: cn.date || cn.createdAt,
+        documentNumber: cn.creditNumber,
+        documentType: "Credit Note",
+        description: `Credit Note #${cn.creditNumber}`,
+        dueDate: null,
+        debit: 0,
+        credit: round2(cn.amount),
+        refId: cn.id
+      }))
+    ].sort((a, b) => {
+      // Statements group by day; invoices post before the payments that settle them.
+      const dayA = new Date(a.date).toISOString().slice(0, 10);
+      const dayB = new Date(b.date).toISOString().slice(0, 10);
+      if (dayA !== dayB) return dayA < dayB ? -1 : 1;
+      const rank = { Invoice: 0, "Credit Note": 1, Payment: 2 };
+      const byRank = (rank[a.documentType] ?? 9) - (rank[b.documentType] ?? 9);
+      if (byRank !== 0) return byRank;
+      return new Date(a.date) - new Date(b.date);
     });
 
-    const creditNotes = await prisma.creditNote.findMany({
-      where: {
-        customerId: id,
-        companyId,
-        ...(startDate && { issueDate: { gte: new Date(startDate) } }),
-        ...(endDate && { issueDate: { lte: new Date(endDate) } })
-      },
-      orderBy: { issueDate: "asc" }
+    let running = openingBalance;
+    let totalInvoiced = 0;
+    let totalReceived = 0;
+    let totalCredits = 0;
+    const ledgerRows = ledger.map((line) => {
+      running += line.debit - line.credit;
+      totalInvoiced += line.debit;
+      totalReceived += line.credit;
+      if (line.documentType === "Credit Note") totalCredits += line.credit;
+      return { ...line, runningBalance: round2(running) };
     });
+
+    const monthlyMap = new Map();
+    for (const line of ledger) {
+      const key = new Date(line.date).toISOString().slice(0, 7);
+      if (!monthlyMap.has(key)) monthlyMap.set(key, { month: key, invoiced: 0, received: 0 });
+      const bucket = monthlyMap.get(key);
+      bucket.invoiced += line.debit;
+      bucket.received += line.credit;
+    }
+    for (const order of orders) {
+      const key = new Date(order.orderDate).toISOString().slice(0, 7);
+      if (!monthlyMap.has(key)) monthlyMap.set(key, { month: key, invoiced: 0, received: 0 });
+      monthlyMap.get(key).orders = (monthlyMap.get(key).orders || 0) + 1;
+    }
+
+    let topProducts = [];
+    try {
+      const grouped = await prisma.salesInvoiceItem.groupBy({
+        by: ["productId", "productName", "sku"],
+        where: {
+          invoice: {
+            customerId: id,
+            companyId,
+            isDeleted: false,
+            invoiceStatus: { not: "Cancelled" },
+            ...dayRange("invoiceDate", start, end)
+          }
+        },
+        _sum: { quantity: true, lineTotal: true },
+        orderBy: { _sum: { lineTotal: "desc" } },
+        take: 10
+      });
+      topProducts = grouped.map((row) => ({
+        productId: row.productId,
+        name: row.productName,
+        sku: row.sku,
+        totalQuantity: round2(row._sum.quantity),
+        totalValue: round2(row._sum.lineTotal)
+      }));
+    } catch (error) {
+      console.error("Customer account product rollup skipped:", error.message);
+    }
+
+    const ordersValue = orderRows.reduce((sum, o) => sum + o.grandTotal, 0);
+    const ordersPaid = orderRows.reduce((sum, o) => sum + o.paid, 0);
+    const ordersRemaining = orderRows.reduce((sum, o) => sum + o.remaining, 0);
+    const deliveredOrders = orderRows.filter((o) => o.deliveryStatus === "Delivered").length;
+    const openDeliveries = deliveries.filter(
+      (d) => !["delivered", "completed"].includes(String(d.deliveryStatus || "").toLowerCase())
+    ).length;
+    const creditLimit = customer.creditLimit || 0;
+
+    const now = new Date();
+    let totalOutstanding = 0;
+    let overdueAmount = 0;
+    let overdueInvoices = 0;
+    for (const inv of allInvoices) {
+      const balance = Math.max(
+        Number(inv.outstanding) || 0,
+        (Number(inv.grandTotal) || 0) - (Number(inv.paidAmount) || 0),
+        0
+      );
+      if (balance <= 0.009) continue;
+      totalOutstanding += balance;
+      if (inv.dueDate && new Date(inv.dueDate) < now) {
+        overdueAmount += balance;
+        overdueInvoices += 1;
+      }
+    }
+    totalOutstanding = round2(totalOutstanding);
+
+    res.json({
+      success: true,
+      data: {
+        customer: {
+          id: customer.id,
+          customerNumber: customer.customerNumber,
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          companyName: customer.companyName,
+          customerType: customer.customerType,
+          taxId: customer.taxId,
+          status: customer.status,
+          territory: customer.territory,
+          address: customer.address,
+          shippingAddress: customer.shippingAddress,
+          billingAddress: customer.billingAddress,
+          notes: customer.notes,
+          creditLimit,
+          creditTerms: customer.creditTerms,
+          creditDays: customer.creditDays,
+          creditPolicy: customer.creditPolicy,
+          loyaltyPoints: customer.loyaltyPoints,
+          totalOrders: customer.totalOrders,
+          totalSpent: customer.totalSpent,
+          averageOrderValue: customer.averageOrderValue,
+          outstandingBalance: customer.outstandingBalance,
+          lastOrderDate: customer.lastOrderDate,
+          salesperson: customer.salesperson
+        },
+        company: {
+          id: customer.company?.id || null,
+          name: customer.company?.name || "",
+          address: customer.company?.address || "",
+          phone: customer.company?.phone || "",
+          email: customer.company?.email || "",
+          logo: customer.company?.logo || "",
+          currencyCode: customer.company?.baseCurrency?.code || "PKR",
+          currencySymbol: customer.company?.baseCurrency?.symbol || "Rs."
+        },
+        period: { from: start, to: end },
+        summary: {
+          openingBalance: round2(openingBalance),
+          totalInvoiced: round2(totalInvoiced),
+          totalReceived: round2(totalReceived),
+          totalCredits: round2(totalCredits),
+          closingBalance: round2(openingBalance + totalInvoiced - totalReceived),
+          totalOutstanding,
+          overdueAmount: round2(overdueAmount),
+          overdueInvoices,
+          invoiceCount: allInvoices.length,
+          periodInvoiceCount: invoices.length,
+          paymentCount: payments.length,
+          creditNoteCount: creditNotes.length,
+          creditLimit,
+          availableCredit: creditLimit > 0 ? round2(Math.max(creditLimit - totalOutstanding, 0)) : 0,
+          ordersCount: orderRows.length,
+          ordersValue: round2(ordersValue),
+          ordersPaid: round2(ordersPaid),
+          ordersRemaining: round2(ordersRemaining),
+          deliveredOrders,
+          undeliveredOrders: orderRows.length - deliveredOrders,
+          deliveriesCount: deliveries.length,
+          openDeliveries
+        },
+        orders: orderRows,
+        deliveries: deliveries.map((d) => ({
+          id: d.id,
+          deliveryNumber: d.deliveryNumber,
+          salesOrderNumber: d.salesOrderNumber,
+          deliveryDate: d.deliveryDate,
+          deliveryStatus: d.deliveryStatus,
+          deliveryPerson: d.deliveryPerson,
+          trackingNumber: d.trackingNumber,
+          notes: d.notes,
+          orderedQuantity: round2((d.items || []).reduce((sum, i) => sum + (i.orderedQuantity || 0), 0)),
+          deliveredQuantity: round2((d.items || []).reduce((sum, i) => sum + (i.deliveredQuantity || 0), 0)),
+          items: (d.items || []).map((item) => ({
+            productName: item.productName,
+            sku: item.sku,
+            unit: item.unit,
+            orderedQuantity: item.orderedQuantity,
+            deliveredQuantity: item.deliveredQuantity,
+            remainingQuantity: item.remainingQuantity
+          }))
+        })),
+        invoices: invoices.map((inv) => {
+          const balance = Math.max(
+            Number(inv.outstanding) || 0,
+            (Number(inv.grandTotal) || 0) - (Number(inv.paidAmount) || 0),
+            0
+          );
+          return {
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            orderNumber: inv.orderNumber,
+            invoiceDate: inv.invoiceDate,
+            dueDate: inv.dueDate,
+            grandTotal: round2(inv.grandTotal),
+            paidAmount: round2(inv.paidAmount),
+            outstanding: round2(balance),
+            invoiceStatus: inv.invoiceStatus,
+            paymentStatus: inv.paymentStatus,
+            isOverdue: balance > 0 && inv.dueDate && new Date(inv.dueDate) < new Date()
+          };
+        }),
+        payments: payments.map((pay) => ({
+          id: pay.id,
+          paymentNumber: pay.paymentNumber,
+          paymentDate: pay.paymentDate,
+          amount: round2(pay.amount),
+          paymentMethod: pay.paymentMethod,
+          reference: pay.reference,
+          notes: pay.notes,
+          status: pay.status,
+          bankAccountName: pay.bankAccountName
+        })),
+        creditNotes: creditNotes.map((cn) => ({
+          id: cn.id,
+          creditNumber: cn.creditNumber,
+          date: cn.date,
+          amount: round2(cn.amount),
+          remainingAmount: round2(cn.remainingAmount),
+          status: cn.status,
+          reason: cn.reason
+        })),
+        ledger: ledgerRows,
+        monthly: Array.from(monthlyMap.values())
+          .sort((a, b) => a.month.localeCompare(b.month))
+          .map((row) => ({
+            month: row.month,
+            invoiced: round2(row.invoiced),
+            received: round2(row.received),
+            orders: row.orders || 0
+          })),
+        topProducts
+      }
+    });
+  } catch (error) {
+    console.error("Error in getCustomerAccount:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getCustomerLedger = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { id } = req.params;
+    const { startDate, endDate, page = 1, limit = 50 } = req.query;
+    const start = dayStart(startDate);
+    const end = dayEnd(endDate);
+
+    const customer = await prisma.customer.findFirst({
+      where: { id, companyId, isDeleted: false },
+      include: { company: { select: { baseCurrency: { select: { code: true } } } } }
+    });
+
+    if (!customer) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    const currency = customer.company?.baseCurrency?.code || "PKR";
+    const invoiceScope = {
+      customerId: id,
+      companyId,
+      isDeleted: false,
+      invoiceStatus: { not: "Cancelled" }
+    };
+
+    const [invoices, payments, creditNotes] = await Promise.all([
+      prisma.salesInvoice.findMany({
+        where: { ...invoiceScope, ...dayRange("invoiceDate", start, end) },
+        orderBy: { invoiceDate: "asc" }
+      }),
+      prisma.salesPaymentReceived.findMany({
+        where: { customerId: id, companyId, isDeleted: false, ...dayRange("paymentDate", start, end) },
+        orderBy: { paymentDate: "asc" }
+      }),
+      prisma.creditNote.findMany({
+        where: { customerId: id, companyId, ...dayRange("date", start, end) },
+        orderBy: { date: "asc" }
+      })
+    ]);
+
+    let openingBalance = 0;
+    if (start) {
+      const [priorInvoices, priorPayments, priorCredits] = await Promise.all([
+        prisma.salesInvoice.aggregate({
+          where: { ...invoiceScope, invoiceDate: { lt: start } },
+          _sum: { grandTotal: true }
+        }),
+        prisma.salesPaymentReceived.aggregate({
+          where: { customerId: id, companyId, isDeleted: false, paymentDate: { lt: start } },
+          _sum: { amount: true }
+        }),
+        prisma.creditNote.aggregate({
+          where: { customerId: id, companyId, date: { lt: start } },
+          _sum: { amount: true }
+        })
+      ]);
+      openingBalance =
+        (priorInvoices._sum.grandTotal || 0) -
+        (priorPayments._sum.amount || 0) -
+        (priorCredits._sum.amount || 0);
+    }
 
     const ledgerLines = [];
 
-    arEntries.forEach(ar => {
+    invoices.forEach((inv) => {
       ledgerLines.push({
-        id: ar.id,
-        date: ar.invoiceDate,
-        documentNumber: ar.invoiceNumber,
+        id: inv.id,
+        date: inv.invoiceDate,
+        documentNumber: inv.invoiceNumber,
         documentType: "Invoice",
-        description: `Sales Invoice #${ar.invoiceNumber}`,
-        dueDate: ar.dueDate,
-        currency: "PKR",
-        debit: ar.totalAmount || 0,
+        description: `Sales Invoice #${inv.invoiceNumber}`,
+        dueDate: inv.dueDate,
+        currency,
+        debit: inv.grandTotal || 0,
         credit: 0,
-        refId: ar.salesInvoiceId
+        refId: inv.id
       });
     });
 
-    payments.forEach(p => {
+    payments.forEach((p) => {
       ledgerLines.push({
         id: p.id,
         date: p.paymentDate,
@@ -568,46 +1108,51 @@ exports.getCustomerLedger = async (req, res) => {
         documentType: "Payment",
         description: `Payment Received #${p.paymentNumber} (${p.paymentMethod || "Cash"})`,
         dueDate: null,
-        currency: "PKR",
+        currency,
         debit: 0,
         credit: p.amount || 0,
         refId: p.id
       });
     });
 
-    creditNotes.forEach(cn => {
+    creditNotes.forEach((cn) => {
       ledgerLines.push({
         id: cn.id,
-        date: cn.issueDate || cn.createdAt,
-        documentNumber: cn.creditNoteNumber || "CN",
+        date: cn.date || cn.createdAt,
+        documentNumber: cn.creditNumber || "CN",
         documentType: "Credit Note",
-        description: `Credit Note #${cn.creditNoteNumber || ""}`,
+        description: `Credit Note #${cn.creditNumber || ""}`,
         dueDate: null,
-        currency: "PKR",
+        currency,
         debit: 0,
         credit: cn.amount || 0,
         refId: cn.id
       });
     });
 
-    ledgerLines.sort((a, b) => new Date(a.date) - new Date(b.date));
+    ledgerLines.sort((a, b) => {
+      const dayA = new Date(a.date).toISOString().slice(0, 10);
+      const dayB = new Date(b.date).toISOString().slice(0, 10);
+      if (dayA !== dayB) return dayA < dayB ? -1 : 1;
+      const rank = { Invoice: 0, "Credit Note": 1, Payment: 2 };
+      const byRank = (rank[a.documentType] ?? 9) - (rank[b.documentType] ?? 9);
+      if (byRank !== 0) return byRank;
+      return new Date(a.date) - new Date(b.date);
+    });
 
-    let runningBalance = 0;
+    let runningBalance = openingBalance;
     let totalDebit = 0;
     let totalCredit = 0;
 
-    const formattedLines = ledgerLines.map(line => {
+    const formattedLines = ledgerLines.map((line) => {
       runningBalance += line.debit - line.credit;
       totalDebit += line.debit;
       totalCredit += line.credit;
-      return {
-        ...line,
-        runningBalance
-      };
+      return { ...line, runningBalance: round2(runningBalance) };
     });
 
-    const p = parseInt(page);
-    const l = parseInt(limit);
+    const p = Math.max(parseInt(page) || 1, 1);
+    const l = Math.max(parseInt(limit) || 50, 1);
     const paginatedLines = formattedLines.slice((p - 1) * l, p * l);
 
     res.json({
@@ -615,9 +1160,10 @@ exports.getCustomerLedger = async (req, res) => {
       data: {
         customer: { id: customer.id, name: customer.name, customerNumber: customer.customerNumber },
         summary: {
-          totalDebit,
-          totalCredit,
-          closingBalance: runningBalance
+          openingBalance: round2(openingBalance),
+          totalDebit: round2(totalDebit),
+          totalCredit: round2(totalCredit),
+          closingBalance: round2(runningBalance)
         },
         pagination: {
           total: formattedLines.length,
@@ -641,43 +1187,68 @@ exports.getCustomerStatement = async (req, res) => {
     const { startDate, endDate } = req.query;
 
     const customer = await prisma.customer.findFirst({
-      where: { id, companyId },
-      include: { company: true }
+      where: { id, companyId, isDeleted: false },
+      include: { company: { include: { baseCurrency: { select: { code: true } } } } }
     });
 
     if (!customer) {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
-    const end = endDate ? new Date(endDate) : new Date();
+    const start = dayStart(startDate) || new Date(new Date().getFullYear(), 0, 1);
+    const end = dayEnd(endDate) || new Date();
+    const currency = customer.company?.baseCurrency?.code || "PKR";
+    const invoiceScope = {
+      customerId: id,
+      companyId,
+      isDeleted: false,
+      invoiceStatus: { not: "Cancelled" }
+    };
 
     // Opening Balance before start date
-    const priorInvoices = await prisma.salesInvoice.aggregate({
-      where: { customerId: id, companyId, invoiceDate: { lt: start }, status: { not: "Cancelled" } },
-      _sum: { grandTotal: true }
-    });
-    const priorPayments = await prisma.salesPaymentReceived.aggregate({
-      where: { customerId: id, companyId, paymentDate: { lt: start } },
-      _sum: { amount: true }
-    });
-    const openingBalance = (priorInvoices._sum.grandTotal || 0) - (priorPayments._sum.amount || 0);
+    const [priorInvoices, priorPayments, priorCredits] = await Promise.all([
+      prisma.salesInvoice.aggregate({
+        where: { ...invoiceScope, invoiceDate: { lt: start } },
+        _sum: { grandTotal: true }
+      }),
+      prisma.salesPaymentReceived.aggregate({
+        where: { customerId: id, companyId, isDeleted: false, paymentDate: { lt: start } },
+        _sum: { amount: true }
+      }),
+      prisma.creditNote.aggregate({
+        where: { customerId: id, companyId, date: { lt: start } },
+        _sum: { amount: true }
+      })
+    ]);
+    const openingBalance =
+      (priorInvoices._sum.grandTotal || 0) -
+      (priorPayments._sum.amount || 0) -
+      (priorCredits._sum.amount || 0);
 
-    // Period Invoices
-    const periodInvoices = await prisma.salesInvoice.findMany({
-      where: { customerId: id, companyId, invoiceDate: { gte: start, lte: end }, status: { not: "Cancelled" } },
-      orderBy: { invoiceDate: "asc" }
-    });
-
-    // Period Payments
-    const periodPayments = await prisma.salesPaymentReceived.findMany({
-      where: { customerId: id, companyId, paymentDate: { gte: start, lte: end } },
-      orderBy: { paymentDate: "asc" }
-    });
+    // Period Invoices / Payments / Credit Notes
+    const [periodInvoices, periodPayments, periodCredits] = await Promise.all([
+      prisma.salesInvoice.findMany({
+        where: { ...invoiceScope, invoiceDate: { gte: start, lte: end } },
+        orderBy: { invoiceDate: "asc" }
+      }),
+      prisma.salesPaymentReceived.findMany({
+        where: {
+          customerId: id,
+          companyId,
+          isDeleted: false,
+          paymentDate: { gte: start, lte: end }
+        },
+        orderBy: { paymentDate: "asc" }
+      }),
+      prisma.creditNote.findMany({
+        where: { customerId: id, companyId, date: { gte: start, lte: end } },
+        orderBy: { date: "asc" }
+      })
+    ]);
 
     const transactions = [];
 
-    periodInvoices.forEach(inv => {
+    periodInvoices.forEach((inv) => {
       transactions.push({
         date: inv.invoiceDate,
         documentNo: inv.invoiceNumber,
@@ -685,11 +1256,11 @@ exports.getCustomerStatement = async (req, res) => {
         description: `Sales Invoice #${inv.invoiceNumber}`,
         debit: inv.grandTotal,
         credit: 0,
-        currency: "PKR"
+        currency
       });
     });
 
-    periodPayments.forEach(pay => {
+    periodPayments.forEach((pay) => {
       transactions.push({
         date: pay.paymentDate,
         documentNo: pay.paymentNumber,
@@ -697,23 +1268,43 @@ exports.getCustomerStatement = async (req, res) => {
         description: `Payment Received #${pay.paymentNumber}`,
         debit: 0,
         credit: pay.amount,
-        currency: "PKR"
+        currency
       });
     });
 
-    transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+    periodCredits.forEach((cn) => {
+      transactions.push({
+        date: cn.date || cn.createdAt,
+        documentNo: cn.creditNumber,
+        type: "Credit Note",
+        description: `Credit Note #${cn.creditNumber}`,
+        debit: 0,
+        credit: cn.amount,
+        currency
+      });
+    });
+
+    transactions.sort((a, b) => {
+      const dayA = new Date(a.date).toISOString().slice(0, 10);
+      const dayB = new Date(b.date).toISOString().slice(0, 10);
+      if (dayA !== dayB) return dayA < dayB ? -1 : 1;
+      const rank = { Invoice: 0, "Credit Note": 1, Payment: 2 };
+      const byRank = (rank[a.type] ?? 9) - (rank[b.type] ?? 9);
+      if (byRank !== 0) return byRank;
+      return new Date(a.date) - new Date(b.date);
+    });
 
     let balance = openingBalance;
     let totalInvoiced = 0;
     let totalReceived = 0;
 
-    const statementLines = transactions.map(t => {
+    const statementLines = transactions.map((t) => {
       balance += t.debit - t.credit;
       totalInvoiced += t.debit;
       totalReceived += t.credit;
       return {
         ...t,
-        runningBalance: balance
+        runningBalance: round2(balance)
       };
     });
 
@@ -723,10 +1314,10 @@ exports.getCustomerStatement = async (req, res) => {
         company: customer.company,
         customer,
         statementPeriod: { startDate: start, endDate: end },
-        openingBalance,
-        totalInvoiced,
-        totalReceived,
-        closingBalance: balance,
+        openingBalance: round2(openingBalance),
+        totalInvoiced: round2(totalInvoiced),
+        totalReceived: round2(totalReceived),
+        closingBalance: round2(balance),
         lines: statementLines
       }
     });

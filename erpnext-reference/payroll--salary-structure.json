@@ -1,0 +1,267 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Salary Structure",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "Prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 1,
+  "document_type": "Document",
+  "documentation": "https://docs.frappe.io/hr/salary-structure",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "time_sheet_earning_detail",
+      "fieldname": "time_sheet_earning_detail",
+      "type": "Section Break"
+    },
+    {
+      "label": "Earnings & Deductions",
+      "fieldname": "earning_deduction",
+      "type": "Tab Break"
+    },
+    {
+      "label": "net_pay_detail",
+      "fieldname": "net_pay_detail",
+      "type": "Section Break"
+    },
+    {
+      "label": "Account",
+      "fieldname": "account",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "letter_head",
+      "target": "Letter Head"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Salary Structure"
+    },
+    {
+      "fieldname": "salary_component",
+      "target": "Salary Component"
+    },
+    {
+      "fieldname": "mode_of_payment",
+      "target": "Mode of Payment"
+    },
+    {
+      "fieldname": "payment_account",
+      "target": "Account"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "earnings",
+      "child_doctype": "Salary Detail"
+    },
+    {
+      "fieldname": "deductions",
+      "child_doctype": "Salary Detail"
+    },
+    {
+      "fieldname": "employer_contributions",
+      "child_doctype": "Salary Detail"
+    },
+    {
+      "fieldname": "employee_benefits",
+      "child_doctype": "Employee Benefit Detail"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "letter_head",
+      "label": "Letter Head",
+      "fieldtype": "Link",
+      "options": "Letter Head",
+      "fetch_from": "company.default_letter_head",
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "is_active",
+      "label": "Is Active",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "Yes",
+      "options": "\nYes\nNo",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "is_default",
+      "label": "Is Default",
+      "fieldtype": "Select",
+      "default": "No",
+      "options": "Yes\nNo",
+      "read_only": 1,
+      "hidden": 1,
+      "section": null
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Salary Structure",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "leave_encashment_amount_per_day",
+      "label": "Leave Encashment Amount Per Day",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "allow_on_submit": 1,
+      "section": "time_sheet_earning_detail"
+    },
+    {
+      "fieldname": "max_benefits",
+      "label": "Max Benefits (Amount)",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "section": "time_sheet_earning_detail"
+    },
+    {
+      "fieldname": "salary_slip_based_on_timesheet",
+      "label": "Salary Slip Based on Timesheet",
+      "fieldtype": "Check",
+      "default": "0",
+      "search_index": 1,
+      "section": "time_sheet_earning_detail"
+    },
+    {
+      "fieldname": "payroll_frequency",
+      "label": "Payroll Frequency",
+      "fieldtype": "Select",
+      "default": "Monthly",
+      "options": "\nMonthly\nFortnightly\nBimonthly\nWeekly\nDaily",
+      "depends_on": "eval:doc.salary_slip_based_on_timesheet == 0",
+      "search_index": 1,
+      "section": "time_sheet_earning_detail"
+    },
+    {
+      "fieldname": "salary_component",
+      "label": "Salary Component",
+      "fieldtype": "Link",
+      "options": "Salary Component",
+      "description": "Salary Component for timesheet based payroll.",
+      "section": "time_sheet_earning_detail"
+    },
+    {
+      "fieldname": "hour_rate",
+      "label": "Hour Rate",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "section": "time_sheet_earning_detail"
+    },
+    {
+      "fieldname": "earnings",
+      "label": "Earnings",
+      "fieldtype": "Table",
+      "options": "Salary Detail",
+      "section": "Earnings & Deductions"
+    },
+    {
+      "fieldname": "deductions",
+      "label": "Deductions",
+      "fieldtype": "Table",
+      "options": "Salary Detail",
+      "section": "Earnings & Deductions"
+    },
+    {
+      "fieldname": "employer_contributions",
+      "label": "Employer Contributions",
+      "fieldtype": "Table",
+      "options": "Salary Detail",
+      "section": "Earnings & Deductions"
+    },
+    {
+      "fieldname": "employee_benefits",
+      "label": "Flexible Benefits",
+      "fieldtype": "Table",
+      "options": "Employee Benefit Detail",
+      "description": "Enter yearly benefit amounts",
+      "section": "Earnings & Deductions"
+    },
+    {
+      "fieldname": "total_earning",
+      "label": "Total Earning",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "net_pay_detail"
+    },
+    {
+      "fieldname": "total_deduction",
+      "label": "Total Deduction",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "net_pay_detail"
+    },
+    {
+      "fieldname": "net_pay",
+      "label": "Net Pay",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "net_pay_detail"
+    },
+    {
+      "fieldname": "mode_of_payment",
+      "label": "Mode of Payment",
+      "fieldtype": "Link",
+      "options": "Mode of Payment",
+      "section": "Account"
+    },
+    {
+      "fieldname": "payment_account",
+      "label": "Payment Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "section": "Account"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "show_name_in_global_search": 1
+}

@@ -1,0 +1,176 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Overtime Slip",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-OT-SLIP-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/overtime",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_wdfp",
+      "fieldname": "section_break_wdfp",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_fvyh",
+      "fieldname": "section_break_fvyh",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_dzua",
+      "fieldname": "section_break_dzua",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Overtime Slip"
+    },
+    {
+      "fieldname": "salary_slip",
+      "target": "Salary Slip"
+    },
+    {
+      "fieldname": "payroll_entry",
+      "target": "Payroll Entry"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "overtime_details",
+      "child_doctype": "Overtime Details"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "in_list_view": 1,
+      "section": "section_break_wdfp"
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": "section_break_wdfp"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "fetch_from": "employee.employee_name",
+      "section": "section_break_wdfp"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": "section_break_wdfp"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "fetch_from": "employee.department",
+      "section": "section_break_wdfp"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Overtime Slip",
+      "read_only": 1,
+      "search_index": 1,
+      "section": "section_break_wdfp"
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "section_break_fvyh"
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "section_break_fvyh"
+    },
+    {
+      "fieldname": "salary_slip",
+      "label": "Salary Slip",
+      "fieldtype": "Link",
+      "options": "Salary Slip",
+      "read_only": 1,
+      "allow_on_submit": 1,
+      "section": "section_break_fvyh"
+    },
+    {
+      "fieldname": "total_overtime_duration",
+      "label": "Total Overtime Duration",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "section": "section_break_fvyh"
+    },
+    {
+      "fieldname": "payroll_entry",
+      "label": "Payroll Entry",
+      "fieldtype": "Link",
+      "options": "Payroll Entry",
+      "read_only": 1,
+      "depends_on": "payroll_entry",
+      "section": "section_break_fvyh"
+    },
+    {
+      "fieldname": "submitted_via_payroll_entry",
+      "label": "Submitted via Payroll Entry",
+      "fieldtype": "Check",
+      "default": "0",
+      "hidden": 1,
+      "section": "section_break_fvyh"
+    },
+    {
+      "fieldname": "overtime_details",
+      "label": "Overtime Details",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Overtime Details",
+      "section": "section_break_dzua"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

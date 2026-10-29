@@ -1,0 +1,83 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Earned Leave Schedule",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [
+    {
+      "label": "section_break_amtg",
+      "fieldname": "section_break_amtg",
+      "type": "Section Break"
+    }
+  ],
+  "links": [],
+  "fields": [
+    {
+      "fieldname": "allocation_date",
+      "label": "Allocation Date",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "number_of_leaves",
+      "label": "Number of Leaves",
+      "fieldtype": "Float",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "attempted",
+      "label": "Attempted",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "hidden": 1,
+      "section": null
+    },
+    {
+      "fieldname": "failed",
+      "label": "Failed",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "hidden": 1,
+      "section": null
+    },
+    {
+      "fieldname": "is_allocated",
+      "label": "Is Allocated",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "allocated_via",
+      "label": "Allocated Via",
+      "fieldtype": "Select",
+      "options": "\nScheduler\nLeave Policy Assignment\nManually",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "failure_reason",
+      "label": "Failure Reason",
+      "fieldtype": "Small Text",
+      "read_only": 1,
+      "section": "section_break_amtg"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

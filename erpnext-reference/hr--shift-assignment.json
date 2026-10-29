@@ -1,0 +1,181 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Shift Assignment",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-SHA-.YY.-.MM.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/shift-assignment",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Employee Details",
+      "fieldname": "employee_details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Shift Details",
+      "fieldname": "shift_details_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "shift_type",
+      "target": "Shift Type"
+    },
+    {
+      "fieldname": "shift_location",
+      "target": "Shift Location"
+    },
+    {
+      "fieldname": "overtime_type",
+      "target": "Overtime Type"
+    },
+    {
+      "fieldname": "shift_request",
+      "target": "Shift Request"
+    },
+    {
+      "fieldname": "shift_schedule_assignment",
+      "target": "Shift Schedule Assignment"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Shift Assignment"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "shift_type",
+      "label": "Shift Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Shift Type",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "shift_location",
+      "label": "Shift Location",
+      "fieldtype": "Link",
+      "options": "Shift Location",
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "default": "Active",
+      "options": "Active\nInactive",
+      "allow_on_submit": 1,
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "overtime_type",
+      "label": "Overtime Type",
+      "fieldtype": "Link",
+      "options": "Overtime Type",
+      "fetch_from": "shift_type.overtime_type",
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "allow_on_submit": 1,
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "shift_request",
+      "label": "Shift Request",
+      "fieldtype": "Link",
+      "options": "Shift Request",
+      "read_only": 1,
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "shift_schedule_assignment",
+      "label": "Shift Schedule Assignment",
+      "fieldtype": "Link",
+      "options": "Shift Schedule Assignment",
+      "read_only": 1,
+      "section": "Shift Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Shift Assignment",
+      "read_only": 1,
+      "section": "Shift Details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

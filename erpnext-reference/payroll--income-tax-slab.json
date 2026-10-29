@@ -1,0 +1,143 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Income Tax Slab",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "Prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/income-tax-slab",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_2",
+      "fieldname": "section_break_2",
+      "type": "Section Break"
+    },
+    {
+      "label": "Taxable Salary Slabs",
+      "fieldname": "taxable_salary_slabs_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_cajo",
+      "fieldname": "section_break_cajo",
+      "type": "Section Break"
+    },
+    {
+      "label": "Taxes and Charges on Income Tax",
+      "fieldname": "taxes_and_charges_on_income_tax_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Income Tax Slab"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "slabs",
+      "child_doctype": "Taxable Salary Slab"
+    },
+    {
+      "fieldname": "other_taxes_and_charges",
+      "child_doctype": "Income Tax Slab Other Charges"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "disabled",
+      "label": "Disabled",
+      "fieldtype": "Check",
+      "default": "0",
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "effective_from",
+      "label": "Effective from",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "fetch_from": "company.default_currency",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "standard_tax_exemption_amount",
+      "label": "Standard Tax Exemption Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "allow_tax_exemption",
+      "label": "Allow Tax Exemption",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "If enabled, Tax Exemption Declaration will be considered for income tax calculation.",
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Income Tax Slab",
+      "read_only": 1,
+      "section": "section_break_2"
+    },
+    {
+      "fieldname": "slabs",
+      "label": "Taxable Salary Slabs",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Taxable Salary Slab",
+      "section": "Taxable Salary Slabs"
+    },
+    {
+      "fieldname": "tax_relief_limit",
+      "label": "Taxable Income Relief Threshold Limit",
+      "fieldtype": "Currency",
+      "description": "Maximum annual taxable income eligible for full tax relief. No tax is applied if income does not exceed this limit",
+      "section": "section_break_cajo"
+    },
+    {
+      "fieldname": "other_taxes_and_charges",
+      "label": "Other Taxes and Charges",
+      "fieldtype": "Table",
+      "options": "Income Tax Slab Other Charges",
+      "section": "Taxes and Charges on Income Tax"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

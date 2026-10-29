@@ -1,0 +1,114 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Other Income",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-INCOME-.######",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-other-income",
+  "search_fields": "employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Employee Details",
+      "fieldname": "employee_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Income Source",
+      "fieldname": "income_source_details_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Other Income"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "payroll_period",
+      "target": "Payroll Period"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "search_index": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Other Income",
+      "read_only": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "search_index": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "payroll_period",
+      "label": "Payroll Period",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Payroll Period",
+      "in_list_view": 1,
+      "search_index": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "source",
+      "label": "Source",
+      "fieldtype": "Data",
+      "section": "Income Source"
+    },
+    {
+      "fieldname": "amount",
+      "label": "Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "Company:company:default_currency",
+      "in_list_view": 1,
+      "section": "Income Source"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

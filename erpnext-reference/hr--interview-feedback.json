@@ -1,0 +1,148 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Interview Feedback",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-INT-FEED-.####",
+  "naming_rule": "Expression",
+  "title_field": "interviewer",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/interview-feedback",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Details",
+      "fieldname": "details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Skill Assessment",
+      "fieldname": "section_break_4",
+      "type": "Section Break"
+    },
+    {
+      "label": "Feedback",
+      "fieldname": "section_break_7",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "interview",
+      "target": "Interview"
+    },
+    {
+      "fieldname": "interview_type",
+      "target": "Interview Type"
+    },
+    {
+      "fieldname": "job_applicant",
+      "target": "Job Applicant"
+    },
+    {
+      "fieldname": "interviewer",
+      "target": "User"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Interview Feedback"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "skill_assessment",
+      "child_doctype": "Skill Assessment"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "interview",
+      "label": "Interview",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Interview",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "interview_type",
+      "label": "Interview Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Interview Type",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "interview.interview_type",
+      "section": "Details"
+    },
+    {
+      "fieldname": "job_applicant",
+      "label": "Job Applicant",
+      "fieldtype": "Link",
+      "options": "Job Applicant",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "interview.job_applicant",
+      "section": "Details"
+    },
+    {
+      "fieldname": "interviewer",
+      "label": "Interviewer",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "User",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "result",
+      "label": "Result",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "\nCleared\nRejected",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "skill_assessment",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Skill Assessment",
+      "section": "Skill Assessment"
+    },
+    {
+      "fieldname": "average_rating",
+      "label": "Average Rating",
+      "fieldtype": "Rating",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": "Skill Assessment"
+    },
+    {
+      "fieldname": "feedback",
+      "fieldtype": "Text",
+      "section": "Feedback"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Interview Feedback",
+      "read_only": 1,
+      "section": "Feedback"
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

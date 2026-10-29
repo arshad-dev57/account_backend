@@ -1,0 +1,349 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Payroll Entry",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-PRUN-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "is_tree": 0,
+  "track_changes": 0,
+  "document_type": "Other",
+  "documentation": "https://docs.frappe.io/hr/payroll-entry",
+  "sections": [
+    {
+      "label": "Overview",
+      "fieldname": "select_payroll_period",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_cypo",
+      "fieldname": "section_break_cypo",
+      "type": "Section Break"
+    },
+    {
+      "label": "Employees",
+      "fieldname": "employees_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Filter Employees",
+      "fieldname": "section_break_17",
+      "type": "Section Break"
+    },
+    {
+      "label": "Employee Details",
+      "fieldname": "section_break_24",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_26",
+      "fieldname": "section_break_26",
+      "type": "Section Break"
+    },
+    {
+      "label": "Accounting & Payment",
+      "fieldname": "accounting_dimensions_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Accounting Dimensions",
+      "fieldname": "accounting_dimensions_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Payment Entry",
+      "fieldname": "account",
+      "type": "Section Break"
+    },
+    {
+      "label": "Failure Details",
+      "fieldname": "failure_details_section",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_41",
+      "fieldname": "section_break_41",
+      "type": "Section Break"
+    },
+    {
+      "label": "Connections",
+      "fieldname": "connections_tab",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "payroll_payable_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "branch",
+      "target": "Branch"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "grade",
+      "target": "Employee Grade"
+    },
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    },
+    {
+      "fieldname": "project",
+      "target": "Project"
+    },
+    {
+      "fieldname": "payment_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "bank_account",
+      "target": "Bank Account"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Payroll Entry"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "employees",
+      "child_doctype": "Payroll Employee Detail"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "posting_date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "depends_on": "company",
+      "in_list_view": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "exchange_rate",
+      "label": "Exchange Rate",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "depends_on": "company",
+      "precision": "9",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "payroll_payable_account",
+      "label": "Payroll Payable Account",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Account",
+      "depends_on": "company",
+      "section": "Overview"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "Draft\nSubmitted\nCancelled\nQueued\nFailed",
+      "read_only": 1,
+      "section": "Overview"
+    },
+    {
+      "fieldname": "salary_slip_based_on_timesheet",
+      "label": "Salary Slip Based on Timesheet",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "section_break_cypo"
+    },
+    {
+      "fieldname": "payroll_frequency",
+      "label": "Payroll Frequency",
+      "fieldtype": "Select",
+      "options": "\nMonthly\nFortnightly\nBimonthly\nWeekly\nDaily",
+      "mandatory_depends_on": "eval:doc.salary_slip_based_on_timesheet == 0",
+      "section": "section_break_cypo"
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "section_break_cypo"
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "section_break_cypo"
+    },
+    {
+      "fieldname": "deduct_tax_for_unsubmitted_tax_exemption_proof",
+      "label": "Deduct Tax For Unsubmitted Tax Exemption Proof",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "section_break_cypo"
+    },
+    {
+      "fieldname": "branch",
+      "label": "Branch",
+      "fieldtype": "Link",
+      "options": "Branch",
+      "in_list_view": 1,
+      "section": "Filter Employees"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "section": "Filter Employees"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "section": "Filter Employees"
+    },
+    {
+      "fieldname": "grade",
+      "label": "Grade",
+      "fieldtype": "Link",
+      "options": "Employee Grade",
+      "section": "Filter Employees"
+    },
+    {
+      "fieldname": "number_of_employees",
+      "label": "Number Of Employees",
+      "fieldtype": "Int",
+      "read_only": 1,
+      "section": "Filter Employees"
+    },
+    {
+      "fieldname": "employees",
+      "fieldtype": "Table",
+      "options": "Payroll Employee Detail",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "validate_attendance",
+      "label": "Validate Attendance",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": "section_break_26"
+    },
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "default": ":Company",
+      "options": "Cost Center",
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "project",
+      "label": "Project",
+      "fieldtype": "Link",
+      "options": "Project",
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "payment_account",
+      "label": "Payment Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "fetch_from": "bank_account.account",
+      "description": "Select Payment Account to make Bank Entry",
+      "allow_on_submit": 1,
+      "section": "Payment Entry"
+    },
+    {
+      "fieldname": "bank_account",
+      "label": "Bank Account",
+      "fieldtype": "Link",
+      "options": "Bank Account",
+      "section": "Payment Entry"
+    },
+    {
+      "fieldname": "salary_slips_created",
+      "label": "Salary Slips Created",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "Payment Entry"
+    },
+    {
+      "fieldname": "salary_slips_submitted",
+      "label": "Salary Slips Submitted",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1,
+      "hidden": 1,
+      "section": "Payment Entry"
+    },
+    {
+      "fieldname": "overtime_step",
+      "label": "Overtime Slip Step",
+      "fieldtype": "Select",
+      "options": "\nCreate\nSubmit",
+      "section": "Payment Entry"
+    },
+    {
+      "fieldname": "error_message",
+      "label": "Error Message",
+      "fieldtype": "Text Editor",
+      "read_only": 1,
+      "depends_on": "eval:doc.status=='Failed';",
+      "section": "Failure Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Payroll Entry",
+      "read_only": 1,
+      "section": "section_break_41"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

@@ -245,7 +245,7 @@ exports.createLeave = async (req, res) => {
         toDate,
         days: Number(req.body.days) || daysBetween(fromDate, toDate),
         reason: String(req.body.reason || ''),
-        status: 'Pending',
+        status: 'Open',
         halfDay: Boolean(req.body.halfDay),
         hours: Number(req.body.hours || 0),
         leaveTypeId: req.body.leaveTypeId || null
@@ -265,7 +265,7 @@ exports.updateLeave = async (req, res) => {
     if (!companyId) return;
     if (!requireHrManager(req, res)) return;
     const status = String(req.body.status || '');
-    if (!['Approved', 'Rejected', 'Pending'].includes(status)) {
+    if (!['Approved', 'Rejected', 'Pending', 'Open'].includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid leave status' });
     }
     const existing = await prisma.hrLeave.findFirst({
@@ -359,7 +359,7 @@ exports.createOvertime = async (req, res) => {
         rate,
         amount,
         reason: String(req.body.reason || ''),
-        status: 'Pending'
+        status: 'Draft'
       },
       include: { employee: { include: EMP_MIN } }
     });
@@ -376,7 +376,7 @@ exports.updateOvertime = async (req, res) => {
     if (!companyId) return;
     if (!requireHrManager(req, res)) return;
     const status = String(req.body.status || '');
-    if (!['Approved', 'Rejected', 'Pending'].includes(status)) {
+    if (!['Approved', 'Rejected', 'Pending', 'Draft', 'Submitted'].includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid overtime status' });
     }
     const existing = await prisma.hrOvertime.findFirst({
@@ -1466,13 +1466,13 @@ exports.notifications = async (req, res) => {
     const today = workDateKey();
     const [leaves, overtime, late, recent] = await Promise.all([
       prisma.hrLeave.findMany({
-        where: { companyId, status: 'Pending' },
+        where: { companyId, status: { in: ['Pending', 'Open'] } },
         include: { employee: { include: EMP_MIN } },
         orderBy: { createdAt: 'desc' },
         take: 10
       }),
       prisma.hrOvertime.findMany({
-        where: { companyId, status: 'Pending' },
+        where: { companyId, status: { in: ['Pending', 'Draft', 'Submitted'] } },
         include: { employee: { include: EMP_MIN } },
         orderBy: { createdAt: 'desc' },
         take: 10
@@ -1568,7 +1568,7 @@ exports.getPayrollRun = async (req, res) => {
       prisma.hrLeave.count({
         where: {
           companyId,
-          status: 'Pending',
+          status: { in: ['Pending', 'Open'] },
           fromDate: { lte: endExclusive },
           toDate: { gte: start }
         }
@@ -1576,12 +1576,12 @@ exports.getPayrollRun = async (req, res) => {
       prisma.hrOvertime.count({
         where: {
           companyId,
-          status: 'Pending',
+          status: { in: ['Pending', 'Draft', 'Submitted'] },
           workDate: { gte: start, lt: endExclusive }
         }
       }),
       prisma.hrBonus.count({
-        where: { companyId, status: 'Pending', period }
+        where: { companyId, status: { in: ['Pending', 'Draft', 'Submitted'] }, period }
       })
     ]);
 

@@ -1,0 +1,119 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Expense Taxes and Charges",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "autoname": "hash",
+  "naming_rule": "Random",
+  "is_tree": 0,
+  "track_changes": 1,
+  "document_type": "Setup",
+  "sections": [
+    {
+      "label": "description_sb",
+      "fieldname": "description_sb",
+      "type": "Section Break"
+    },
+    {
+      "label": "Accounting Dimensions",
+      "fieldname": "accounting_dimensions_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "account_head",
+      "target": "Account"
+    },
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    },
+    {
+      "fieldname": "project",
+      "target": "Project"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "account_head",
+      "label": "Account Head",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Account",
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "rate",
+      "label": "Rate",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "tax_amount",
+      "label": "Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "base_tax_amount",
+      "label": "Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "total",
+      "label": "Total",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "base_total",
+      "label": "Total (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Small Text",
+      "reqd": 1,
+      "section": "description_sb"
+    },
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "default": ":Company",
+      "options": "Cost Center",
+      "allow_on_submit": 1,
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "project",
+      "label": "Project",
+      "fieldtype": "Link",
+      "options": "Project",
+      "allow_on_submit": 1,
+      "section": "Accounting Dimensions"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "ASC",
+  "editable_grid": 1
+}

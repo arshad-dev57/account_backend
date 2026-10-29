@@ -1,0 +1,106 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<doctype>",
+  "fetchedAt": "2026-10-27",
+  "note": "Setup-module masters the Employee document links to, plus its three child tables. Verbatim from the running instance.",
+  "Department": {
+    "doctype": "Department", "module": "Setup", "istable": 0, "is_submittable": 0, "is_tree": 1,
+    "fields": [
+      { "fieldname": "department_name", "label": "Department", "fieldtype": "Data", "reqd": 1, "in_list_view": 1 },
+      { "fieldname": "parent_department", "label": "Parent Department", "fieldtype": "Link", "options": "Department", "in_list_view": 1 },
+      { "fieldname": "company", "label": "Company", "fieldtype": "Link", "reqd": 1, "options": "Company", "in_standard_filter": 1 },
+      { "fieldname": "is_group", "label": "Is Group", "fieldtype": "Check", "default": "0", "in_list_view": 1 },
+      { "fieldname": "disabled", "label": "Disabled", "fieldtype": "Check", "default": "0" },
+      { "fieldname": "lft", "label": "lft", "fieldtype": "Int", "read_only": 1, "hidden": 1 },
+      { "fieldname": "rgt", "label": "rgt", "fieldtype": "Int", "read_only": 1, "hidden": 1 },
+      { "fieldname": "old_parent", "label": "Old Parent", "fieldtype": "Data", "hidden": 1 }
+    ]
+  },
+  "Designation": {
+    "doctype": "Designation", "module": "Setup", "istable": 0, "autoname": "field:designation_name",
+    "fields": [
+      { "fieldname": "designation_name", "label": "Designation", "fieldtype": "Data", "reqd": 1, "in_list_view": 1, "unique": 1 },
+      { "fieldname": "description", "label": "Description", "fieldtype": "Text" }
+    ]
+  },
+  "Branch": {
+    "doctype": "Branch", "module": "Setup", "istable": 0, "autoname": "field:branch",
+    "fields": [
+      { "fieldname": "branch", "label": "Branch", "fieldtype": "Data", "reqd": 1, "in_list_view": 1, "unique": 1 }
+    ]
+  },
+  "Gender": {
+    "doctype": "Gender", "module": "Contacts", "istable": 0, "autoname": "field:gender",
+    "fields": [ { "fieldname": "gender", "label": "Gender", "fieldtype": "Data", "unique": 1 } ]
+  },
+  "Salutation": {
+    "doctype": "Salutation", "module": "Contacts", "istable": 0, "autoname": "field:salutation",
+    "fields": [ { "fieldname": "salutation", "label": "Salutation", "fieldtype": "Data", "unique": 1 } ]
+  },
+  "Employment Type": {
+    "doctype": "Employment Type", "module": "HR", "istable": 0, "autoname": "field:employee_type_name",
+    "fields": [ { "fieldname": "employee_type_name", "label": "Employment Type", "fieldtype": "Data", "reqd": 1, "in_list_view": 1, "unique": 1 } ]
+  },
+  "Employee Grade": {
+    "doctype": "Employee Grade", "module": "HR", "istable": 0, "autoname": "Prompt",
+    "fields": [
+      { "fieldname": "default_salary_structure", "label": "Default Salary Structure", "fieldtype": "Link", "options": "Salary Structure" },
+      { "fieldname": "currency", "label": "Currency", "fieldtype": "Link", "options": "Currency", "read_only": 1, "hidden": 1, "fetch_from": "default_salary_structure.currency" },
+      { "fieldname": "default_base_pay", "label": "Default Base Pay", "fieldtype": "Currency", "options": "currency", "depends_on": "default_salary_structure" }
+    ]
+  },
+  "Employee Group": {
+    "doctype": "Employee Group", "module": "Setup", "istable": 0, "autoname": "field:employee_group_name",
+    "fields": [
+      { "fieldname": "employee_group_name", "label": "Name", "fieldtype": "Data", "reqd": 1, "in_list_view": 1, "unique": 1 },
+      { "fieldname": "employee_list", "label": "Employee", "fieldtype": "Table", "options": "Employee Group Table", "child": "Employee Group Table" }
+    ]
+  },
+  "Holiday List": {
+    "doctype": "Holiday List", "module": "Setup", "istable": 0, "autoname": "field:holiday_list_name",
+    "fields": [
+      { "fieldname": "holiday_list_name", "label": "Holiday List Name", "fieldtype": "Data", "reqd": 1, "unique": 1 },
+      { "fieldname": "from_date", "label": "From Date", "fieldtype": "Date", "reqd": 1, "in_list_view": 1 },
+      { "fieldname": "to_date", "label": "To Date", "fieldtype": "Date", "reqd": 1, "in_list_view": 1 },
+      { "fieldname": "total_holidays", "label": "Total Holidays", "fieldtype": "Float", "read_only": 1, "in_list_view": 1, "precision": "1" },
+      { "fieldname": "weekly_off", "label": "Weekly Off", "fieldtype": "Select", "options": "\nSunday\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday", "in_standard_filter": 1 },
+      { "fieldname": "is_half_day", "label": "Is Half Day", "fieldtype": "Check", "default": "0" },
+      { "fieldname": "country", "label": "Country", "fieldtype": "Autocomplete" },
+      { "fieldname": "subdivision", "label": "Subdivision", "fieldtype": "Autocomplete", "depends_on": "country" },
+      { "fieldname": "holidays", "label": "Holidays", "fieldtype": "Table", "options": "Holiday", "child": "Holiday" },
+      { "fieldname": "color", "label": "Color", "fieldtype": "Color" }
+    ]
+  },
+  "Employee Education": {
+    "doctype": "Employee Education", "module": "Setup", "istable": 1,
+    "fields": [
+      { "fieldname": "school_univ", "label": "School/University", "fieldtype": "Small Text", "in_list_view": 1 },
+      { "fieldname": "qualification", "label": "Qualification", "fieldtype": "Data", "in_list_view": 1 },
+      { "fieldname": "level", "label": "Level", "fieldtype": "Select", "options": "Graduate\nPost Graduate\nUnder Graduate", "in_list_view": 1 },
+      { "fieldname": "year_of_passing", "label": "Year of Passing", "fieldtype": "Int", "in_list_view": 1 },
+      { "fieldname": "class_per", "label": "Class / Percentage", "fieldtype": "Data", "in_list_view": 1 },
+      { "fieldname": "maj_opt_subj", "label": "Major/Optional Subjects", "fieldtype": "Text", "in_list_view": 1 }
+    ]
+  },
+  "Employee External Work History": {
+    "doctype": "Employee External Work History", "module": "Setup", "istable": 1,
+    "fields": [
+      { "fieldname": "company_name", "label": "Company", "fieldtype": "Data", "in_list_view": 1 },
+      { "fieldname": "designation", "label": "Designation", "fieldtype": "Data", "in_list_view": 1 },
+      { "fieldname": "salary", "label": "Salary", "fieldtype": "Currency", "options": "Company:company:default_currency", "in_list_view": 1 },
+      { "fieldname": "address", "label": "Address", "fieldtype": "Small Text", "in_list_view": 1 },
+      { "fieldname": "contact", "label": "Contact", "fieldtype": "Data", "in_list_view": 1 },
+      { "fieldname": "total_experience", "label": "Total Experience", "fieldtype": "Data", "in_list_view": 1 }
+    ]
+  },
+  "Employee Internal Work History": {
+    "doctype": "Employee Internal Work History", "module": "Setup", "istable": 1,
+    "fields": [
+      { "fieldname": "branch", "label": "Branch", "fieldtype": "Link", "options": "Branch", "in_list_view": 1 },
+      { "fieldname": "department", "label": "Department", "fieldtype": "Link", "options": "Department", "in_list_view": 1 },
+      { "fieldname": "designation", "label": "Designation", "fieldtype": "Link", "options": "Designation", "in_list_view": 1 },
+      { "fieldname": "from_date", "label": "From Date", "fieldtype": "Date", "in_list_view": 1 },
+      { "fieldname": "to_date", "label": "To Date", "fieldtype": "Date", "in_list_view": 1 }
+    ]
+  }
+}

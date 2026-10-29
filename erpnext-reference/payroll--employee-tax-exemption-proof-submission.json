@@ -1,0 +1,178 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Tax Exemption Proof Submission",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-TAX-PRF-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-tax-exemption-proof-submission",
+  "search_fields": "employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Employee",
+      "fieldname": "employee_details_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "Exemption Proofs",
+      "fieldname": "exemption_proofs_details_tab",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_10",
+      "fieldname": "section_break_10",
+      "type": "Section Break"
+    },
+    {
+      "label": "attachment_section",
+      "fieldname": "attachment_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Tax Exemption Proof Submission"
+    },
+    {
+      "fieldname": "payroll_period",
+      "target": "Payroll Period"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "tax_exemption_proofs",
+      "child_doctype": "Employee Tax Exemption Proof Submission Detail"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Employee"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "depends_on": "eval: doc.employee",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Tax Exemption Proof Submission",
+      "read_only": 1,
+      "section": "Employee"
+    },
+    {
+      "fieldname": "submission_date",
+      "label": "Submission Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "default": "Today",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "payroll_period",
+      "label": "Payroll Period",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Payroll Period",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": "Employee"
+    },
+    {
+      "fieldname": "tax_exemption_proofs",
+      "label": "Tax Exemption Proofs",
+      "fieldtype": "Table",
+      "options": "Employee Tax Exemption Proof Submission Detail",
+      "section": "Exemption Proofs"
+    },
+    {
+      "fieldname": "total_actual_amount",
+      "label": "Total Actual Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "section_break_10"
+    },
+    {
+      "fieldname": "exemption_amount",
+      "label": "Total Exemption Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "section_break_10"
+    },
+    {
+      "fieldname": "attachments",
+      "label": "Attachments",
+      "fieldtype": "Attach",
+      "section": "attachment_section"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

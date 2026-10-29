@@ -1,0 +1,132 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Expense Claim Detail",
+  "module": "HR",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [
+    {
+      "label": "description_sb",
+      "fieldname": "description_sb",
+      "type": "Section Break"
+    },
+    {
+      "label": "amounts_sb",
+      "fieldname": "amounts_sb",
+      "type": "Section Break"
+    },
+    {
+      "label": "Accounting Dimensions",
+      "fieldname": "accounting_dimensions_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "expense_type",
+      "target": "Expense Claim Type"
+    },
+    {
+      "fieldname": "default_account",
+      "target": "Account"
+    },
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    },
+    {
+      "fieldname": "project",
+      "target": "Project"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "expense_date",
+      "label": "Expense Date",
+      "fieldtype": "Date",
+      "default": "Today",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "expense_type",
+      "label": "Expense Claim Type",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Expense Claim Type",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "default_account",
+      "label": "Default Account",
+      "fieldtype": "Link",
+      "options": "Account",
+      "read_only": 1,
+      "hidden": 1,
+      "depends_on": "expense_type",
+      "section": null
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Text Editor",
+      "in_list_view": 1,
+      "section": "description_sb"
+    },
+    {
+      "fieldname": "amount",
+      "label": "Amount",
+      "fieldtype": "Currency",
+      "reqd": 1,
+      "options": "currency",
+      "in_list_view": 1,
+      "section": "amounts_sb"
+    },
+    {
+      "fieldname": "base_amount",
+      "label": "Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "section": "amounts_sb"
+    },
+    {
+      "fieldname": "sanctioned_amount",
+      "label": "Sanctioned Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "in_list_view": 1,
+      "section": "amounts_sb"
+    },
+    {
+      "fieldname": "base_sanctioned_amount",
+      "label": "Sanctioned Amount (Company Currency)",
+      "fieldtype": "Currency",
+      "options": "Company:company:default_currency",
+      "section": "amounts_sb"
+    },
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "options": "Cost Center",
+      "allow_on_submit": 1,
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "project",
+      "label": "Project",
+      "fieldtype": "Link",
+      "options": "Project",
+      "allow_on_submit": 1,
+      "section": "Accounting Dimensions"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

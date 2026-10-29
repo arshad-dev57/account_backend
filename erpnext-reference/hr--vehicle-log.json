@@ -1,0 +1,171 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Vehicle Log",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "naming_series:",
+  "naming_series_options": "HR-VLOG-.YYYY.-",
+  "is_tree": 0,
+  "track_changes": 1,
+  "document_type": "Document",
+  "documentation": "https://docs.frappe.io/hr/vehicle-log",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "vehicle_section",
+      "fieldname": "vehicle_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Odometer Reading",
+      "fieldname": "odometer_reading",
+      "type": "Section Break"
+    },
+    {
+      "label": "Refuelling Details",
+      "fieldname": "refuelling_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "Service Details",
+      "fieldname": "service_details",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "license_plate",
+      "target": "Vehicle"
+    },
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "supplier",
+      "target": "Supplier"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Vehicle Log"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "service_detail",
+      "child_doctype": "Vehicle Service"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "label": "Series",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "HR-VLOG-.YYYY.-",
+      "section": "vehicle_section"
+    },
+    {
+      "fieldname": "license_plate",
+      "label": "License Plate",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Vehicle",
+      "in_list_view": 1,
+      "section": "vehicle_section"
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "fetch_from": "license_plate.employee",
+      "section": "vehicle_section"
+    },
+    {
+      "fieldname": "model",
+      "label": "Model",
+      "fieldtype": "Read Only",
+      "fetch_from": "license_plate.model",
+      "section": "vehicle_section"
+    },
+    {
+      "fieldname": "make",
+      "label": "Make",
+      "fieldtype": "Read Only",
+      "fetch_from": "license_plate.make",
+      "section": "vehicle_section"
+    },
+    {
+      "fieldname": "date",
+      "label": "Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": "Odometer Reading"
+    },
+    {
+      "fieldname": "odometer",
+      "label": "Current Odometer value ",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "section": "Odometer Reading"
+    },
+    {
+      "fieldname": "last_odometer",
+      "label": "Last Odometer Value ",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "read_only": 1,
+      "fetch_from": "license_plate.last_odometer",
+      "section": "Odometer Reading"
+    },
+    {
+      "fieldname": "fuel_qty",
+      "label": "Fuel Qty",
+      "fieldtype": "Float",
+      "section": "Refuelling Details"
+    },
+    {
+      "fieldname": "price",
+      "label": "Fuel Price",
+      "fieldtype": "Currency",
+      "section": "Refuelling Details"
+    },
+    {
+      "fieldname": "supplier",
+      "label": "Supplier",
+      "fieldtype": "Link",
+      "options": "Supplier",
+      "section": "Refuelling Details"
+    },
+    {
+      "fieldname": "invoice",
+      "label": "Invoice Ref",
+      "fieldtype": "Data",
+      "section": "Refuelling Details"
+    },
+    {
+      "fieldname": "service_detail",
+      "fieldtype": "Table",
+      "options": "Vehicle Service",
+      "section": "Service Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Vehicle Log",
+      "read_only": 1,
+      "section": "Service Details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

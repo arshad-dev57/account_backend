@@ -1,0 +1,213 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Job Applicant",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "HR-APP-.YYYY.-.#####",
+  "naming_rule": "Expression",
+  "title_field": "applicant_name",
+  "subject_field": "notes",
+  "is_tree": 0,
+  "track_changes": 0,
+  "document_type": "Document",
+  "description": "Applicant for a Job",
+  "documentation": "https://docs.frappe.io/hr/job-applicant",
+  "search_fields": "applicant_name, email_id, job_title, phone_number",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Details",
+      "fieldname": "details_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Resume",
+      "fieldname": "section_break_6",
+      "type": "Section Break"
+    },
+    {
+      "label": "Source",
+      "fieldname": "source_and_rating_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Salary Expectation",
+      "fieldname": "salary_expectation_tab",
+      "type": "Tab Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "job_title",
+      "target": "Job Opening"
+    },
+    {
+      "fieldname": "designation",
+      "target": "Designation"
+    },
+    {
+      "fieldname": "country",
+      "target": "Country"
+    },
+    {
+      "fieldname": "source",
+      "target": "Job Applicant Source"
+    },
+    {
+      "fieldname": "source_name",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "employee_referral",
+      "target": "Employee Referral"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "applicant_name",
+      "label": "Full Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "bold": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "email_id",
+      "label": "Email Address",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "options": "Email",
+      "bold": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "phone_number",
+      "label": "Phone Number",
+      "fieldtype": "Data",
+      "options": "Phone",
+      "section": "Details"
+    },
+    {
+      "fieldname": "job_title",
+      "label": "Job Opening",
+      "fieldtype": "Link",
+      "options": "Job Opening",
+      "in_list_view": 1,
+      "search_index": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "designation",
+      "label": "Designation",
+      "fieldtype": "Link",
+      "options": "Designation",
+      "fetch_from": "job_title.designation",
+      "section": "Details"
+    },
+    {
+      "fieldname": "country",
+      "label": "Country",
+      "fieldtype": "Link",
+      "options": "Country",
+      "section": "Details"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Open\nReplied\nShortlisted\nRejected\nHold\nAccepted",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "applicant_rating",
+      "label": "Applicant Rating",
+      "fieldtype": "Rating",
+      "in_list_view": 1,
+      "section": "Details"
+    },
+    {
+      "fieldname": "resume_link",
+      "label": "Link",
+      "fieldtype": "Data",
+      "section": "Resume"
+    },
+    {
+      "fieldname": "cover_letter",
+      "label": "Cover Letter",
+      "fieldtype": "Text",
+      "section": "Resume"
+    },
+    {
+      "fieldname": "resume_attachment",
+      "label": "Attachment",
+      "fieldtype": "Attach",
+      "section": "Resume"
+    },
+    {
+      "fieldname": "notes",
+      "label": "Notes",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "section": "Resume"
+    },
+    {
+      "fieldname": "source",
+      "label": "Source",
+      "fieldtype": "Link",
+      "options": "Job Applicant Source",
+      "section": "Source"
+    },
+    {
+      "fieldname": "source_name",
+      "label": "Source Name",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "depends_on": "eval: doc.source==\"Employee Referral\" ",
+      "section": "Source"
+    },
+    {
+      "fieldname": "employee_referral",
+      "label": "Employee Referral",
+      "fieldtype": "Link",
+      "options": "Employee Referral",
+      "read_only": 1,
+      "section": "Source"
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "section": "Salary Expectation"
+    },
+    {
+      "fieldname": "lower_range",
+      "label": "Lower Range",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "precision": "0",
+      "section": "Salary Expectation"
+    },
+    {
+      "fieldname": "upper_range",
+      "label": "Upper Range",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "precision": "0",
+      "section": "Salary Expectation"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "ASC"
+}

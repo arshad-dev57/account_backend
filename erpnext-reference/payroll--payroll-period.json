@@ -1,0 +1,68 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Payroll Period",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "Prompt",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/payroll-period",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Payroll Periods",
+      "fieldname": "section_break_5",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "company",
+      "target": "Company"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "periods",
+      "child_doctype": "Payroll Period Date"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "start_date",
+      "label": "Start Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "end_date",
+      "label": "End Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "periods",
+      "label": "Payroll Periods",
+      "fieldtype": "Table",
+      "options": "Payroll Period Date",
+      "section": "Payroll Periods"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

@@ -1,0 +1,132 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Overtime Type",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "Prompt",
+  "naming_rule": "Set by user",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/overtime",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Basic",
+      "fieldname": "section_break_pai1",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_xxdv",
+      "fieldname": "section_break_xxdv",
+      "type": "Section Break"
+    },
+    {
+      "label": "Pay Rate Multipliers",
+      "fieldname": "pay_rate_multipliers_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "overtime_salary_component",
+      "target": "Salary Component"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "applicable_salary_component",
+      "child_doctype": "Overtime Salary Component"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "maximum_overtime_hours_allowed",
+      "label": "Maximum Overtime Hours Allowed Per Day",
+      "fieldtype": "Float",
+      "section": "Basic"
+    },
+    {
+      "fieldname": "overtime_salary_component",
+      "label": "Overtime Salary Component",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Salary Component",
+      "in_list_view": 1,
+      "description": "Overtime earnings will be booked under this salary component for payout.",
+      "section": "Basic"
+    },
+    {
+      "fieldname": "overtime_calculation_method",
+      "label": "Overtime Amount Calculation",
+      "fieldtype": "Select",
+      "default": "Salary Component Based",
+      "options": "Salary Component Based\nFixed Hourly Rate",
+      "description": "Choose how the hourly overtime amount is calculated:\n<ol style=\"padding-left:15px\"><li>Fixed Hourly Rate: A fixed, manually entered hourly rate.</li>\n<li>Salary Component-Based:\n\n(Sum of selected component amounts) ÷ (Payment Days) ÷ (Standard Daily Hours)</li></ol>",
+      "section": "section_break_xxdv"
+    },
+    {
+      "fieldname": "applicable_salary_component",
+      "label": "Applicable Salary Components",
+      "fieldtype": "Table MultiSelect",
+      "options": "Overtime Salary Component",
+      "depends_on": "eval: doc.overtime_calculation_method == \"Salary Component Based\";",
+      "mandatory_depends_on": "eval: doc.overtime_calculation_method == \"Salary Component Based\";",
+      "description": "Select the salary components whose total will be used from the salary slip to calculate the hourly overtime rate.",
+      "section": "section_break_xxdv"
+    },
+    {
+      "fieldname": "hourly_rate",
+      "label": "Hourly Rate",
+      "fieldtype": "Currency",
+      "depends_on": "eval: doc.overtime_calculation_method == \"Fixed Hourly Rate\";",
+      "mandatory_depends_on": "eval: doc.overtime_calculation_method == \"Fixed Hourly Rate\";",
+      "section": "section_break_xxdv"
+    },
+    {
+      "fieldname": "standard_multiplier",
+      "label": "Standard Multiplier",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "section": "Pay Rate Multipliers"
+    },
+    {
+      "fieldname": "applicable_for_public_holiday",
+      "label": "Apply for Public Holiday",
+      "fieldtype": "Check",
+      "default": "0",
+      "description": "Enable this to use a specific multiplier for public holidays. If unchecked, the standard multiplier will be used instead.",
+      "section": "Pay Rate Multipliers"
+    },
+    {
+      "fieldname": "public_holiday_multiplier",
+      "label": "Public Holiday Multiplier",
+      "fieldtype": "Float",
+      "depends_on": "eval: doc.applicable_for_public_holiday == 1",
+      "mandatory_depends_on": "eval: doc.applicable_for_public_holiday == 1",
+      "section": "Pay Rate Multipliers"
+    },
+    {
+      "fieldname": "applicable_for_weekend",
+      "label": "Apply for Weekend",
+      "fieldtype": "Check",
+      "reqd": 1,
+      "default": "0",
+      "description": "Enable this to use a specific multiplier for weekends. If unchecked, the standard multiplier will be used instead.",
+      "section": "Pay Rate Multipliers"
+    },
+    {
+      "fieldname": "weekend_multiplier",
+      "label": "Weekend Multiplier",
+      "fieldtype": "Float",
+      "depends_on": "eval: doc.applicable_for_weekend == 1",
+      "mandatory_depends_on": "eval: doc.applicable_for_weekend == 1",
+      "section": "Pay Rate Multipliers"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

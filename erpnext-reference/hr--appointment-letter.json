@@ -1,0 +1,112 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Appointment Letter",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 0,
+  "autoname": "HR-APP-LETTER-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "applicant_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/appointment-letter",
+  "search_fields": "applicant_name, company",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Body",
+      "fieldname": "body_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "job_applicant",
+      "target": "Job Applicant"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "appointment_letter_template",
+      "target": "Appointment Letter Template"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "terms",
+      "child_doctype": "Appointment Letter content"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "job_applicant",
+      "label": "Job Applicant",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Job Applicant",
+      "section": null
+    },
+    {
+      "fieldname": "applicant_name",
+      "label": "Applicant Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "read_only": 1,
+      "in_list_view": 1,
+      "fetch_from": "job_applicant.applicant_name",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "section": null
+    },
+    {
+      "fieldname": "appointment_date",
+      "label": "Appointment Date",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "section": null
+    },
+    {
+      "fieldname": "appointment_letter_template",
+      "label": "Appointment Letter Template",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Appointment Letter Template",
+      "section": null
+    },
+    {
+      "fieldname": "introduction",
+      "label": "Introduction",
+      "fieldtype": "Long Text",
+      "reqd": 1,
+      "fetch_from": "appointment_letter_template.introduction",
+      "section": "Body"
+    },
+    {
+      "fieldname": "terms",
+      "label": "Terms",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Appointment Letter content",
+      "section": "Body"
+    },
+    {
+      "fieldname": "closing_notes",
+      "label": "Closing Notes",
+      "fieldtype": "Text",
+      "section": "Body"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

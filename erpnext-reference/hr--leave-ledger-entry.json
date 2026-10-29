@@ -1,0 +1,156 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Ledger Entry",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "title_field": "employee",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/leave-ledger-entry",
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "leave_type",
+      "target": "Leave Type"
+    },
+    {
+      "fieldname": "transaction_type",
+      "target": "DocType"
+    },
+    {
+      "fieldname": "transaction_name",
+      "target": "transaction_type"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "holiday_list",
+      "target": "Holiday List"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Leave Ledger Entry"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "options": "Employee",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "leave_type",
+      "label": "Leave Type",
+      "fieldtype": "Link",
+      "options": "Leave Type",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "transaction_type",
+      "label": "Transaction Type",
+      "fieldtype": "Link",
+      "options": "DocType",
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "transaction_name",
+      "label": "Transaction Name",
+      "fieldtype": "Dynamic Link",
+      "options": "transaction_type",
+      "search_index": 1,
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "leaves",
+      "label": "Leaves",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "from_date",
+      "label": "From Date",
+      "fieldtype": "Date",
+      "section": null
+    },
+    {
+      "fieldname": "to_date",
+      "label": "To Date",
+      "fieldtype": "Date",
+      "section": null
+    },
+    {
+      "fieldname": "holiday_list",
+      "label": "Holiday List",
+      "fieldtype": "Link",
+      "options": "Holiday List",
+      "section": null
+    },
+    {
+      "fieldname": "is_carry_forward",
+      "label": "Is Carry Forward",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "is_expired",
+      "label": "Is Expired",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "is_lwp",
+      "label": "Is Leave Without Pay",
+      "fieldtype": "Check",
+      "default": "0",
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Leave Ledger Entry",
+      "read_only": 1,
+      "section": null
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "ASC"
+}

@@ -1,0 +1,41 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Payroll Correction Child",
+  "module": "Payroll",
+  "istable": 1,
+  "is_submittable": 0,
+  "is_tree": 0,
+  "track_changes": 0,
+  "sections": [],
+  "links": [
+    {
+      "fieldname": "salary_component",
+      "target": "Salary Component"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "salary_component",
+      "label": "Salary Component",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Salary Component",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "amount",
+      "label": "Amount",
+      "fieldtype": "Float",
+      "reqd": 1,
+      "in_list_view": 1,
+      "section": null
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

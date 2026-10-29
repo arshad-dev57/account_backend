@@ -1,0 +1,150 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Employee Tax Exemption Declaration",
+  "module": "Payroll",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-TAX-DEC-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/employee-tax-exemption-declaration",
+  "search_fields": "employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Tax Exemption Declaration",
+      "fieldname": "section_break_8",
+      "type": "Tab Break"
+    },
+    {
+      "label": "section_break_10",
+      "fieldname": "section_break_10",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "department",
+      "target": "Department"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "payroll_period",
+      "target": "Payroll Period"
+    },
+    {
+      "fieldname": "currency",
+      "target": "Currency"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Employee Tax Exemption Declaration"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "declarations",
+      "child_doctype": "Employee Tax Exemption Declaration Category"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": null
+    },
+    {
+      "fieldname": "department",
+      "label": "Department",
+      "fieldtype": "Link",
+      "options": "Department",
+      "read_only": 1,
+      "fetch_from": "employee.department",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "fetch_from": "employee.company",
+      "section": null
+    },
+    {
+      "fieldname": "payroll_period",
+      "label": "Payroll Period",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Payroll Period",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Currency",
+      "depends_on": "eval: doc.employee",
+      "section": null
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Employee Tax Exemption Declaration",
+      "read_only": 1,
+      "section": null
+    },
+    {
+      "fieldname": "declarations",
+      "label": "Declarations",
+      "fieldtype": "Table",
+      "options": "Employee Tax Exemption Declaration Category",
+      "section": "Tax Exemption Declaration"
+    },
+    {
+      "fieldname": "total_declared_amount",
+      "label": "Total Declared Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "section_break_10"
+    },
+    {
+      "fieldname": "total_exemption_amount",
+      "label": "Total Exemption Amount",
+      "fieldtype": "Currency",
+      "options": "currency",
+      "read_only": 1,
+      "section": "section_break_10"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

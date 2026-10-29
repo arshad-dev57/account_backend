@@ -1,0 +1,71 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Leave Policy",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-LPOL-.YYYY.-.#####",
+  "naming_rule": "Expression",
+  "title_field": "title",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/leave-policy",
+  "search_fields": "title",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_lyrj",
+      "fieldname": "section_break_lyrj",
+      "type": "Section Break"
+    },
+    {
+      "label": "Leave Allocations",
+      "fieldname": "leave_allocations_section",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "amended_from",
+      "target": "Leave Policy"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "leave_policy_details",
+      "child_doctype": "Leave Policy Detail"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "title",
+      "label": "Leave Policy Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "allow_on_submit": 1,
+      "section": "section_break_lyrj"
+    },
+    {
+      "fieldname": "leave_policy_details",
+      "label": "Leave Policy Details",
+      "fieldtype": "Table",
+      "reqd": 1,
+      "options": "Leave Policy Detail",
+      "section": "Leave Allocations"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Leave Policy",
+      "read_only": 1,
+      "section": "Leave Allocations"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

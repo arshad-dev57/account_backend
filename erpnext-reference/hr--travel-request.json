@@ -1,0 +1,247 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Travel Request",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "HR-TRQ-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "employee_name",
+  "is_tree": 0,
+  "track_changes": 1,
+  "documentation": "https://docs.frappe.io/hr/travel-request",
+  "search_fields": "employee_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "Employee Details",
+      "fieldname": "employee_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "Description",
+      "fieldname": "section_break_4",
+      "type": "Section Break"
+    },
+    {
+      "label": "Travel Itinerary",
+      "fieldname": "travel_itinerary",
+      "type": "Section Break"
+    },
+    {
+      "label": "Costing Details",
+      "fieldname": "costing_details",
+      "type": "Section Break"
+    },
+    {
+      "label": "Accounting Dimensions",
+      "fieldname": "accounting_dimensions_section",
+      "type": "Section Break"
+    },
+    {
+      "label": "Event Details",
+      "fieldname": "event_details",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "purpose_of_travel",
+      "target": "Purpose of Travel"
+    },
+    {
+      "fieldname": "employee",
+      "target": "Employee"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "personal_id_type",
+      "target": "Identification Document Type"
+    },
+    {
+      "fieldname": "cost_center",
+      "target": "Cost Center"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Travel Request"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "itinerary",
+      "child_doctype": "Travel Itinerary"
+    },
+    {
+      "fieldname": "costings",
+      "child_doctype": "Travel Request Costing"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "travel_type",
+      "label": "Travel Type",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "\nDomestic\nInternational",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "travel_funding",
+      "label": "Travel Funding",
+      "fieldtype": "Select",
+      "options": "\nRequire Full Funding\nFully Sponsored\nPartially Sponsored, Require Partial Funding",
+      "section": null
+    },
+    {
+      "fieldname": "travel_proof",
+      "label": "Copy of Invitation/Announcement",
+      "fieldtype": "Attach",
+      "section": null
+    },
+    {
+      "fieldname": "purpose_of_travel",
+      "label": "Purpose of Travel",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Purpose of Travel",
+      "in_list_view": 1,
+      "section": null
+    },
+    {
+      "fieldname": "details_of_sponsor",
+      "label": "Details of Sponsor (Name, Location)",
+      "fieldtype": "Data",
+      "section": null
+    },
+    {
+      "fieldname": "employee",
+      "label": "Employee",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "Employee",
+      "in_list_view": 1,
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "employee_name",
+      "label": "Employee Name",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "cell_number",
+      "label": "Contact Number",
+      "fieldtype": "Data",
+      "fetch_from": "employee.cell_number",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "prefered_email",
+      "label": "Contact Email",
+      "fieldtype": "Data",
+      "fetch_from": "employee.prefered_email",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "employee.company",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "date_of_birth",
+      "label": "Date of Birth",
+      "fieldtype": "Date",
+      "read_only": 1,
+      "fetch_from": "employee.date_of_birth",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "personal_id_type",
+      "label": "Identification Document Type",
+      "fieldtype": "Link",
+      "options": "Identification Document Type",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "personal_id_number",
+      "label": "Identification Document Number",
+      "fieldtype": "Data",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "passport_number",
+      "label": "Passport Number",
+      "fieldtype": "Data",
+      "fetch_from": "employee.passport_number",
+      "section": "Employee Details"
+    },
+    {
+      "fieldname": "description",
+      "label": "Any other details",
+      "fieldtype": "Small Text",
+      "section": "Description"
+    },
+    {
+      "fieldname": "itinerary",
+      "fieldtype": "Table",
+      "options": "Travel Itinerary",
+      "section": "Travel Itinerary"
+    },
+    {
+      "fieldname": "costings",
+      "label": "Costing",
+      "fieldtype": "Table",
+      "options": "Travel Request Costing",
+      "section": "Costing Details"
+    },
+    {
+      "fieldname": "cost_center",
+      "label": "Cost Center",
+      "fieldtype": "Link",
+      "options": "Cost Center",
+      "section": "Accounting Dimensions"
+    },
+    {
+      "fieldname": "name_of_organizer",
+      "label": "Name of Organizer",
+      "fieldtype": "Data",
+      "section": "Event Details"
+    },
+    {
+      "fieldname": "address_of_organizer",
+      "label": "Address of Organizer",
+      "fieldtype": "Data",
+      "section": "Event Details"
+    },
+    {
+      "fieldname": "other_details",
+      "label": "Other Details",
+      "fieldtype": "Text",
+      "section": "Event Details"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Travel Request",
+      "read_only": 1,
+      "section": "Event Details"
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "editable_grid": 1
+}

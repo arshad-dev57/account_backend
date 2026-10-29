@@ -1,0 +1,216 @@
+{
+  "source": "https://hrms-rje-xre.nvi.frappe.cloud",
+  "fetchedVia": "GET /api/method/frappe.client.get?doctype=DocType&name=<DocType>",
+  "fetchedAt": "2026-10-27",
+  "doctype": "Training Event",
+  "module": "HR",
+  "istable": 0,
+  "is_submittable": 1,
+  "autoname": "field:event_name",
+  "naming_rule": "By fieldname",
+  "title_field": "event_name",
+  "is_tree": 0,
+  "track_changes": 0,
+  "documentation": "https://docs.frappe.io/hr/training-event",
+  "search_fields": "event_name",
+  "allow_import": 1,
+  "sections": [
+    {
+      "label": "section_break_4",
+      "fieldname": "section_break_4",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_9",
+      "fieldname": "section_break_9",
+      "type": "Section Break"
+    },
+    {
+      "label": "section_break_15",
+      "fieldname": "section_break_15",
+      "type": "Section Break"
+    },
+    {
+      "label": "Attendees",
+      "fieldname": "section_break_18",
+      "type": "Section Break"
+    }
+  ],
+  "links": [
+    {
+      "fieldname": "training_program",
+      "target": "Training Program"
+    },
+    {
+      "fieldname": "company",
+      "target": "Company"
+    },
+    {
+      "fieldname": "supplier",
+      "target": "Supplier"
+    },
+    {
+      "fieldname": "amended_from",
+      "target": "Training Event"
+    }
+  ],
+  "tables": [
+    {
+      "fieldname": "employees",
+      "child_doctype": "Training Event Employee"
+    }
+  ],
+  "fields": [
+    {
+      "fieldname": "event_name",
+      "label": "Event Name",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1,
+      "section": null
+    },
+    {
+      "fieldname": "training_program",
+      "label": "Training Program",
+      "fieldtype": "Link",
+      "options": "Training Program",
+      "section": null
+    },
+    {
+      "fieldname": "event_status",
+      "label": "Event Status",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Scheduled\nCompleted\nCancelled",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "allow_on_submit": 1,
+      "section": null
+    },
+    {
+      "fieldname": "has_certificate",
+      "label": "Has Certificate",
+      "fieldtype": "Check",
+      "default": "0",
+      "depends_on": "eval:doc.type == 'Seminar' || doc.type == 'Workshop' || doc.type == 'Conference' || doc.type == 'Exam'",
+      "section": null
+    },
+    {
+      "fieldname": "type",
+      "label": "Type",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "options": "Seminar\nTheory\nWorkshop\nConference\nExam\nInternet\nSelf-Study",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": null
+    },
+    {
+      "fieldname": "level",
+      "label": "Level",
+      "fieldtype": "Select",
+      "options": "\nBeginner\nIntermediate\nAdvance",
+      "depends_on": "eval:doc.type == 'Seminar' || doc.type == 'Workshop' || doc.type == 'Exam'",
+      "section": null
+    },
+    {
+      "fieldname": "company",
+      "label": "Company",
+      "fieldtype": "Link",
+      "options": "Company",
+      "section": null
+    },
+    {
+      "fieldname": "trainer_name",
+      "label": "Trainer Name",
+      "fieldtype": "Data",
+      "section": "section_break_4"
+    },
+    {
+      "fieldname": "trainer_email",
+      "label": "Trainer Email",
+      "fieldtype": "Data",
+      "section": "section_break_4"
+    },
+    {
+      "fieldname": "supplier",
+      "label": "Supplier",
+      "fieldtype": "Link",
+      "options": "Supplier",
+      "section": "section_break_4"
+    },
+    {
+      "fieldname": "contact_number",
+      "label": "Contact Number",
+      "fieldtype": "Data",
+      "section": "section_break_4"
+    },
+    {
+      "fieldname": "course",
+      "label": "Course",
+      "fieldtype": "Data",
+      "in_standard_filter": 1,
+      "section": "section_break_9"
+    },
+    {
+      "fieldname": "location",
+      "label": "Location",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "section": "section_break_9"
+    },
+    {
+      "fieldname": "start_time",
+      "label": "Start Time",
+      "fieldtype": "Datetime",
+      "reqd": 1,
+      "section": "section_break_9"
+    },
+    {
+      "fieldname": "end_time",
+      "label": "End Time",
+      "fieldtype": "Datetime",
+      "reqd": 1,
+      "section": "section_break_9"
+    },
+    {
+      "fieldname": "introduction",
+      "label": "Introduction",
+      "fieldtype": "Text Editor",
+      "reqd": 1,
+      "section": "section_break_15"
+    },
+    {
+      "fieldname": "employees",
+      "label": "Employees",
+      "fieldtype": "Table",
+      "options": "Training Event Employee",
+      "allow_on_submit": 1,
+      "section": "Attendees"
+    },
+    {
+      "fieldname": "amended_from",
+      "label": "Amended From",
+      "fieldtype": "Link",
+      "options": "Training Event",
+      "read_only": 1,
+      "section": "Attendees"
+    },
+    {
+      "fieldname": "employee_emails",
+      "label": "Employee Emails",
+      "fieldtype": "Small Text",
+      "options": "Email",
+      "hidden": 1,
+      "section": "Attendees"
+    }
+  ],
+  "allow_rename": 1,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "show_name_in_global_search": 1,
+  "editable_grid": 1
+}
