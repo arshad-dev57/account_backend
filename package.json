@@ -8,7 +8,6 @@
     "start": "deno run --unstable-detect-cjs -A server.js",
     "dev": "nodemon server.js",
     "build": "prisma generate",
-    "postinstall": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
     "currency:backfill": "node scripts/backfill-company-currencies.js",
     "vercel-build": "prisma generate && prisma migrate deploy"
