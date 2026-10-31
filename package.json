@@ -2,11 +2,11 @@
 {
   "name": "account_backend",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "deno run --unstable-detect-cjs -A server.js",
-    "dev": "nodemon server.js",
+    "start": "deno run --unstable-detect-cjs -A src/server.js",
+    "dev": "nodemon src/server.js",
     "build": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
     "currency:backfill": "node scripts/backfill-company-currencies.js",
