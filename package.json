@@ -2,14 +2,19 @@
   "name": "account_backend",
   "version": "1.0.0",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
+    "start:railway": "npx prisma migrate deploy && node server.js",
     "dev": "nodemon server.js",
     "build": "prisma generate",
     "postinstall": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
     "currency:backfill": "node scripts/backfill-company-currencies.js",
-    "vercel-build": "prisma generate && prisma migrate deploy"
+    "vercel-build": "prisma generate && prisma migrate deploy",
+    "test:boot": "node scripts/verify-boot-listen.js"
   },
   "keywords": [],
   "author": "",

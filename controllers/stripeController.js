@@ -1,5 +1,15 @@
 // controllers/stripeController.js
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// Lazy init — requiring stripe with a missing key throws and would crash boot
+// if this controller is ever wired into app.js routes.
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    const err = new Error('STRIPE_SECRET_KEY is not configured');
+    err.statusCode = 503;
+    throw err;
+  }
+  return require('stripe')(key);
+}
 const User = require('../models/User');
 const Subscription = require('../models/Subscription');
 
@@ -35,7 +45,7 @@ exports.createCheckoutSession = async (req, res) => {
 
     const selectedPlan = PLANS[plan];
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
       
@@ -92,7 +102,7 @@ exports.handleWebhook = async (req, res) => {
 
   try {
     // Stripe webhook verify karo
-    event = stripe.webhooks.constructEvent(
+    event = getStripe().webhooks.constructEvent(
       req.body,           // raw body chahiye
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
@@ -158,7 +168,7 @@ exports.verifySession = async (req, res) => {
   try {
     const { sessionId } = req.params;
 
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
 
     if (session.payment_status === 'paid') {
       // User ki current subscription bhi wapis bhejo

@@ -1,0 +1,11 @@
+# Locks production start so dashboard overrides / Deno experiments cannot
+# leave the container running migrations without an HTTP listener.
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "npx prisma migrate deploy && node server.js"
+healthcheckPath = "/"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
