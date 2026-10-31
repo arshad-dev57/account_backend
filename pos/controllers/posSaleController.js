@@ -439,34 +439,73 @@ const searchProducts = async (req, res) => {
           purchaseConversionFactor: true,
           salesConversionFactor: true,
           allowFractionalQty: true,
+          trackInventory: true,
           isVariant: true,
           parentProductId: true,
           variantType: true,
           variantAttributes: true,
           isSerialManaged: true,
           isBatchManaged: true,
+          isExpiryManaged: true,
           hasExpiry: true,
+          expiryDate: true,
+          batchNumber: true,
+          manufacturingDate: true,
+          shelfLifeDays: true,
+          productUnits: {
+            where: { isActive: true },
+            orderBy: [{ isBase: 'desc' }, { sortOrder: 'asc' }],
+          },
         },
       }),
       prisma.product.count({ where: filter }),
     ]);
 
-    const data = products.map((p) => {
-      if (!locationStockMap) return p;
-      const s = locationStockMap.get(p.id);
-      const qty = s?.currentStock ?? 0;
-      const reserved = s?.reservedStock ?? 0;
-      const available =
-        s?.availableStock ?? Math.max(0, qty - reserved);
-      return {
+    const {
+      serializeUnitsForApi,
+      packageBreakdown,
+      ensureProductUnits,
+    } = require('../../warehouse/services/productUnitService');
+
+    const data = [];
+    for (const p of products) {
+      let units = p.productUnits || [];
+      if (!units.length) {
+        try {
+          units = await ensureProductUnits(prisma, p);
+        } catch {
+          units = [];
+        }
+      }
+      const unitPayload = serializeUnitsForApi(units, p);
+      let row = {
         ...p,
-        companyStock: p.currentStock,
-        physicalStock: qty,
-        currentStock: available,
-        availableStock: available,
-        locationId: resolvedLocationId,
+        units: unitPayload.units.filter((u) => u.allowSale),
+        productUnits: unitPayload.units,
+        stockBreakdown: packageBreakdown(p.currentStock || 0, units),
       };
-    }).filter((p) => !resolvedLocationId || (p.availableStock ?? p.currentStock) > 0);
+      delete row.productUnits;
+      row.productUnits = unitPayload.units;
+      if (locationStockMap) {
+        const s = locationStockMap.get(p.id);
+        const qty = s?.currentStock ?? 0;
+        const reserved = s?.reservedStock ?? 0;
+        const available =
+          s?.availableStock ?? Math.max(0, qty - reserved);
+        row = {
+          ...row,
+          companyStock: p.currentStock,
+          physicalStock: qty,
+          currentStock: available,
+          availableStock: available,
+          locationId: resolvedLocationId,
+          stockBreakdown: packageBreakdown(available, units),
+        };
+      }
+      if (!resolvedLocationId || (row.availableStock ?? row.currentStock) > 0 || p.trackInventory === false) {
+        data.push(row);
+      }
+    }
 
     res.json({
       success: true,
@@ -502,33 +541,67 @@ const getProductByBarcode = async (req, res) => {
     } catch {
       /* plain QR / barcode */
     }
-    const product = await prisma.product.findFirst({
-      where: {
-        companyId,
-        isActive: true,
-        OR: [
-          { qrCode: { equals: code, mode: 'insensitive' } },
-          { barcodeNumber: { equals: code, mode: 'insensitive' } },
-          { sku: { equals: code, mode: 'insensitive' } },
-          ...(jsonId
-            ? [{ qrCode: jsonId }, { sku: { equals: jsonId, mode: 'insensitive' } }, { id: jsonId }]
-            : []),
-        ]
-      },
-      select: {
-        id: true, name: true, sku: true, barcodeNumber: true, qrCode: true,
-        sellingPrice: true, costPrice: true, currentStock: true,
-        availableStock: true, mainImage: true, categoryId: true, categoryName: true,
-        taxRate: true, stockUnitName: true,
-        purchaseUnitName: true, salesUnitName: true,
-        purchaseConversionFactor: true, salesConversionFactor: true,
-        allowFractionalQty: true,
-      }
-    });
+    const {
+      resolveBarcodeToProductUnit,
+      ensureProductUnits,
+      serializeUnitsForApi,
+      priceForUnit,
+      packageBreakdown,
+    } = require('../../warehouse/services/productUnitService');
+
+    const resolved = await resolveBarcodeToProductUnit(companyId, code);
+    let product = resolved?.product || null;
+    let matchedUnit = resolved?.unit || null;
+
+    if (!product && jsonId) {
+      product = await prisma.product.findFirst({
+        where: {
+          companyId,
+          isActive: true,
+          OR: [
+            { qrCode: jsonId },
+            { sku: { equals: jsonId, mode: 'insensitive' } },
+            { id: jsonId },
+          ],
+        },
+      });
+    }
 
     if (!product) {
       return res.status(404).json({ success: false, message: `No product found for barcode ${code}` });
     }
+
+    const units = resolved?.units || (await ensureProductUnits(prisma, product));
+    if (!matchedUnit) {
+      matchedUnit =
+        units.find((u) => u.isDefaultSale && u.allowSale) ||
+        units.find((u) => u.allowSale) ||
+        units.find((u) => u.isBase);
+    }
+    const unitPayload = serializeUnitsForApi(units, product);
+    const selectedPrice = priceForUnit(matchedUnit, product);
+
+    const enrich = (base) => ({
+      ...base,
+      sellingPrice: selectedPrice,
+      selectedUnit: matchedUnit
+        ? {
+            id: matchedUnit.id,
+            unitName: matchedUnit.unitName,
+            conversionFactor: matchedUnit.conversionFactor,
+            sellingPrice: selectedPrice,
+            barcode: matchedUnit.barcode,
+            allowSale: matchedUnit.allowSale,
+            isDefaultSale: matchedUnit.isDefaultSale,
+          }
+        : null,
+      units: unitPayload.units.filter((u) => u.allowSale),
+      productUnits: unitPayload.units,
+      stockBreakdown: packageBreakdown(base.currentStock || base.availableStock || 0, units),
+      matchedBy: resolved?.matchedBy || 'product_barcode',
+      salesUnitName: matchedUnit?.unitName || base.salesUnitName,
+      salesConversionFactor: matchedUnit?.conversionFactor || base.salesConversionFactor || 1,
+    });
 
     if (locationId) {
       const stock = await prisma.productStock.findUnique({
@@ -543,7 +616,7 @@ const getProductByBarcode = async (req, res) => {
       const available =
         stock?.availableStock ??
         Math.max(0, qty - (stock?.reservedStock || 0));
-      if (available <= 0) {
+      if (available <= 0 && product.trackInventory !== false) {
         return res.status(404).json({
           success: false,
           message: `Product found but no available stock at this warehouse`,
@@ -551,18 +624,18 @@ const getProductByBarcode = async (req, res) => {
       }
       return res.json({
         success: true,
-        data: {
+        data: enrich({
           ...product,
           companyStock: product.currentStock,
           physicalStock: qty,
           currentStock: available,
           availableStock: available,
           locationId,
-        },
+        }),
       });
     }
 
-    res.json({ success: true, data: product });
+    res.json({ success: true, data: enrich(product) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

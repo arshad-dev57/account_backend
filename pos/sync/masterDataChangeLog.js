@@ -60,6 +60,26 @@ function productPayload(product, categoryRow, isDeleted = false) {
     purchaseConversionFactor: Number(product.purchaseConversionFactor ?? 1) || 1,
     salesConversionFactor: Number(product.salesConversionFactor ?? 1) || 1,
     allowFractionalQty: Boolean(product.allowFractionalQty),
+    trackInventory: product.trackInventory !== false,
+    units: Array.isArray(product.units)
+      ? product.units
+      : Array.isArray(product.productUnits)
+        ? product.productUnits.map((u) => ({
+            id: u.id,
+            unitName: u.unitName,
+            unitCode: u.unitCode,
+            conversionFactor: Number(u.conversionFactor) || 1,
+            isBase: Boolean(u.isBase),
+            allowPurchase: u.allowPurchase !== false,
+            allowSale: u.allowSale !== false,
+            isDefaultSale: Boolean(u.isDefaultSale),
+            isDefaultPurchase: Boolean(u.isDefaultPurchase),
+            barcode: u.barcode || null,
+            purchasePrice: u.purchasePrice != null ? Number(u.purchasePrice) : null,
+            sellingPrice: u.sellingPrice != null ? Number(u.sellingPrice) : null,
+            sortOrder: Number(u.sortOrder) || 0,
+          }))
+        : undefined,
     isActive: !deleted,
     isDeleted: deleted,
     updatedAt: (product.updatedAt || new Date()).toISOString(),
@@ -111,12 +131,24 @@ async function recordProductChange(product, { isDeleted = false } = {}) {
       categoryRow = null;
     }
   }
+  let withUnits = product;
+  if (!Array.isArray(product.units) && !Array.isArray(product.productUnits)) {
+    try {
+      const units = await prisma.productUnit.findMany({
+        where: { productId: product.id, isActive: true },
+        orderBy: [{ isBase: 'desc' }, { sortOrder: 'asc' }],
+      });
+      withUnits = { ...product, productUnits: units };
+    } catch {
+      withUnits = product;
+    }
+  }
   return recordChange({
     companyId: product.companyId,
     entityType: ENTITY.PRODUCT,
     entityId: product.id,
     isDeleted,
-    payload: productPayload(product, categoryRow, isDeleted),
+    payload: productPayload(withUnits, categoryRow, isDeleted),
   });
 }
 

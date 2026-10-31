@@ -288,6 +288,8 @@ model Company {
   inventoryImportBatches            InventoryImportBatch[]
   unitsOfMeasure                    UnitOfMeasure[]
   uomConversions                    UomConversion[]
+  productUnits                      ProductUnit[]
+  productBatches                    ProductBatch[]
   tradingDocuments                  TradingDocument[]                  @relation("TradingDocumentCompany")
   tradingPriceLists                 TradingPriceList[]                 @relation("TradingPriceListCompany")
   tradingCustomerPrices             TradingCustomerPrice[]             @relation("TradingCustomerPriceCompany")
@@ -394,6 +396,7 @@ model Location {
 
   company                             Company                            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   productStocks                       ProductStock[]
+  productBatches                      ProductBatch[]
   stockMovements                      StockMovement[]
   orders                              Order[]
   deliveries                          Delivery[]
@@ -544,6 +547,77 @@ model UomConversion {
   @@unique([companyId, fromUomId, toUomId])
   @@index([companyId])
   @@map("uom_conversions")
+}
+
+/// Product-specific packaging / selling / purchase units.
+/// Inventory is always stored in the product base unit (Product.stockUnitName / isBase unit).
+/// conversionFactor: 1 of this unit = conversionFactor base units (must be > 0).
+model ProductUnit {
+  id               String   @id @default(uuid())
+  companyId        String   @map("company_id")
+  productId        String   @map("product_id")
+  /// Display name (Tablet, Strip, Box, ml, Litre, Packet, …)
+  unitName         String   @map("unit_name")
+  /// Optional normalized code for matching (TABLET, STRIP, BOX)
+  unitCode         String?  @map("unit_code")
+  /// Optional link to company UnitOfMeasure master
+  uomId            String?  @map("uom_id")
+  /// 1 unit = conversionFactor base units. Base unit row must be 1.
+  conversionFactor Float    @map("conversion_factor")
+  isBase           Boolean  @default(false) @map("is_base")
+  allowPurchase    Boolean  @default(true) @map("allow_purchase")
+  allowSale        Boolean  @default(true) @map("allow_sale")
+  isDefaultSale    Boolean  @default(false) @map("is_default_sale")
+  isDefaultPurchase Boolean @default(false) @map("is_default_purchase")
+  /// Packaging-level barcode (strip/box barcode). Unique per company when set.
+  barcode          String?
+  purchasePrice    Float?   @map("purchase_price")
+  sellingPrice     Float?   @map("selling_price")
+  sortOrder        Int      @default(0) @map("sort_order")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, unitName])
+  @@index([companyId])
+  @@index([productId])
+  @@index([companyId, barcode])
+  @@index([productId, allowSale])
+  @@index([productId, allowPurchase])
+  @@map("product_units")
+}
+
+/// Batch / lot balance for expiry-managed products (medicines, etc.).
+/// Quantities are always in the product base unit.
+model ProductBatch {
+  id            String    @id @default(uuid())
+  companyId     String    @map("company_id")
+  productId     String    @map("product_id")
+  locationId    String    @map("location_id")
+  batchNumber   String    @map("batch_number")
+  expiryDate    DateTime? @map("expiry_date")
+  manufacturingDate DateTime? @map("manufacturing_date")
+  currentStock  Float     @default(0) @map("current_stock")
+  reservedStock Float     @default(0) @map("reserved_stock")
+  availableStock Float    @default(0) @map("available_stock")
+  unitCost      Float?    @map("unit_cost")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, locationId, batchNumber])
+  @@index([companyId])
+  @@index([productId])
+  @@index([locationId])
+  @@index([expiryDate])
+  @@map("product_batches")
 }
 
 model InventoryImportBatch {
@@ -2360,6 +2434,10 @@ model Product {
   salesConversionFactor    Float   @default(1) @map("sales_conversion_factor")
   /// When true (or UOM is weight/volume), POS accepts decimal quantities
   allowFractionalQty       Boolean @default(false) @map("allow_fractional_qty")
+  /// When false, POS/stock flows skip inventory deduction (services, non-stock items)
+  trackInventory           Boolean @default(true) @map("track_inventory")
+  /// True after opening stock has been posted once for this product (prevents silent re-post on edit)
+  openingStockPosted       Boolean @default(false) @map("opening_stock_posted")
 
   isBoxBased  Boolean @default(false) @map("is_box_based")
   boxQuantity Int     @default(0) @map("box_quantity")
@@ -2486,6 +2564,8 @@ model Product {
   taxExemptions                             TaxExemption[]                             @relation("ProductTaxExemptions")
   stockWriteOffItems                        StockWriteOffItem[]
   productStocks                             ProductStock[]
+  productUnits                              ProductUnit[]
+  productBatches                            ProductBatch[]
   manufacturingBOMs                         ManufacturingBOM[]                         @relation("ManufacturingBOMProduct")
   manufacturingBOMComponents                ManufacturingBOMComponent[]                @relation("ManufacturingBOMComponentProduct")
   manufacturingRoutings                     ManufacturingRouting[]                     @relation("ManufacturingRoutingProduct")
@@ -2719,6 +2799,12 @@ model StockMovement {
   quantity      Float
   /// Quantity normalized to item base UOM
   baseQuantity  Float?    @map("base_quantity")
+  /// Quantity as entered by the user (before conversion)
+  enteredQuantity Float?  @map("entered_quantity")
+  /// Conversion factor used at posting time (1 entered unit = factor base units)
+  conversionFactor Float? @map("conversion_factor")
+  /// ProductUnit id snapshot when multi-unit packaging was used
+  productUnitId String?   @map("product_unit_id")
   uom           String?
   previousStock Float     @map("previous_stock")
   newStock      Float     @map("new_stock")
@@ -2727,6 +2813,10 @@ model StockMovement {
   batchNumber   String?   @map("batch_number")
   binLocation   String?   @map("bin_location")
   movementDate  DateTime? @map("movement_date")
+  /// Client / workflow idempotency key to prevent duplicate posting
+  idempotencyKey String?  @map("idempotency_key")
+  /// Link to reversed / reversing movement when correcting posted history
+  reversalOfId  String?   @map("reversal_of_id")
 
   stockType    String @default("bulk") @map("stock_type")
   stockDetails Json?  @map("stock_details")
@@ -2770,6 +2860,8 @@ model StockMovement {
   @@index([companyId])
   @@index([locationId])
   @@index([importBatchId])
+  @@index([idempotencyKey])
+  @@unique([companyId, idempotencyKey])
   @@map("stock_movements")
 }
 
@@ -5755,6 +5847,8 @@ model POSSaleItem {
   baseQuantity     Float?  @map("base_quantity")
   /// 1 sales unit = conversionFactor stock units (snapshot)
   conversionFactor Float?  @default(1) @map("conversion_factor")
+  productUnitId    String? @map("product_unit_id")
+  batchNumber      String? @map("batch_number")
   unitPrice        Float   @map("unit_price")
   discount         Float   @default(0) // line discount percentage or fixed
   taxRate          Float   @default(0) @map("tax_rate")
@@ -5768,6 +5862,7 @@ model POSSaleItem {
 
   @@index([posSaleId])
   @@index([productId])
+  @@index([productUnitId])
   @@map("pos_sale_items")
 }
 
@@ -5914,6 +6009,8 @@ model POSReturnItem {
   unitName         String? @map("unit_name")
   baseQuantity     Float?  @map("base_quantity")
   conversionFactor Float?  @default(1) @map("conversion_factor")
+  productUnitId    String? @map("product_unit_id")
+  batchNumber      String? @map("batch_number")
   unitPrice        Float   @map("unit_price")
   lineTotal        Float   @map("line_total")
 

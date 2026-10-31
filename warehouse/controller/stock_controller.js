@@ -13,6 +13,14 @@ const {
   resolveLocationId,
   adjustLocationStock,
 } = require('../services/locationService');
+const {
+  ensureProductUnits,
+  findUnitInList,
+  toBaseQuantity,
+  purchasePriceForUnit,
+} = require('../services/productUnitService');
+const { toNumber, roundTo, MOVEMENT_TYPES } = require('../services/inventoryMath');
+const { adjustBatchStock } = require('../services/productBatchService');
 
 // ============================================================
 // @desc    Stock in/out reason catalog (for UI)
@@ -45,13 +53,34 @@ const addStock = async (req, res) => {
       unitCost: unitCostInput,
       bankAccountId,
       locationId: locationIdInput,
+      unitName: unitNameInput,
+      productUnitId,
+      conversionFactor: conversionFactorInput,
+      batchNumber,
+      expiryDate,
+      manufacturingDate,
+      idempotencyKey,
     } = req.body;
 
-    if (!productId || !quantity) {
+    if (!productId || quantity == null || quantity === '') {
       return res.status(400).json({
         success: false,
         message: 'Product ID and quantity are required',
       });
+    }
+
+    if (idempotencyKey) {
+      const prior = await prisma.stockMovement.findFirst({
+        where: { companyId, idempotencyKey: String(idempotencyKey) },
+      });
+      if (prior) {
+        return res.status(200).json({
+          success: true,
+          duplicate: true,
+          message: 'Stock already posted for this idempotency key',
+          data: { movement: prior },
+        });
+      }
     }
 
     if (!stockSourceReason) {
@@ -103,26 +132,99 @@ const addStock = async (req, res) => {
       }
     }
 
-    const previousStock = product.currentStock;
-    let totalPieces = 0;
-    let stockDetails = {};
-
-    if (stockType === 'bulk' || !stockType) {
-      totalPieces = parseFloat(quantity);
-      stockDetails = { type: 'bulk', quantityAdded: totalPieces };
-    } else if (stockType === 'box') {
-      const boxes = parseFloat(boxCount) || 0;
-      const pieces = parseFloat(piecesPerBox) || 0;
-      totalPieces = boxes * pieces;
-      stockDetails = { type: 'box', boxCount: boxes, piecesPerBox: pieces, totalPieces };
+    if (product.trackInventory === false) {
+      return res.status(400).json({
+        success: false,
+        message: 'Inventory tracking is disabled for this product',
+      });
     }
 
-    const unitCost =
-      unitCostInput != null && unitCostInput !== ''
-        ? Number(unitCostInput)
-        : Number(product.costPrice) || 0;
+    // Opening stock may only be posted once per product
+    if (stockSourceReason === 'opening_stock' && product.openingStockPosted) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Opening stock already posted for this product. Use a stock adjustment for further changes.',
+      });
+    }
+
+    const units = await ensureProductUnits(prisma, product);
+    const selectedUnit = findUnitInList(units, {
+      productUnitId,
+      unitName: unitNameInput,
+      forPurchase: true,
+    }) || units.find((u) => u.isBase) || units[0];
+
+    let enteredQty = toNumber(quantity);
+    let factor = selectedUnit
+      ? toNumber(selectedUnit.conversionFactor, 1)
+      : 1;
+    if (conversionFactorInput != null && toNumber(conversionFactorInput) > 0) {
+      factor = toNumber(conversionFactorInput);
+    }
+
+    let totalPieces = 0;
+    let stockDetails = {};
+    let enteredUnitName = selectedUnit?.unitName || product.stockUnitName || 'Pcs';
+
+    if (stockType === 'box') {
+      // Legacy box mode: treat as packaging conversion (still base units)
+      const boxes = toNumber(boxCount) || enteredQty;
+      const pieces = toNumber(piecesPerBox) || factor;
+      factor = pieces > 0 ? pieces : 1;
+      enteredQty = boxes;
+      enteredUnitName = product.boxUnitName || 'Box';
+      totalPieces = roundTo(boxes * factor, 6);
+      stockDetails = {
+        type: 'box',
+        boxCount: boxes,
+        piecesPerBox: factor,
+        totalPieces,
+        unitName: enteredUnitName,
+        conversionFactor: factor,
+      };
+    } else {
+      totalPieces = toBaseQuantity(enteredQty, factor);
+      stockDetails = {
+        type: stockType || 'bulk',
+        quantityAdded: totalPieces,
+        enteredQuantity: enteredQty,
+        unitName: enteredUnitName,
+        conversionFactor: factor,
+        productUnitId: selectedUnit?.id || null,
+      };
+    }
+
+    if (!(totalPieces > 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Stock quantity must be greater than zero after unit conversion',
+      });
+    }
+
+    // unitCostInput is price per entered unit when a purchase unit is selected;
+    // accounting / WAC always uses cost per base unit.
+    let unitCostPerBase;
+    if (unitCostInput != null && unitCostInput !== '') {
+      const enteredUnitCost = toNumber(unitCostInput);
+      unitCostPerBase = factor > 0 ? roundTo(enteredUnitCost / factor, 4) : enteredUnitCost;
+    } else if (selectedUnit) {
+      const purch = purchasePriceForUnit(selectedUnit, product);
+      unitCostPerBase = factor > 0 ? roundTo(purch / factor, 4) : toNumber(product.costPrice);
+    } else {
+      unitCostPerBase = toNumber(product.costPrice) || 0;
+    }
 
     const result = await prisma.$transaction(async (tx) => {
+      if (idempotencyKey) {
+        const prior = await tx.stockMovement.findFirst({
+          where: { companyId, idempotencyKey: String(idempotencyKey) },
+        });
+        if (prior) {
+          return { movement: prior, journalEntry: null, payableBill: null, locationId: prior.locationId, adj: null, duplicate: true };
+        }
+      }
+
       const locationId = await resolveLocationId(
         tx,
         companyId,
@@ -137,20 +239,48 @@ const addStock = async (req, res) => {
         delta: totalPieces,
       });
 
+      if ((product.isBatchManaged || product.isExpiryManaged || product.hasExpiry) && batchNumber) {
+        await adjustBatchStock(tx, {
+          companyId,
+          productId,
+          locationId,
+          batchNumber,
+          delta: totalPieces,
+          expiryDate,
+          manufacturingDate,
+          unitCost: unitCostPerBase,
+        });
+      }
+
+      const movementType =
+        stockSourceReason === 'opening_stock'
+          ? MOVEMENT_TYPES.OPENING_BALANCE
+          : MOVEMENT_TYPES.PURCHASE_RECEIPT;
+
       const movementData = {
         productId,
         productName: product.name,
         type: 'stock_in',
-        quantity: totalPieces,
+        movementType,
+        quantity: enteredQty,
+        enteredQuantity: enteredQty,
+        baseQuantity: totalPieces,
+        conversionFactor: factor,
+        productUnitId: selectedUnit?.id || null,
+        uom: enteredUnitName,
         previousStock: adj.previousLocationStock,
         newStock: adj.newLocationStock,
+        unitCost: unitCostPerBase,
+        totalValue: roundTo(unitCostPerBase * totalPieces, 4),
         stockType: stockType || 'bulk',
         stockDetails: { ...stockDetails, locationId },
         reason: reasonMeta.label,
         reference: reference || '',
+        batchNumber: batchNumber || null,
+        idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
         notes: notes
-          ? `${notes}${notes.includes('stockSourceReason') ? '' : `\n[source:${stockSourceReason}]`}`
-          : `[source:${stockSourceReason}]`,
+          ? `${notes}${notes.includes('stockSourceReason') ? '' : `\n[source:${stockSourceReason}]`}\n[${enteredQty} ${enteredUnitName} = ${totalPieces} ${product.stockUnitName || 'base'}]`
+          : `[source:${stockSourceReason}]\n[${enteredQty} ${enteredUnitName} = ${totalPieces} ${product.stockUnitName || 'base'}]`,
         status: 'Completed',
         createdBy: userId,
         companyId,
@@ -162,6 +292,31 @@ const addStock = async (req, res) => {
 
       const movement = await tx.stockMovement.create({ data: movementData });
 
+      // Keep product-level expiry/batch in sync so POS Sell + Expiry pages pick the date
+      const productExpiryPatch = {};
+      if (expiryDate) {
+        productExpiryPatch.expiryDate = new Date(expiryDate);
+        productExpiryPatch.hasExpiry = true;
+        productExpiryPatch.isExpiryManaged = true;
+      }
+      if (manufacturingDate) {
+        productExpiryPatch.manufacturingDate = new Date(manufacturingDate);
+      }
+      if (batchNumber) {
+        productExpiryPatch.batchNumber = String(batchNumber);
+        if (product.isBatchManaged) productExpiryPatch.isBatchManaged = true;
+      }
+      if (stockSourceReason === 'opening_stock') {
+        productExpiryPatch.openingStockPosted = true;
+        productExpiryPatch.openingStock = totalPieces;
+      }
+      if (Object.keys(productExpiryPatch).length) {
+        await tx.product.update({
+          where: { id: productId },
+          data: productExpiryPatch,
+        });
+      }
+
       let journalEntry = null;
       let payableBill = null;
       try {
@@ -171,7 +326,7 @@ const addStock = async (req, res) => {
           userId,
           productName: product.name,
           quantity: totalPieces,
-          unitCost,
+          unitCost: unitCostPerBase,
           reference,
           supplierId,
           bankAccountId,
@@ -179,7 +334,7 @@ const addStock = async (req, res) => {
         });
 
         if (stockSourceReason === 'supplier_credit' && journalEntry) {
-          const accountingAmount = totalPieces * unitCost;
+          const accountingAmount = totalPieces * unitCostPerBase;
           payableBill = await createStockCreditPayableBill(tx, {
             companyId,
             userId,
@@ -187,7 +342,7 @@ const addStock = async (req, res) => {
             supplierName,
             productName: product.name,
             quantity: totalPieces,
-            unitCost,
+            unitCost: unitCostPerBase,
             amount: accountingAmount,
             movementId: movement.id,
             reference,
@@ -198,8 +353,17 @@ const addStock = async (req, res) => {
         throw accErr;
       }
 
-      return { movement, journalEntry, payableBill, locationId, adj };
+      return { movement, journalEntry, payableBill, locationId, adj, duplicate: false };
     });
+
+    if (result.duplicate) {
+      return res.status(200).json({
+        success: true,
+        duplicate: true,
+        message: 'Stock already posted for this idempotency key',
+        data: { movement: result.movement },
+      });
+    }
 
     const updatedProduct = await prisma.product.findFirst({
       where: { id: productId, companyId },
@@ -230,9 +394,14 @@ const addStock = async (req, res) => {
           id: updatedProduct.id,
           name: updatedProduct.name,
           currentStock: updatedProduct.currentStock,
+          stockUnitName: updatedProduct.stockUnitName,
         },
         stockDetails,
-        accountingAmount: totalPieces * unitCost,
+        enteredQuantity: enteredQty,
+        enteredUnit: enteredUnitName,
+        baseQuantity: totalPieces,
+        conversionFactor: factor,
+        accountingAmount: totalPieces * unitCostPerBase,
       },
     });
   } catch (error) {

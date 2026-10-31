@@ -120,6 +120,38 @@ function costPerStockFromPurchase(purchasePrice, productOrUom) {
   return roundTo(toNumber(purchasePrice) / factor, 4);
 }
 
+/**
+ * Resolve sales conversion preferring a ProductUnit row when provided.
+ * Falls back to legacy product.salesConversionFactor.
+ */
+function resolveSaleFactor(product = {}, unit = null) {
+  if (unit && toNumber(unit.conversionFactor, 0) > 0) {
+    return toNumber(unit.conversionFactor);
+  }
+  const uom = resolveProductUom(product);
+  return uom.salesFactor;
+}
+
+/**
+ * Convert an entered qty in an arbitrary configured unit → base stock qty.
+ */
+function enteredToBaseQty(enteredQty, conversionFactor, { allowFractional = false, unitName } = {}) {
+  const factor = toNumber(conversionFactor, 1);
+  if (!Number.isFinite(factor) || factor <= 0) {
+    const err = new Error('conversionFactor must be positive');
+    err.statusCode = 400;
+    throw err;
+  }
+  const uom = {
+    salesUnit: unitName || 'Unit',
+    salesFactor: factor,
+    allowFractional: allowFractional || isFractionalUnit(unitName) || factor % 1 !== 0,
+    decimalPlaces: decimalPlacesForUnit(unitName, allowFractional),
+  };
+  const qty = normalizeSalesQty(enteredQty, uom);
+  return roundTo(qty * factor, 6);
+}
+
 module.exports = {
   FRACTIONAL_UNIT_CODES,
   normalizeUnitCode,
@@ -131,4 +163,6 @@ module.exports = {
   maxSellableSalesQty,
   costPerSalesUnit,
   costPerStockFromPurchase,
+  resolveSaleFactor,
+  enteredToBaseQty,
 };

@@ -45,6 +45,32 @@ const getExpiryReport = async (req, res) => {
     });
     const productsWithExpiry = allProducts;
 
+    // Batch-level near-expiry / expired (medicines & other lot-tracked items)
+    let expiredBatches = [];
+    let nearExpiryBatches = [];
+    try {
+      const { listNearExpiry } = require('../services/productBatchService');
+      nearExpiryBatches = await listNearExpiry(prisma, {
+        companyId,
+        days: 30,
+      });
+      expiredBatches = await prisma.productBatch.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          currentStock: { gt: 0 },
+          expiryDate: { not: null, lt: now },
+        },
+        include: {
+          product: { select: { id: true, name: true, sku: true, stockUnitName: true } },
+          location: { select: { id: true, name: true, code: true } },
+        },
+        orderBy: { expiryDate: 'asc' },
+      });
+    } catch (batchErr) {
+      console.warn('Batch expiry lookup skipped:', batchErr.message);
+    }
+
     const totalProducts = await prisma.product.count({
       where: { companyId: companyId, isActive: true }
     });
@@ -59,8 +85,34 @@ const getExpiryReport = async (req, res) => {
           totalProducts,
           expiredCount: expired.length,
           expiringSoonCount: expiringSoon.length,
-          noExpiryCount
+          noExpiryCount,
+          expiredBatchCount: expiredBatches.length,
+          nearExpiryBatchCount: nearExpiryBatches.length,
         },
+        expiredBatches: expiredBatches.map((b) => ({
+          id: b.id,
+          productId: b.productId,
+          productName: b.product?.name,
+          sku: b.product?.sku,
+          batchNumber: b.batchNumber,
+          expiryDate: b.expiryDate,
+          currentStock: b.currentStock,
+          baseUnitName: b.product?.stockUnitName || 'Pcs',
+          locationName: b.location?.name,
+          status: 'expired',
+        })),
+        nearExpiryBatches: nearExpiryBatches.map((b) => ({
+          id: b.id,
+          productId: b.productId,
+          productName: b.product?.name,
+          sku: b.product?.sku,
+          batchNumber: b.batchNumber,
+          expiryDate: b.expiryDate,
+          currentStock: b.currentStock,
+          baseUnitName: b.product?.stockUnitName || 'Pcs',
+          locationName: b.location?.name,
+          status: 'expiring_soon',
+        })),
         expired: expired.map(p => ({
           ...p,
           expiryDate: p.expiryDate.toISOString(),

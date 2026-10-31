@@ -211,17 +211,50 @@ class POSSaleModel {
         });
         if (!product) throw new Error(`Product not found or inactive: ${item.productName || item.productId}`);
 
+        if (product.trackInventory === false) {
+          item.baseQuantity = 0;
+          item.conversionFactor = toNumber(item.conversionFactor, 1) || 1;
+          item.unitName = String(item.unitName || product.salesUnitName || product.stockUnitName || 'Pcs').trim();
+          continue;
+        }
+
+        const {
+          ensureProductUnits,
+          findUnitInList,
+          toBaseQuantity,
+        } = require('../../warehouse/services/productUnitService');
+        const { allocateFefo } = require('../../warehouse/services/productBatchService');
+
+        const units = await ensureProductUnits(tx, product);
+        const selectedUnit = findUnitInList(units, {
+          productUnitId: item.productUnitId,
+          unitName: item.unitName || item.salesUnitName,
+          forSale: true,
+        });
         const uom = resolveProductUom(product);
-        // Prefer client-sent conversion when valid; otherwise product config
-        const factor = toNumber(item.conversionFactor, uom.salesFactor) > 0
-          ? toNumber(item.conversionFactor, uom.salesFactor)
+        const factor = toNumber(
+          item.conversionFactor ?? selectedUnit?.conversionFactor ?? uom.salesFactor,
+          uom.salesFactor
+        ) > 0
+          ? toNumber(
+              item.conversionFactor ?? selectedUnit?.conversionFactor ?? uom.salesFactor,
+              uom.salesFactor
+            )
           : uom.salesFactor;
-        const salesQty = normalizeSalesQty(item.quantity, { ...uom, salesFactor: factor });
-        const baseQty = roundTo(salesQty * factor, 6);
+        const salesQty = normalizeSalesQty(item.quantity, {
+          ...uom,
+          salesUnit: selectedUnit?.unitName || item.unitName || uom.salesUnit,
+          salesFactor: factor,
+          allowFractional: uom.allowFractional || Boolean(product.allowFractionalQty),
+        });
+        const baseQty = toBaseQuantity(salesQty, factor);
         item.quantity = salesQty;
         item.baseQuantity = baseQty;
         item.conversionFactor = factor;
-        item.unitName = String(item.unitName || uom.salesUnit || product.stockUnitName || 'Pcs').trim();
+        item.productUnitId = selectedUnit?.id || item.productUnitId || null;
+        item.unitName = String(
+          selectedUnit?.unitName || item.unitName || uom.salesUnit || product.stockUnitName || 'Pcs'
+        ).trim();
 
         const adj = await adjustLocationStock(tx, {
           companyId,
@@ -233,6 +266,21 @@ class POSSaleModel {
           productName: product.name,
         });
 
+        let batchAllocations = [];
+        if ((product.isBatchManaged || product.isExpiryManaged) && locationId && !skipStockChecks) {
+          batchAllocations = await allocateFefo(tx, {
+            companyId,
+            productId: product.id,
+            locationId,
+            baseQty,
+            checkAvailable: true,
+            productName: product.name,
+          });
+          if (batchAllocations.length === 1) {
+            item.batchNumber = batchAllocations[0].batchNumber;
+          }
+        }
+
         await tx.stockMovement.create({
           data: {
             productId: product.id,
@@ -240,16 +288,24 @@ class POSSaleModel {
             type: 'stock_out',
             movementType: 'SALES_DELIVERY',
             quantity: salesQty,
+            enteredQuantity: salesQty,
             baseQuantity: baseQty,
+            conversionFactor: factor,
+            productUnitId: item.productUnitId,
             uom: item.unitName,
             previousStock: adj.previousLocationStock,
             newStock: adj.newLocationStock,
             unitCost: product.costPrice,
             totalValue: roundTo(product.costPrice * baseQty, 4),
+            batchNumber: item.batchNumber || batchAllocations[0]?.batchNumber || null,
             reason: 'POS Sale',
             customerName: customerName || 'Walk-in',
             reference: invoiceNumber,
-            notes: `POS Sale — ${invoiceNumber} (${salesQty} ${item.unitName} = ${baseQty} ${uom.stockUnit})`,
+            notes: `POS Sale — ${invoiceNumber} (${salesQty} ${item.unitName} = ${baseQty} ${uom.stockUnit})${
+              batchAllocations.length
+                ? ` batches=${batchAllocations.map((b) => `${b.batchNumber}:${b.qty}`).join(',')}`
+                : ''
+            }`,
             createdBy,
             companyId,
             locationId: locationId || null,
@@ -331,6 +387,8 @@ class POSSaleModel {
               unitName: item.unitName || 'Pcs',
               baseQuantity: item.baseQuantity != null ? item.baseQuantity : item.quantity,
               conversionFactor: item.conversionFactor != null ? item.conversionFactor : 1,
+              productUnitId: item.productUnitId || null,
+              batchNumber: item.batchNumber || null,
               unitPrice: item.unitPrice,
               discount: item.discount || 0,
               taxRate: item.taxRate || 0,
@@ -470,14 +528,18 @@ class POSSaleModel {
               type: 'stock_in',
               movementType: 'SALES_RETURN',
               quantity: returnQty,
+              enteredQuantity: returnQty,
               baseQuantity: baseQty,
+              conversionFactor: factor,
+              productUnitId: origItem.productUnitId || null,
               uom: unitName,
               previousStock: adj.previousLocationStock,
               newStock: adj.newLocationStock,
               unitCost: product.costPrice,
               totalValue: roundTo(product.costPrice * baseQty, 4),
+              batchNumber: origItem.batchNumber || null,
               reason: 'POS Return', reference: originalSale.invoiceNumber,
-              notes: `POS Return from ${originalSale.invoiceNumber} (${returnQty} ${unitName})`,
+              notes: `POS Return from ${originalSale.invoiceNumber} (${returnQty} ${unitName} = ${baseQty} base)`,
               createdBy, companyId,
               locationId: locationId || null,
             }
@@ -489,6 +551,8 @@ class POSSaleModel {
           unitName,
           baseQuantity: baseQty,
           conversionFactor: factor,
+          productUnitId: origItem.productUnitId || null,
+          batchNumber: origItem.batchNumber || null,
           unitPrice: origItem.unitPrice,
           lineTotal,
         });

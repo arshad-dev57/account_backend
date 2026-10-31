@@ -459,14 +459,38 @@ async function adjustLocationStock(
   const newReserved = Math.max(0, (stock.reservedStock || 0) + qtyReserved);
   const newAvailable = Math.max(0, newLocationStock - newReserved);
 
-  await tx.productStock.update({
-    where: { id: stock.id },
-    data: {
-      currentStock: newLocationStock,
-      reservedStock: newReserved,
-      availableStock: newAvailable,
-    },
-  });
+  // Concurrency-safe stock write: reject if another txn changed on-hand since read
+  // (prevents oversell under concurrent POS checkouts).
+  if (checkAvailable && qtyDelta < 0 && !allowNegative) {
+    const guarded = await tx.productStock.updateMany({
+      where: {
+        id: stock.id,
+        currentStock: previousLocationStock,
+      },
+      data: {
+        currentStock: newLocationStock,
+        reservedStock: newReserved,
+        availableStock: newAvailable,
+      },
+    });
+    if (guarded.count !== 1) {
+      const err = new Error(
+        `Stock changed concurrently${label}. Please retry the sale.`
+      );
+      err.statusCode = 409;
+      err.code = 'STOCK_CONFLICT';
+      throw err;
+    }
+  } else {
+    await tx.productStock.update({
+      where: { id: stock.id },
+      data: {
+        currentStock: newLocationStock,
+        reservedStock: newReserved,
+        availableStock: newAvailable,
+      },
+    });
+  }
 
   const product = await syncProductTotalStock(tx, productId);
 

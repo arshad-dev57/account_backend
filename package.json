@@ -1,9 +1,11 @@
+
 {
   "name": "account_backend",
   "version": "1.0.0",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
+    "start": "deno run --unstable-detect-cjs -A server.js",
     "dev": "nodemon server.js",
     "build": "prisma generate",
     "postinstall": "prisma generate",

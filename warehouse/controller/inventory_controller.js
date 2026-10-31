@@ -66,11 +66,17 @@ const getInventoryValuation = async (req, res) => {
       ];
     }
 
+    const { packageBreakdown } = require('../services/productUnitService');
+
     const products = await prisma.product.findMany({
       where: filter,
       include: {
         category: {
           select: { id: true, name: true },
+        },
+        productUnits: {
+          where: { isActive: true },
+          orderBy: [{ isBase: 'desc' }, { sortOrder: 'asc' }],
         },
         ...(locationId
           ? {
@@ -99,6 +105,7 @@ const getInventoryValuation = async (req, res) => {
       const totalCostValue = qty * unitCost;
       const sellingValue = qty * sellingPrice;
       const potentialProfit = sellingValue - totalCostValue;
+      const breakdown = packageBreakdown(qty, product.productUnits || []);
 
       let status = 'OK';
       if (qty <= (product.minimumStock || 0)) {
@@ -117,6 +124,10 @@ const getInventoryValuation = async (req, res) => {
         category: product.category ? product.category.name : 'Uncategorized',
         categoryId: product.categoryId,
         qty,
+        baseQty: qty,
+        baseUnitName: product.stockUnitName || breakdown.baseUnitName,
+        stockBreakdown: breakdown,
+        equivalentPackages: breakdown.displayParts.join(' + '),
         unitCost,
         sellingPrice,
         totalCostValue,
@@ -128,10 +139,19 @@ const getInventoryValuation = async (req, res) => {
             : 0,
         minStock: product.minimumStock,
         maxStock: product.maximumStock,
+        reorderLevel: product.reorderLevel,
         status,
         rackLocationName: product.rackLocationName,
         expiryDate: product.expiryDate,
         locationId: locationId || null,
+        units: (product.productUnits || []).map((u) => ({
+          id: u.id,
+          unitName: u.unitName,
+          conversionFactor: u.conversionFactor,
+          isBase: u.isBase,
+          allowSale: u.allowSale,
+          allowPurchase: u.allowPurchase,
+        })),
       };
     });
 

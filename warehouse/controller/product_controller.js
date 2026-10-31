@@ -6,6 +6,43 @@ const {
   resolveLocationId,
   getOrCreateProductStock,
 } = require('../services/locationService');
+const {
+  validateUnitsConfig,
+  deriveLegacyUomFields,
+  replaceProductUnits,
+  ensureProductUnits,
+  serializeUnitsForApi,
+  buildUnitsFromLegacyProduct,
+} = require('../services/productUnitService');
+
+function parseUnitsPayload(data) {
+  if (!data) return null;
+  let units = data.units ?? data.productUnits ?? data.unitConfig;
+  if (units == null) return null;
+  if (typeof units === 'string') {
+    try {
+      units = JSON.parse(units);
+    } catch {
+      const err = new Error('Invalid units JSON');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+  if (!Array.isArray(units)) {
+    const err = new Error('units must be an array');
+    err.statusCode = 400;
+    throw err;
+  }
+  return units;
+}
+
+function stripUnitFields(data) {
+  if (!data || typeof data !== 'object') return data;
+  delete data.units;
+  delete data.productUnits;
+  delete data.unitConfig;
+  return data;
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -47,7 +84,7 @@ const FLOAT_FIELDS = [
 const BOOLEAN_FIELDS = [
   'hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
   'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods',
-  'allowFractionalQty', 'isBoxBased',
+  'allowFractionalQty', 'isBoxBased', 'trackInventory', 'openingStockPosted',
 ];
 
 const ARRAY_FIELDS = ['tags', 'colors', 'sizes'];
@@ -407,16 +444,27 @@ const getProductById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    let units = product.productUnits || [];
+    if (!units.length) {
+      units = await ensureProductUnits(prisma, product);
+    }
+    const unitPayload = serializeUnitsForApi(units, product);
+    return res.status(200).json({
       success: true,
-      data: product
+      data: {
+        ...product,
+        units: unitPayload.units,
+        productUnits: unitPayload.units,
+        stockBreakdown: unitPayload.stockBreakdown,
+        baseUnitName: unitPayload.baseUnitName,
+        baseStock: unitPayload.baseStock,
+      },
     });
   } catch (error) {
-    console.error('Get product error:', error);
-    res.status(500).json({
+    console.error('Get product by id error:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message || 'Server error',
     });
   }
 };
@@ -643,6 +691,48 @@ const createProduct = async (req, res) => {
     const locationIdInput = data.locationId || null;
     delete data.locationId;
 
+    let unitsInput = null;
+    try {
+      unitsInput = parseUnitsPayload(data);
+    } catch (unitParseErr) {
+      return res.status(unitParseErr.statusCode || 400).json({
+        success: false,
+        message: unitParseErr.message,
+      });
+    }
+    stripUnitFields(data);
+
+    // If multi-unit config provided, derive legacy single-UOM fields for backward compatibility
+    let validatedUnits = null;
+    if (unitsInput) {
+      try {
+        validatedUnits = validateUnitsConfig(unitsInput);
+        const legacy = deriveLegacyUomFields(validatedUnits, data);
+        Object.assign(data, legacy);
+      } catch (unitErr) {
+        return res.status(unitErr.statusCode || 400).json({
+          success: false,
+          message: unitErr.message,
+        });
+      }
+    } else {
+      // Seed a minimal unit config from stock/sales/purchase fields
+      validatedUnits = buildUnitsFromLegacyProduct({
+        ...data,
+        stockUnitName: data.stockUnitName || 'Pcs',
+        salesUnitName: data.salesUnitName || data.stockUnitName || 'Pcs',
+        purchaseUnitName: data.purchaseUnitName || data.stockUnitName || 'Pcs',
+        salesConversionFactor: data.salesConversionFactor || 1,
+        purchaseConversionFactor: data.purchaseConversionFactor || 1,
+        barcodeNumber: data.barcodeNumber,
+        sellingPrice: data.sellingPrice,
+        costPrice: data.costPrice,
+        allowFractionalQty: data.allowFractionalQty,
+      });
+      const legacy = deriveLegacyUomFields(validatedUnits, data);
+      Object.assign(data, legacy);
+    }
+
     // ✅ Ensure rackLocationName has a value
     const productData = {
       ...data,
@@ -666,6 +756,7 @@ const createProduct = async (req, res) => {
           ? Number(data.salesConversionFactor)
           : 1,
       allowFractionalQty: Boolean(data.allowFractionalQty),
+      trackInventory: data.trackInventory !== false,
       dimensionUnit: data.dimensionUnit || 'cm',
       weightUnitName: data.weightUnitName || 'KG',
       taxType: data.taxType || 'Exclusive',
@@ -676,6 +767,7 @@ const createProduct = async (req, res) => {
       currentStock: 0,
       totalValue: 0,
       availableStock: 0,
+      openingStockPosted: false,
       createdBy: userId,
       companyId: companyId
     };
@@ -703,6 +795,15 @@ const createProduct = async (req, res) => {
         productData.barcodeNumber = `${productData.sku}-${String(attempt + 1)}`;
       }
     }
+
+    const savedUnits = await prisma.$transaction(async (tx) =>
+      replaceProductUnits(tx, {
+        companyId,
+        productId: product.id,
+        unitsInput: validatedUnits,
+        productBarcode: productData.barcodeNumber,
+      })
+    );
 
     // Assign product to selected warehouse only when locationId is provided (optional)
     if (locationIdInput) {
@@ -737,15 +838,24 @@ const createProduct = async (req, res) => {
       }
     }
 
+    const unitPayload = serializeUnitsForApi(savedUnits, product);
+
     res.status(201).json({
       success: true,
       message: 'Product created successfully',
-      data: product
+      data: {
+        ...product,
+        units: unitPayload.units,
+        productUnits: unitPayload.units,
+        stockBreakdown: unitPayload.stockBreakdown,
+        baseUnitName: unitPayload.baseUnitName,
+        baseStock: unitPayload.baseStock,
+      },
     });
   } catch (error) {
     console.error('❌ [createProduct] Error:', error);
     console.error('❌ [createProduct] Error stack:', error.stack);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -847,6 +957,42 @@ const updateProduct = async (req, res) => {
 
     const locationIdInput = data.locationId || null;
     delete data.locationId;
+
+    let unitsInput = null;
+    try {
+      unitsInput = parseUnitsPayload(data);
+    } catch (unitParseErr) {
+      return res.status(unitParseErr.statusCode || 400).json({
+        success: false,
+        message: unitParseErr.message,
+      });
+    }
+    stripUnitFields(data);
+
+    let validatedUnits = null;
+    if (unitsInput) {
+      try {
+        validatedUnits = validateUnitsConfig(unitsInput);
+        const legacy = deriveLegacyUomFields(validatedUnits, { ...existing, ...data });
+        Object.assign(data, legacy);
+      } catch (unitErr) {
+        return res.status(unitErr.statusCode || 400).json({
+          success: false,
+          message: unitErr.message,
+        });
+      }
+    }
+
+    // Editing must never silently re-post opening stock
+    delete data.openingStockPosted;
+    if (data.openingStock != null && Number(data.openingStock) !== Number(existing.openingStock || 0)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Opening stock cannot be changed on product edit. Use Stock Adjustment with an audit trail.',
+      });
+    }
+    delete data.openingStock;
 
     // ─── Check duplicate SKU ──────────────────────────────
     if (data.sku && String(data.sku).toUpperCase() !== String(existing.sku || '').toUpperCase()) {
@@ -972,6 +1118,20 @@ const updateProduct = async (req, res) => {
     // ─── Update product ─────────────────────────────────────
     const product = await ProductModel.update(id, productData);
 
+    let savedUnits = product.productUnits || [];
+    if (validatedUnits) {
+      savedUnits = await prisma.$transaction(async (tx) =>
+        replaceProductUnits(tx, {
+          companyId,
+          productId: product.id,
+          unitsInput: validatedUnits,
+          productBarcode: productData.barcodeNumber,
+        })
+      );
+    } else {
+      savedUnits = await ensureProductUnits(prisma, product);
+    }
+
     // Assign product to warehouse catalog (0 stock if new row)
     if (locationIdInput) {
       try {
@@ -1006,14 +1166,23 @@ const updateProduct = async (req, res) => {
 
     console.log('✅ [updateProduct] Product updated successfully:', product.id);
 
+    const unitPayload = serializeUnitsForApi(savedUnits, product);
+
     res.status(200).json({
       success: true,
       message: 'Product updated successfully',
-      data: product
+      data: {
+        ...product,
+        units: unitPayload.units,
+        productUnits: unitPayload.units,
+        stockBreakdown: unitPayload.stockBreakdown,
+        baseUnitName: unitPayload.baseUnitName,
+        baseStock: unitPayload.baseStock,
+      },
     });
   } catch (error) {
     console.error('❌ [updateProduct] Error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined

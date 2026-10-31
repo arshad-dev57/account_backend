@@ -92,6 +92,10 @@ class ProductModel {
             currentStock: true
           }
         },
+        productUnits: {
+          where: { isActive: true },
+          orderBy: [{ isBase: 'desc' }, { sortOrder: 'asc' }, { unitName: 'asc' }],
+        },
         stockMovements: {
           take: 10,
           orderBy: { createdAt: 'desc' },
@@ -99,6 +103,9 @@ class ProductModel {
             id: true,
             type: true,
             quantity: true,
+            baseQuantity: true,
+            uom: true,
+            conversionFactor: true,
             previousStock: true,
             newStock: true,
             reason: true,
@@ -252,6 +259,7 @@ class ProductModel {
       purchaseConversionFactor,
       salesConversionFactor,
       allowFractionalQty,
+      trackInventory,
       zoneName,
       zoneId,
       storageConditionName,
@@ -342,6 +350,7 @@ class ProductModel {
           ? Number(salesConversionFactor)
           : 1,
       allowFractionalQty: Boolean(allowFractionalQty),
+      trackInventory: trackInventory === false || trackInventory === 'false' ? false : true,
       zoneName: zoneName || null,
       zoneId: zoneId || null,
       storageConditionName: storageConditionName || 'Normal',
@@ -524,6 +533,7 @@ class ProductModel {
       purchaseConversionFactor: asFloat(data.purchaseConversionFactor),
       salesConversionFactor: asFloat(data.salesConversionFactor),
       allowFractionalQty: data.allowFractionalQty !== undefined ? Boolean(data.allowFractionalQty) : undefined,
+      trackInventory: data.trackInventory !== undefined ? Boolean(data.trackInventory) : undefined,
       zoneName: data.zoneName !== undefined ? data.zoneName : undefined,
       zoneId: data.zoneId || undefined,
       storageConditionName: data.storageConditionName !== undefined ? data.storageConditionName : existing.storageConditionName,
