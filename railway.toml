@@ -1,10 +1,15 @@
-# Locks production start so dashboard overrides / Deno experiments cannot
-# leave the container running migrations without an HTTP listener.
+# Railway config-as-code (overrides dashboard for this deploy).
+# Builder must be RAILPACK or DOCKERFILE — NIXPACKS is no longer valid and
+# can cause the whole file to be ignored (leaving only migrate as start).
+
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
+buildCommand = "npx prisma generate"
 
 [deploy]
-startCommand = "npx prisma migrate deploy && node server.js"
+# Migrate in pre-deploy so the long-running process is ONLY the HTTP server.
+preDeployCommand = ["npx prisma migrate deploy"]
+startCommand = "sh scripts/railway-start.sh"
 healthcheckPath = "/"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
