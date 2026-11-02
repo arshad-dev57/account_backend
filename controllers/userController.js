@@ -38,15 +38,22 @@ const cleanToken = (token) => {
   return token.trim().replace(/^"|"$/g, '').replace(/\s/g, '');
 };
 
-const generateToken = (id) => {
+// Access + refresh lifetimes (override via env). Longer defaults so admin/web
+// sessions don't force re-login every few days.
+const ACCESS_TOKEN_TTL = process.env.JWT_EXPIRES_IN || '30d';
+const REFRESH_TOKEN_TTL = process.env.JWT_REFRESH_EXPIRES_IN || '365d';
+const ADMIN_ACCESS_TOKEN_TTL = process.env.JWT_ADMIN_EXPIRES_IN || '90d';
+const ADMIN_REFRESH_TOKEN_TTL = process.env.JWT_ADMIN_REFRESH_EXPIRES_IN || '365d';
+
+const generateToken = (id, expiresIn = ACCESS_TOKEN_TTL) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '7d'
+    expiresIn
   });
 };
 
-const generateRefreshToken = (id) => {
+const generateRefreshToken = (id, expiresIn = REFRESH_TOKEN_TTL) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d'
+    expiresIn
   });
 };
 
@@ -101,7 +108,7 @@ async function buildAuthenticatedLoginPayload(userId, req = null) {
     const meta = req ? getRequestMeta(req) : {};
     const client = String(req?.body?.client || '').toLowerCase();
     const source =
-      client === 'desktop' || client === 'mobile' || client === 'web'
+      client === 'desktop' || client === 'mobile' || client === 'web' || client === 'admin'
         ? client
         : req?.body?.directLogin || req?.body?.skipOtp
           ? 'web'
@@ -159,8 +166,16 @@ async function buildAuthenticatedLoginPayload(userId, req = null) {
     pdfReportSettings = null;
   }
 
-  const token = generateToken(updatedUser._id);
-  const refreshToken = generateRefreshToken(updatedUser._id);
+  const client = String(req?.body?.client || '').toLowerCase();
+  const isAdminClient = client === 'admin';
+  const token = generateToken(
+    updatedUser._id,
+    isAdminClient ? ADMIN_ACCESS_TOKEN_TTL : ACCESS_TOKEN_TTL
+  );
+  const refreshToken = generateRefreshToken(
+    updatedUser._id,
+    isAdminClient ? ADMIN_REFRESH_TOKEN_TTL : REFRESH_TOKEN_TTL
+  );
 
   const responseUser = {
     id: updatedUser._id,
@@ -294,12 +309,14 @@ async function buildAuthenticatedLoginPayload(userId, req = null) {
 
 function wantsWebDirectLogin(body = {}) {
   // Explicit opt-in only — mobile apps keep OTP (default login path unchanged).
+  // Admin panel + web/desktop use password-only login.
   const client = String(body.client || '').toLowerCase();
   return (
     body.directLogin === true ||
     body.skipOtp === true ||
     client === 'web' ||
-    client === 'desktop'
+    client === 'desktop' ||
+    client === 'admin'
   );
 }
 
@@ -1295,8 +1312,17 @@ exports.refreshToken = async (req, res) => {
       });
     }
 
-    const token = generateToken(userData._id);
-    const newRefreshToken = generateRefreshToken(userData._id);
+    // Keep admin-length sessions when the client identifies as admin panel.
+    const client = String(req.body?.client || '').toLowerCase();
+    const isAdminClient = client === 'admin';
+    const token = generateToken(
+      userData._id,
+      isAdminClient ? ADMIN_ACCESS_TOKEN_TTL : ACCESS_TOKEN_TTL
+    );
+    const newRefreshToken = generateRefreshToken(
+      userData._id,
+      isAdminClient ? ADMIN_REFRESH_TOKEN_TTL : REFRESH_TOKEN_TTL
+    );
 
     console.log('✅ [refreshToken] Token refreshed successfully');
 
