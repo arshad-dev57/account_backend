@@ -186,7 +186,8 @@ const createCategory = async (req, res) => {
   try {
     const userId = req.user.id;
     const companyId = req.user.companyId;
-    const { name, description, code, parentId } = req.body;
+    const { name, description, code, parentId, mainImage, image } = req.body;
+    const imageUrl = String(mainImage || image || '').trim() || null;
 
     // Validation
     if (!name) {
@@ -265,6 +266,7 @@ const createCategory = async (req, res) => {
         name,
         description: description || '',
         code: code || undefined,
+        mainImage: imageUrl,
         parentId: parentId || null,
         parentName: parentName,
         level: level,
@@ -316,7 +318,7 @@ const updateCategory = async (req, res) => {
     const userId = req.user.id;
     const companyId = req.user.companyId;
     const categoryId = req.params.id;
-    const { name, description, code, parentId, isActive } = req.body;
+    const { name, description, code, parentId, isActive, mainImage, image } = req.body;
 
     // Check if category exists AND belongs to this company
     const existing = await prisma.category.findFirst({
@@ -421,6 +423,9 @@ const updateCategory = async (req, res) => {
       ...(req.body.parentName !== undefined && { parentName: req.body.parentName }),
       ...(req.body.path !== undefined && { path: req.body.path })
     };
+    if (mainImage !== undefined || image !== undefined) {
+      updateData.mainImage = String(mainImage || image || '').trim() || null;
+    }
 
     const category = await prisma.category.update({
       where: { id: categoryId },

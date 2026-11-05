@@ -1,6 +1,10 @@
 const prisma = require('../../prisma/client');
 const { randomUUID } = require('crypto');
 const restaurantNotify = require('../services/restaurantNotificationService');
+const {
+  deductByRecipeForOrder,
+  postWastageForCancelledOrder,
+} = require('../services/recipeStockService');
 
 const ACTIVE_KITCHEN = ['SENT', 'PREPARING'];
 const READY_STATUSES = ['READY'];
@@ -213,7 +217,7 @@ exports.createOrder = async (req, res) => {
 
     const order = await prisma.$transaction(async (tx) => {
       const ticketNumber = await allocateTicketNumber(tx, companyId);
-      return tx.restaurantOrder.create({
+      const created = await tx.restaurantOrder.create({
         data: {
           id: randomUUID(),
           companyId,
@@ -236,6 +240,18 @@ exports.createOrder = async (req, res) => {
         },
         include: orderInclude,
       });
+
+      // Deduct MENU_ITEM ingredients / READY_ITEM stock at KOT (idempotent)
+      await deductByRecipeForOrder(tx, {
+        companyId,
+        order: created,
+        userId: req.user.id,
+      });
+
+      return tx.restaurantOrder.findFirst({
+        where: { id: created.id },
+        include: orderInclude,
+      });
     });
 
     restaurantNotify.notifyOrderCreated(order).catch(() => {});
@@ -247,6 +263,13 @@ exports.createOrder = async (req, res) => {
         success: false,
         message:
           'Duplicate order request. Retry with the same clientRequestId to fetch the existing order.',
+      });
+    }
+    if (error.statusCode === 400) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+        shortages: error.shortages || undefined,
       });
     }
     console.error('createOrder error:', error);
@@ -531,17 +554,38 @@ exports.markPaid = async (req, res) => {
 exports.cancelOrder = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const result = await prisma.restaurantOrder.updateMany({
-      where: { id: req.params.id, companyId, status: { in: ['SENT', 'PREPARING'] } },
-      data: { status: 'CANCELLED', version: { increment: 1 } },
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.restaurantOrder.findFirst({
+        where: {
+          id: req.params.id,
+          companyId,
+          status: { in: ['SENT', 'PREPARING', 'READY'] },
+        },
+        include: orderInclude,
+      });
+      if (!existing) return null;
+
+      // After KOT stock deduction: wastage audit, do NOT restore ingredients
+      await postWastageForCancelledOrder(tx, {
+        companyId,
+        order: existing,
+        userId: req.user.id,
+      });
+
+      await tx.restaurantOrder.update({
+        where: { id: existing.id },
+        data: { status: 'CANCELLED', version: { increment: 1 } },
+      });
+
+      return tx.restaurantOrder.findFirst({
+        where: { id: existing.id },
+        include: orderInclude,
+      });
     });
-    if (result.count !== 1) {
+
+    if (!updated) {
       return res.status(404).json({ success: false, message: 'Cannot cancel this order' });
     }
-    const updated = await prisma.restaurantOrder.findFirst({
-      where: { id: req.params.id, companyId },
-      include: orderInclude,
-    });
     restaurantNotify.notifyOrderCancelled(updated).catch(() => {});
     res.json({ success: true, data: enrichOrderTiming(updated) });
   } catch (error) {

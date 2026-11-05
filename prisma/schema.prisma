@@ -10,10 +10,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================================
-// MULTI-CURRENCY MASTER
-// ============================================================
-
 model Currency {
   id            String   @id @default(uuid())
   code          String   @unique // ISO 4217 e.g. PKR, USD
@@ -204,6 +200,7 @@ model Company {
   posReturns                        POSReturn[]
   restaurantOrders                  RestaurantOrder[]
   kitchenStations                   KitchenStation[]
+  recipes                           Recipe[]
   posAuditLogs                      POSAuditLog[]
   pdfReportSettings                 PdfReportSetting[]
   supportTickets                    SupportTicket[]
@@ -329,6 +326,18 @@ model Company {
   exportSetting                     ExportSetting?                     @relation("ExportSettingCompany")
   exportAuditLogs                   ExportAuditLog[]                   @relation("ExportAuditLogCompany")
   exportIdempotencies               ExportIdempotency[]                @relation("ExportIdempotencyCompany")
+
+  // CRM Relations
+  leads                             Lead[]                             @relation("LeadCompany")
+  leadCustomFields                  LeadCustomField[]                  @relation("LeadCustomFieldCompany")
+  leadBoards                        LeadBoard[]                        @relation("LeadBoardCompany")
+  leadSources                       LeadSource[]                       @relation("LeadSourceCompany")
+  leadFollowUps                     LeadFollowUp[]                     @relation("LeadFollowUpCompany")
+  leadActivities                    LeadActivity[]                     @relation("LeadActivityCompany")
+  leadImportJobs                    LeadImportJob[]                    @relation("LeadImportJobCompany")
+  leadImportMappings                LeadImportMapping[]                @relation("LeadImportMappingCompany")
+  googleSheetConnections            GoogleSheetConnection[]            @relation("GoogleSheetConnectionCompany")
+  leadAuditLogs                     LeadAuditLog[]                     @relation("LeadAuditLogCompany")
 
   @@index([email])
   @@index([isActive])
@@ -887,6 +896,11 @@ model User {
   manufacturingProductCostsCreated           ManufacturingProductCost[]         @relation("ManufacturingProductCostCreator")
   manufacturingProductCostsUpdated           ManufacturingProductCost[]         @relation("ManufacturingProductCostUpdater")
   internalTransfersCreated                   InternalTransfer[]                 @relation("InternalTransferCreator")
+  backupJobsOwned                            BackupJob[]                        @relation("BackupJobOwner")
+  assignedLeads                              Lead[]                             @relation("LeadAssignee")
+  createdLeads                               Lead[]                             @relation("LeadCreator")
+  assignedLeadFollowUps                      LeadFollowUp[]                     @relation("LeadFollowUpAssignee")
+  leadActivities                             LeadActivity[]
 
   @@index([email])
   @@index([roleId])
@@ -2347,6 +2361,7 @@ model Customer {
   salesPayments         SalesPaymentReceived[]
   transactions          Transaction[]          @relation("CustomerTransactions")
   tradingCustomerPrices TradingCustomerPrice[]
+  convertedLeads        Lead[]                 @relation("ConvertedCustomerLeads")
 
   @@unique([email, companyId])
   @@index([customerNumber])
@@ -2384,6 +2399,12 @@ model Product {
   brandName       String? @map("brand_name")
   modelNumber     String? @map("model_number")
   productType     String  @default("Physical") @map("product_type")
+  /// Restaurant/retail sellable classification:
+  /// READY_ITEM (default, retail-like) | MENU_ITEM (made-to-order via recipe) |
+  /// INGREDIENT (raw material) | MODIFIER (add-on)
+  itemType        String  @default("READY_ITEM") @map("item_type")
+  /// When false, product is hidden from POS product grid (ingredients default false)
+  showInPos       Boolean @default(true) @map("show_in_pos")
   hsCode          String? @map("hs_code")
 
   supplierId   String? @map("supplier_id")
@@ -2597,6 +2618,8 @@ model Product {
   importProformaInvoiceItems                ImportProformaInvoiceItem[]
   importSupplierBillItems                   ImportSupplierBillItem[]
   internalTransferItems                     InternalTransferItem[]                     @relation("InternalTransferItemProduct")
+  menuRecipe                                Recipe?                                    @relation("RecipeMenuProduct")
+  recipeIngredientItems                     RecipeItem[]                               @relation("RecipeIngredientProduct")
 
   @@unique([sku, companyId])
   @@index([sku])
@@ -2608,6 +2631,8 @@ model Product {
   @@index([status])
   @@index([barcodeNumber])
   @@index([qrCode])
+  @@index([itemType])
+  @@index([showInPos])
   @@index([companyId])
   @@index([companyId, updatedAt, id])
   @@map("products")
@@ -2619,6 +2644,7 @@ model Category {
   slug        String?
   code        String?
   description String?
+  mainImage   String? @map("main_image")
 
   parentId   String? @map("parent_id")
   parentName String? @map("parent_name")
@@ -5904,6 +5930,11 @@ model RestaurantOrder {
   ticketNumber    Int?      @map("ticket_number")
   clientRequestId String?   @map("client_request_id")
   version         Int       @default(1)
+  /// Set when ingredient/READY stock was deducted for this KOT (idempotent)
+  stockDeductedAt DateTime? @map("stock_deducted_at")
+  stockDeductionKey String? @map("stock_deduction_key")
+  /// Set when cancel-after-KOT wastage was posted (do not restore stock)
+  wastagePostedAt DateTime? @map("wastage_posted_at")
   sentAt          DateTime  @default(now()) @map("sent_at")
   preparingAt     DateTime? @map("preparing_at")
   readyAt         DateTime? @map("ready_at")
@@ -5923,6 +5954,46 @@ model RestaurantOrder {
   @@index([companyId, createdAt])
   @@index([companyId, updatedAt])
   @@map("restaurant_orders")
+}
+
+/// Menu-item bill of materials (restaurant recipes). Separate from ManufacturingBOM.
+model Recipe {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  menuProductId String   @unique @map("menu_product_id")
+  name          String?
+  notes         String?
+  isActive      Boolean  @default(true) @map("is_active")
+  createdBy     String?  @map("created_by")
+  updatedBy     String?  @map("updated_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  company     Company      @relation(fields: [companyId], references: [id])
+  menuProduct Product      @relation("RecipeMenuProduct", fields: [menuProductId], references: [id], onDelete: Cascade)
+  items       RecipeItem[]
+
+  @@index([companyId])
+  @@map("recipes")
+}
+
+model RecipeItem {
+  id                   String   @id @default(uuid())
+  recipeId             String   @map("recipe_id")
+  ingredientProductId  String   @map("ingredient_product_id")
+  quantity             Float
+  uom                  String   @default("Pcs")
+  notes                String?
+  sortOrder            Int      @default(0) @map("sort_order")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  recipe             Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredientProduct  Product @relation("RecipeIngredientProduct", fields: [ingredientProductId], references: [id])
+
+  @@unique([recipeId, ingredientProductId])
+  @@index([ingredientProductId])
+  @@map("recipe_items")
 }
 
 model RestaurantOrderLine {
@@ -9321,11 +9392,6 @@ model ImportAuditLog {
   @@map("import_audit_logs")
 }
 
-// ============================================================
-// APP USAGE / CLIENT ACTIVITY (platform admin visibility)
-// Tracks when users open/use the web (or other) apps.
-// ============================================================
-
 model AppUsageEvent {
   id        String   @id @default(uuid())
   companyId String?  @map("company_id")
@@ -9345,15 +9411,6 @@ model AppUsageEvent {
   @@index([action, createdAt])
   @@map("app_usage_events")
 }
-
-// ============================================================
-// EXPORT MANAGEMENT
-// Full export sales lifecycle: inquiry -> quotation -> order ->
-// proforma -> packing/inspection -> shipment/customs -> dispatch
-// (commercial invoice + inventory) -> settlement receipts.
-// Amounts are stored in the transaction currency (*Foreign) and in
-// the company base currency (*Base) using the captured FX snapshot.
-// ============================================================
 
 model ExportInquiry {
   id                      String    @id @default(uuid())
@@ -11685,4 +11742,440 @@ model HrSalarySlip {
   @@index([companyId, status])
   @@index([payrollEntryId])
   @@map("hr_salary_slips")
+}
+
+// ============================================================
+// BACKUP & RESTORE SYSTEM
+// ============================================================
+
+enum BackupType {
+  FULL_DATABASE
+  COMPANY
+}
+
+enum BackupJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  RESTORING
+}
+
+enum BackupAuditAction {
+  CREATE
+  DOWNLOAD
+  RESTORE
+  DELETE
+  SCHEDULE_UPDATE
+  EXPIRE
+  VALIDATE
+}
+
+model BackupJob {
+  id                 String          @id @default(uuid())
+  backupType         BackupType      @map("backup_type")
+  status             BackupJobStatus @default(QUEUED)
+  name               String
+  ownerUserId        String?         @map("owner_user_id")
+  ownerEmail         String?         @map("owner_email")
+  /// Platform-owner jobs have null ownerCompanyId; customer jobs store primary company for listing
+  ownerCompanyId     String?         @map("owner_company_id")
+  storageKey         String?         @map("storage_key")
+  storageProvider    String?         @map("storage_provider") // r2 | s3 | local
+  fileName           String?         @map("file_name")
+  fileSizeBytes      BigInt?         @map("file_size_bytes")
+  checksumSha256     String?         @map("checksum_sha256")
+  formatVersion      String          @default("1.0.0") @map("format_version")
+  erpVersion         String?         @map("erp_version")
+  progressPercent    Int             @default(0) @map("progress_percent")
+  progressMessage    String?         @map("progress_message")
+  errorMessage       String?         @map("error_message")
+  manifestJson       Json?           @map("manifest_json")
+  metadataJson       Json?           @map("metadata_json")
+  expiresAt          DateTime?       @map("expires_at")
+  startedAt          DateTime?       @map("started_at")
+  completedAt        DateTime?       @map("completed_at")
+  restoreLockedAt    DateTime?       @map("restore_locked_at")
+  restoreLockedBy    String?         @map("restore_locked_by")
+  isPreRestoreSnapshot Boolean       @default(false) @map("is_pre_restore_snapshot")
+  parentBackupId     String?         @map("parent_backup_id")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  ownerUser    User?            @relation("BackupJobOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  companies    BackupCompany[]
+  auditLogs    BackupAuditLog[]
+  parentBackup BackupJob?       @relation("BackupJobParent", fields: [parentBackupId], references: [id], onDelete: SetNull)
+  childBackups BackupJob[]      @relation("BackupJobParent")
+
+  @@index([backupType, status])
+  @@index([ownerUserId])
+  @@index([ownerCompanyId])
+  @@index([status, createdAt])
+  @@index([expiresAt])
+  @@map("backup_jobs")
+}
+
+model BackupCompany {
+  id          String   @id @default(uuid())
+  backupJobId String   @map("backup_job_id")
+  companyId   String   @map("company_id")
+  companyName String   @map("company_name")
+  recordCounts Json?   @map("record_counts")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  backupJob BackupJob @relation(fields: [backupJobId], references: [id], onDelete: Cascade)
+
+  @@unique([backupJobId, companyId])
+  @@index([companyId])
+  @@map("backup_companies")
+}
+
+model BackupAuditLog {
+  id          String            @id @default(uuid())
+  backupJobId String?           @map("backup_job_id")
+  action      BackupAuditAction
+  actorUserId String?           @map("actor_user_id")
+  actorEmail  String?           @map("actor_email")
+  ipAddress   String?           @map("ip_address")
+  userAgent   String?           @map("user_agent")
+  details     Json?
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  backupJob BackupJob? @relation(fields: [backupJobId], references: [id], onDelete: SetNull)
+
+  @@index([backupJobId])
+  @@index([actorUserId])
+  @@index([action, createdAt])
+  @@map("backup_audit_logs")
+}
+
+model BackupScheduleConfig {
+  id                 String   @id @default(uuid())
+  /// Singleton row for platform full-database schedule (key = "full_database")
+  scheduleKey        String   @unique @default("full_database") @map("schedule_key")
+  enabled            Boolean  @default(false)
+  frequency          String   @default("daily") // daily | weekly
+  /// HH:mm in UTC
+  runAtUtc           String   @default("02:00") @map("run_at_utc")
+  /// 0=Sunday .. 6=Saturday (weekly only)
+  dayOfWeek          Int?     @map("day_of_week")
+  retentionDays      Int      @default(30) @map("retention_days")
+  lastRunAt          DateTime? @map("last_run_at")
+  lastRunBackupId    String?   @map("last_run_backup_id")
+  nextRunAt          DateTime? @map("next_run_at")
+  updatedByUserId    String?   @map("updated_by_user_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("backup_schedule_configs")
+}
+
+// ============================================================
+// CRM & LEAD MANAGEMENT SYSTEM
+// ============================================================
+
+model Lead {
+  id                  String    @id @default(uuid())
+  leadNumber          String    @unique @map("lead_number")
+  companyId           String    @map("company_id")
+  title               String?
+  firstName           String?   @map("first_name")
+  lastName            String?   @map("last_name")
+  fullName            String    @map("full_name")
+  email               String?
+  phone               String?
+  whatsapp            String?
+  companyName         String?   @map("company_name")
+  city                String?
+  state               String?
+  country             String?   @default("Pakistan")
+  source              String    @default("Manual Entry")
+  sourceId            String?   @map("source_id")
+  status              String    @default("New")
+  stage               String?
+  priority            String    @default("Medium") // Low, Medium, High, Urgent
+  budget              Float?
+  currency            String?   @default("PKR")
+  interest            String?
+  score               Int       @default(0)
+  assignedToId        String?   @map("assigned_to_id")
+  notes               String?
+  tags                String[]  @default([])
+  customFields        Json?     @default("{}") @map("custom_fields")
+  boardId             String?   @map("board_id")
+  boardOrder          Int       @default(0) @map("board_order")
+  isDeleted           Boolean   @default(false) @map("is_deleted")
+  convertedAt         DateTime? @map("converted_at")
+  convertedById       String?   @map("converted_by_id")
+  convertedCustomerId String?   @map("converted_customer_id")
+  createdBy           String    @map("created_by")
+  updatedBy           String?   @map("updated_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  company             Company       @relation("LeadCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  creator             User          @relation("LeadCreator", fields: [createdBy], references: [id])
+  assignedTo          User?         @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  convertedCustomer   Customer?     @relation("ConvertedCustomerLeads", fields: [convertedCustomerId], references: [id], onDelete: SetNull)
+  leadSource          LeadSource?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  board               LeadBoard?    @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  activities          LeadActivity[]
+  followUps           LeadFollowUp[]
+
+  @@index([companyId])
+  @@index([leadNumber])
+  @@index([status])
+  @@index([email])
+  @@index([phone])
+  @@index([whatsapp])
+  @@index([assignedToId])
+  @@index([boardId])
+  @@index([isDeleted])
+  @@index([companyId, status])
+  @@index([companyId, isDeleted])
+  @@map("crm_leads")
+}
+
+model LeadCustomField {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  fieldKey     String   @map("field_key")
+  fieldName    String   @map("field_name")
+  fieldType    String   @map("field_type") // text, textarea, number, email, phone, url, date, datetime, checkbox, select, multiselect, currency, user, status, country
+  description  String?
+  defaultValue String?  @map("default_value")
+  placeholder  String?
+  isRequired   Boolean  @default(false) @map("is_required")
+  isVisible    Boolean  @default(true) @map("is_visible")
+  isSystem     Boolean  @default(false) @map("is_system")
+  sortOrder    Int      @default(0) @map("sort_order")
+  options      Json?    @default("[]")
+  width        Int?     @default(160)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company      Company  @relation("LeadCustomFieldCompany", fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, fieldKey])
+  @@index([companyId, sortOrder])
+  @@map("crm_lead_custom_fields")
+}
+
+model LeadBoard {
+  id            String            @id @default(uuid())
+  companyId     String            @map("company_id")
+  name          String
+  description   String?
+  isDefault     Boolean           @default(false) @map("is_default")
+  color         String?           @default("#014582")
+  columnsConfig Json?             @default("[]") @map("columns_config")
+  createdBy     String            @map("created_by")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  company       Company           @relation("LeadBoardCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  columns       LeadBoardColumn[]
+  leads         Lead[]
+
+  @@index([companyId])
+  @@map("crm_lead_boards")
+}
+
+model LeadBoardColumn {
+  id         String    @id @default(uuid())
+  boardId    String    @map("board_id")
+  name       String
+  statusKey  String    @map("status_key")
+  color      String    @default("#3b82f6")
+  sortOrder  Int       @default(0) @map("sort_order")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  board      LeadBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, statusKey])
+  @@index([boardId, sortOrder])
+  @@map("crm_lead_board_columns")
+}
+
+model LeadSource {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  name      String
+  color     String?  @default("#10b981")
+  isDefault Boolean  @default(false) @map("is_default")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company   Company  @relation("LeadSourceCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  leads     Lead[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("crm_lead_sources")
+}
+
+model LeadFollowUp {
+  id            String    @id @default(uuid())
+  leadId        String    @map("lead_id")
+  companyId     String    @map("company_id")
+  followUpDate  DateTime  @map("follow_up_date")
+  followUpTime  String?   @map("follow_up_time")
+  type          String    @default("Phone Call") // Phone Call, WhatsApp, Email, Meeting, Other
+  status        String    @default("Pending") // Pending, Completed, Cancelled, Overdue
+  notes         String?
+  assignedToId  String?   @map("assigned_to_id")
+  completedAt   DateTime? @map("completed_at")
+  completedById String?   @map("completed_by_id")
+  createdBy     String    @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  lead          Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  company       Company   @relation("LeadFollowUpCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  assignedTo    User?     @relation("LeadFollowUpAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([leadId])
+  @@index([status])
+  @@index([followUpDate])
+  @@map("crm_lead_follow_ups")
+}
+
+model LeadActivity {
+  id          String   @id @default(uuid())
+  leadId      String   @map("lead_id")
+  companyId   String   @map("company_id")
+  type        String   // created, status_changed, assigned, note_added, call_logged, followup_scheduled, followup_completed, imported, sheets_sync, converted
+  title       String
+  description String?
+  metadata    Json?
+  userId      String?  @map("user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  company     Company  @relation("LeadActivityCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([leadId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("crm_lead_activities")
+}
+
+model LeadImportJob {
+  id                String    @id @default(uuid())
+  companyId         String    @map("company_id")
+  fileName          String    @map("file_name")
+  fileType          String    @map("file_type")
+  fileSize          Int?      @map("file_size")
+  status            String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  totalRows         Int       @default(0) @map("total_rows")
+  importedRows      Int       @default(0) @map("imported_rows")
+  updatedRows       Int       @default(0) @map("updated_rows")
+  skippedDuplicates Int       @default(0) @map("skipped_duplicates")
+  failedRows        Int       @default(0) @map("failed_rows")
+  duplicateAction   String    @default("SKIP") // SKIP, UPDATE, IMPORT_ANYWAY
+  mapping           Json?
+  errors            Json?
+  startedAt         DateTime? @map("started_at")
+  completedAt       DateTime? @map("completed_at")
+  createdBy         String    @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  company           Company   @relation("LeadImportJobCompany", fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([status])
+  @@map("crm_lead_import_jobs")
+}
+
+model LeadImportMapping {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  templateName String   @map("template_name")
+  fileType     String?  @map("file_type")
+  mapping      Json
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company      Company  @relation("LeadImportMappingCompany", fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, templateName])
+  @@index([companyId])
+  @@map("crm_lead_import_mappings")
+}
+
+model GoogleSheetConnection {
+  id                  String               @id @default(uuid())
+  companyId           String               @map("company_id")
+  googleAccountEmail  String               @map("google_account_email")
+  accessToken         String               @map("access_token")
+  refreshToken        String?              @map("refresh_token")
+  tokenExpiry         DateTime?            @map("token_expiry")
+  spreadsheetId       String?              @map("spreadsheet_id")
+  spreadsheetName     String?              @map("spreadsheet_name")
+  sheetName           String?              @map("sheet_name")
+  syncMode            String               @default("ONE_TIME_IMPORT") @map("sync_mode") // ONE_TIME_IMPORT, SHEETS_TO_CRM, CRM_TO_SHEETS, TWO_WAY
+  columnMapping       Json?                @map("column_mapping")
+  syncIntervalMinutes Int                  @default(60) @map("sync_interval_minutes")
+  lastSyncAt          DateTime?            @map("last_sync_at")
+  lastSyncStatus      String?              @map("last_sync_status") // SUCCESS, ERROR, RUNNING
+  lastSyncError       String?              @map("last_sync_error")
+  nextSyncAt          DateTime?            @map("next_sync_at")
+  isActive            Boolean              @default(true) @map("is_active")
+  createdBy           String               @map("created_by")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  company             Company              @relation("GoogleSheetConnectionCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  syncJobs            GoogleSheetSyncJob[]
+
+  @@index([companyId])
+  @@index([isActive])
+  @@map("crm_google_sheet_connections")
+}
+
+model GoogleSheetSyncJob {
+  id            String                @id @default(uuid())
+  connectionId  String                @map("connection_id")
+  companyId     String                @map("company_id")
+  syncMode      String                @map("sync_mode")
+  status        String                @default("PENDING")
+  importedCount Int                   @default(0) @map("imported_count")
+  updatedCount  Int                   @default(0) @map("updated_count")
+  failedCount   Int                   @default(0) @map("failed_count")
+  errorMessage  String?               @map("error_message")
+  syncLog       Json?                 @map("sync_log")
+  startedAt     DateTime              @default(now()) @map("started_at")
+  completedAt   DateTime?             @map("completed_at")
+
+  connection    GoogleSheetConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([companyId])
+  @@map("crm_google_sheet_sync_jobs")
+}
+
+model LeadAuditLog {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  leadId    String?  @map("lead_id")
+  action    String
+  userId    String   @map("user_id")
+  details   Json?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company   Company  @relation("LeadAuditLogCompany", fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([leadId])
+  @@index([userId])
+  @@index([action, createdAt])
+  @@map("crm_lead_audit_logs")
 }

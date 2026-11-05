@@ -63,6 +63,12 @@ router.post  ('/restaurant/orders/:id/lines/:lineId/ready', protect, restaurantC
 router.get   ('/restaurant/kitchen-stations',  protect, restaurantCtrl.listKitchenStations);
 router.post  ('/restaurant/kitchen-stations',  protect, restaurantCtrl.createKitchenStation);
 
+// ─── Restaurant recipes (BOM for MENU_ITEM) ───────────────────────────────────
+const recipeCtrl = require('../controllers/recipeController');
+router.get   ('/recipes/:menuProductId', protect, recipeCtrl.getRecipe);
+router.put   ('/recipes/:menuProductId', protect, recipeCtrl.upsertRecipe);
+router.delete('/recipes/:menuProductId', protect, recipeCtrl.deleteRecipe);
+
 // ─── Products (POS-optimized search with barcode) ─────────────────────────────
 router.get('/products/search', protect, saleCtrl.searchProducts);
 router.get('/products/barcode/:code', protect, saleCtrl.getProductByBarcode);

@@ -118,7 +118,10 @@ class POSSaleModel {
       companyId, createdBy, isOffline = false, offlineCreatedAt = null,
       locationId: locationIdInput,
       skipStockChecks = false,
+      restaurantOrderId = null,
+      orderId = null,
     } = data;
+    const linkedRestaurantOrderId = restaurantOrderId || orderId || null;
 
     if (id) {
       const existing = await prisma.pOSSale.findFirst({
@@ -203,6 +206,24 @@ class POSSaleModel {
         terminalId,
         locationIdInput,
       });
+
+      // If this sale pays a restaurant KOT that already deducted stock, skip all inventory again.
+      let restaurantStockAlreadyDeducted = false;
+      if (linkedRestaurantOrderId) {
+        const restOrder = await tx.restaurantOrder.findFirst({
+          where: { id: linkedRestaurantOrderId, companyId },
+          select: { id: true, stockDeductedAt: true },
+        });
+        if (restOrder?.stockDeductedAt) {
+          restaurantStockAlreadyDeducted = true;
+        }
+      }
+
+      const {
+        normalizeItemType,
+        deductLineStock,
+      } = require('../services/recipeStockService');
+
       let totalCOGS = 0;
       for (const item of processedItems) {
         if (item.isCustom || !item.productId) continue;
@@ -211,10 +232,44 @@ class POSSaleModel {
         });
         if (!product) throw new Error(`Product not found or inactive: ${item.productName || item.productId}`);
 
-        if (product.trackInventory === false) {
+        const itemType = normalizeItemType(product.itemType);
+
+        // MENU_ITEM never deducts its own SKU stock; ingredients handled via recipe (or already at KOT)
+        if (
+          restaurantStockAlreadyDeducted ||
+          product.trackInventory === false ||
+          itemType === 'MENU_ITEM'
+        ) {
+          // Direct checkout (no prior KOT): still consume recipe ingredients once
+          if (
+            !restaurantStockAlreadyDeducted &&
+            itemType === 'MENU_ITEM' &&
+            !skipStockChecks
+          ) {
+            try {
+              await deductLineStock(tx, {
+                companyId,
+                locationId,
+                product,
+                quantity: toNumber(item.quantity, 0),
+                reference: `pos:${id || 'sale'}`,
+                movementType: 'RESTAURANT_SALE',
+                reason: 'POS direct sale (menu recipe)',
+                userId: createdBy,
+              });
+            } catch (e) {
+              if (e.statusCode === 400) throw e;
+              throw e;
+            }
+          }
           item.baseQuantity = 0;
           item.conversionFactor = toNumber(item.conversionFactor, 1) || 1;
           item.unitName = String(item.unitName || product.salesUnitName || product.stockUnitName || 'Pcs').trim();
+          continue;
+        }
+
+        if (restaurantStockAlreadyDeducted) {
+          item.baseQuantity = 0;
           continue;
         }
 
@@ -371,6 +426,7 @@ class POSSaleModel {
           changeAmount,
           notes: notes || null,
           status: 'Completed',
+          orderId: linkedRestaurantOrderId || null,
           journalEntryId: journalEntry.id,
           fiscalYearId: currentFiscalYear?.id || null,
           syncStatus: isOffline ? 'Completed' : 'Completed',
@@ -756,18 +812,10 @@ class POSSaleModel {
     });
   }
 
-  // ============================================================
-  // BATCH SYNC (Idempotent — skips already-synced IDs)
-  // ============================================================
   static async batchSync(transactions, companyId, createdBy) {
     const results = [];
     for (const tx of transactions) {
       try {
-        // ── OFFLINE RETURN ─────────────────────────────────────────────
-        // Desktop queues returns as { saleId, items, shiftId } plus a local
-        // client id. Route them through the same bookkeeping as processReturn
-        // (restore stock, create POSReturn, reverse journal entry) and dedupe
-        // so a partial/interrupted sync never double-applies a refund.
         if (String(tx.type || '').toUpperCase() === 'RETURN') {
           const originalSaleId = tx.originalSaleId || tx.saleId;
           if (!originalSaleId) throw new Error('Return is missing originalSaleId/saleId');
@@ -923,6 +971,7 @@ class POSSaleModel {
     });
   }
 
+  
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { createdAt: 'desc' } } = options;
     return prisma.pOSSale.findMany({

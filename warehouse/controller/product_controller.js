@@ -85,6 +85,7 @@ const BOOLEAN_FIELDS = [
   'hasExpiry', 'isBatchManaged', 'isSerialManaged', 'isExpiryManaged',
   'isBulkManaged', 'hasIndividualTracking', 'isReturnable', 'dangerousGoods',
   'allowFractionalQty', 'isBoxBased', 'trackInventory', 'openingStockPosted',
+  'showInPos',
 ];
 
 const ARRAY_FIELDS = ['tags', 'colors', 'sizes'];
@@ -756,12 +757,33 @@ const createProduct = async (req, res) => {
           ? Number(data.salesConversionFactor)
           : 1,
       allowFractionalQty: Boolean(data.allowFractionalQty),
-      trackInventory: data.trackInventory !== false,
+      trackInventory: (() => {
+        const {
+          normalizeItemType,
+          defaultsForItemType,
+        } = require('../../pos/services/recipeStockService');
+        const itemType = normalizeItemType(data.itemType || 'READY_ITEM');
+        const defaults = defaultsForItemType(itemType);
+        if (data.trackInventory !== undefined) return data.trackInventory !== false;
+        return defaults.trackInventory;
+      })(),
       dimensionUnit: data.dimensionUnit || 'cm',
       weightUnitName: data.weightUnitName || 'KG',
       taxType: data.taxType || 'Exclusive',
       currencyCode: data.currencyCode || 'PKR',
       productType: data.productType || 'Physical',
+      itemType: require('../../pos/services/recipeStockService').normalizeItemType(
+        data.itemType || 'READY_ITEM'
+      ),
+      showInPos: (() => {
+        const {
+          normalizeItemType,
+          defaultsForItemType,
+        } = require('../../pos/services/recipeStockService');
+        const defaults = defaultsForItemType(normalizeItemType(data.itemType || 'READY_ITEM'));
+        if (data.showInPos !== undefined) return data.showInPos !== false;
+        return defaults.showInPos !== false;
+      })(),
       isReturnable: data.isReturnable !== undefined ? data.isReturnable : true,
       returnDays: data.returnDays || 7,
       currentStock: 0,

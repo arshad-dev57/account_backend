@@ -16,9 +16,12 @@ function categoryEntityType(category) {
 
 function categoryPayload(category, isDeleted = false) {
   const deleted = Boolean(isDeleted || category.isDeleted || category.isActive === false);
+  // Category images are POS-local only — never replicate via master sync
   const base = {
     id: category.id,
     name: category.name,
+    code: category.code || '',
+    description: category.description || '',
     updatedAt: (category.updatedAt || new Date()).toISOString(),
     isDeleted: deleted,
     isActive: category.isActive !== false && !deleted,
@@ -61,6 +64,14 @@ function productPayload(product, categoryRow, isDeleted = false) {
     salesConversionFactor: Number(product.salesConversionFactor ?? 1) || 1,
     allowFractionalQty: Boolean(product.allowFractionalQty),
     trackInventory: product.trackInventory !== false,
+    itemType: product.itemType || 'READY_ITEM',
+    showInPos: product.showInPos !== false,
+    stockUnitName: product.stockUnitName || product.stockUnit || 'Pcs',
+    salesUnitName: product.salesUnitName || product.salesUnit || product.stockUnitName || 'Pcs',
+    purchaseUnitName: product.purchaseUnitName || product.purchaseUnit || product.stockUnitName || 'Pcs',
+    salesConversionFactor: Number(product.salesConversionFactor ?? 1) || 1,
+    purchaseConversionFactor: Number(product.purchaseConversionFactor ?? 1) || 1,
+    allowFractionalQty: Boolean(product.allowFractionalQty),
     units: Array.isArray(product.units)
       ? product.units
       : Array.isArray(product.productUnits)

@@ -94,6 +94,7 @@ function normalizeCategory(rec) {
     description: str(rec.description, ''),
     code: str(rec.code, ''),
     slug: str(rec.slug, ''),
+    mainImage: str(rec.mainImage || rec.image, ''),
     parentSyncId,
     isActive: toBool(rec.isActive, true),
     isDeleted: toBool(rec.isDeleted, false),
@@ -137,6 +138,7 @@ async function upsertCategories({ companyId, userId, records, takenSlugs, takenC
         if (rec.description) data.description = rec.description;
         if (rec.slug) data.slug = rec.slug;
         if (rec.code) data.code = rec.code;
+        if (rec.mainImage !== undefined) data.mainImage = rec.mainImage || null;
         // Resolve hierarchy against the mapping when a parent is referenced.
         if (rec.parentSyncId) {
           if (parentId) {
@@ -184,6 +186,7 @@ async function upsertCategories({ companyId, userId, records, takenSlugs, takenC
               slug,
               code,
               description: rec.description,
+              mainImage: rec.mainImage || null,
               parentId,
               parentName,
               level,
@@ -220,6 +223,7 @@ async function upsertCategories({ companyId, userId, records, takenSlugs, takenC
               parentName,
               level,
               path,
+              ...(rec.mainImage ? { mainImage: rec.mainImage } : {}),
               isActive: rec.isDeleted ? false : rec.isActive,
               isDeleted: rec.isDeleted,
               updatedBy: userId,
@@ -291,6 +295,15 @@ function normalizeProduct(rec) {
     currentStock: toNum(rec.currentStock ?? rec.availableStock, 0),
     mainImage: str(rec.mainImage || (Array.isArray(rec.images) && rec.images[0]) || '', ''),
     isActive: toBool(rec.isActive, true),
+    trackInventory: toBool(rec.trackInventory, true),
+    itemType: str(rec.itemType || 'READY_ITEM', 'READY_ITEM').toUpperCase(),
+    showInPos: toBool(rec.showInPos, true),
+    stockUnitName: str(rec.stockUnitName || rec.stockUnit || 'Pcs', 'Pcs'),
+    salesUnitName: str(rec.salesUnitName || rec.salesUnit || rec.stockUnitName || 'Pcs', 'Pcs'),
+    purchaseUnitName: str(rec.purchaseUnitName || rec.purchaseUnit || rec.stockUnitName || 'Pcs', 'Pcs'),
+    salesConversionFactor: toNum(rec.salesConversionFactor, 1) || 1,
+    purchaseConversionFactor: toNum(rec.purchaseConversionFactor, 1) || 1,
+    allowFractionalQty: toBool(rec.allowFractionalQty, false),
   };
 }
 
@@ -476,6 +489,15 @@ async function upsertProducts({ companyId, userId, records, bySync }) {
         }
         if (rec.description) data.description = rec.description;
         if (rec.mainImage) data.mainImage = rec.mainImage;
+        if (rec.itemType) data.itemType = rec.itemType;
+        if (rec.showInPos !== undefined) data.showInPos = rec.showInPos;
+        if (rec.trackInventory !== undefined) data.trackInventory = rec.trackInventory;
+        if (rec.stockUnitName) data.stockUnitName = rec.stockUnitName;
+        if (rec.salesUnitName) data.salesUnitName = rec.salesUnitName;
+        if (rec.purchaseUnitName) data.purchaseUnitName = rec.purchaseUnitName;
+        if (rec.salesConversionFactor) data.salesConversionFactor = rec.salesConversionFactor;
+        if (rec.purchaseConversionFactor) data.purchaseConversionFactor = rec.purchaseConversionFactor;
+        if (rec.allowFractionalQty !== undefined) data.allowFractionalQty = rec.allowFractionalQty;
         if (refs.categoryId) data.categoryId = refs.categoryId;
         if (refs.subCategoryId) data.subCategoryId = refs.subCategoryId;
         if (refs.categoryName) data.categoryName = refs.categoryName;
@@ -513,6 +535,15 @@ async function upsertProducts({ companyId, userId, records, bySync }) {
             taxType: rec.taxType,
             currentStock: rec.currentStock,
             mainImage: rec.mainImage || null,
+            itemType: rec.itemType || 'READY_ITEM',
+            showInPos: rec.showInPos !== false,
+            trackInventory: rec.trackInventory !== false,
+            stockUnitName: rec.stockUnitName || 'Pcs',
+            salesUnitName: rec.salesUnitName || rec.stockUnitName || 'Pcs',
+            purchaseUnitName: rec.purchaseUnitName || rec.stockUnitName || 'Pcs',
+            salesConversionFactor: rec.salesConversionFactor || 1,
+            purchaseConversionFactor: rec.purchaseConversionFactor || 1,
+            allowFractionalQty: Boolean(rec.allowFractionalQty),
             isActive: rec.isActive,
             createdBy: userId,
             updatedBy: userId,

@@ -4,3 +4,7 @@ node_modules/
 
 # PM2 on-prem logs (Windows)
 deploy/on-prem/windows/logs/*.log
+
+# Backup storage (local provider)
+/storage/backups/
+/tmp/backups/

@@ -185,6 +185,8 @@ app.use('/api/tax',   taxRoutes);
 app.use('/api/platform', platformAdminRoutes);
 app.use('/api/companies', require('./routes/companyRoutes'));
 app.use('/api/installments', require('./routes/installmentRoutes'));
+app.use('/api/admin/backups', require('./routes/adminBackupRoutes'));
+app.use('/api/backups', require('./routes/backupRoutes'));
 app.use('/api/admin', companyStorageRoutes);
 app.use('/api/hr', require('./routes/hrRoutes'));
 app.use('/api/manufacturing', require('./routes/manufacturingRoutes'));
@@ -201,5 +203,6 @@ app.use('/api/inventory/write-offs', stockWriteOffRoutes);
 app.use('/api/trading', require('./routes/tradingRoutes'));
 app.use('/api/import', require('./routes/importRoutes'));
 app.use('/api/export', require('./routes/exportRoutes'));
+app.use('/api/crm', require('./routes/crmRoutes'));
 
 module.exports = app;

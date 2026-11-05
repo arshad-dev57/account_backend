@@ -419,6 +419,28 @@ const MODULE_DEFINITIONS = [
   },
 
   // ═══════════════════════════════════════════════════════════
+  // CRM & LEAD MANAGEMENT
+  // ═══════════════════════════════════════════════════════════
+  {
+    key: 'crm',
+    name: 'CRM & Lead Management',
+    description: 'Leads, pipelines, follow-ups, Google Sheets integration, and import/export',
+    resources: [
+      res('dashboard', 'CRM Dashboard', 'Lead KPIs, conversion funnel, and activity overview', VIEW_ONLY),
+      res('leads', 'All Leads', 'View, create, edit, and delete leads', CRUD_PRINT, ['ALL', 'OWN', 'TEAM']),
+      res('boards', 'Lead Boards & Kanban', 'Drag-and-drop Kanban pipeline view', ['view', 'create', 'edit', 'delete']),
+      res('follow_ups', 'Follow-ups', 'Schedule and manage lead follow-ups', CRUD, ['ALL', 'OWN', 'TEAM']),
+      res('import', 'Import Leads', 'Import leads from Excel, CSV, or Google Sheets', ['view', 'create', 'import']),
+      res('custom_fields', 'Custom Fields', 'Manage custom CRM fields and dropdowns', ['view', 'create', 'edit', 'delete']),
+      res('sources', 'Lead Sources', 'Manage lead source types', CRUD),
+      res('google_sheets', 'Google Sheets Integration', 'Connect and sync Google Sheets', ['view', 'create', 'edit', 'delete']),
+      res('convert', 'Convert Leads', 'Convert qualified leads to customers', ['view', 'create']),
+      res('settings', 'CRM Settings', 'CRM configuration and preferences', VIEW_EDIT),
+      res('audit_logs', 'CRM Audit Logs', 'Activity and audit trail for CRM', ['view', 'export'])
+    ]
+  },
+
+  // ═══════════════════════════════════════════════════════════
   // SETTINGS
   // ═══════════════════════════════════════════════════════════
   {

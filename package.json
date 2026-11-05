@@ -8,13 +8,15 @@
   "scripts": {
     "start": "node server.js",
     "start:railway": "node server.js",
+    "start:backup-worker": "node workers/backupWorker.js",
     "dev": "nodemon server.js",
     "build": "prisma generate",
     "postinstall": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
     "currency:backfill": "node scripts/backfill-company-currencies.js",
     "vercel-build": "prisma generate && prisma migrate deploy",
-    "test:boot": "node scripts/verify-boot-listen.js"
+    "test:boot": "node scripts/verify-boot-listen.js",
+    "test:backup": "node scripts/test-backup-smoke.js"
   },
   "keywords": [],
   "author": "",
@@ -22,8 +24,11 @@
   "description": "",
   "dependencies": {
     "@asammad48/react-map-place": "^0.1.0",
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@aws-sdk/s3-request-presigner": "^3.1161.0",
     "@prisma/client": "^5.22.0",
     "adm-zip": "^0.6.0",
+    "archiver": "^7.0.1",
     "axios": "^1.14.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^1.41.3",
@@ -33,6 +38,7 @@
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "google-auth-library": "^9.15.1",
+    "googleapis": "^189.0.0",
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
     "maplibre-gl": "^6.9.0",
@@ -42,7 +48,8 @@
     "n2words": "^6.2.0",
     "nodemailer": "^8.0.4",
     "prisma": "^5.22.0",
-    "stripe": "^22.1.0"
+    "stripe": "^22.1.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
