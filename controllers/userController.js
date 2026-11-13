@@ -281,7 +281,14 @@ async function buildAuthenticatedLoginPayload(userId, req = null) {
       responseUser.companyId = prismaUser.companyId;
       const companyRow = await prisma.company.findUnique({
         where: { id: prismaUser.companyId },
-        select: { posMode: true, posModeConfigured: true, name: true, productTier: true },
+        select: {
+          posMode: true,
+          posModeConfigured: true,
+          name: true,
+          productTier: true,
+          manufacturingWorkflow: true,
+          isSandbox: true,
+        },
       });
       responseUser.posMode = companyRow?.posMode || 'retail';
       responseUser.posModeConfigured = Boolean(companyRow?.posModeConfigured);
@@ -291,6 +298,8 @@ async function buildAuthenticatedLoginPayload(userId, req = null) {
         posModeConfigured: Boolean(companyRow?.posModeConfigured),
         name: companyRow?.name || '',
         productTier: companyRow?.productTier || 'erp_pos',
+        manufacturingWorkflow: companyRow?.manufacturingWorkflow || 'STANDARD',
+        isSandbox: Boolean(companyRow?.isSandbox),
       };
     }
   } catch (locErr) {
@@ -1530,6 +1539,8 @@ exports.getMe = async (req, res) => {
           posModeConfigured: Boolean(companyRow?.posModeConfigured),
           name: companyRow?.name || '',
           productTier: companyRow?.productTier || 'erp_pos',
+          manufacturingWorkflow: companyRow?.manufacturingWorkflow || 'STANDARD',
+          isSandbox: Boolean(companyRow?.isSandbox),
         };
       }
     } catch (locErr) {

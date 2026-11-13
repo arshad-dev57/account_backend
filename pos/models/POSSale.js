@@ -3,9 +3,11 @@ const prisma = require('../../prisma/client');
 const { randomUUID } = require('crypto');
 const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
 const {
+
   adjustLocationStock,
 } = require('../../warehouse/services/locationService');
 const {
+
   resolveProductUom,
   normalizeSalesQty,
   toBaseQty,
@@ -14,7 +16,6 @@ const { toNumber, roundTo } = require('../../warehouse/services/inventoryMath');
 const {
   findOrCreateInventoryAccount,
 } = require('../../warehouse/services/stockAccountingService');
-
 /** Use terminal warehouse only when explicitly set — never force a default warehouse. */
 async function resolveSaleLocationId(tx, { companyId, terminalId, locationIdInput }) {
   const explicit = String(locationIdInput || '').trim() || null;
@@ -24,22 +25,28 @@ async function resolveSaleLocationId(tx, { companyId, terminalId, locationIdInpu
     where: { id: terminalId, companyId },
     select: { locationId: true },
   });
+
   return terminal?.locationId || null;
 }
+
 function generatePOSInvoiceNumber() {
   const d = new Date();
   const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   return `POS-${ts}-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
 }
+
 function generateReturnNumber() {
   return `RET-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
+
 function generateJENumber() {
   return `JE-POS-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
+
 async function findOrCreateCashAccount(tx, companyId, userId) {
   return getOrCreateCashAccount(userId, companyId, tx);
 }
+
 async function findOrCreateBankAccount(tx, companyId, userId) {
   let acc = await tx.chartOfAccount.findFirst({
     where: { companyId, isActive: true, OR: [{ code: '1110' }, { name: { contains: 'Bank', mode: 'insensitive' } }] }
@@ -58,6 +65,7 @@ async function findOrCreateSalesRevenueAccount(tx, companyId, userId) {
   }
   return acc;
 }
+
 async function findOrCreateCOGSAccount(tx, companyId, userId) {
   let acc = await tx.chartOfAccount.findFirst({
     where: { companyId, isActive: true, OR: [{ code: '5000' }, { name: { contains: 'Cost of Goods', mode: 'insensitive' } }, { name: { contains: 'COGS', mode: 'insensitive' } }] }
@@ -67,6 +75,7 @@ async function findOrCreateCOGSAccount(tx, companyId, userId) {
   }
   return acc;
 }
+
 async function findOrCreateCustomerCreditAccount(tx, companyId, userId) {
   let acc = await tx.chartOfAccount.findFirst({
     where: {
@@ -79,6 +88,7 @@ async function findOrCreateCustomerCreditAccount(tx, companyId, userId) {
       ],
     },
   });
+
   if (!acc) {
     acc = await tx.chartOfAccount.create({
       data: {
@@ -143,7 +153,6 @@ class POSSaleModel {
       if (!isCustom && !item.productId) continue;
       if (!String(item.productName || '').trim()) continue;
 
-      // Resolve UOM from payload overrides or product defaults (loaded later for stock)
       const draftUom = resolveProductUom({
         stockUnitName: item.stockUnitName || item.unitName || 'Pcs',
         salesUnitName: item.unitName || item.salesUnitName || item.stockUnitName || 'Pcs',
@@ -190,6 +199,7 @@ class POSSaleModel {
         inclusive,
       });
     }
+
     const anyInclusive = processedItems.some((i) => i.inclusive);
     const appliedTaxTotal = taxOn ? taxTotal : 0;
     const grandTotal = parseFloat(
@@ -207,7 +217,6 @@ class POSSaleModel {
         locationIdInput,
       });
 
-      // If this sale pays a restaurant KOT that already deducted stock, skip all inventory again.
       let restaurantStockAlreadyDeducted = false;
       if (linkedRestaurantOrderId) {
         const restOrder = await tx.restaurantOrder.findFirst({
@@ -234,13 +243,12 @@ class POSSaleModel {
 
         const itemType = normalizeItemType(product.itemType);
 
-        // MENU_ITEM never deducts its own SKU stock; ingredients handled via recipe (or already at KOT)
         if (
           restaurantStockAlreadyDeducted ||
           product.trackInventory === false ||
           itemType === 'MENU_ITEM'
         ) {
-          // Direct checkout (no prior KOT): still consume recipe ingredients once
+
           if (
             !restaurantStockAlreadyDeducted &&
             itemType === 'MENU_ITEM' &&
@@ -272,7 +280,7 @@ class POSSaleModel {
           item.baseQuantity = 0;
           continue;
         }
-
+ 
         const {
           ensureProductUnits,
           findUnitInList,
@@ -556,7 +564,6 @@ class POSSaleModel {
           throw new Error(`Return qty exceeds sold qty for product ${origItem.productName}`);
         }
 
-        // Refund at original transaction unit price (not current product price)
         const lineTotal = parseFloat((returnQty * origItem.unitPrice).toFixed(2));
         subtotal += lineTotal;
         grandTotal += lineTotal;

@@ -7,27 +7,51 @@ const prisma = require('../prisma/client');
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function generateLeadNumber(companyId) {
+  // ERPNext-style: CRM-LEAD-YYYY-#####
+  const year = new Date().getFullYear();
+  const prefix = `CRM-LEAD-${year}-`;
   const last = await prisma.lead.findFirst({
-    where: { companyId, leadNumber: { startsWith: 'LEAD-' } },
+    where: { companyId, leadNumber: { startsWith: prefix } },
     orderBy: { leadNumber: 'desc' },
     select: { leadNumber: true },
   });
   let num = 1;
   if (last?.leadNumber) {
-    const n = parseInt(last.leadNumber.replace(/^LEAD-/i, ''), 10);
+    const n = parseInt(String(last.leadNumber).slice(prefix.length), 10);
     if (Number.isFinite(n) && n > 0) num = n + 1;
   }
-  for (let i = 0; i < 5; i++) {
-    const candidate = `LEAD-${String(num + i).padStart(5, '0')}`;
+  for (let i = 0; i < 10; i++) {
+    const candidate = `${prefix}${String(num + i).padStart(5, '0')}`;
     const exists = await prisma.lead.findFirst({ where: { leadNumber: candidate }, select: { id: true } });
     if (!exists) return candidate;
   }
-  return `LEAD-${Date.now().toString().slice(-8)}`;
+  return `${prefix}${Date.now().toString().slice(-5)}`;
 }
 
 function getCompanyId(req) {
   return req.user?.companyId || null;
 }
+
+// Enterprise + ERPNext Lead parity fields (optional)
+const ENTERPRISE_FIELDS = [
+  'mobile', 'website', 'industry', 'leadType', 'rating', 'territory', 'address',
+  'expectedRevenue', 'expectedClosingDate', 'salesTeam', 'contactPerson', 'branchId',
+  'salutation', 'middleName', 'gender', 'jobTitle', 'phoneExt', 'requestType',
+  'noOfEmployees', 'annualRevenue', 'marketSegment', 'fax', 'qualificationStatus',
+  'qualifiedBy', 'qualifiedOn', 'campaignName', 'language', 'disabled', 'unsubscribed',
+  'blogSubscriber', 'fromCustomerId',
+];
+
+const ERPNEXT_BOARD_COLUMNS = [
+  { name: 'Lead', statusKey: 'Lead', color: '#6b7280', sortOrder: 0 },
+  { name: 'Open', statusKey: 'Open', color: '#3b82f6', sortOrder: 1 },
+  { name: 'Replied', statusKey: 'Replied', color: '#06b6d4', sortOrder: 2 },
+  { name: 'Opportunity', statusKey: 'Opportunity', color: '#8b5cf6', sortOrder: 3 },
+  { name: 'Quotation', statusKey: 'Quotation', color: '#f59e0b', sortOrder: 4 },
+  { name: 'Interested', statusKey: 'Interested', color: '#eab308', sortOrder: 5 },
+  { name: 'Converted', statusKey: 'Converted', color: '#10b981', sortOrder: 6 },
+  { name: 'Do Not Contact', statusKey: 'Do Not Contact', color: '#ef4444', sortOrder: 7 },
+];
 
 function buildLeadSelect(includeRelations = true) {
   const base = {
@@ -38,6 +62,16 @@ function buildLeadSelect(includeRelations = true) {
     tags: true, customFields: true, boardId: true, boardOrder: true, isDeleted: true,
     convertedAt: true, convertedById: true, convertedCustomerId: true, title: true,
     createdBy: true, updatedBy: true, createdAt: true, updatedAt: true,
+    // Enterprise fields
+    mobile: true, website: true, industry: true, leadType: true, rating: true,
+    territory: true, address: true, expectedRevenue: true, expectedClosingDate: true,
+    salesTeam: true, contactPerson: true, branchId: true,
+    // ERPNext parity
+    salutation: true, middleName: true, gender: true, jobTitle: true, phoneExt: true,
+    requestType: true, noOfEmployees: true, annualRevenue: true, marketSegment: true,
+    fax: true, qualificationStatus: true, qualifiedBy: true, qualifiedOn: true,
+    campaignName: true, language: true, disabled: true, unsubscribed: true,
+    blogSubscriber: true, fromCustomerId: true,
   };
   if (!includeRelations) return base;
   return {
@@ -168,10 +202,21 @@ const createLead = async (req, res) => {
       firstName, lastName, fullName, email, phone, whatsapp, companyName, city, state, country,
       source, sourceId, status, priority, budget, currency, interest, assignedToId, notes,
       tags, customFields, boardId, boardOrder, title, stage,
+      // Enterprise fields
+      mobile, website, industry, leadType, rating, territory, address,
+      expectedRevenue, expectedClosingDate, salesTeam, contactPerson, branchId,
+      // ERPNext parity
+      salutation, middleName, gender, jobTitle, phoneExt, requestType,
+      noOfEmployees, annualRevenue, marketSegment, fax, qualificationStatus,
+      qualifiedBy, qualifiedOn, campaignName, language, disabled, unsubscribed,
+      blogSubscriber, fromCustomerId,
     } = req.body;
 
-    const name = fullName || [firstName, lastName].filter(Boolean).join(' ') || 'Unnamed Lead';
+    const name = fullName || [firstName, middleName, lastName].filter(Boolean).join(' ') || companyName || 'Unnamed Lead';
     if (!name.trim()) return res.status(400).json({ success: false, message: 'Lead name is required' });
+    if (!firstName && !companyName) {
+      return res.status(400).json({ success: false, message: 'First Name or Organization Name is required' });
+    }
 
     const leadNumber = await generateLeadNumber(companyId);
 
@@ -182,13 +227,32 @@ const createLead = async (req, res) => {
         fullName: name, email: email || null, phone: phone || null,
         whatsapp: whatsapp || null, companyName: companyName || null,
         city: city || null, state: state || null, country: country || 'Pakistan',
-        source: source || 'Manual Entry', sourceId: sourceId || null,
-        status: status || 'New', stage: stage || null, priority: priority || 'Medium',
+        source: source || 'Walk In', sourceId: sourceId || null,
+        status: status || 'Lead', stage: stage || null, priority: priority || 'Medium',
         budget: budget ? parseFloat(budget) : null, currency: currency || 'PKR',
         interest: interest || null, assignedToId: assignedToId || null,
         notes: notes || null, tags: tags || [], customFields: customFields || {},
         boardId: boardId || null, boardOrder: boardOrder ? parseInt(boardOrder) : 0,
-        title: title || null,
+        title: title || jobTitle || null,
+        // Enterprise fields
+        mobile: mobile || null, website: website || null, industry: industry || null,
+        leadType: leadType || null, rating: rating || null, territory: territory || null,
+        address: address || null,
+        expectedRevenue: expectedRevenue ? parseFloat(expectedRevenue) : null,
+        expectedClosingDate: expectedClosingDate ? new Date(expectedClosingDate) : null,
+        salesTeam: salesTeam || null, contactPerson: contactPerson || null,
+        branchId: branchId || null,
+        // ERPNext parity
+        salutation: salutation || null, middleName: middleName || null, gender: gender || null,
+        jobTitle: jobTitle || title || null, phoneExt: phoneExt || null,
+        requestType: requestType || null, noOfEmployees: noOfEmployees || null,
+        annualRevenue: annualRevenue != null && annualRevenue !== '' ? parseFloat(annualRevenue) : null,
+        marketSegment: marketSegment || null, fax: fax || null,
+        qualificationStatus: qualificationStatus || null, qualifiedBy: qualifiedBy || null,
+        qualifiedOn: qualifiedOn ? new Date(qualifiedOn) : null,
+        campaignName: campaignName || null, language: language || null,
+        disabled: !!disabled, unsubscribed: !!unsubscribed, blogSubscriber: !!blogSubscriber,
+        fromCustomerId: fromCustomerId || null,
       },
       select: buildLeadSelect(true),
     });
@@ -217,11 +281,12 @@ const updateLead = async (req, res) => {
     const existing = await prisma.lead.findFirst({ where: { id, companyId }, select: { id: true, status: true, assignedToId: true, fullName: true } });
     if (!existing) return res.status(404).json({ success: false, message: 'Lead not found' });
 
+    const body = req.body;
     const {
       firstName, lastName, fullName, email, phone, whatsapp, companyName, city, state, country,
       source, sourceId, status, priority, budget, currency, interest, assignedToId, notes,
       tags, customFields, boardId, boardOrder, title, stage,
-    } = req.body;
+    } = body;
 
     const updateData = { updatedBy: userId };
     if (fullName !== undefined) updateData.fullName = fullName;
@@ -249,6 +314,20 @@ const updateLead = async (req, res) => {
     if (boardId !== undefined) updateData.boardId = boardId;
     if (boardOrder !== undefined) updateData.boardOrder = parseInt(boardOrder);
     if (title !== undefined) updateData.title = title;
+    if (body.jobTitle !== undefined && title === undefined) updateData.title = body.jobTitle;
+
+    for (const key of ENTERPRISE_FIELDS) {
+      if (body[key] === undefined) continue;
+      if (key === 'expectedRevenue' || key === 'annualRevenue') {
+        updateData[key] = body[key] !== null && body[key] !== '' ? parseFloat(body[key]) : null;
+      } else if (key === 'expectedClosingDate' || key === 'qualifiedOn') {
+        updateData[key] = body[key] ? new Date(body[key]) : null;
+      } else if (key === 'disabled' || key === 'unsubscribed' || key === 'blogSubscriber') {
+        updateData[key] = !!body[key];
+      } else {
+        updateData[key] = body[key];
+      }
+    }
 
     const lead = await prisma.lead.update({ where: { id }, data: updateData, select: buildLeadSelect(true) });
 
@@ -352,15 +431,28 @@ const convertLead = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
     const { id } = req.params;
-    const { createNewCustomer = true, existingCustomerId, customerData } = req.body;
+    const {
+      createNewCustomer = true,
+      existingCustomerId,
+      customerData,
+      createContact = false,
+      createOpportunity = false,
+      opportunityData = {},
+    } = req.body;
 
     const lead = await prisma.lead.findFirst({ where: { id, companyId }, select: buildLeadSelect(false) });
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
     if (lead.convertedAt) return res.status(400).json({ success: false, message: 'Lead already converted' });
 
-    let customerId = existingCustomerId;
+    // Validate existingCustomerId belongs to company
+    let customerId = null;
+    if (existingCustomerId) {
+      const existing = await prisma.customer.findFirst({ where: { id: existingCustomerId, companyId }, select: { id: true } });
+      if (!existing) return res.status(400).json({ success: false, message: 'Existing customer not found or does not belong to this company' });
+      customerId = existingCustomerId;
+    }
 
-    if (createNewCustomer && !existingCustomerId) {
+    if (createNewCustomer && !customerId) {
       // Check for duplicate customer
       if (lead.email) {
         const dup = await prisma.customer.findFirst({ where: { email: lead.email, companyId } });
@@ -382,23 +474,91 @@ const convertLead = async (req, res) => {
           createdBy: req.user.id,
           address: lead.city ? { city: lead.city, state: lead.state, country: lead.country } : undefined,
           notes: lead.notes || null,
-          ...customerData,
+          ...(customerData || {}),
         },
       });
       customerId = newCustomer.id;
     }
 
+    // Optionally create CrmContact
+    let crmContactId = null;
+    if (createContact) {
+      const contact = await prisma.crmContact.create({
+        data: {
+          companyId, createdBy: req.user.id,
+          firstName: lead.firstName || lead.fullName,
+          lastName: lead.lastName || null,
+          fullName: lead.fullName,
+          email: lead.email || null, phone: lead.phone || null,
+          mobile: lead.mobile || null, whatsapp: lead.whatsapp || null,
+          city: lead.city || null, country: lead.country || null,
+          contactType: 'Contact',
+          assignedToId: lead.assignedToId || null,
+          notes: lead.notes || null,
+          tags: lead.tags || [],
+          customerId: customerId || null,
+          leadId: id,
+        },
+      });
+      crmContactId = contact.id;
+    }
+
+    // Optionally create CrmOpportunity
+    let crmOpportunityId = null;
+    if (createOpportunity) {
+      const lastOpp = await prisma.crmOpportunity.findFirst({
+        where: { companyId, opportunityNumber: { startsWith: 'OPP-' } },
+        orderBy: { opportunityNumber: 'desc' },
+        select: { opportunityNumber: true },
+      });
+      let oppNum = 1;
+      if (lastOpp?.opportunityNumber) {
+        const n = parseInt(lastOpp.opportunityNumber.replace(/^OPP-/i, ''), 10);
+        if (Number.isFinite(n) && n > 0) oppNum = n + 1;
+      }
+      const opportunityNumber = `OPP-${String(oppNum).padStart(5, '0')}`;
+      const rev  = parseFloat(opportunityData.expectedRevenue || lead.expectedRevenue) || 0;
+      const prob = parseInt(opportunityData.probability) || 10;
+      const opp  = await prisma.crmOpportunity.create({
+        data: {
+          companyId, createdBy: req.user.id, opportunityNumber,
+          name: opportunityData.name || `Opportunity from ${lead.fullName}`,
+          customerId: customerId || null,
+          contactId: crmContactId || null,
+          leadId: id,
+          source: lead.source || null,
+          assignedToId: lead.assignedToId || null,
+          salesTeam: lead.salesTeam || null,
+          expectedRevenue: rev, probability: prob,
+          weightedRevenue: (rev * prob) / 100,
+          expectedClosingDate: opportunityData.expectedClosingDate
+            ? new Date(opportunityData.expectedClosingDate)
+            : (lead.expectedClosingDate || null),
+          stage: opportunityData.stage || 'Qualification',
+          notes: lead.notes || null,
+          tags: lead.tags || [],
+        },
+      });
+      crmOpportunityId = opp.id;
+    }
+
     await prisma.lead.update({
       where: { id },
-      data: { status: 'Converted', convertedAt: new Date(), convertedById: req.user.id, convertedCustomerId: customerId, updatedBy: req.user.id },
+      data: {
+        status: 'Converted', convertedAt: new Date(),
+        convertedById: req.user.id,
+        convertedCustomerId: customerId || undefined,
+        updatedBy: req.user.id,
+      },
     });
 
     await prisma.leadActivity.create({
-      data: { leadId: id, companyId, userId: req.user.id, type: 'converted', title: 'Lead converted', description: `Lead converted to customer`, metadata: { customerId } },
+      data: { leadId: id, companyId, userId: req.user.id, type: 'converted', title: 'Lead converted', description: 'Lead converted to customer', metadata: { customerId, crmContactId, crmOpportunityId } },
     }).catch(() => {});
 
-    return res.json({ success: true, message: 'Lead converted successfully', customerId });
+    return res.json({ success: true, message: 'Lead converted successfully', customerId, crmContactId, crmOpportunityId });
   } catch (err) {
+    console.error('[CRM] convertLead error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -566,13 +726,7 @@ const createBoard = async (req, res) => {
     const companyId = getCompanyId(req);
     const { name, description, color, columnsConfig } = req.body;
     const defaultColumns = [
-      { name: 'New', statusKey: 'New', color: '#6b7280', sortOrder: 0 },
-      { name: 'Contacted', statusKey: 'Contacted', color: '#3b82f6', sortOrder: 1 },
-      { name: 'Interested', statusKey: 'Interested', color: '#f59e0b', sortOrder: 2 },
-      { name: 'Follow-up', statusKey: 'Follow-up', color: '#8b5cf6', sortOrder: 3 },
-      { name: 'Negotiation', statusKey: 'Negotiation', color: '#ef4444', sortOrder: 4 },
-      { name: 'Converted', statusKey: 'Converted', color: '#10b981', sortOrder: 5 },
-      { name: 'Lost', statusKey: 'Lost', color: '#6b7280', sortOrder: 6 },
+      ...ERPNEXT_BOARD_COLUMNS,
     ];
     const board = await prisma.leadBoard.create({
       data: { companyId, name, description, color: color || '#014582', createdBy: req.user.id, columnsConfig: columnsConfig || [], columns: { create: defaultColumns } },
@@ -591,15 +745,7 @@ const getOrCreateDefaultBoard = async (companyId, userId) => {
       data: {
         companyId, name: 'Main Pipeline', isDefault: true, color: '#014582', createdBy: userId,
         columns: {
-          create: [
-            { name: 'New', statusKey: 'New', color: '#6b7280', sortOrder: 0 },
-            { name: 'Contacted', statusKey: 'Contacted', color: '#3b82f6', sortOrder: 1 },
-            { name: 'Interested', statusKey: 'Interested', color: '#f59e0b', sortOrder: 2 },
-            { name: 'Follow-up', statusKey: 'Follow-up', color: '#8b5cf6', sortOrder: 3 },
-            { name: 'Negotiation', statusKey: 'Negotiation', color: '#ef4444', sortOrder: 4 },
-            { name: 'Converted', statusKey: 'Converted', color: '#10b981', sortOrder: 5 },
-            { name: 'Lost', statusKey: 'Lost', color: '#6b7280', sortOrder: 6 },
-          ],
+          create: ERPNEXT_BOARD_COLUMNS,
         },
       },
       include: { columns: { orderBy: { sortOrder: 'asc' } } },
@@ -644,7 +790,12 @@ const createSource = async (req, res) => {
 };
 
 const initDefaultSources = async (companyId) => {
-  const defaults = ['Google Sheets', 'Excel Import', 'Website', 'Facebook', 'Instagram', 'WhatsApp', 'Manual Entry', 'Referral', 'Other'];
+  // ERPNext install fixtures + Bisonstechs extras
+  const defaults = [
+    'Existing Customer', 'Reference', 'Advertisement', 'Cold Calling', 'Exhibition',
+    'Supplier Reference', 'Mass Mailing', "Customer's Vendor", 'Campaign', 'Walk In',
+    'Google Sheets', 'Excel Import', 'Website', 'WhatsApp', 'Referral', 'Other',
+  ];
   for (const name of defaults) {
     await prisma.leadSource.upsert({ where: { companyId_name: { companyId, name } }, update: {}, create: { companyId, name } });
   }

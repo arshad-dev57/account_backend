@@ -82,6 +82,8 @@ function companyPublic(c) {
     productTier: c.productTier,
     trialEndDate: c.trialEndDate,
     subscriptionEndDate: c.subscriptionEndDate,
+    manufacturingWorkflow: c.manufacturingWorkflow || 'STANDARD',
+    isSandbox: Boolean(c.isSandbox),
     createdAt: c.createdAt,
   };
 }
@@ -620,6 +622,90 @@ exports.updateBusinessConfig = async (req, res) => {
       code: err.code,
       message: err.message,
       errors: err.errors,
+    });
+  }
+};
+
+const MANUFACTURING_WORKFLOWS = new Set(['STANDARD', 'TEXTILE_WEAVING']);
+
+function isPlatformOwnerEmail(email) {
+  const emails = (process.env.PLATFORM_OWNER_EMAILS || 'mfaisalakhan@gmail.com,kashif@gmail.com,admin@bisonstechs.dev')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return emails.includes(String(email || '').trim().toLowerCase());
+}
+
+/** Manufacturing workflow is platform-controlled — not editable by tenant admins. */
+function assertCanUpdateManufacturingWorkflow(req) {
+  const role = String(req.user?.role || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (['superadmin', 'super_admin', 'platform_admin'].includes(role)) return true;
+  if (isPlatformOwnerEmail(req.user?.email)) return true;
+  return false;
+}
+
+// PATCH /api/companies/:id/manufacturing-workflow
+exports.updateManufacturingWorkflow = async (req, res) => {
+  try {
+    if (!assertCanUpdateManufacturingWorkflow(req)) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'Manufacturing workflow can only be changed by platform Super Admins. Contact Bisonstechs support.',
+      });
+    }
+
+    const companyId = String(req.params.id || '').trim();
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company id is required' });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase().replace(/[\s-]+/g, '_');
+    const isPlatformActor =
+      isPlatformOwnerEmail(req.user?.email) ||
+      ['superadmin', 'super_admin', 'platform_admin'].includes(role);
+
+    const accessible = Array.isArray(req.accessibleCompanyIds) ? req.accessibleCompanyIds : [];
+    const activeId = req.user?.companyId || null;
+    if (
+      !isPlatformActor &&
+      accessible.length &&
+      !accessible.includes(companyId) &&
+      companyId !== activeId
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this company',
+      });
+    }
+
+    const workflow = String(req.body?.manufacturingWorkflow || req.body?.workflow || '')
+      .trim()
+      .toUpperCase();
+    if (!MANUFACTURING_WORKFLOWS.has(workflow)) {
+      return res.status(400).json({
+        success: false,
+        message: 'manufacturingWorkflow must be STANDARD or TEXTILE_WEAVING',
+      });
+    }
+
+    const company = await prisma.company.update({
+      where: { id: companyId },
+      data: { manufacturingWorkflow: workflow },
+    });
+
+    if (req.user?.id) invalidateAuthUser(req.user.id);
+
+    return res.json({
+      success: true,
+      message: `Manufacturing workflow set to ${workflow}`,
+      data: companyPublic(company),
+    });
+  } catch (err) {
+    console.error('updateManufacturingWorkflow error:', err);
+    return res.status(err.statusCode || err.status || 500).json({
+      success: false,
+      message: err.message || 'Failed to update manufacturing workflow',
     });
   }
 };

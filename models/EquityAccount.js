@@ -11,11 +11,13 @@ const EquityTransactionSchema = new mongoose.Schema({
     enum: ['Additional Capital', 'Drawings', 'Retained Earnings', 'Reserve Transfer', 'Share Issue'],
     required: true
   },
+
   amount: {
     type: Number,
     required: true,
     min: 0
   },
+
   description: {
     type: String,
     required: true
@@ -58,7 +60,7 @@ const EquityAccountSchema = new mongoose.Schema(
     },
     currentBalance: {
       type: Number,
-      default: function() {
+      default: function () {
         return this.openingBalance;
       }
     },
@@ -90,16 +92,16 @@ const EquityAccountSchema = new mongoose.Schema(
   }
 );
 
-EquityAccountSchema.pre('save', function(next) {
+EquityAccountSchema.pre('save', function (next) {
   this.currentBalance = this.openingBalance + this.additions - this.withdrawals;
   this.lastUpdated = new Date();
   next();
 });
 
-EquityAccountSchema.methods.addCapital = async function(amount, description, reference, userId) {
+EquityAccountSchema.methods.addCapital = async function (amount, description, reference, userId) {
   this.additions += amount;
   this.currentBalance = this.openingBalance + this.additions - this.withdrawals;
-  
+
   this.transactions.push({
     date: new Date(),
     type: 'Additional Capital',
@@ -109,16 +111,16 @@ EquityAccountSchema.methods.addCapital = async function(amount, description, ref
     status: 'Posted',
     createdBy: userId
   });
-  
+
   await this.save();
   return this;
 };
 
 // Method to record drawings
-EquityAccountSchema.methods.recordDrawings = async function(amount, description, reference, userId) {
+EquityAccountSchema.methods.recordDrawings = async function (amount, description, reference, userId) {
   this.withdrawals += amount;
   this.currentBalance = this.openingBalance + this.additions - this.withdrawals;
-  
+
   this.transactions.push({
     date: new Date(),
     type: 'Drawings',
@@ -128,16 +130,15 @@ EquityAccountSchema.methods.recordDrawings = async function(amount, description,
     status: 'Posted',
     createdBy: userId
   });
-  
+
   await this.save();
   return this;
 };
 
-// Method to transfer to retained earnings
-EquityAccountSchema.methods.transferToRetainedEarnings = async function(amount, description, reference, userId) {
+EquityAccountSchema.methods.transferToRetainedEarnings = async function (amount, description, reference, userId) {
   this.additions += amount;
   this.currentBalance = this.openingBalance + this.additions - this.withdrawals;
-  
+
   this.transactions.push({
     date: new Date(),
     type: 'Retained Earnings',
@@ -147,9 +148,10 @@ EquityAccountSchema.methods.transferToRetainedEarnings = async function(amount, 
     status: 'Posted',
     createdBy: userId
   });
-  
+
   await this.save();
   return this;
 };
 
 module.exports = mongoose.model('EquityAccount', EquityAccountSchema);
+moduel.e

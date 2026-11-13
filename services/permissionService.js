@@ -39,14 +39,14 @@ function isPlatformAdmin(email) {
 }
 
 function isAdminRole(role) {
-  const r = String(role || '').toLowerCase().trim();
+  const r = String(role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
   return (
     r === 'admin' ||
     r === 'owner' ||
     r === 'superadmin' ||
+    r === 'super_admin' ||
     r === 'company_admin' ||
-    r === 'super admin' ||
-    r === 'company admin'
+    r === 'company_owner'
   );
 }
 

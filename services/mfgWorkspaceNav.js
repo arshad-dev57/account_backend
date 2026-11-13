@@ -42,6 +42,41 @@ const workspaces = [
         ]
       },
       {
+        section: 'Textile (Sandbox)',
+        items: [
+          {
+            kind: 'page',
+            label: 'Textile Sandbox',
+            href: '/manufacturing/textile/sandbox',
+            doctype: 'Textile Sandbox'
+          },
+          {
+            kind: 'page',
+            label: 'Cone Winding',
+            href: '/manufacturing/textile/winding',
+            doctype: 'Cone Winding'
+          },
+          {
+            kind: 'page',
+            label: 'Cones',
+            href: '/manufacturing/textile/cones',
+            doctype: 'Textile Cone'
+          },
+          {
+            kind: 'page',
+            label: 'Beams',
+            href: '/manufacturing/textile/beams',
+            doctype: 'Textile Beam'
+          },
+          {
+            kind: 'page',
+            label: 'Fabric Rolls',
+            href: '/manufacturing/textile/rolls',
+            doctype: 'Textile Fabric Roll'
+          }
+        ]
+      },
+      {
         section: 'Tools',
         items: [
           { kind: 'document', label: 'BOM Creator', resource: 'bom-creator' },

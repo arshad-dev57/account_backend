@@ -14,6 +14,8 @@ const {
 const { wipeEntireCompany } = require('../utils/deleteAccount');
 const { getCompanyUsageActivity } = require('../services/appUsageService');
 
+const MANUFACTURING_WORKFLOWS = new Set(['STANDARD', 'TEXTILE_WEAVING']);
+
 const COMPANY_SUBSCRIPTION_SELECT = {
   id: true,
   name: true,
@@ -34,6 +36,7 @@ const COMPANY_SUBSCRIPTION_SELECT = {
   trialEndDate: true,
   subscriptionStartDate: true,
   subscriptionEndDate: true,
+  manufacturingWorkflow: true,
   createdAt: true,
 };
 
@@ -382,6 +385,57 @@ exports.updateCompanySubscription = async (req, res) => {
     });
   } catch (err) {
     console.error('updateCompanySubscription error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── Manufacturing workflow mode (platform owner) ─────────────────────────────
+exports.updateCompanyManufacturingWorkflow = async (req, res) => {
+  try {
+    const companyId = String(req.params.id || '').trim();
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company id is required' });
+    }
+
+    const workflow = String(req.body?.manufacturingWorkflow || req.body?.workflow || '')
+      .trim()
+      .toUpperCase();
+    if (!MANUFACTURING_WORKFLOWS.has(workflow)) {
+      return res.status(400).json({
+        success: false,
+        message: 'manufacturingWorkflow must be STANDARD or TEXTILE_WEAVING',
+      });
+    }
+
+    const existing = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true },
+    });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Company not found' });
+    }
+
+    const company = await prisma.company.update({
+      where: { id: companyId },
+      data: { manufacturingWorkflow: workflow },
+      select: COMPANY_SUBSCRIPTION_SELECT,
+    });
+
+    const capacity = await getCompanyCapacity(prisma, companyId);
+
+    res.json({
+      success: true,
+      message:
+        workflow === 'TEXTILE_WEAVING'
+          ? `Textile Weaving Suite activated for "${existing.name}"`
+          : `Standard ERP Manufacturing restored for "${existing.name}"`,
+      data: { company, capacity },
+    });
+  } catch (err) {
+    console.error('updateCompanyManufacturingWorkflow error:', err);
+    if (err.code === 'P2025') {
+      return res.status(404).json({ success: false, message: 'Company not found' });
+    }
     res.status(500).json({ success: false, message: err.message });
   }
 };

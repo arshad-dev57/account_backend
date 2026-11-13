@@ -6,6 +6,7 @@ const VALID_EXPENSE_TYPES = [
   'Office Supplies', 'Travel', 'Meals', 'Insurance',
   'Maintenance', 'Software', 'Taxes', 'Miscellaneous', 'Other'
 ];
+
 const VALID_PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Online'];
 const VALID_STATUS = ['Draft', 'Posted', 'Cancelled'];
 class ExpenseModel {
@@ -225,7 +226,7 @@ class ExpenseModel {
       }
     });
   }
-  
+
   static async findAll(filter = {}, options = {}) {
     const { skip, take, orderBy = { date: 'desc' } } = options;
     return await prisma.expense.findMany({

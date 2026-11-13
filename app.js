@@ -190,6 +190,7 @@ app.use('/api/backups', require('./routes/backupRoutes'));
 app.use('/api/admin', companyStorageRoutes);
 app.use('/api/hr', require('./routes/hrRoutes'));
 app.use('/api/manufacturing', require('./routes/manufacturingRoutes'));
+app.use('/api/textile-weaving', require('./routes/textileWeavingRoutes'));
 
 app.use('/api/orders', OrderRoutes);
 

@@ -10,6 +10,7 @@ router.get('/companies/:id', protectOnly, ctrl.getCompany);
 router.get('/companies/:id/activity', protectOnly, ctrl.getCompanyActivity);
 router.put('/companies/:id/status', protectOnly, ctrl.updateCompanyStatus);
 router.put('/companies/:id/subscription', protectOnly, ctrl.updateCompanySubscription);
+router.put('/companies/:id/manufacturing-workflow', protectOnly, ctrl.updateCompanyManufacturingWorkflow);
 router.delete('/companies/:id', protectOnly, ctrl.deleteCompany);
 router.get('/users', protectOnly, ctrl.listUsers);
 router.post('/notifications', protectOnly, ctrl.sendNotification);

@@ -397,6 +397,7 @@ const MODULE_DEFINITIONS = [
       res('overview', 'Executive Dashboard View', 'Access executive business dashboards', VIEW_ONLY),
       res('module_accounting', 'Module Tile: Accounting', 'Show Accounting on main dashboard selection', VIEW_ONLY),
       res('module_sales', 'Module Tile: Sales', 'Show Sales on main dashboard selection', VIEW_ONLY),
+      res('module_crm', 'Module Tile: CRM & Leads', 'Show CRM on main dashboard selection', VIEW_ONLY),
       res('module_purchases', 'Module Tile: Purchases', 'Show Purchases on main dashboard selection', VIEW_ONLY),
       res('module_inventory', 'Module Tile: Inventory', 'Show Inventory on main dashboard selection', VIEW_ONLY),
       res('module_manufacturing', 'Module Tile: Manufacturing', 'Show Manufacturing on main dashboard selection', VIEW_ONLY),
@@ -436,7 +437,17 @@ const MODULE_DEFINITIONS = [
       res('google_sheets', 'Google Sheets Integration', 'Connect and sync Google Sheets', ['view', 'create', 'edit', 'delete']),
       res('convert', 'Convert Leads', 'Convert qualified leads to customers', ['view', 'create']),
       res('settings', 'CRM Settings', 'CRM configuration and preferences', VIEW_EDIT),
-      res('audit_logs', 'CRM Audit Logs', 'Activity and audit trail for CRM', ['view', 'export'])
+      res('audit_logs', 'CRM Audit Logs', 'Activity and audit trail for CRM', ['view', 'export']),
+      // Enterprise CRM Resources
+      res('contacts', 'CRM Contacts', 'Manage contacts linked to leads and accounts', CRUD_PRINT, ['ALL', 'OWN', 'TEAM']),
+      res('opportunities', 'Opportunities', 'Manage sales opportunities and deals', CRUD_PRINT, ['ALL', 'OWN', 'TEAM']),
+      res('pipeline', 'Sales Pipeline', 'View and manage opportunity pipeline stages', ['view', 'edit']),
+      res('activities', 'CRM Activities', 'Log and manage calls, meetings, emails, demos', CRUD, ['ALL', 'OWN', 'TEAM']),
+      res('tasks', 'CRM Tasks', 'Create and manage CRM tasks and to-dos', CRUD, ['ALL', 'OWN', 'TEAM']),
+      res('calendar', 'CRM Calendar', 'View activities, tasks, and follow-ups on calendar', VIEW_ONLY),
+      res('campaigns', 'Campaigns', 'Create and manage marketing campaigns', CRUD, ['ALL', 'OWN', 'TEAM']),
+      res('accounts', 'Accounts (Customers)', 'View customer accounts with CRM enrichment', VIEW_ONLY),
+      res('reports', 'CRM Reports', 'Lead, source, conversion, pipeline, and performance reports', ['view', 'export'])
     ]
   },
 
@@ -603,17 +614,19 @@ const DEFAULT_SYSTEM_ROLES = [
   },
   {
     name: 'Sales Manager',
-    description: 'Manages sales team, orders, pricing quotations, deliveries, and sales analytics',
+    description: 'Manages sales team, orders, pricing quotations, deliveries, CRM, and sales analytics',
     isSystem: true,
     patterns: [
       'sales.*',
       'trading.*',
       'export.*',
+      'crm.*',
       'inventory.products.view',
       'inventory.stock.view',
       'reports.sales.*',
       'dashboard.overview.view',
       'dashboard.module_sales.view',
+      'dashboard.module_crm.view',
       'dashboard.module_export.view',
       'dashboard.widgets_sales.view'
     ]
@@ -639,7 +652,28 @@ const DEFAULT_SYSTEM_ROLES = [
       { name: 'inventory.stock.view', scope: 'ALL' },
       { name: 'dashboard.overview.view', scope: 'ALL' },
       { name: 'dashboard.module_sales.view', scope: 'ALL' },
-      { name: 'dashboard.widgets_sales.view', scope: 'OWN' }
+      { name: 'dashboard.module_crm.view', scope: 'ALL' },
+      { name: 'dashboard.widgets_sales.view', scope: 'OWN' },
+      { name: 'crm.dashboard.view', scope: 'ALL' },
+      { name: 'crm.leads.view', scope: 'OWN' },
+      { name: 'crm.leads.create', scope: 'OWN' },
+      { name: 'crm.leads.edit', scope: 'OWN' },
+      { name: 'crm.contacts.view', scope: 'OWN' },
+      { name: 'crm.contacts.create', scope: 'OWN' },
+      { name: 'crm.opportunities.view', scope: 'OWN' },
+      { name: 'crm.opportunities.create', scope: 'OWN' },
+      { name: 'crm.opportunities.edit', scope: 'OWN' },
+      { name: 'crm.pipeline.view', scope: 'ALL' },
+      { name: 'crm.pipeline.edit', scope: 'OWN' },
+      { name: 'crm.activities.view', scope: 'OWN' },
+      { name: 'crm.activities.create', scope: 'OWN' },
+      { name: 'crm.tasks.view', scope: 'OWN' },
+      { name: 'crm.tasks.create', scope: 'OWN' },
+      { name: 'crm.tasks.edit', scope: 'OWN' },
+      { name: 'crm.calendar.view', scope: 'ALL' },
+      { name: 'crm.accounts.view', scope: 'ALL' },
+      { name: 'crm.follow_ups.view', scope: 'OWN' },
+      { name: 'crm.follow_ups.create', scope: 'OWN' }
     ]
   },
   {

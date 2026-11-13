@@ -10,5 +10,6 @@ router.put('/active', protectOnly, ctrl.setPrimaryCompany);
 router.get('/consolidated-dashboard', protectOnly, ctrl.consolidatedDashboard);
 router.get('/business-config', protectOnly, ctrl.getBusinessConfig);
 router.patch('/business-config', protectOnly, ctrl.updateBusinessConfig);
+router.patch('/:id/manufacturing-workflow', protectOnly, ctrl.updateManufacturingWorkflow);
 
 module.exports = router;

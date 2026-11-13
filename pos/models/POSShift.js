@@ -1,18 +1,13 @@
-// pos/models/POSShift.js — Shift & Cash Drawer Management
 const prisma = require('../../prisma/client');
 
 class POSShiftModel {
 
-  // ============================================================
-  // OPEN SHIFT
-  // ============================================================
   static async openShift({ terminalId, cashierId, companyId, openingCash, notes }) {
     const parsedOpeningCash = parseFloat(openingCash);
     if (!Number.isFinite(parsedOpeningCash) || parsedOpeningCash <= 0) {
       throw new Error('Opening cash is required. Enter the cash in the drawer before starting.');
     }
 
-    // Check if cashier already has an open shift
     const existing = await prisma.pOSShift.findFirst({
       where: { cashierId, companyId, status: { in: ['Open', 'Suspended'] } },
       include: {
@@ -25,7 +20,6 @@ class POSShiftModel {
       },
     });
     if (existing) {
-      // Same user re-login on the same terminal — resume instead of blocking
       if (String(existing.terminalId) === String(terminalId)) {
         if (existing.status === 'Suspended') {
           return prisma.pOSShift.update({
@@ -45,8 +39,6 @@ class POSShiftModel {
       }
       throw new Error('You already have an open or suspended shift. Please close it first.');
     }
-
-    // Verify terminal exists & is active
     const terminal = await prisma.pOSTerminal.findFirst({
       where: { id: terminalId, companyId, isActive: true, isDeleted: false }
     });
@@ -63,8 +55,6 @@ class POSShiftModel {
     ) {
       throw new Error('You can only open a shift on your assigned terminal');
     }
-
-    // Prevent two cashiers opening the same terminal
     const terminalBusy = await prisma.pOSShift.findFirst({
       where: {
         terminalId,
@@ -114,20 +104,15 @@ class POSShiftModel {
     return shift;
   }
 
-  // ============================================================
-  // CLOSE SHIFT
-  // ============================================================
   static async closeShift({ shiftId, cashierId, companyId, actualCash, notes, role }) {
     const shift = await prisma.pOSShift.findFirst({ where: { id: shiftId, companyId } });
     if (!shift) throw new Error('Shift not found');
     if (shift.status === 'Closed') throw new Error('Shift is already closed');
 
-    // Only cashier who owns it or manager/admin can close
     if (shift.cashierId !== cashierId && !['manager','admin'].includes(role)) {
       throw new Error('You are not authorized to close this shift');
     }
 
-    // Calculate expected cash
     const cashIn  = await prisma.pOSCashTransaction.aggregate({ where: { shiftId, type: 'CASH_IN'  }, _sum: { amount: true } });
     const cashOut = await prisma.pOSCashTransaction.aggregate({ where: { shiftId, type: 'CASH_OUT' }, _sum: { amount: true } });
     const cashSales = await prisma.pOSSalePayment.aggregate({
@@ -190,9 +175,6 @@ class POSShiftModel {
     });
   }
 
-  // ============================================================
-  // REOPEN SHIFT (Manager/Admin only)
-  // ============================================================
   static async reopenShift({ shiftId, companyId, approvedBy, role }) {
     if (!['manager','admin'].includes(role)) throw new Error('Only managers or admins can reopen shifts');
     const shift = await prisma.pOSShift.findFirst({ where: { id: shiftId, companyId } });
@@ -229,9 +211,6 @@ class POSShiftModel {
     return record;
   }
 
-  // ============================================================
-  // GET CURRENT SHIFT
-  // ============================================================
   static async getCurrentShift(cashierId, companyId) {
     return prisma.pOSShift.findFirst({
       where: { cashierId, companyId, status: { in: ['Open','Suspended'] } },
@@ -248,9 +227,6 @@ class POSShiftModel {
     });
   }
 
-  // ============================================================
-  // SHIFT HISTORY
-  // ============================================================
   static async getHistory(companyId, options = {}) {
     const { skip, take = 20, cashierId, locationId } = options;
     const { normalizeLocationId } = require('../../utils/accountingLocationHelper');
@@ -283,9 +259,6 @@ class POSShiftModel {
     return { shifts, total };
   }
 
-  // ============================================================
-  // SHIFT STATS (for dashboard)
-  // ============================================================
   static async getShiftStats(shiftId, companyId) {
     const [sales, returns, cashFlow] = await Promise.all([
       prisma.pOSSale.aggregate({ where: { shiftId, companyId, status: 'Completed' }, _sum: { grandTotal: true }, _count: { id: true } }),

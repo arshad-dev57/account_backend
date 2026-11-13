@@ -6,8 +6,29 @@ const { protect } = require('../middleware/authMiddleware');
 const mfg = require('../controllers/manufacturingController');
 const mfgDocs = require('../controllers/mfgDocumentController');
 const mfgReports = require('../controllers/mfgReportController');
+const textile = require('../controllers/textileManufacturingController');
 
 router.use(protect);
+
+// Textile P0 — sandbox + cone winding + genealogy (isolated sandbox company only)
+router.get('/textile/sandbox/status', textile.getSandboxStatus);
+router.post('/textile/sandbox/ensure', textile.ensureSandbox);
+router.get('/textile/inventory', textile.inventorySnapshot);
+router.get('/textile/yarn-lots', textile.listYarnLots);
+router.get('/textile/machines', textile.listMachines);
+router.get('/textile/warehouses', textile.listWarehouses);
+router.get('/textile/products', textile.listProducts);
+router.get('/textile/winding', textile.listWinding);
+router.post('/textile/winding', textile.createWinding);
+router.get('/textile/winding/:id', textile.getWinding);
+router.post('/textile/winding/:id/post', textile.postWinding);
+router.get('/textile/cones', textile.listCones);
+router.get('/textile/cones/:id', textile.getCone);
+router.get('/textile/genealogy/:entityType/:entityId', textile.getGenealogy);
+router.get('/textile/beams', textile.listBeams);
+router.post('/textile/beams', textile.createBeam);
+router.get('/textile/fabric-rolls', textile.listRolls);
+router.post('/textile/fabric-rolls', textile.createRoll);
 
 // ERPNext-shaped Manufacturing workspace + document API (mirrors /api/hr/docs)
 router.get('/workspaces', mfgDocs.workspaces);
