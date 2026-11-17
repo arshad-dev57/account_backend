@@ -7,6 +7,7 @@
 const crypto = require('crypto');
 const ExcelJS = require('exceljs');
 const prisma = require('../prisma/client');
+const matching = require('./bankReconciliationMatching');
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 const AMOUNT_EPS = 0.005;
@@ -614,15 +615,31 @@ async function getStatementTransactions({
     if (startDate) where.transactionDate.gte = startOfDay(startDate);
     if (endDate) where.transactionDate.lte = endOfDay(endDate);
   }
-  if (minAmount != null || maxAmount != null) {
-    where.amount = {};
-    if (minAmount != null) where.amount.gte = toNum(minAmount);
-    if (maxAmount != null) where.amount.lte = toNum(maxAmount);
-  }
   if (search) {
     where.OR = [
       { description: { contains: search, mode: 'insensitive' } },
       { reference: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+  if (
+    (minAmount != null && minAmount !== '') ||
+    (maxAmount != null && maxAmount !== '')
+  ) {
+    const min =
+      minAmount != null && minAmount !== '' ? Math.abs(toNum(minAmount)) : null;
+    const max =
+      maxAmount != null && maxAmount !== '' ? Math.abs(toNum(maxAmount)) : null;
+    const debitRange = {
+      ...(min != null ? { gte: min } : { gt: 0 }),
+      ...(max != null ? { lte: max } : {}),
+    };
+    const creditRange = {
+      ...(min != null ? { gte: min } : { gt: 0 }),
+      ...(max != null ? { lte: max } : {}),
+    };
+    where.AND = [
+      ...(where.AND || []),
+      { OR: [{ debit: debitRange }, { credit: creditRange }] },
     ];
   }
 
@@ -637,12 +654,18 @@ async function getStatementTransactions({
       include: {
         matches: {
           where: { isActive: true },
-          take: 1,
           include: {
             journalLine: {
               include: {
                 journal: {
-                  select: { id: true, entryNumber: true, date: true, description: true, reference: true },
+                  select: {
+                    id: true,
+                    entryNumber: true,
+                    date: true,
+                    description: true,
+                    reference: true,
+                    type: true,
+                  },
                 },
               },
             },
@@ -661,6 +684,10 @@ async function getStatementTransactions({
       ...t,
       direction: t.credit > 0 ? 'in' : 'out',
       match: t.matches[0] || null,
+      matches: t.matches,
+      allocatedAmount: round2(
+        (t.matches || []).reduce((s, m) => s + toNum(m.allocatedAmount), 0)
+      ),
     })),
   };
 }
@@ -774,7 +801,7 @@ async function autoMatch({ companyId, userId, reconciliationId, dateWindowDays =
       where: {
         companyId,
         bankAccountId: recon.bankAccountId,
-        status: 'unmatched',
+        status: { in: ['unmatched', 'partially_matched'] },
         reconciliationId: recon.id,
       },
       orderBy: { transactionDate: 'asc' },
@@ -829,7 +856,28 @@ async function autoMatch({ companyId, userId, reconciliationId, dateWindowDays =
       });
       usedLineIds.add(candidates[0].journalLineId);
       matched += 1;
-    } else if (candidates.length > 1) {
+      continue;
+    }
+
+    // Conservative 1:N auto: exact remaining sum of 2–4 same-direction book lines
+    const combo = findExactSumCombo(txn, bookLines, usedLineIds);
+    if (combo) {
+      await applyMatch({
+        companyId,
+        userId,
+        reconciliationId: recon.id,
+        statementTransactionIds: [txn.id],
+        journalLineIds: combo.map((c) => c.id),
+        matchType: 'auto',
+        matchScore: 80,
+        matchReason: `1:N exact sum of ${combo.length} book lines`,
+      });
+      combo.forEach((c) => usedLineIds.add(c.id));
+      matched += 1;
+      continue;
+    }
+
+    if (candidates.length > 1) {
       ambiguous.push({
         statementTransactionId: txn.id,
         description: txn.description,
@@ -853,159 +901,104 @@ async function autoMatch({ companyId, userId, reconciliationId, dateWindowDays =
   return { matched, ambiguousCount: ambiguous.length, ambiguous };
 }
 
+/** Find 2–4 unused book lines whose amounts exactly equal the bank txn magnitude. */
+function findExactSumCombo(bankTxn, bookLines, usedLineIds, maxParts = 4) {
+  const target =
+    bankTxn.credit > 0 ? toNum(bankTxn.credit) : toNum(bankTxn.debit);
+  if (target <= 0) return null;
+  const wantDebit = bankTxn.credit > 0; // inflow → book debit
+  const pool = bookLines
+    .filter((l) => !usedLineIds.has(l.id) && !l.isReconciled)
+    .filter((l) => (wantDebit ? l.debit > 0 : l.credit > 0))
+    .map((l) => ({
+      id: l.id,
+      amount: wantDebit ? toNum(l.debit) : toNum(l.credit),
+    }))
+    .filter((l) => l.amount > 0 && l.amount < target - 0.004)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 20);
+
+  function search(start, remain, path) {
+    if (nearlyEqual(remain, 0) && path.length >= 2) return path;
+    if (path.length >= maxParts || remain < -0.005) return null;
+    for (let i = start; i < pool.length; i += 1) {
+      if (pool[i].amount - remain > 0.005) continue;
+      const hit = search(i + 1, round2(remain - pool[i].amount), [...path, pool[i]]);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  return search(0, target, null);
+}
+
 async function applyMatch({
   companyId,
   userId,
   reconciliationId,
   statementTransactionId,
   journalLineId,
+  statementTransactionIds,
+  journalLineIds,
   matchType = 'manual',
   matchScore = null,
   matchReason = null,
 }) {
   const recon = await prisma.bankReconciliation.findFirst({
     where: { id: reconciliationId, companyId },
+    select: { bankAccountId: true },
   });
   if (!recon) {
     const err = new Error('Reconciliation not found');
     err.statusCode = 404;
     throw err;
   }
-  if (recon.status === 'Completed') {
-    const err = new Error('Completed reconciliation is locked');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  const [txn, line] = await Promise.all([
-    prisma.bankStatementTransaction.findFirst({
-      where: { id: statementTransactionId, companyId, bankAccountId: recon.bankAccountId },
-    }),
-    prisma.journalLine.findFirst({
-      where: { id: journalLineId },
-      include: { journal: true },
-    }),
-  ]);
-
-  if (!txn) {
-    const err = new Error('Statement transaction not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  if (!line || line.journal.companyId !== companyId) {
-    const err = new Error('ERP journal line not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  if (txn.status === 'matched') {
-    const err = new Error('Statement transaction already matched');
-    err.statusCode = 400;
-    throw err;
-  }
-  if (line.isReconciled) {
-    const err = new Error('ERP transaction already reconciled');
-    err.statusCode = 400;
-    throw err;
-  }
-
   const bank = await resolveCompanyBank(companyId, recon.bankAccountId);
-  if (line.accountId !== bank.chartOfAccountId) {
-    const err = new Error('Journal line does not belong to this bank account');
-    err.statusCode = 400;
-    throw err;
-  }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const match = await tx.bankReconciliationMatch.create({
-      data: {
-        companyId,
-        reconciliationId,
-        statementTransactionId,
-        journalLineId,
-        journalEntryId: line.journalId,
-        matchType,
-        matchScore,
-        matchReason,
-        isActive: true,
-        matchedBy: userId,
-      },
-    });
+  const stmtIds = statementTransactionIds?.length
+    ? statementTransactionIds
+    : statementTransactionId
+      ? [statementTransactionId]
+      : [];
+  const lineIds = journalLineIds?.length
+    ? journalLineIds
+    : journalLineId
+      ? [journalLineId]
+      : [];
 
-    await tx.bankStatementTransaction.update({
-      where: { id: txn.id },
-      data: {
-        status: 'matched',
-        matchedJournalLineId: line.id,
-        reconciliationId,
-      },
-    });
-
-    await tx.journalLine.update({
-      where: { id: line.id },
-      data: { isReconciled: true },
-    });
-
-    if (recon.status === 'Draft') {
-      await tx.bankReconciliation.update({
-        where: { id: recon.id },
-        data: { status: 'InProgress' },
-      });
-    }
-
-    return match;
+  const result = await matching.applyMatchGroup({
+    companyId,
+    userId,
+    reconciliationId,
+    statementTransactionIds: stmtIds,
+    journalLineIds: lineIds,
+    matchType,
+    matchScore,
+    matchReason,
+    bankChartOfAccountId: bank.chartOfAccountId,
   });
 
   await refreshReconciliationTotals(reconciliationId);
-  return result;
+  return result.matches.length === 1 ? result.matches[0] : result;
 }
 
-async function unmatch({ companyId, userId, reconciliationId, matchId, statementTransactionId }) {
-  const recon = await prisma.bankReconciliation.findFirst({
-    where: { id: reconciliationId, companyId },
+async function unmatch({
+  companyId,
+  userId,
+  reconciliationId,
+  matchId,
+  matchGroupId,
+  statementTransactionId,
+}) {
+  const result = await matching.unmatchGroup({
+    companyId,
+    userId,
+    reconciliationId,
+    matchId,
+    matchGroupId,
+    statementTransactionId,
   });
-  if (!recon) {
-    const err = new Error('Reconciliation not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  if (recon.status === 'Completed') {
-    const err = new Error('Completed reconciliation is locked');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  const match = await prisma.bankReconciliationMatch.findFirst({
-    where: {
-      companyId,
-      reconciliationId,
-      isActive: true,
-      ...(matchId ? { id: matchId } : {}),
-      ...(statementTransactionId ? { statementTransactionId } : {}),
-    },
-  });
-  if (!match) {
-    const err = new Error('Active match not found');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  await prisma.$transaction(async (tx) => {
-    await tx.bankReconciliationMatch.update({
-      where: { id: match.id },
-      data: { isActive: false, unmatchedAt: new Date() },
-    });
-    await tx.bankStatementTransaction.update({
-      where: { id: match.statementTransactionId },
-      data: { status: 'unmatched', matchedJournalLineId: null },
-    });
-    await tx.journalLine.update({
-      where: { id: match.journalLineId },
-      data: { isReconciled: false },
-    });
-  });
-
   await refreshReconciliationTotals(reconciliationId);
-  return { success: true };
+  return result;
 }
 
 async function ignoreStatementTxn({ companyId, reconciliationId, statementTransactionId, notes }) {
@@ -1143,7 +1136,9 @@ async function refreshReconciliationTotals(reconciliationId) {
   const reconcilableBook = bookLines.filter((l) => !isOpeningBalanceLine(l));
 
   const matched = stmtTxns.filter((t) => t.status === 'matched');
-  const unmatchedBank = stmtTxns.filter((t) => t.status === 'unmatched');
+  const unmatchedBank = stmtTxns.filter(
+    (t) => t.status === 'unmatched' || t.status === 'partially_matched'
+  );
   const ignored = stmtTxns.filter((t) => t.status === 'ignored');
   const unmatchedBook = reconcilableBook.filter((l) => !l.isReconciled);
 
@@ -1323,6 +1318,13 @@ async function completeReconciliation({
     throw err;
   }
 
+  const snapshot = {
+    difference: recon.difference,
+    matchedCount: recon.matchedCount,
+    unmatchedBankCount: recon.unmatchedBankCount,
+    exception: !diffOk && exceptionAllowed,
+  };
+
   recon = await prisma.$transaction(async (tx) => {
     const updated = await tx.bankReconciliation.update({
       where: { id: reconciliationId },
@@ -1345,6 +1347,14 @@ async function completeReconciliation({
     });
 
     return updated;
+  });
+
+  await matching.writeAudit({
+    companyId,
+    reconciliationId,
+    actorId: userId,
+    action: 'complete',
+    details: snapshot,
   });
 
   return recon;
@@ -1370,7 +1380,7 @@ async function reopenReconciliation({ companyId, userId, reconciliationId, isAdm
     throw err;
   }
 
-  return prisma.bankReconciliation.update({
+  const updated = await prisma.bankReconciliation.update({
     where: { id: reconciliationId },
     data: {
       status: 'InProgress',
@@ -1382,6 +1392,257 @@ async function reopenReconciliation({ companyId, userId, reconciliationId, isAdm
       exceptionNote: null,
     },
   });
+  await matching.writeAudit({
+    companyId,
+    reconciliationId,
+    actorId: userId,
+    action: 'reopen',
+    details: { previousStatus: 'Completed' },
+  });
+  // Matches remain intact — period reopen must not clear other periods' clearance
+  return updated;
+}
+
+async function listReconciliationAudits({ companyId, reconciliationId, limit = 50 }) {
+  const recon = await prisma.bankReconciliation.findFirst({
+    where: { id: reconciliationId, companyId },
+    select: { id: true },
+  });
+  if (!recon) {
+    const err = new Error('Reconciliation not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  return prisma.bankReconciliationAudit.findMany({
+    where: { companyId, reconciliationId },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(200, Number(limit) || 50),
+    include: {
+      actor: { select: { id: true, firstName: true, lastName: true, email: true } },
+    },
+  });
+}
+
+/**
+ * Suggest book-side matches for one statement line (never auto-confirms).
+ */
+async function suggestMatches({
+  companyId,
+  reconciliationId,
+  statementTransactionId,
+  dateWindowDays = 7,
+}) {
+  const recon = await prisma.bankReconciliation.findFirst({
+    where: { id: reconciliationId, companyId },
+  });
+  if (!recon) {
+    const err = new Error('Reconciliation not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const txn = await prisma.bankStatementTransaction.findFirst({
+    where: {
+      id: statementTransactionId,
+      companyId,
+      bankAccountId: recon.bankAccountId,
+      reconciliationId: recon.id,
+    },
+  });
+  if (!txn) {
+    const err = new Error('Statement transaction not found on this reconciliation');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (txn.status === 'matched') {
+    return {
+      statementTransactionId: txn.id,
+      status: txn.status,
+      candidates: [],
+      message: 'Already matched',
+    };
+  }
+
+  const bank = await resolveCompanyBank(companyId, recon.bankAccountId);
+  const padStart = new Date(recon.statementStartDate.getTime() - dateWindowDays * MS_DAY);
+  const padEnd = new Date(recon.statementEndDate.getTime() + dateWindowDays * MS_DAY);
+
+  const bookLinesRaw = await prisma.journalLine.findMany({
+    where: {
+      accountId: bank.chartOfAccountId,
+      isReconciled: false,
+      journal: {
+        companyId,
+        status: 'Posted',
+        date: { gte: startOfDay(padStart), lte: endOfDay(padEnd) },
+      },
+    },
+    include: {
+      journal: {
+        select: {
+          id: true,
+          entryNumber: true,
+          date: true,
+          description: true,
+          reference: true,
+          type: true,
+        },
+      },
+    },
+  });
+
+  const bookLines = bookLinesRaw.filter((l) => !isOpeningBalanceLine(l));
+  const candidates = await findCandidatesForBankTxn(txn, bookLines, new Set());
+
+  return {
+    statementTransactionId: txn.id,
+    status: txn.status,
+    description: txn.description,
+    reference: txn.reference,
+    debit: txn.debit,
+    credit: txn.credit,
+    amount: txn.amount,
+    transactionDate: txn.transactionDate,
+    candidates: candidates.slice(0, 10),
+  };
+}
+
+/**
+ * Manual statement entry (one or more lines) with fingerprint dedupe.
+ */
+async function addManualStatementTransactions({
+  companyId,
+  userId,
+  bankAccountId,
+  reconciliationId,
+  transactions,
+}) {
+  if (!Array.isArray(transactions) || transactions.length === 0) {
+    const err = new Error('At least one statement transaction is required');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const bank = await resolveCompanyBank(companyId, bankAccountId);
+  let recon = null;
+  if (reconciliationId) {
+    recon = await prisma.bankReconciliation.findFirst({
+      where: { id: reconciliationId, companyId, bankAccountId: bank.id },
+    });
+    if (!recon) {
+      const err = new Error('Reconciliation not found for this bank account');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (recon.status === 'Completed') {
+      const err = new Error('Cannot add statement lines to a completed reconciliation');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  const importBatch = await prisma.bankStatementImport.create({
+    data: {
+      companyId,
+      bankAccountId: bank.id,
+      fileName: 'manual-entry',
+      fileType: 'manual',
+      status: 'imported',
+      importedBy: userId,
+      importedAt: new Date(),
+      rowCount: transactions.length,
+      duplicateCount: 0,
+      statementStartDate: recon?.statementStartDate || null,
+      statementEndDate: recon?.statementEndDate || null,
+      openingBalance: recon?.statementOpeningBalance ?? null,
+      closingBalance: recon?.statementClosingBalance ?? null,
+    },
+  });
+
+  let imported = 0;
+  let skippedDuplicates = 0;
+  const created = [];
+
+  for (const raw of transactions) {
+    const debit = toNum(raw.debit);
+    const credit = toNum(raw.credit);
+    let amount = toNum(raw.amount);
+    if (!amount && (debit || credit)) {
+      amount = credit > 0 ? credit : -debit;
+    }
+    if ((!debit && !credit && !amount) || !raw.transactionDate) {
+      continue;
+    }
+    const finalDebit = debit || (amount < 0 ? Math.abs(amount) : 0);
+    const finalCredit = credit || (amount > 0 ? amount : 0);
+    const signed = round2(finalCredit - finalDebit);
+    const txnDate = parseDate(raw.transactionDate);
+    if (!txnDate) continue;
+
+    const fingerprint = fingerprintOf({
+      transactionDate: txnDate,
+      debit: finalDebit,
+      credit: finalCredit,
+      amount: signed,
+      reference: raw.reference || '',
+      description: raw.description || '',
+    });
+
+    const existing = await prisma.bankStatementTransaction.findFirst({
+      where: { companyId, bankAccountId: bank.id, fingerprint },
+    });
+    if (existing) {
+      skippedDuplicates += 1;
+      continue;
+    }
+
+    const row = await prisma.bankStatementTransaction.create({
+      data: {
+        companyId,
+        bankAccountId: bank.id,
+        importId: importBatch.id,
+        reconciliationId: recon?.id || null,
+        transactionDate: startOfDay(txnDate),
+        valueDate: raw.valueDate ? parseDate(raw.valueDate) : null,
+        description: String(raw.description || '').trim(),
+        reference: String(raw.reference || '').trim(),
+        debit: finalDebit,
+        credit: finalCredit,
+        amount: signed,
+        runningBalance: raw.runningBalance != null ? toNum(raw.runningBalance) : null,
+        fingerprint,
+        status: 'unmatched',
+      },
+    });
+    created.push(row);
+    imported += 1;
+  }
+
+  await prisma.bankStatementImport.update({
+    where: { id: importBatch.id },
+    data: {
+      rowCount: imported,
+      duplicateCount: skippedDuplicates,
+      status: imported > 0 ? 'imported' : 'cancelled',
+    },
+  });
+
+  if (recon) {
+    if (!recon.importId) {
+      await prisma.bankReconciliation.update({
+        where: { id: recon.id },
+        data: { importId: importBatch.id },
+      });
+    }
+    await refreshReconciliationTotals(recon.id);
+  }
+
+  return {
+    importId: importBatch.id,
+    imported,
+    skippedDuplicates,
+    transactions: created,
+  };
 }
 
 module.exports = {
@@ -1392,9 +1653,11 @@ module.exports = {
   parseSpreadsheetBuffer,
   previewStatementImport,
   confirmStatementImportWithRows,
+  addManualStatementTransactions,
   getBookTransactions,
   getStatementTransactions,
   autoMatch,
+  suggestMatches,
   applyMatch,
   unmatch,
   ignoreStatementTxn,
@@ -1402,7 +1665,9 @@ module.exports = {
   createReconciliation,
   completeReconciliation,
   reopenReconciliation,
+  listReconciliationAudits,
   computeBookBalanceAt,
   resolveCompanyBank,
   scoreCandidate,
+  findExactSumCombo,
 };

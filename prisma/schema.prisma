@@ -165,6 +165,7 @@ model Company {
   bankStatementTransactions         BankStatementTransaction[]         @relation("BankStatementTransactionCompany")
   bankReconciliations               BankReconciliation[]               @relation("BankReconciliationCompany")
   bankReconciliationMatches         BankReconciliationMatch[]          @relation("BankReconciliationMatchCompany")
+  bankReconciliationAudits          BankReconciliationAudit[]          @relation("BankReconciliationAuditCompany")
   journalEntries                    JournalEntry[]                     @relation("JournalEntryCompany")
   bills                             Bill[]                             @relation("BillCompany")
   incomes                           Income[]                           @relation("IncomeCompany")
@@ -837,6 +838,7 @@ model User {
   bankReconciliationsCompleted BankReconciliation[]      @relation("BankReconciliationCompleter")
   bankReconciliationsReopened  BankReconciliation[]      @relation("BankReconciliationReopener")
   bankReconciliationMatches    BankReconciliationMatch[] @relation("BankReconciliationMatchCreator")
+  bankReconciliationAudits     BankReconciliationAudit[] @relation("BankReconciliationAuditActor")
   journalEntryCreators         JournalEntry[]            @relation("JournalEntryCreator")
   journalEntryPosters          JournalEntry[]            @relation("JournalEntryPoster")
   billCreators                 Bill[]                    @relation("BillCreator")
@@ -3884,7 +3886,7 @@ model BankStatementTransaction {
   amount               Float     @default(0)
   runningBalance       Float?    @map("running_balance")
   fingerprint          String
-  status               String    @default("unmatched") // unmatched | matched | ignored | reviewed
+  status               String    @default("unmatched") // unmatched | partially_matched | matched | ignored | reviewed
   matchedJournalLineId String?   @map("matched_journal_line_id")
   notes                String?
   importedAt           DateTime  @default(now()) @map("imported_at")
@@ -3950,6 +3952,7 @@ model BankReconciliation {
   reopener              User?                      @relation("BankReconciliationReopener", fields: [reopenedBy], references: [id])
   matches               BankReconciliationMatch[]
   statementTransactions BankStatementTransaction[]
+  audits                BankReconciliationAudit[]
 
   @@index([companyId])
   @@index([bankAccountId])
@@ -3967,6 +3970,10 @@ model BankReconciliationMatch {
   statementTransactionId String    @map("statement_transaction_id")
   journalLineId          String    @map("journal_line_id")
   journalEntryId         String    @map("journal_entry_id")
+  /// Absolute amount allocated on this link (supports 1:N / N:1 / partial)
+  allocatedAmount        Float     @default(0) @map("allocated_amount")
+  /// Groups rows created together in one match action
+  matchGroupId           String?   @map("match_group_id")
   matchType              String    @default("manual") @map("match_type") // auto | manual
   matchScore             Float?    @map("match_score")
   matchReason            String?   @map("match_reason")
@@ -3985,8 +3992,29 @@ model BankReconciliationMatch {
   @@index([reconciliationId])
   @@index([statementTransactionId])
   @@index([journalLineId])
+  @@index([matchGroupId])
   @@index([isActive])
   @@map("bank_reconciliation_matches")
+}
+
+model BankReconciliationAudit {
+  id               String   @id @default(uuid())
+  companyId        String   @map("company_id")
+  reconciliationId String   @map("reconciliation_id")
+  action           String
+  details          Json?
+  actorId          String?  @map("actor_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  company        Company            @relation("BankReconciliationAuditCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  reconciliation BankReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  actor          User?              @relation("BankReconciliationAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([reconciliationId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("bank_reconciliation_audits")
 }
 
 // ============================================================

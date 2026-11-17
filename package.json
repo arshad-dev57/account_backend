@@ -16,7 +16,8 @@
     "currency:backfill": "node scripts/backfill-company-currencies.js",
     "vercel-build": "prisma generate && prisma migrate deploy",
     "test:boot": "node scripts/verify-boot-listen.js",
-    "test:backup": "node scripts/test-backup-smoke.js"
+    "test:backup": "node scripts/test-backup-smoke.js",
+    "test:bank-recon": "node --test tests/bank-reconciliation-matching.test.js && DATABASE_URL=\"${BANK_RECON_TEST_DATABASE_URL:-postgresql://glplanet@localhost:5432/erp_local_db}\" DIRECT_URL=\"${BANK_RECON_TEST_DATABASE_URL:-postgresql://glplanet@localhost:5432/erp_local_db}\" node tests/bank-reconciliation-live.test.js"
   },
   "keywords": [],
   "author": "",

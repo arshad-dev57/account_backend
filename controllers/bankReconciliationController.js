@@ -8,9 +8,11 @@ const prisma = require('../prisma/client');
 const {
   previewStatementImport,
   confirmStatementImportWithRows,
+  addManualStatementTransactions,
   getBookTransactions,
   getStatementTransactions,
   autoMatch,
+  suggestMatches: suggestMatchesForTxn,
   applyMatch,
   unmatch,
   ignoreStatementTxn,
@@ -18,7 +20,9 @@ const {
   createReconciliation,
   completeReconciliation,
   reopenReconciliation,
+  listReconciliationAudits,
   resolveCompanyBank,
+  computeBookBalanceAt,
 } = require('../services/bankReconciliationService');
 const { createBankAdjustment } = require('../services/bankAccountingService');
 
@@ -315,6 +319,60 @@ exports.confirmImport = async (req, res) => {
   }
 };
 
+exports.addManualStatementLines = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'Company context required' });
+    }
+    const { bankAccountId, reconciliationId, transactions } = req.body || {};
+    if (!bankAccountId) {
+      return res.status(400).json({ success: false, message: 'bankAccountId is required' });
+    }
+    const data = await addManualStatementTransactions({
+      companyId,
+      userId: req.user.id,
+      bankAccountId,
+      reconciliationId,
+      transactions,
+    });
+    res.status(201).json({
+      success: true,
+      data,
+      message: `Added ${data.imported} line(s); skipped ${data.skippedDuplicates} duplicate(s)`,
+    });
+  } catch (error) {
+    console.error('addManualStatementLines', error);
+    sendError(res, error);
+  }
+};
+
+exports.getBookBalancePreview = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { bankAccountId, asOfDate } = req.query;
+    if (!bankAccountId) {
+      return res.status(400).json({ success: false, message: 'bankAccountId is required' });
+    }
+    const bank = await resolveCompanyBank(companyId, bankAccountId);
+    const date = asOfDate || new Date();
+    const bookBalance = await computeBookBalanceAt(companyId, bank.chartOfAccountId, date, true);
+    res.json({
+      success: true,
+      data: {
+        bankAccountId: bank.id,
+        chartOfAccountId: bank.chartOfAccountId,
+        asOfDate: date,
+        bookBalance,
+        ledgerBalance: bank.currentBalance,
+      },
+    });
+  } catch (error) {
+    console.error('getBookBalancePreview', error);
+    sendError(res, error);
+  }
+};
+
 exports.listStatementTransactions = async (req, res) => {
   try {
     const companyId = companyIdOf(req);
@@ -381,15 +439,49 @@ exports.runAutoMatch = async (req, res) => {
   }
 };
 
+exports.suggestMatches = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const { id } = req.params;
+    const { statementTransactionId, dateWindowDays } = req.body || {};
+    if (!statementTransactionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'statementTransactionId is required',
+      });
+    }
+    const data = await suggestMatchesForTxn({
+      companyId,
+      reconciliationId: id,
+      statementTransactionId,
+      dateWindowDays: Number(dateWindowDays) || 7,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('suggestMatches', error);
+    sendError(res, error);
+  }
+};
+
 exports.manualMatch = async (req, res) => {
   try {
     const companyId = companyIdOf(req);
     const { id } = req.params;
-    const { statementTransactionId, journalLineId } = req.body || {};
-    if (!statementTransactionId || !journalLineId) {
+    const {
+      statementTransactionId,
+      journalLineId,
+      statementTransactionIds,
+      journalLineIds,
+    } = req.body || {};
+    const hasSingle = statementTransactionId && journalLineId;
+    const hasGroup =
+      (Array.isArray(statementTransactionIds) && statementTransactionIds.length) ||
+      (Array.isArray(journalLineIds) && journalLineIds.length);
+    if (!hasSingle && !hasGroup) {
       return res.status(400).json({
         success: false,
-        message: 'statementTransactionId and journalLineId are required',
+        message:
+          'Provide statementTransactionId+journalLineId, or statementTransactionIds[]+journalLineIds[]',
       });
     }
     const match = await applyMatch({
@@ -398,6 +490,8 @@ exports.manualMatch = async (req, res) => {
       reconciliationId: id,
       statementTransactionId,
       journalLineId,
+      statementTransactionIds,
+      journalLineIds,
       matchType: 'manual',
       matchReason: 'manual selection',
     });
@@ -418,12 +512,28 @@ exports.unmatchPair = async (req, res) => {
       userId: req.user.id,
       reconciliationId: id,
       matchId: req.body?.matchId,
+      matchGroupId: req.body?.matchGroupId,
       statementTransactionId: req.body?.statementTransactionId,
     });
     const recon = await refreshReconciliationTotals(id);
     res.json({ success: true, data: recon, message: 'Unmatched' });
   } catch (error) {
     console.error('unmatchPair', error);
+    sendError(res, error);
+  }
+};
+
+exports.listAudits = async (req, res) => {
+  try {
+    const companyId = companyIdOf(req);
+    const data = await listReconciliationAudits({
+      companyId,
+      reconciliationId: req.params.id,
+      limit: Number(req.query.limit) || 50,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('listAudits', error);
     sendError(res, error);
   }
 };
@@ -601,6 +711,7 @@ exports.dashboard = async (req, res) => {
         currentBalance: true,
         lastReconciled: true,
         currency: true,
+        chartOfAccountId: true,
       },
       orderBy: { accountName: 'asc' },
     });
@@ -610,9 +721,63 @@ exports.dashboard = async (req, res) => {
         companyId,
         status: { in: ['Draft', 'InProgress', 'Reconciled'] },
       },
-      select: { id: true, bankAccountId: true, status: true, difference: true, statementEndDate: true },
+      select: {
+        id: true,
+        bankAccountId: true,
+        status: true,
+        difference: true,
+        statementEndDate: true,
+        statementClosingBalance: true,
+        bookClosingBalance: true,
+        unmatchedBankCount: true,
+        unmatchedBookCount: true,
+        matchedCount: true,
+        statementStartDate: true,
+      },
     });
     const openByBank = Object.fromEntries(open.map((r) => [r.bankAccountId, r]));
+
+    const completedRows = await prisma.bankReconciliation.findMany({
+      where: { companyId, status: 'Completed' },
+      orderBy: { completedAt: 'desc' },
+      select: {
+        id: true,
+        bankAccountId: true,
+        completedAt: true,
+        statementEndDate: true,
+        statementClosingBalance: true,
+        bookClosingBalance: true,
+        difference: true,
+      },
+    });
+    const lastByBank = {};
+    for (const row of completedRows) {
+      if (!lastByBank[row.bankAccountId]) lastByBank[row.bankAccountId] = row;
+    }
+
+    const asOf = new Date();
+    const bankAccounts = await Promise.all(
+      banks.map(async (b) => {
+        const bookBalance = await computeBookBalanceAt(
+          companyId,
+          b.chartOfAccountId,
+          asOf,
+          true
+        );
+        const openRecon = openByBank[b.id] || null;
+        return {
+          ...b,
+          bookBalance,
+          openReconciliation: openRecon,
+          lastCompletedReconciliation: lastByBank[b.id] || null,
+          reconciliationStatus: openRecon
+            ? openRecon.status
+            : lastByBank[b.id]
+              ? 'Clear'
+              : 'Never',
+        };
+      })
+    );
 
     const recent = await prisma.bankReconciliation.findMany({
       where: { companyId },
@@ -621,20 +786,24 @@ exports.dashboard = async (req, res) => {
       include: {
         bankAccount: { select: { accountName: true, accountNumber: true } },
         completer: { select: { firstName: true, lastName: true } },
+        creator: { select: { firstName: true, lastName: true } },
       },
     });
+
+    const unmatchedOpen = open.reduce(
+      (s, r) => s + Number(r.unmatchedBankCount || 0) + Number(r.unmatchedBookCount || 0),
+      0
+    );
 
     res.json({
       success: true,
       data: {
-        bankAccounts: banks.map((b) => ({
-          ...b,
-          openReconciliation: openByBank[b.id] || null,
-        })),
+        bankAccounts,
         recent,
         stats: {
           activeBanks: banks.length,
           openReconciliations: open.length,
+          unmatchedOpen,
           completedThisMonth: await prisma.bankReconciliation.count({
             where: {
               companyId,
