@@ -6,12 +6,32 @@ const VALID_ACCOUNT_TYPES = ['Current', 'Savings', 'Business', 'Islamic', 'Cash'
 const VALID_STATUS = ['Active', 'Inactive'];
 
 class BankAccountModel {
-  static validateBankAccountData(data) {
+  static normalizeIban(iban) {
+    return String(iban || '')
+      .replace(/\s+/g, '')
+      .toUpperCase();
+  }
+
+  static isValidIban(iban) {
+    const value = this.normalizeIban(iban);
+    // Pakistan IBAN: PK + 2 check digits + 4 bank code + 16 account digits = 24 chars
+    if (/^PK\d{2}[A-Z]{4}\d{16}$/.test(value)) return true;
+    // Generic IBAN (15–34 alphanumeric) for multi-currency accounts
+    return /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(value);
+  }
+
+  static validateBankAccountData(data, { requireIban = true } = {}) {
     const errors = [];
     if (!data.accountName) errors.push('Account name is required');
     if (!data.accountNumber) errors.push('Account number is required');
     if (!data.bankName) errors.push('Bank name is required');
     if (!data.chartOfAccountId) errors.push('Chart of account ID is required');
+    const iban = this.normalizeIban(data.iban);
+    if (requireIban && !iban) {
+      errors.push('IBAN is required');
+    } else if (iban && !this.isValidIban(iban)) {
+      errors.push('IBAN format is invalid (e.g. PK36MEZN0001234567890123)');
+    }
     if (data.accountType && !VALID_ACCOUNT_TYPES.includes(data.accountType)) {
       errors.push(`Invalid account type. Must be one of: ${VALID_ACCOUNT_TYPES.join(', ')}`);
     }
@@ -74,6 +94,7 @@ class BankAccountModel {
       data: {
         accountName: data.accountName,
         accountNumber: data.accountNumber,
+        iban: this.normalizeIban(data.iban),
         bankName: data.bankName,
         branchCode: data.branchCode || '',
         accountCode: accountCode,
@@ -220,26 +241,36 @@ class BankAccountModel {
 
     // ─── Merge data for validation ─────────────────────────────
     const mergedData = { ...existing, ...data };
+    if (data.iban !== undefined) {
+      mergedData.iban = this.normalizeIban(data.iban);
+    }
 
-    // ─── Validate updated data ──────────────────────────────────
-    const errors = this.validateBankAccountData(mergedData);
+    // Legacy rows may lack IBAN; require it only when creating or when an IBAN is supplied
+    const errors = this.validateBankAccountData(mergedData, {
+      requireIban: Boolean(mergedData.iban),
+    });
     if (errors.length > 0) {
       throw new Error(errors.join('; '));
     }
 
     // ─── Update bank account ────────────────────────────────────
+    const updatePayload = {
+      accountName: data.accountName,
+      accountNumber: data.accountNumber,
+      bankName: data.bankName,
+      branchCode: data.branchCode,
+      accountType: data.accountType,
+      currency: data.currency,
+      status: data.status,
+      lastReconciled: data.lastReconciled,
+    };
+    if (data.iban !== undefined) {
+      updatePayload.iban = this.normalizeIban(data.iban);
+    }
+
     return await prisma.bankAccount.update({
       where: { id },
-      data: {
-        accountName: data.accountName,
-        accountNumber: data.accountNumber,
-        bankName: data.bankName,
-        branchCode: data.branchCode,
-        accountType: data.accountType,
-        currency: data.currency,
-        status: data.status,
-        lastReconciled: data.lastReconciled
-      },
+      data: updatePayload,
       include: {
         chartOfAccount: {
           select: {

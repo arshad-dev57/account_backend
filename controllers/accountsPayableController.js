@@ -179,8 +179,8 @@ function purchaseInvoiceToBillShape(inv) {
   const { grandTotal, paidAmount, outstanding } = computePurchaseOpenBalance(inv);
   let status = 'Unpaid';
   if (outstanding <= 0) status = 'Paid';
-  else if (paidAmount > 0) status = 'Partial';
   else if (inv.dueDate && new Date(inv.dueDate) < new Date()) status = 'Overdue';
+  else if (paidAmount > 0) status = 'Partial';
 
   const supplierName =
     inv.supplierName || inv.supplier?.name || '';
@@ -188,6 +188,8 @@ function purchaseInvoiceToBillShape(inv) {
   return {
     id: inv.id,
     billNumber: inv.invoiceNumber,
+    invoiceNumber: inv.invoiceNumber,
+    documentLabel: 'Purchase Invoice',
     vendorId: inv.supplierId,
     vendorName: supplierName,
     supplierId: inv.supplierId,
@@ -216,6 +218,7 @@ function purchaseInvoiceToBillShape(inv) {
     subtotal: inv.subtotal || 0,
     taxTotal: inv.taxTotal || 0,
     discount: inv.discountTotal || 0,
+    amount: grandTotal,
     totalAmount: grandTotal,
     paidAmount,
     outstanding,
@@ -394,28 +397,54 @@ exports.getSuppliers = async (req, res) => {
       fetchCompanyPurchaseInvoices(companyId, {}, locationId)
     ]);
 
+    const now = new Date();
     const openDocs = [
       ...bills.map((bill) => {
         const { totalAmount, paidAmount, outstanding } = billOpenBalance(bill);
+        let status = 'Unpaid';
+        if (outstanding <= 0) status = 'Paid';
+        else if (bill.dueDate && new Date(bill.dueDate) < now) status = 'Overdue';
+        else if (paidAmount > 0) status = 'Partial';
         return {
+          id: bill.id,
           supplierId: bill.vendorId,
+          billNumber: bill.billNumber,
+          invoiceNumber: bill.billNumber,
+          documentLabel: 'Vendor Bill',
+          source: 'bill',
+          date: bill.date,
+          dueDate: bill.dueDate,
+          amount: totalAmount,
           totalAmount,
           paidAmount,
-          outstanding
+          outstanding,
+          status
         };
       }),
       ...purchaseInvoices.map((inv) => {
-        const { grandTotal, paidAmount, outstanding } = computePurchaseOpenBalance(inv);
+        const shaped = purchaseInvoiceToBillShape(inv);
         return {
-          supplierId: inv.supplierId,
-          totalAmount: grandTotal,
-          paidAmount,
-          outstanding
+          id: shaped.id,
+          supplierId: shaped.supplierId,
+          billNumber: shaped.billNumber,
+          invoiceNumber: shaped.invoiceNumber,
+          documentLabel: 'Purchase Invoice',
+          source: 'purchaseInvoice',
+          date: shaped.date,
+          dueDate: shaped.dueDate,
+          amount: shaped.totalAmount,
+          totalAmount: shaped.totalAmount,
+          paidAmount: shaped.paidAmount,
+          outstanding: shaped.outstanding,
+          status: shaped.status,
+          items: shaped.items
         };
       })
     ];
 
-    const suppliersWithOutstanding = suppliers.map((supplier) => {
+    const filterMode = String(req.query.filter || status || '').toLowerCase();
+
+    let suppliersWithOutstanding = suppliers.map((supplier) => {
       const docs = openDocs.filter((d) => d.supplierId === supplier.id);
       const outstandingDocs = docs.filter((d) => d.outstanding > 0);
       const totalAmount = outstandingDocs.reduce((sum, d) => sum + d.totalAmount, 0);
@@ -426,13 +455,37 @@ exports.getSuppliers = async (req, res) => {
       );
 
       return {
-        ...supplier,
+        id: supplier.id,
+        name: supplier.name,
+        email: supplier.email || '',
+        phone: supplier.phone || '',
+        companyName: supplier.companyName || '',
+        isActive: supplier.status !== 'inactive',
         totalAmount,
         paidAmount,
         outstandingAmount,
-        billCount: outstandingDocs.length
+        billCount: outstandingDocs.length,
+        invoiceCount: outstandingDocs.length,
+        totalInvoices: outstandingDocs.length,
+        // Nested open purchase invoices / vendor bills for AP UI
+        invoices: outstandingDocs,
+        bills: outstandingDocs
       };
     });
+
+    if (filterMode === 'overdue') {
+      suppliersWithOutstanding = suppliersWithOutstanding.filter((s) =>
+        (s.invoices || []).some((inv) => inv.status === 'Overdue')
+      );
+    } else if (filterMode === 'paid') {
+      suppliersWithOutstanding = suppliersWithOutstanding.filter(
+        (s) => s.outstandingAmount <= 0
+      );
+    } else if (filterMode !== 'all') {
+      suppliersWithOutstanding = suppliersWithOutstanding.filter(
+        (s) => s.outstandingAmount > 0
+      );
+    }
 
     res.status(200).json({
       success: true,
@@ -714,10 +767,21 @@ exports.getBills = async (req, res) => {
   console.log('📦 [AP] getBills called');
 
   try {
-    const { supplierId, status, startDate, endDate, fiscalYearId, locationId } = req.query;
+    const {
+      supplierId,
+      status,
+      startDate,
+      endDate,
+      fiscalYearId,
+      locationId,
+      search,
+      openOnly
+    } = req.query;
     const userId = req.user.id;
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const scopedLocation = Boolean(normalizeLocationId(locationId));
+    // Default: only open purchase invoices / vendor bills (AP ledger view)
+    const onlyOpen = String(openOnly ?? 'true').toLowerCase() !== 'false';
 
     const filter = { companyId: companyId };
 
@@ -733,10 +797,7 @@ exports.getBills = async (req, res) => {
       }
     }
 
-    if (status) {
-      filter.status = status;
-    }
-
+    // Don't push UI status into prisma Bill.status — compute after merge
     if (startDate && endDate) {
       filter.date = {
         gte: new Date(startDate),
@@ -795,31 +856,57 @@ exports.getBills = async (req, res) => {
     ]);
 
     let mapped = [
-      ...bills,
+      ...bills.map((row) => {
+        const shaped = billToResponseShape(row);
+        return {
+          ...shaped,
+          source: 'bill',
+          documentLabel: 'Vendor Bill',
+          invoiceNumber: shaped.billNumber
+        };
+      }),
       ...purchaseInvoices.map(purchaseInvoiceToBillShape)
     ];
 
-    if (status) {
+    if (onlyOpen) {
+      mapped = mapped.filter((b) => (Number(b.outstanding) || 0) > 0);
+    }
+
+    if (status && String(status).toLowerCase() !== 'all') {
       mapped = mapped.filter(
         (b) => String(b.status).toLowerCase() === String(status).toLowerCase()
       );
     }
 
+    if (search) {
+      const q = String(search).toLowerCase();
+      mapped = mapped.filter((b) => {
+        const hay = [
+          b.billNumber,
+          b.invoiceNumber,
+          b.supplierName,
+          b.vendorName,
+          b.documentLabel,
+          b.source
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
     mapped.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    const shaped = mapped.map((row) =>
-      row.source === 'purchaseInvoice' ? row : billToResponseShape(row)
-    );
-
-    const openPayables = shaped.filter((doc) => (Number(doc.outstanding) || 0) > 0);
+    const openPayables = mapped.filter((doc) => (Number(doc.outstanding) || 0) > 0);
     const summary = computeOpenPayablesSummary(openPayables);
 
     const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limitNum = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 10));
-    const total = shaped.length;
+    const total = mapped.length;
     const pages = Math.max(1, Math.ceil(total / limitNum));
     const start = (pageNum - 1) * limitNum;
-    const paged = shaped.slice(start, start + limitNum);
+    const paged = mapped.slice(start, start + limitNum);
 
     res.status(200).json({
       success: true,

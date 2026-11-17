@@ -119,7 +119,20 @@ function guessMapping(headers) {
   const mapping = {};
   const normalized = headers.map((h) => normalizeText(h));
   for (const [field, aliases] of Object.entries(COLUMN_ALIASES)) {
-    const idx = normalized.findIndex((h) => aliases.some((a) => h === normalizeText(a) || h.includes(normalizeText(a))));
+    // Prefer exact header match first so short aliases like "cr"/"dr"
+    // do not falsely match inside words (e.g. "description" contains "cr").
+    let idx = normalized.findIndex((h) =>
+      aliases.some((a) => h === normalizeText(a))
+    );
+    if (idx < 0) {
+      idx = normalized.findIndex((h) =>
+        aliases.some((a) => {
+          const alias = normalizeText(a);
+          if (alias.length <= 2) return false;
+          return h.includes(alias);
+        })
+      );
+    }
     if (idx >= 0) mapping[field] = headers[idx];
   }
   return mapping;

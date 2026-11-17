@@ -2,8 +2,10 @@
 
 const prisma = require('../prisma/client');
 const WarehouseInvoiceModel = require('../models/WarehouseInvoice');
+const SalesPaymentReceived = require('../warehouse/models/SalesPaymentReceived');
 const { getCompanyFiscalYear } = require('../utils/fiscalYearHelper');
 const { getOrCreateCashAccount } = require('../utils/cashAccountHelper');
+const { fiscalYearGuard } = require('../middleware/fiscalYearMiddleware');
 const {
   salesInvoiceLocationWhere,
   warehouseInvoiceLocationWhere
@@ -399,10 +401,12 @@ const getCustomers = async (req, res) => {
       }),
     ]);
 
+    const now = new Date();
     const normalizeInvoice = (inv, source) => {
       const { grandTotal, paidAmount, outstanding } = computeOpenBalance(inv);
       let status = inv.paymentStatus || inv.invoiceStatus || 'Unpaid';
       if (outstanding <= 0) status = 'Paid';
+      else if (inv.dueDate && new Date(inv.dueDate) < now) status = 'Overdue';
       else if (paidAmount > 0) status = 'Partial';
       else status = 'Unpaid';
       return {
@@ -412,6 +416,8 @@ const getCustomers = async (req, res) => {
         invoiceNumber: inv.invoiceNumber,
         date: inv.invoiceDate,
         dueDate: inv.dueDate,
+        // amount aliases for AR UI payment form
+        amount: grandTotal,
         totalAmount: grandTotal,
         paidAmount,
         outstanding,
@@ -425,7 +431,9 @@ const getCustomers = async (req, res) => {
       ...salesInvoices.map((inv) => normalizeInvoice(inv, 'sales')),
     ].filter((inv) => inv.outstanding > 0);
 
-    const customersWithOutstanding = customers.map(customer => {
+    const filterMode = String(req.query.filter || status || '').toLowerCase();
+
+    let customersWithOutstanding = customers.map(customer => {
       const customerInvoices = invoices.filter(
         inv => inv.customerId === customer.id
       );
@@ -446,10 +454,26 @@ const getCustomers = async (req, res) => {
         paidAmount,
         outstandingAmount,
         invoiceCount: customerInvoices.length,
+        totalInvoices: customerInvoices.length,
         invoices: customerInvoices,
         lastPaymentDate: customer.lastOrderDate || null
       };
     });
+
+    // Default AR view: customers with open sales/warehouse invoices only
+    if (filterMode === 'overdue') {
+      customersWithOutstanding = customersWithOutstanding.filter((c) =>
+        (c.invoices || []).some((inv) => inv.status === 'Overdue')
+      );
+    } else if (filterMode === 'paid') {
+      customersWithOutstanding = customersWithOutstanding.filter(
+        (c) => c.outstandingAmount <= 0
+      );
+    } else if (filterMode !== 'all') {
+      customersWithOutstanding = customersWithOutstanding.filter(
+        (c) => c.outstandingAmount > 0
+      );
+    }
 
     res.status(200).json({
       success: true,
@@ -1142,6 +1166,115 @@ const recordPayment = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Payment amount must be greater than zero'
+      });
+    }
+
+    // Sales-module invoices: use SalesPaymentReceived (updates AccountsReceivable subledger)
+    const salesInvoice = await prisma.salesInvoice.findFirst({
+      where: {
+        id: invoiceId,
+        companyId,
+        isDeleted: false,
+        isActive: true,
+        invoiceStatus: { notIn: ['Cancelled'] }
+      },
+      include: {
+        customer: true,
+        invoicePayments: {
+          where: {
+            payment: {
+              isActive: true,
+              isDeleted: false,
+              status: 'Completed'
+            }
+          },
+          select: { amountPaid: true }
+        },
+        creditNotes: {
+          where: { status: { notIn: ['Cancelled', 'Voided'] } },
+          select: { totalAmount: true, status: true }
+        }
+      }
+    });
+
+    if (salesInvoice) {
+      const { grandTotal, outstanding } = computeOpenBalance(salesInvoice);
+      if (outstanding <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invoice is already fully paid'
+        });
+      }
+      if (amount > outstanding + 0.01) {
+        return res.status(400).json({
+          success: false,
+          message: `Payment amount cannot exceed outstanding balance of ${outstanding}`,
+          outstanding
+        });
+      }
+
+      const postingDate = paymentDate ? new Date(paymentDate) : new Date();
+      try {
+        await fiscalYearGuard(userId, postingDate);
+      } catch (err) {
+        if (err.code === 'FISCAL_YEAR_CLOSED') {
+          return res.status(400).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+
+      const customer =
+        salesInvoice.customer ||
+        (await prisma.customer.findFirst({
+          where: { id: salesInvoice.customerId, companyId }
+        }));
+      if (!customer) {
+        return res.status(404).json({ success: false, message: 'Customer not found' });
+      }
+
+      let bankAccountName =
+        String(paymentMethod || '').toLowerCase() === 'cash' ? 'Cash in Hand' : '';
+      if (bankAccountId && String(paymentMethod || '').toLowerCase() !== 'cash') {
+        const ba = await prisma.bankAccount.findFirst({
+          where: { id: bankAccountId, companyId, status: 'Active' }
+        });
+        if (!ba) {
+          return res.status(404).json({
+            success: false,
+            message: 'Bank account not found or inactive'
+          });
+        }
+        bankAccountName = ba.accountName;
+      }
+
+      const payment = await SalesPaymentReceived.receivePayment({
+        customerId: customer.id,
+        customerName: customer.name,
+        amount,
+        paymentMethod: paymentMethod || 'Bank Transfer',
+        bankAccountId: bankAccountId || null,
+        bankAccountName,
+        reference: reference || '',
+        notes: notes || '',
+        invoicePayments: [
+          {
+            invoiceId: salesInvoice.id,
+            invoiceNumber: salesInvoice.invoiceNumber,
+            amountPaid: amount
+          }
+        ],
+        userId,
+        createdBy: userId,
+        companyId
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: 'Payment recorded successfully',
+        data: payment,
+        source: 'sales',
+        invoiceTotal: grandTotal,
+        outstandingBefore: outstanding
       });
     }
 

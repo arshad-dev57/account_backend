@@ -3786,6 +3786,7 @@ model BankAccount {
   id               String   @id @default(uuid())
   accountName      String   @map("account_name")
   accountNumber    String   @map("account_number")
+  iban             String   @default("") @map("iban")
   bankName         String   @map("bank_name")
   branchCode       String   @default("") @map("branch_code")
   accountCode      String   @default("") @map("account_code")

@@ -182,10 +182,11 @@ async function withOrderNumbers(req, result) {
       const order = orderMap.get(i.orderId);
       return {
         ...i,
-        orderNumber: order?.orderNumber || null,
-        orderCurrency: order?.currency || null,
-        orderCustomerName: order?.customerName || null,
-        shipmentNumber: shipmentMap.get(i.shipmentId) || null,
+        orderNumber: i.orderNumber || order?.orderNumber || null,
+        orderCurrency: i.orderCurrency || order?.currency || null,
+        orderCustomerName: i.orderCustomerName || order?.customerName || null,
+        // Keep existing shipmentNumber on shipment rows; only enrich child docs via shipmentId.
+        shipmentNumber: i.shipmentNumber || shipmentMap.get(i.shipmentId) || null,
       };
     }),
   };
@@ -964,7 +965,7 @@ async function listInquiries(req, query = {}) {
     searchFields: ['inquiryNumber', 'customerName', 'customerCountry', 'destinationPort'],
     dateField: 'date',
     allowedSort: ['date', 'inquiryNumber', 'createdAt', 'status', 'customerName'],
-    defaultSort: 'date',
+    defaultSort: 'createdAt',
   });
 }
 
@@ -1317,7 +1318,7 @@ async function listQuotations(req, query = {}) {
     searchFields: ['quoteNumber', 'customerName', 'customerCountry'],
     dateField: 'quoteDate',
     allowedSort: ['quoteDate', 'quoteNumber', 'createdAt', 'status', 'totalForeign'],
-    defaultSort: 'quoteDate',
+    defaultSort: 'createdAt',
   });
 }
 
@@ -1732,7 +1733,7 @@ async function listOrders(req, query = {}) {
     searchFields: ['orderNumber', 'customerName', 'customerCountry', 'destinationPort'],
     dateField: 'orderDate',
     allowedSort: ['orderDate', 'orderNumber', 'createdAt', 'status', 'totalForeign', 'outstandingBase'],
-    defaultSort: 'orderDate',
+    defaultSort: 'createdAt',
   });
 }
 
@@ -2221,7 +2222,7 @@ async function listProformas(req, query = {}) {
       searchFields: ['piNumber', 'customerName', 'customerCountry'],
       dateField: 'date',
       allowedSort: ['date', 'piNumber', 'createdAt', 'status', 'amountForeign'],
-      defaultSort: 'date',
+      defaultSort: 'createdAt',
       extraWhere,
     })
   );
@@ -2375,7 +2376,7 @@ async function listPackings(req, query = {}) {
       dateField: 'packingDate',
       statusField: 'inspectionStatus',
       allowedSort: ['packingDate', 'packingListNo', 'createdAt'],
-      defaultSort: 'packingDate',
+      defaultSort: 'createdAt',
       extraWhere,
     })
   );
@@ -2881,7 +2882,7 @@ async function listCustoms(req, query = {}) {
       searchFields: ['shippingBillNo', 'customsAgent', 'exportPort'],
       dateField: 'declarationDate',
       allowedSort: ['declarationDate', 'shippingBillNo', 'createdAt'],
-      defaultSort: 'declarationDate',
+      defaultSort: 'createdAt',
       extraWhere,
     })
   );
@@ -3064,7 +3065,7 @@ async function listDocuments(req, query = {}) {
     searchFields: ['docNumber', 'customerName', 'courierTrackingNo'],
     dateField: 'issueDate',
     allowedSort: ['issueDate', 'docNumber', 'createdAt'],
-    defaultSort: 'issueDate',
+    defaultSort: 'createdAt',
     extraWhere,
   });
 }
@@ -3201,7 +3202,7 @@ async function listDispatches(req, query = {}) {
       searchFields: ['dispatchNumber', 'transporterName', 'truckNo', 'gatePassNo'],
       dateField: 'dispatchDate',
       allowedSort: ['dispatchDate', 'dispatchNumber', 'createdAt'],
-      defaultSort: 'dispatchDate',
+      defaultSort: 'createdAt',
       extraWhere,
     })
   );
@@ -3676,7 +3677,7 @@ async function listReceipts(req, query = {}) {
       searchFields: ['receiptNumber', 'customerName', 'nostroAccountRef'],
       dateField: 'receiptDate',
       allowedSort: ['receiptDate', 'receiptNumber', 'createdAt', 'grossBase'],
-      defaultSort: 'receiptDate',
+      defaultSort: 'createdAt',
       extraWhere: Object.keys(extraWhere).length ? extraWhere : null,
     })
   );
@@ -4085,7 +4086,7 @@ async function listExpenses(req, query = {}) {
       searchFields: ['expenseNumber', 'expenseType', 'description'],
       dateField: 'date',
       allowedSort: ['date', 'expenseNumber', 'createdAt', 'amountBase'],
-      defaultSort: 'date',
+      defaultSort: 'createdAt',
       extraWhere: Object.keys(extraWhere).length ? extraWhere : null,
     })
   );

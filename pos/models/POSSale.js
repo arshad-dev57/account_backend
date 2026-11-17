@@ -407,6 +407,7 @@ class POSSaleModel {
           lines: { create: jeLines }
         }
       });
+      
       const currentFiscalYear = await tx.fiscalYear.findFirst({
         where: { 
           companyId, 

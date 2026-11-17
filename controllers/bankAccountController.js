@@ -56,6 +56,7 @@ exports.createBankAccount = async (req, res) => {
     const {
       accountName,
       accountNumber,
+      iban,
       bankName,
       branchCode,
       accountType,
@@ -71,11 +72,19 @@ exports.createBankAccount = async (req, res) => {
     const companyId = (req.method === 'GET' || req.method === 'HEAD') ? (req.companyIdFilter ?? req.user.companyId) : req.user.companyId;
     const opening = Number(openingBalance) || 0;
     const resolvedOffsetType = offsetType || openingBalanceSource;
+    const normalizedIban = BankAccountModel.normalizeIban(iban);
 
-    if (!accountName || !accountNumber || !bankName) {
+    if (!accountName || !accountNumber || !bankName || !normalizedIban) {
       return res.status(400).json({
         success: false,
-        message: 'Account name, account number and bank name are required'
+        message: 'Account name, account number, IBAN and bank name are required'
+      });
+    }
+
+    if (!BankAccountModel.isValidIban(normalizedIban)) {
+      return res.status(400).json({
+        success: false,
+        message: 'IBAN format is invalid (e.g. PK36MEZN0001234567890123)'
       });
     }
 
@@ -123,6 +132,7 @@ exports.createBankAccount = async (req, res) => {
     const bankAccount = await BankAccountModel.create({
       accountName,
       accountNumber,
+      iban: normalizedIban,
       bankName,
       branchCode: branchCode || '',
       accountType: accountType || 'Current',
@@ -381,6 +391,7 @@ exports.updateBankAccount = async (req, res) => {
     const {
       accountName,
       accountNumber,
+      iban,
       bankName,
       branchCode,
       accountType,
@@ -425,9 +436,20 @@ exports.updateBankAccount = async (req, res) => {
       }
     }
 
+    if (iban !== undefined && iban !== null && iban !== '') {
+      const normalizedIban = BankAccountModel.normalizeIban(iban);
+      if (!BankAccountModel.isValidIban(normalizedIban)) {
+        return res.status(400).json({
+          success: false,
+          message: 'IBAN format is invalid (e.g. PK36MEZN0001234567890123)'
+        });
+      }
+    }
+
     const updated = await BankAccountModel.update(id, {
       accountName,
       accountNumber,
+      ...(iban !== undefined ? { iban } : {}),
       bankName,
       branchCode,
       accountType,
