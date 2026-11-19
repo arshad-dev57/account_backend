@@ -2,6 +2,7 @@
 const prisma = require('../../prisma/client');
 const { randomUUID } = require('crypto');
 const { getOrCreateCashAccount } = require('../../utils/cashAccountHelper');
+const BalanceCalculator = require('../../utils/balanceCalculator');
 const {
 
   adjustLocationStock,
@@ -405,8 +406,10 @@ class POSSaleModel {
           postedAt: new Date(),
           companyId,
           lines: { create: jeLines }
-        }
+        },
+        include: { lines: true },
       });
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines || jeLines);
       
       const currentFiscalYear = await tx.fiscalYear.findFirst({
         where: { 
@@ -629,6 +632,12 @@ class POSSaleModel {
       const inventoryAcc = await findOrCreateInventoryAccount(tx, companyId, createdBy);
       const refundAcc = await resolveDebitAccountForPayment(tx, companyId, createdBy, refundMethod);
 
+      const returnJeLines = [
+        { accountId: revenueAcc.id, accountName: revenueAcc.name, accountCode: revenueAcc.code, debit: grandTotal, credit: 0 },
+        { accountId: refundAcc.id, accountName: refundAcc.name, accountCode: refundAcc.code, debit: 0, credit: grandTotal },
+        { accountId: inventoryAcc.id, accountName: inventoryAcc.name, accountCode: inventoryAcc.code, debit: totalCOGS, credit: 0 },
+        { accountId: cogsAcc.id, accountName: cogsAcc.name, accountCode: cogsAcc.code, debit: 0, credit: totalCOGS },
+      ];
       const journalEntry = await tx.journalEntry.create({
         data: {
           entryNumber: generateJENumber(),
@@ -637,16 +646,11 @@ class POSSaleModel {
           reference: returnNumber,
           status: 'Posted', createdBy, postedBy: createdBy, postedAt: new Date(),
           companyId,
-          lines: {
-            create: [
-              { accountId: revenueAcc.id, accountName: revenueAcc.name, accountCode: revenueAcc.code, debit: grandTotal, credit: 0 },
-              { accountId: refundAcc.id, accountName: refundAcc.name, accountCode: refundAcc.code, debit: 0, credit: grandTotal },
-              { accountId: inventoryAcc.id, accountName: inventoryAcc.name, accountCode: inventoryAcc.code, debit: totalCOGS, credit: 0 },
-              { accountId: cogsAcc.id, accountName: cogsAcc.name, accountCode: cogsAcc.code, debit: 0, credit: totalCOGS }
-            ]
-          }
-        }
+          lines: { create: returnJeLines },
+        },
+        include: { lines: true },
       });
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines || returnJeLines);
 
       const posReturn = await tx.pOSReturn.create({
         data: {
@@ -655,6 +659,7 @@ class POSSaleModel {
           subtotal, discountTotal: 0, taxTotal: 0, grandTotal,
           refundedAmount: grandTotal, refundMethod, reason, approvedBy,
           companyId, createdBy,
+          journalEntryId: journalEntry.id,
           items: { create: returnItemsData }
         },
         include: { items: true }
@@ -783,8 +788,10 @@ class POSSaleModel {
           postedAt: new Date(),
           companyId,
           lines: { create: jeLines }
-        }
+        },
+        include: { lines: true },
       });
+      await BalanceCalculator.applyJournalLines(tx, journalEntry.lines || jeLines);
 
       const updated = await tx.pOSSale.update({
         where: { id: saleId },

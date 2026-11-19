@@ -11,10 +11,16 @@ const saleCtrl     = require('../controllers/posSaleController');
 const receiptCtrl  = require('../controllers/posReceiptSettingsController');
 const restaurantCtrl = require('../controllers/restaurantOrderController');
 const settingsCtrl = require('../controllers/posSettingsController');
+const accountsSyncCtrl = require('../controllers/posAccountsSyncController');
 
 // ─── Company POS settings (type chosen from web POS hub) ─────────────────────
 router.get  ('/settings', protect, settingsCtrl.getSettings);
 router.patch('/settings', protect, settingsCtrl.updateSettings);
+
+// ─── POS Accounts → ERP (idempotent operational sync) ─────────────────────────
+router.post('/accounts/sync', protect, accountsSyncCtrl.syncAccounts);
+router.get ('/accounts/mappings', protect, accountsSyncCtrl.getAccountMappings);
+router.get ('/accounts/synced', protect, accountsSyncCtrl.listSyncedRefs);
 
 // ─── Terminal Routes ─────────────────────────────────────────────────────────
 router.get   ('/terminals',     protect, terminalCtrl.listTerminals);
